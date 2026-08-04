@@ -4,7 +4,6 @@ import CmuxNotifications
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import AppKit
 import ExtensionFoundation
-import SwiftUI
 
 private struct CMUXSidebarExtensionGrant: Codable, Equatable {
     var manifestID: String
@@ -211,179 +210,175 @@ final class CMUXSidebarSnapshotCache {
     }
 }
 
-struct CMUXInstalledExtensionSidebarHostView: View {
+
+@MainActor
+final class CMUXInstalledExtensionSidebarHostController: NSViewController {
     private static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
     private static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
 
-    var snapshotProvider: @MainActor () -> CmuxSidebarSnapshot
-    var snapshotUpdateToken: UInt64 = 0
-    let unreadSource: SidebarUnreadModel
-    var actionHandler: @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
-    var onUseDefaultSidebar: @MainActor () -> Void = {}
+    private var snapshotProvider: @MainActor () -> CmuxSidebarSnapshot
+    private var snapshotUpdateToken: UInt64
+    private var unreadSource: SidebarUnreadModel
+    private var actionHandler: @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
+    private var onUseDefaultSidebar: @MainActor () -> Void
+    private var identity: AppExtensionIdentity?
+    private var enabledIdentities: [AppExtensionIdentity] = []
+    private var selectedExtensionBundleID: String?
+    private var isLoading = true
+    private var errorText: String?
+    private var disabledExtensionCount = 0
+    private var unapprovedExtensionCount = 0
+    private let xpcHost = CMUXSidebarExtensionHostXPC()
+    private var effectiveGrant: CMUXSidebarExtensionEffectiveGrant?
+    private var blockedManifestReason: String?
+    private var keptLimitedManifestKeys = CMUXSidebarExtensionLimitedChoiceStore().choices()
+    private let snapshotCache = CMUXSidebarSnapshotCache()
+    private var extensionPresentation: CmuxSidebarPresentation?
+    private var extensionHostController: CMUXSidebarExtensionHostView?
+    private var extensionHostBundleIdentifier: String?
+    private var isMutatingExtensionHost = false
+    private var availabilityTask: Task<Void, Never>?
+    private var unreadObservation: SidebarUnreadObservation?
+    private var detailsPopover: NSPopover?
+    private let rootStack = NSStackView()
 
-    @State private var identity: AppExtensionIdentity?
-    @State private var enabledIdentities: [AppExtensionIdentity] = []
-    @State private var selectedExtensionBundleID = UserDefaults.standard.string(
-        forKey: Self.selectedExtensionBundleIDDefaultsKey
-    )
-    @State private var isLoading = true
-    @State private var errorText: String?
-    @State private var disabledExtensionCount = 0
-    @State private var unapprovedExtensionCount = 0
-    @State private var browserAnchorView: NSView?
-    @State private var xpcHost = CMUXSidebarExtensionHostXPC()
-    @State private var effectiveGrant: CMUXSidebarExtensionEffectiveGrant?
-    @State private var blockedManifestReason: String?
-    @State private var isShowingExtensionDetails = false
-    @State private var isShowingAccessReview = false
-    @State private var keptLimitedManifestKeys = CMUXSidebarExtensionLimitedChoiceStore().choices()
-    @State private var hostReloadToken: UInt64 = 0
-    @State private var snapshotCache = CMUXSidebarSnapshotCache()
-    @State private var extensionPresentation: CmuxSidebarPresentation?
+    init(
+        snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
+        snapshotUpdateToken: UInt64,
+        unreadSource: SidebarUnreadModel,
+        actionHandler: @escaping @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult,
+        onUseDefaultSidebar: @escaping @MainActor () -> Void
+    ) {
+        self.snapshotProvider = snapshotProvider
+        self.snapshotUpdateToken = snapshotUpdateToken
+        self.unreadSource = unreadSource
+        self.actionHandler = actionHandler
+        self.onUseDefaultSidebar = onUseDefaultSidebar
+        self.selectedExtensionBundleID = UserDefaults.standard.string(
+            forKey: Self.selectedExtensionBundleIDDefaultsKey
+        )
+        super.init(nibName: nil, bundle: nil)
+    }
 
-    var body: some View {
-        Group {
-            if let identity {
-                VStack(alignment: .leading, spacing: 0) {
-                    extensionControlStrip(activeIdentity: identity)
-                    if let effectiveGrant, shouldShowAccessBanner(identity: identity, effectiveGrant: effectiveGrant) {
-                        extensionAccessBanner(identity: identity, effectiveGrant: effectiveGrant)
-                    }
-                    NativeSidebarExtensionHostBridge(
-                        identity: identity,
-                        presentation: extensionPresentation,
-                        onConnection: { connection in
-                            xpcHost.attach(
-                                connection: connection,
-                                bundleIdentifier: identity.bundleIdentifier,
-                                snapshotProvider: {
-                                    snapshotCache.replace(with: snapshotProvider())
-                                },
-                                actionHandler: actionHandler,
-                                onGrantChanged: { grant in
-                                    effectiveGrant = grant
-                                },
-                                onManifestBlocked: { reason in
-                                    blockedManifestReason = reason
-                                },
-                                onPresentationChanged: { presentation in
-                                    extensionPresentation = presentation
-                                }
-                            )
-                        },
-                        onDeactivation: { error in
-                            xpcHost.invalidate()
-                            extensionPresentation = nil
-                            effectiveGrant = nil
-                            if self.identity?.bundleIdentifier == identity.bundleIdentifier {
-                                blockedManifestReason = "connectionInterrupted"
-                            }
-                            errorText = error?.localizedDescription
-                        },
-                        onTeardown: {
-                            xpcHost.invalidate()
-                            extensionPresentation = nil
-                        },
-                        onPresentationAction: { actionID in
-                            xpcHost.performPresentationAction(actionID)
-                        }
-                    )
-                    .id("\(identity.bundleIdentifier)-\(hostReloadToken)")
-                    .opacity(blockedManifestReason == nil ? 1 : 0)
-                    .frame(height: blockedManifestReason == nil ? nil : 0)
-                    .accessibilityIdentifier("CMUXExtensionSidebarHostView")
-                    .padding(.top, effectiveGrant?.needsAdditionalApproval == true ? 8 : 0)
-                    if let blockedManifestReason {
-                        blockedExtensionView(reason: blockedManifestReason)
-                    }
-                }
-            } else if isLoading {
-                VStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(String(localized: "sidebar.extensions.loading", defaultValue: "Loading sidebar extensions"))
-                        .cmuxFont(size: 12)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .padding(24)
-                .accessibilityIdentifier("CMUXExtensionSidebarEmptyState")
-            } else {
-                VStack(spacing: 16) {
-                    Image(systemName: "puzzlepiece.extension")
-                        .cmuxFont(size: 26, weight: .regular)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 60, height: 60)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
-                        )
-                    VStack(spacing: 6) {
-                        Text(emptyStateTitle)
-                            .cmuxFont(size: 14, weight: .semibold)
-                            .foregroundStyle(.primary)
-                            .multilineTextAlignment(.center)
-                        Text(errorText ?? emptyStateDetail)
-                            .cmuxFont(size: 12)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if disabledExtensionCount > 0 || unapprovedExtensionCount > 0 {
-                            Text(extensionAvailabilityDetail)
-                                .cmuxFont(size: 12)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    extensionEmptyActions()
-                        .padding(.top, 2)
-                }
-                .frame(maxWidth: 320)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .padding(24)
-                .accessibilityIdentifier("CMUXExtensionSidebarEmptyState")
-            }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let root = NSView()
+        rootStack.orientation = .vertical
+        rootStack.alignment = .leading
+        rootStack.distribution = .fill
+        rootStack.spacing = 0
+        rootStack.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(rootStack)
+        NSLayoutConstraint.activate([
+            rootStack.topAnchor.constraint(equalTo: root.topAnchor),
+            rootStack.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            rootStack.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            rootStack.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        view = root
+
+        _ = snapshotCache.replace(with: snapshotProvider())
+        refreshXPCCallbacks()
+        observeUnreadSource()
+        startObservingExtensionAvailability()
+        render()
+    }
+
+    func update(
+        snapshotProvider: @escaping @MainActor () -> CmuxSidebarSnapshot,
+        snapshotUpdateToken: UInt64,
+        unreadSource: SidebarUnreadModel,
+        actionHandler: @escaping @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult,
+        onUseDefaultSidebar: @escaping @MainActor () -> Void
+    ) {
+        let tokenChanged = self.snapshotUpdateToken != snapshotUpdateToken
+        let unreadSourceChanged = self.unreadSource !== unreadSource
+        self.snapshotProvider = snapshotProvider
+        self.snapshotUpdateToken = snapshotUpdateToken
+        self.unreadSource = unreadSource
+        self.actionHandler = actionHandler
+        self.onUseDefaultSidebar = onUseDefaultSidebar
+        refreshXPCCallbacks()
+        if unreadSourceChanged {
+            observeUnreadSource()
         }
-        .task {
-            _ = snapshotCache.replace(with: snapshotProvider())
-            xpcHost.update(
-                snapshotProvider: { snapshotCache.replace(with: snapshotProvider()) },
-                actionHandler: actionHandler
-            )
-            await observeExtensionAvailability()
-        }
-        .background {
-            SidebarUnreadSnapshotObserver(source: unreadSource) { unreadSnapshot in
-                guard let snapshot = snapshotCache.applyUnread(unreadSnapshot) else {
-                    return
-                }
-                xpcHost.sendSnapshotDidChange(snapshot)
-            }
-        }
-        .onChange(of: snapshotUpdateToken) { _, _ in
+        if tokenChanged {
             let snapshot = snapshotCache.replace(with: snapshotProvider())
             xpcHost.sendSnapshotDidChange(snapshot)
         }
-        .onDisappear {
-            xpcHost.invalidate()
-        }
-        .sheet(isPresented: $isShowingAccessReview) {
-            if let identity, let effectiveGrant {
-                accessReviewSheet(identity: identity, effectiveGrant: effectiveGrant)
-            }
+        if isViewLoaded {
+            render()
         }
     }
 
-    private func observeExtensionAvailability() async {
+    func teardown() {
+        availabilityTask?.cancel()
+        availabilityTask = nil
+        unreadObservation?.cancel()
+        unreadObservation = nil
+        detailsPopover?.close()
+        detailsPopover = nil
+        destroyExtensionHost()
+        xpcHost.invalidate()
+    }
+
+    private func refreshXPCCallbacks() {
+        xpcHost.update(
+            snapshotProvider: { [weak self] in
+                guard let self else {
+                    return CmuxSidebarSnapshot(sequence: 0, selectedWorkspaceID: nil, workspaces: [])
+                }
+                return snapshotCache.replace(with: snapshotProvider())
+            },
+            actionHandler: { [weak self] action in
+                self?.actionHandler(action) ?? CmuxSidebarActionResult(accepted: false)
+            }
+        )
+    }
+
+    private func observeUnreadSource() {
+        unreadObservation?.cancel()
+        unreadObservation = unreadSource.observeChanges(owner: self) { owner, unreadSnapshot in
+            guard let snapshot = owner.snapshotCache.applyUnread(unreadSnapshot) else { return }
+            owner.xpcHost.sendSnapshotDidChange(snapshot)
+        }
+    }
+
+    private func startObservingExtensionAvailability() {
+        availabilityTask?.cancel()
+        availabilityTask = Task { @MainActor [weak self] in
+            await self?.observeExtensionAvailabilityNative()
+        }
+    }
+
+    private func observeExtensionAvailabilityNative() async {
         isLoading = true
         errorText = nil
+        render()
         do {
-            try await observeIdentitySequence(
-                extensionPointIdentifier: CmuxSidebarExtensionPoint.identifier()
-            )
+            var identities = try AppExtensionIdentity.matching(
+                appExtensionPointIDs: CmuxSidebarExtensionPoint.identifier()
+            ).makeAsyncIterator()
+            let availabilityUpdatesTask = Task { @MainActor [weak self] in
+                var updates = AppExtensionIdentity.availabilityUpdates.makeAsyncIterator()
+                while !Task.isCancelled, let availability = await updates.next() {
+                    guard let self else { return }
+                    disabledExtensionCount = availability.disabledCount
+                    unapprovedExtensionCount = availability.unapprovedCount
+                    render()
+                }
+            }
+            defer { availabilityUpdatesTask.cancel() }
+            while !Task.isCancelled, let update = await identities.next() {
+                applyEnabledExtensionIdentitiesNative(update)
+            }
         } catch {
             identity = nil
+            destroyExtensionHost()
             xpcHost.invalidate()
             blockedManifestReason = nil
             isLoading = false
@@ -391,17 +386,179 @@ struct CMUXInstalledExtensionSidebarHostView: View {
                 localized: "sidebar.extensions.error",
                 defaultValue: "CMUX could not load sidebar extensions."
             )
+            render()
         }
     }
 
-    private var emptyStateTitle: String {
+    private func applyEnabledExtensionIdentitiesNative(_ identities: [AppExtensionIdentity]) {
+        let sortedIdentities = deduplicatedExtensionIdentitiesNative(identities)
+        enabledIdentities = sortedIdentities
+        let nextIdentity: AppExtensionIdentity?
+        if let selectedExtensionBundleID,
+           let selected = sortedIdentities.first(where: { $0.bundleIdentifier == selectedExtensionBundleID }) {
+            nextIdentity = selected
+        } else if selectedExtensionBundleID == nil, sortedIdentities.count == 1 {
+            nextIdentity = sortedIdentities[0]
+            selectedExtensionBundleID = nextIdentity?.bundleIdentifier
+            UserDefaults.standard.set(
+                nextIdentity?.bundleIdentifier,
+                forKey: Self.selectedExtensionBundleIDDefaultsKey
+            )
+        } else {
+            nextIdentity = nil
+        }
+        updateSelectedExtensionNameNative(nextIdentity)
+        if nextIdentity?.bundleIdentifier != identity?.bundleIdentifier {
+            destroyExtensionHost()
+            xpcHost.invalidate()
+            effectiveGrant = nil
+            blockedManifestReason = nil
+            extensionPresentation = nil
+            identity = nextIdentity
+        }
+        isLoading = false
+        errorText = nil
+        render()
+    }
+
+    private func deduplicatedExtensionIdentitiesNative(
+        _ identities: [AppExtensionIdentity]
+    ) -> [AppExtensionIdentity] {
+        let sorted = identities.sorted {
+            if $0.localizedName == $1.localizedName {
+                return $0.bundleIdentifier < $1.bundleIdentifier
+            }
+            return $0.localizedName < $1.localizedName
+        }
+        var seen = Set<String>()
+        return sorted.filter { seen.insert($0.bundleIdentifier).inserted }
+    }
+
+    private func selectExtensionNative(_ selectedIdentity: AppExtensionIdentity) {
+        selectedExtensionBundleID = selectedIdentity.bundleIdentifier
+        UserDefaults.standard.set(
+            selectedIdentity.bundleIdentifier,
+            forKey: Self.selectedExtensionBundleIDDefaultsKey
+        )
+        UserDefaults.standard.set(
+            selectedIdentity.localizedName,
+            forKey: Self.selectedExtensionNameDefaultsKey
+        )
+        applyEnabledExtensionIdentitiesNative(enabledIdentities)
+    }
+
+    private func updateSelectedExtensionNameNative(_ selectedIdentity: AppExtensionIdentity?) {
+        if let selectedIdentity {
+            UserDefaults.standard.set(
+                selectedIdentity.localizedName,
+                forKey: Self.selectedExtensionNameDefaultsKey
+            )
+        } else if selectedExtensionBundleID == nil {
+            UserDefaults.standard.removeObject(forKey: Self.selectedExtensionNameDefaultsKey)
+        }
+    }
+
+    private func ensureExtensionHost(
+        for activeIdentity: AppExtensionIdentity
+    ) -> CMUXSidebarExtensionHostView {
+        if let extensionHostController,
+           extensionHostBundleIdentifier == activeIdentity.bundleIdentifier {
+            updateExtensionHost(extensionHostController, identity: activeIdentity)
+            return extensionHostController
+        }
+        destroyExtensionHost()
+        let controller = CMUXSidebarExtensionHostView(identity: activeIdentity)
+        extensionHostController = controller
+        extensionHostBundleIdentifier = activeIdentity.bundleIdentifier
+        addChild(controller)
+        updateExtensionHost(controller, identity: activeIdentity)
+        return controller
+    }
+
+    private func updateExtensionHost(
+        _ controller: CMUXSidebarExtensionHostView,
+        identity activeIdentity: AppExtensionIdentity
+    ) {
+        controller.update(
+            identity: activeIdentity,
+            presentation: extensionPresentation,
+            onConnection: { [weak self] connection in
+                guard let self else { return }
+                xpcHost.attach(
+                    connection: connection,
+                    bundleIdentifier: activeIdentity.bundleIdentifier,
+                    snapshotProvider: { [weak self] in
+                        guard let self else {
+                            return CmuxSidebarSnapshot(sequence: 0, selectedWorkspaceID: nil, workspaces: [])
+                        }
+                        return snapshotCache.replace(with: snapshotProvider())
+                    },
+                    actionHandler: { [weak self] action in
+                        self?.actionHandler(action) ?? CmuxSidebarActionResult(accepted: false)
+                    },
+                    onGrantChanged: { [weak self] grant in
+                        self?.effectiveGrant = grant
+                        self?.render()
+                    },
+                    onManifestBlocked: { [weak self] reason in
+                        self?.blockedManifestReason = reason
+                        self?.render()
+                    },
+                    onPresentationChanged: { [weak self] presentation in
+                        self?.extensionPresentation = presentation
+                        self?.render()
+                    }
+                )
+            },
+            onDeactivation: { [weak self] error in
+                guard let self else { return }
+                xpcHost.invalidate()
+                extensionPresentation = nil
+                effectiveGrant = nil
+                if identity?.bundleIdentifier == activeIdentity.bundleIdentifier {
+                    blockedManifestReason = "connectionInterrupted"
+                }
+                errorText = error?.localizedDescription
+                render()
+            },
+            onTeardown: { [weak self] in
+                self?.xpcHost.invalidate()
+                self?.extensionPresentation = nil
+            },
+            onPresentationAction: { [weak self] actionID in
+                self?.xpcHost.performPresentationAction(actionID)
+            }
+        )
+    }
+
+    private func destroyExtensionHost() {
+        guard !isMutatingExtensionHost else { return }
+        isMutatingExtensionHost = true
+        defer { isMutatingExtensionHost = false }
+        let controller = extensionHostController
+        extensionHostController = nil
+        extensionHostBundleIdentifier = nil
+        controller?.teardown()
+        controller?.view.removeFromSuperview()
+        controller?.removeFromParent()
+    }
+}
+
+private extension CMUXInstalledExtensionSidebarHostController {
+    var emptyStateTitleNative: String {
         if enabledIdentities.count > 1 {
-            return String(localized: "sidebar.extensions.choose.title", defaultValue: "Choose a sidebar extension")
+            return String(
+                localized: "sidebar.extensions.choose.title",
+                defaultValue: "Choose a sidebar extension"
+            )
         }
-        return String(localized: "sidebar.extensions.empty.title", defaultValue: "No sidebar extension enabled")
+        return String(
+            localized: "sidebar.extensions.empty.title",
+            defaultValue: "No sidebar extension enabled"
+        )
     }
 
-    private var emptyStateDetail: String {
+    var emptyStateDetailNative: String {
         if enabledIdentities.count > 1 {
             return String(
                 localized: "sidebar.extensions.choose.detail",
@@ -414,7 +571,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         )
     }
 
-    private var extensionAvailabilityDetail: String {
+    var extensionAvailabilityDetailNative: String {
         if unapprovedExtensionCount > 0 {
             return String(
                 localized: "sidebar.extensions.unapproved.detail",
@@ -427,367 +584,477 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         )
     }
 
-    @ViewBuilder
-    private func extensionEmptyActions() -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
-                extensionEmptyActionButtons()
-            }
-            VStack(spacing: 8) {
-                extensionEmptyActionButtons()
-            }
+    func render() {
+        guard isViewLoaded, !isMutatingExtensionHost else { return }
+        for arrangedSubview in rootStack.arrangedSubviews {
+            rootStack.removeArrangedSubview(arrangedSubview)
+            arrangedSubview.removeFromSuperview()
         }
-    }
-
-    @ViewBuilder
-    private func extensionEmptyActionButtons() -> some View {
-        if enabledIdentities.count > 1 {
-            Menu {
-                ForEach(enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
-                    Button {
-                        selectExtension(enabledIdentity)
-                    } label: {
-                        Label(enabledIdentity.localizedName, systemImage: "puzzlepiece.extension")
-                    }
-                }
-            } label: {
-                Label(
-                    String(localized: "sidebar.extensions.choose.action", defaultValue: "Choose Extension"),
-                    systemImage: "puzzlepiece.extension"
+        if let identity {
+            addFullWidthArrangedSubview(makeControlStrip(activeIdentity: identity))
+            if let effectiveGrant,
+               shouldShowAccessBannerNative(identity: identity, effectiveGrant: effectiveGrant) {
+                addFullWidthArrangedSubview(
+                    makeAccessBanner(identity: identity, effectiveGrant: effectiveGrant)
                 )
             }
-            .menuStyle(.button)
-            .controlSize(.small)
-        }
-
-        Button {
-            presentExtensionBrowser()
-        } label: {
-            Label(
-                String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage"),
-                systemImage: "puzzlepiece.extension"
-            )
-        }
-        .controlSize(.small)
-
-        Button {
-            onUseDefaultSidebar()
-        } label: {
-            Label(
-                String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
-                systemImage: "sidebar.left"
-            )
-        }
-        .controlSize(.small)
-    }
-
-    private func extensionControlStrip(activeIdentity: AppExtensionIdentity?) -> some View {
-        HStack(spacing: 8) {
-            extensionIdentityControl(activeIdentity: activeIdentity)
-            Spacer(minLength: 8)
-            if effectiveGrant?.needsAdditionalApproval == true {
-                Button {
-                    isShowingAccessReview = true
-                } label: {
-                    Label(
-                        String(localized: "sidebar.extensions.access.statusLimited", defaultValue: "Limited"),
-                        systemImage: "lock"
-                    )
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-                .help(String(localized: "sidebar.extensions.access.statusLimited.help", defaultValue: "This extension has limited access."))
+            let extensionHost = ensureExtensionHost(for: identity)
+            if let blockedManifestReason {
+                addFillingArrangedSubview(makeBlockedView(reason: blockedManifestReason))
+            } else {
+                addFillingArrangedSubview(extensionHost.view)
             }
-            Button {
-                isShowingExtensionDetails = true
-            } label: {
-                Image(systemName: "info.circle")
-            }
-            .buttonStyle(.plain)
-            .controlSize(.small)
-            .help(String(localized: "sidebar.extensions.details.help", defaultValue: "Show extension details"))
-            .popover(isPresented: $isShowingExtensionDetails, arrowEdge: .top) {
-                extensionDetailsPopover(activeIdentity: activeIdentity)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, SidebarWorkspaceScrollInsets.workspaceList.top + 8)
-        .padding(.bottom, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(TitlebarControlAnchorView { browserAnchorView = $0 })
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.86))
-    }
-
-    private func extensionDetailsPopover(activeIdentity: AppExtensionIdentity?) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "puzzlepiece.extension")
-                    .cmuxFont(size: 18, weight: .medium)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"))
-                        .cmuxFont(size: 13, weight: .semibold)
-                        .lineLimit(1)
-                    Text(String(localized: "sidebar.extensions.details.runtime", defaultValue: "Secure extension connection"))
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                detailRow(
-                    title: String(localized: "sidebar.extensions.details.status", defaultValue: "Status"),
-                    value: blockedManifestReason.map(blockedStatusText(reason:)) ?? (activeIdentity == nil
-                        ? String(localized: "sidebar.extensions.details.statusWaiting", defaultValue: "Waiting for an enabled extension")
-                        : String(localized: "sidebar.extensions.details.statusActive", defaultValue: "Connected"))
-                )
-                if let activeIdentity {
-                    detailRow(
-                        title: String(localized: "sidebar.extensions.details.bundle", defaultValue: "Bundle"),
-                        value: activeIdentity.bundleIdentifier
-                    )
-                }
-                if let manifest = effectiveGrant?.manifest {
-                    detailRow(
-                        title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Configuration"),
-                        value: "\(manifest.id) · API \(manifest.minimumAPIVersion.major).\(manifest.minimumAPIVersion.minor)"
-                    )
-                }
-            }
-
-            if let effectiveGrant {
-                Divider()
-                permissionSection(effectiveGrant: effectiveGrant)
-            } else if let blockedManifestReason {
-                Divider()
-                Text(blockedDetailText(reason: blockedManifestReason))
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                if let activeIdentity, let effectiveGrant {
-                    HStack(spacing: 8) {
-                        Button(String(localized: "sidebar.extensions.access.review", defaultValue: "Review Access...")) {
-                            isShowingAccessReview = true
-                        }
-                        .controlSize(.small)
-                        .disabled(!effectiveGrant.needsAdditionalApproval)
-
-                        Button(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited")) {
-                            xpcHost.revokeSensitiveAccess(bundleIdentifier: activeIdentity.bundleIdentifier)
-                            self.effectiveGrant = xpcHost.currentEffectiveGrant
-                            xpcHost.sendSnapshotDidChange()
-                        }
-                        .controlSize(.small)
-                        .disabled(!effectiveGrant.hasSensitiveAccess)
-                    }
-                }
-                HStack(spacing: 8) {
-                    Button(String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage")) {
-                        isShowingExtensionDetails = false
-                        presentExtensionBrowser()
-                    }
-                    .controlSize(.small)
-                    Button(String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default")) {
-                        isShowingExtensionDetails = false
-                        onUseDefaultSidebar()
-                    }
-                    .controlSize(.small)
-                }
-            }
-        }
-        .padding(14)
-        .frame(width: 340, alignment: .leading)
-    }
-
-    private func blockedExtensionView(reason: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle")
-                .cmuxFont(size: 20, weight: .regular)
-                .foregroundStyle(.secondary)
-            Text(String(localized: "sidebar.extensions.blocked.title", defaultValue: "Extension Blocked"))
-                .cmuxFont(size: 13, weight: .semibold)
-            Text(blockedDetailText(reason: reason))
-                .cmuxFont(size: 12)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    blockedExtensionActionButtons()
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    blockedExtensionActionButtons()
-                }
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .accessibilityIdentifier("CMUXExtensionSidebarBlockedState")
-    }
-
-    @ViewBuilder
-    private func blockedExtensionActionButtons() -> some View {
-        Button {
-            blockedManifestReason = nil
-            effectiveGrant = nil
-            xpcHost.invalidate()
-            hostReloadToken &+= 1
-        } label: {
-            Label(
-                String(localized: "sidebar.extensions.retry", defaultValue: "Try Again"),
-                systemImage: "arrow.clockwise"
-            )
-        }
-        .controlSize(.small)
-
-        Button {
-            onUseDefaultSidebar()
-        } label: {
-            Label(
-                String(localized: "sidebar.extensions.useDefault.short", defaultValue: "Use Default"),
-                systemImage: "sidebar.left"
-            )
-        }
-        .controlSize(.small)
-
-        Button {
-            presentExtensionBrowser()
-        } label: {
-            Label(
-                String(localized: "sidebar.extensions.manage.short", defaultValue: "Manage"),
-                systemImage: "puzzlepiece.extension")
-        }
-        .controlSize(.small)
-    }
-
-    private func blockedStatusText(reason: String) -> String {
-        switch reason {
-        case "connectionInterrupted":
-            return String(localized: "sidebar.extensions.blocked.status.connectionInterrupted", defaultValue: "Blocked, connection interrupted")
-        case "manifestTimedOut":
-            return String(localized: "sidebar.extensions.blocked.status.manifestTimedOut", defaultValue: "Blocked, configuration timed out")
-        case "missingManifest":
-            return String(localized: "sidebar.extensions.blocked.status.missingManifest", defaultValue: "Blocked, missing configuration")
-        case "invalidManifest":
-            return String(localized: "sidebar.extensions.blocked.status.invalidManifest", defaultValue: "Blocked, invalid configuration")
-        default:
-            return String(localized: "sidebar.extensions.blocked.status.failedManifest", defaultValue: "Blocked, configuration unavailable")
-        }
-    }
-
-    private func blockedDetailText(reason: String) -> String {
-        switch reason {
-        case "connectionInterrupted":
-            return String(localized: "sidebar.extensions.blocked.detail.connectionInterrupted", defaultValue: "CMUX lost the extension connection. No workspace data or actions are being shared.")
-        case "manifestTimedOut":
-            return String(localized: "sidebar.extensions.blocked.detail.manifestTimedOut", defaultValue: "CMUX did not receive this extension's configuration in time. No workspace data or actions are being shared.")
-        case "missingManifest":
-            return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "CMUX did not receive a sidebar extension configuration, so no workspace data or actions were shared.")
-        case "invalidManifest":
-            return String(localized: "sidebar.extensions.blocked.detail.invalidManifest", defaultValue: "CMUX rejected this extension's configuration. No workspace data or actions were shared.")
-        default:
-            return String(localized: "sidebar.extensions.blocked.detail.failedManifest", defaultValue: "CMUX could not load this extension's configuration. No workspace data or actions were shared.")
-        }
-    }
-
-    private func detailRow(title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .cmuxFont(size: 11, weight: .medium)
-                .foregroundStyle(.secondary)
-                .frame(width: 64, alignment: .leading)
-            Text(value)
-                .cmuxFont(size: 11)
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .textSelection(.enabled)
-        }
-    }
-
-    private func permissionSection(effectiveGrant: CMUXSidebarExtensionEffectiveGrant) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "sidebar.extensions.details.permissions", defaultValue: "Permissions"))
-                .cmuxFont(size: 12, weight: .semibold)
-            ForEach(effectiveGrant.manifest.readScopes, id: \.self) { scope in
-                permissionRow(
-                    title: scope.displayName,
-                    detail: permissionDescription(scope: scope),
-                    isGranted: effectiveGrant.readScopes.contains(scope)
-                )
-            }
-            ForEach(effectiveGrant.manifest.actionScopes, id: \.self) { scope in
-                permissionRow(
-                    title: scope.displayName,
-                    detail: permissionDescription(actionScope: scope),
-                    isGranted: effectiveGrant.actionScopes.contains(scope)
-                )
-            }
-        }
-    }
-
-    private func permissionRow(title: String, detail: String, isGranted: Bool) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Image(systemName: isGranted ? "checkmark.circle.fill" : "circle")
-                .cmuxFont(size: 11, weight: .medium)
-                .foregroundStyle(isGranted ? .green : .secondary)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .cmuxFont(size: 11, weight: .medium)
-                Text(detail)
-                    .cmuxFont(size: 10)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Text(isGranted
-                ? String(localized: "sidebar.extensions.details.granted", defaultValue: "Granted")
-                : String(localized: "sidebar.extensions.details.pending", defaultValue: "Pending"))
-                .cmuxFont(size: 10, weight: .medium)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private func extensionIdentityControl(activeIdentity: AppExtensionIdentity?) -> some View {
-        if enabledIdentities.count > 1 {
-            Menu {
-                ForEach(enabledIdentities, id: \.bundleIdentifier) { enabledIdentity in
-                    Button {
-                        selectExtension(enabledIdentity)
-                    } label: {
-                        Label(
-                            enabledIdentity.localizedName,
-                            systemImage: enabledIdentity.bundleIdentifier == activeIdentity?.bundleIdentifier ? "checkmark" : "puzzlepiece.extension"
-                        )
-                    }
-                }
-            } label: {
-                Label(
-                    activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"),
-                    systemImage: "puzzlepiece.extension"
-                )
-                .lineLimit(1)
-            }
-            .menuStyle(.button)
-            .controlSize(.small)
+        } else if isLoading {
+            addFillingArrangedSubview(makeLoadingView())
         } else {
-            Label(
-                activeIdentity?.localizedName ?? String(localized: "sidebar.provider.extensions.title", defaultValue: "Extension Sidebar"),
-                systemImage: "puzzlepiece.extension"
-            )
-            .cmuxFont(size: 12, weight: .semibold)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+            addFillingArrangedSubview(makeEmptyView())
         }
     }
 
-    private func presentExtensionBrowser() {
-        guard let anchorView = browserAnchorView
+    func addFullWidthArrangedSubview(_ child: NSView) {
+        child.translatesAutoresizingMaskIntoConstraints = false
+        rootStack.addArrangedSubview(child)
+        child.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
+    }
+
+    func addFillingArrangedSubview(_ child: NSView) {
+        child.setContentHuggingPriority(.defaultLow, for: .vertical)
+        child.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        addFullWidthArrangedSubview(child)
+    }
+
+    func makeControlStrip(activeIdentity: AppExtensionIdentity) -> NSView {
+        let background = NSVisualEffectView()
+        background.material = .sidebar
+        background.blendingMode = .withinWindow
+        background.state = .active
+
+        let controls = NSStackView()
+        controls.orientation = .horizontal
+        controls.alignment = .centerY
+        controls.spacing = 8
+        controls.translatesAutoresizingMaskIntoConstraints = false
+        background.addSubview(controls)
+        NSLayoutConstraint.activate([
+            controls.topAnchor.constraint(
+                equalTo: background.topAnchor,
+                constant: SidebarWorkspaceScrollInsets.workspaceList.top + 8
+            ),
+            controls.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 12),
+            controls.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -12),
+            controls.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -8),
+        ])
+
+        if enabledIdentities.count > 1 {
+            controls.addArrangedSubview(makeExtensionPicker(activeIdentity: activeIdentity))
+        } else {
+            let provider = NSStackView(views: [
+                makeSymbolView("puzzlepiece.extension", pointSize: 12, weight: .semibold),
+                makeLabel(
+                    activeIdentity.localizedName,
+                    size: 12,
+                    weight: .semibold,
+                    color: .secondaryLabelColor
+                ),
+            ])
+            provider.orientation = .horizontal
+            provider.alignment = .centerY
+            provider.spacing = 5
+            provider.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            controls.addArrangedSubview(provider)
+        }
+
+        let spring = NSView()
+        spring.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        controls.addArrangedSubview(spring)
+        if effectiveGrant?.needsAdditionalApproval == true {
+            let limited = makeButton(
+                title: String(
+                    localized: "sidebar.extensions.access.statusLimited",
+                    defaultValue: "Limited"
+                ),
+                symbol: "lock",
+                action: #selector(reviewAccessNative(_:))
+            )
+            limited.controlSize = .mini
+            limited.toolTip = String(
+                localized: "sidebar.extensions.access.statusLimited.help",
+                defaultValue: "This extension has limited access."
+            )
+            controls.addArrangedSubview(limited)
+        }
+        let details = NSButton(
+            image: NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil) ?? NSImage(),
+            target: self,
+            action: #selector(showDetailsNative(_:))
+        )
+        details.isBordered = false
+        details.controlSize = .small
+        details.toolTip = String(
+            localized: "sidebar.extensions.details.help",
+            defaultValue: "Show extension details"
+        )
+        controls.addArrangedSubview(details)
+        return background
+    }
+
+    func makeExtensionPicker(activeIdentity: AppExtensionIdentity?) -> NSPopUpButton {
+        let picker = NSPopUpButton(frame: .zero, pullsDown: false)
+        picker.controlSize = .small
+        picker.target = self
+        picker.action = #selector(extensionPickerChangedNative(_:))
+        for enabledIdentity in enabledIdentities {
+            let item = NSMenuItem(
+                title: enabledIdentity.localizedName,
+                action: nil,
+                keyEquivalent: ""
+            )
+            item.image = NSImage(
+                systemSymbolName: "puzzlepiece.extension",
+                accessibilityDescription: nil
+            )
+            item.representedObject = enabledIdentity.bundleIdentifier
+            picker.menu?.addItem(item)
+        }
+        if let bundleIdentifier = activeIdentity?.bundleIdentifier,
+           let selectedIndex = enabledIdentities.firstIndex(where: {
+               $0.bundleIdentifier == bundleIdentifier
+           }) {
+            picker.selectItem(at: selectedIndex)
+        }
+        return picker
+    }
+
+    func makeLoadingView() -> NSView {
+        let spinner = NSProgressIndicator()
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.startAnimation(nil)
+        let stack = NSStackView(views: [
+            spinner,
+            makeLabel(
+                String(
+                    localized: "sidebar.extensions.loading",
+                    defaultValue: "Loading sidebar extensions"
+                ),
+                size: 12,
+                color: .secondaryLabelColor
+            ),
+        ])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 10
+        return makeCenteredContainer(
+            stack,
+            accessibilityIdentifier: "CMUXExtensionSidebarEmptyState"
+        )
+    }
+
+    func makeEmptyView() -> NSView {
+        let symbolPlate = NSVisualEffectView()
+        symbolPlate.material = .contentBackground
+        symbolPlate.blendingMode = .withinWindow
+        symbolPlate.state = .active
+        symbolPlate.wantsLayer = true
+        symbolPlate.layer?.cornerRadius = 16
+        let symbol = makeSymbolView("puzzlepiece.extension", pointSize: 26)
+        symbol.translatesAutoresizingMaskIntoConstraints = false
+        symbolPlate.addSubview(symbol)
+        NSLayoutConstraint.activate([
+            symbolPlate.widthAnchor.constraint(equalToConstant: 60),
+            symbolPlate.heightAnchor.constraint(equalToConstant: 60),
+            symbol.centerXAnchor.constraint(equalTo: symbolPlate.centerXAnchor),
+            symbol.centerYAnchor.constraint(equalTo: symbolPlate.centerYAnchor),
+        ])
+
+        let title = makeLabel(
+            emptyStateTitleNative,
+            size: 14,
+            weight: .semibold,
+            alignment: .center
+        )
+        let detail = makeLabel(
+            errorText ?? emptyStateDetailNative,
+            size: 12,
+            color: .secondaryLabelColor,
+            alignment: .center,
+            wraps: true
+        )
+        let textStack = NSStackView(views: [title, detail])
+        textStack.orientation = .vertical
+        textStack.alignment = .centerX
+        textStack.spacing = 6
+        if disabledExtensionCount > 0 || unapprovedExtensionCount > 0 {
+            textStack.addArrangedSubview(makeLabel(
+                extensionAvailabilityDetailNative,
+                size: 12,
+                color: .secondaryLabelColor,
+                alignment: .center,
+                wraps: true
+            ))
+        }
+
+        let actions = NSStackView()
+        actions.orientation = .horizontal
+        actions.alignment = .centerY
+        actions.spacing = 8
+        if enabledIdentities.count > 1 {
+            actions.addArrangedSubview(makeExtensionPicker(activeIdentity: nil))
+        }
+        actions.addArrangedSubview(makeButton(
+            title: String(
+                localized: "sidebar.extensions.manage.short",
+                defaultValue: "Manage"
+            ),
+            symbol: "puzzlepiece.extension",
+            action: #selector(manageExtensionsNative(_:))
+        ))
+        actions.addArrangedSubview(makeButton(
+            title: String(
+                localized: "sidebar.extensions.useDefault.short",
+                defaultValue: "Use Default"
+            ),
+            symbol: "sidebar.left",
+            action: #selector(useDefaultSidebarNative(_:))
+        ))
+
+        let stack = NSStackView(views: [symbolPlate, textStack, actions])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 16
+        return makeCenteredContainer(
+            stack,
+            accessibilityIdentifier: "CMUXExtensionSidebarEmptyState"
+        )
+    }
+
+    func makeCenteredContainer(
+        _ content: NSView,
+        accessibilityIdentifier: String
+    ) -> NSView {
+        let container = NSView()
+        container.setAccessibilityIdentifier(accessibilityIdentifier)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            content.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            content.leadingAnchor.constraint(
+                greaterThanOrEqualTo: container.leadingAnchor,
+                constant: 24
+            ),
+            content.trailingAnchor.constraint(
+                lessThanOrEqualTo: container.trailingAnchor,
+                constant: -24
+            ),
+            content.widthAnchor.constraint(lessThanOrEqualToConstant: 320),
+        ])
+        return container
+    }
+
+    func makeAccessBanner(
+        identity: AppExtensionIdentity,
+        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
+    ) -> NSView {
+        let background = NSVisualEffectView()
+        background.material = .contentBackground
+        background.blendingMode = .withinWindow
+        background.state = .active
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        background.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: background.topAnchor, constant: 8),
+            stack.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -12),
+            stack.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -10),
+        ])
+        stack.addArrangedSubview(makeLabel(
+            String(
+                localized: "sidebar.extensions.access.title",
+                defaultValue: "Limited extension access"
+            ),
+            size: 12,
+            weight: .semibold
+        ))
+        stack.addArrangedSubview(makeLabel(
+            String.localizedStringWithFormat(
+                String(
+                    localized: "sidebar.extensions.access.detail",
+                    defaultValue: "%@ will not receive workspace data or run actions until you grant its requested access."
+                ),
+                effectiveGrant.manifest.displayName
+            ),
+            size: 11,
+            color: .secondaryLabelColor,
+            wraps: true
+        ))
+        for description in pendingPermissionDescriptionsNative(effectiveGrant: effectiveGrant) {
+            stack.addArrangedSubview(makeLabel(
+                "• \(description)",
+                size: 11,
+                color: .secondaryLabelColor,
+                wraps: true
+            ))
+        }
+        let actions = NSStackView(views: [
+            makeButton(
+                title: String(
+                    localized: "sidebar.extensions.access.review",
+                    defaultValue: "Review Access..."
+                ),
+                action: #selector(reviewAccessNative(_:))
+            ),
+            makeButton(
+                title: String(
+                    localized: "sidebar.extensions.access.keepLimited",
+                    defaultValue: "Keep Limited"
+                ),
+                action: #selector(keepLimitedAccessFromControlNative(_:))
+            ),
+        ])
+        actions.orientation = .horizontal
+        actions.spacing = 8
+        stack.addArrangedSubview(actions)
+        return background
+    }
+
+    func makeBlockedView(reason: String) -> NSView {
+        let container = NSView()
+        container.setAccessibilityIdentifier("CMUXExtensionSidebarBlockedState")
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+        stack.addArrangedSubview(makeSymbolView(
+            "exclamationmark.triangle",
+            pointSize: 20
+        ))
+        stack.addArrangedSubview(makeLabel(
+            String(
+                localized: "sidebar.extensions.blocked.title",
+                defaultValue: "Extension Blocked"
+            ),
+            size: 13,
+            weight: .semibold
+        ))
+        stack.addArrangedSubview(makeLabel(
+            blockedDetailTextNative(reason: reason),
+            size: 12,
+            color: .secondaryLabelColor,
+            wraps: true
+        ))
+        let actions = NSStackView(views: [
+            makeButton(
+                title: String(
+                    localized: "sidebar.extensions.retry",
+                    defaultValue: "Try Again"
+                ),
+                symbol: "arrow.clockwise",
+                action: #selector(retryExtensionNative(_:))
+            ),
+            makeButton(
+                title: String(
+                    localized: "sidebar.extensions.useDefault.short",
+                    defaultValue: "Use Default"
+                ),
+                symbol: "sidebar.left",
+                action: #selector(useDefaultSidebarNative(_:))
+            ),
+            makeButton(
+                title: String(
+                    localized: "sidebar.extensions.manage.short",
+                    defaultValue: "Manage"
+                ),
+                symbol: "puzzlepiece.extension",
+                action: #selector(manageExtensionsNative(_:))
+            ),
+        ])
+        actions.orientation = .horizontal
+        actions.spacing = 8
+        stack.addArrangedSubview(actions)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(
+                lessThanOrEqualTo: container.trailingAnchor,
+                constant: -14
+            ),
+        ])
+        return container
+    }
+
+    func makeLabel(
+        _ text: String,
+        size: CGFloat,
+        weight: NSFont.Weight = .regular,
+        color: NSColor = .labelColor,
+        alignment: NSTextAlignment = .left,
+        wraps: Bool = false
+    ) -> NSTextField {
+        let label = wraps
+            ? NSTextField(wrappingLabelWithString: text)
+            : NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: size, weight: weight)
+        label.textColor = color
+        label.alignment = alignment
+        label.maximumNumberOfLines = wraps ? 0 : 1
+        label.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
+        return label
+    }
+
+    func makeSymbolView(
+        _ systemName: String,
+        pointSize: CGFloat,
+        weight: NSFont.Weight = .regular
+    ) -> NSImageView {
+        let configuration = NSImage.SymbolConfiguration(
+            pointSize: pointSize,
+            weight: weight
+        )
+        let image = NSImage(
+            systemSymbolName: systemName,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(configuration) ?? NSImage()
+        let imageView = NSImageView(image: image)
+        imageView.contentTintColor = .secondaryLabelColor
+        return imageView
+    }
+
+    func makeButton(
+        title: String,
+        symbol: String? = nil,
+        action: Selector
+    ) -> NSButton {
+        let button = NSButton(title: title, target: self, action: action)
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        if let symbol {
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            button.imagePosition = .imageLeading
+        }
+        return button
+    }
+}
+
+private extension CMUXInstalledExtensionSidebarHostController {
+    @objc func extensionPickerChangedNative(_ sender: NSPopUpButton) {
+        guard let bundleIdentifier = sender.selectedItem?.representedObject as? String,
+              let selected = enabledIdentities.first(where: {
+                  $0.bundleIdentifier == bundleIdentifier
+              }) else { return }
+        selectExtensionNative(selected)
+    }
+
+    @objc func manageExtensionsNative(_ sender: Any?) {
+        detailsPopover?.close()
+        detailsPopover = nil
+        guard let anchorView = view.window?.contentView
             ?? NSApp.keyWindow?.contentView
             ?? NSApp.mainWindow?.contentView else { return }
         AppDelegate.shared?.openSidebarExtensionBrowser(
@@ -799,158 +1066,397 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         )
     }
 
-    private func extensionAccessBanner(
-        identity: AppExtensionIdentity,
-        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "sidebar.extensions.access.title", defaultValue: "Limited extension access"))
-                .cmuxFont(size: 12, weight: .semibold)
-                .foregroundStyle(.primary)
-            Text(String.localizedStringWithFormat(
-                String(localized: "sidebar.extensions.access.detail", defaultValue: "%@ will not receive workspace data or run actions until you grant its requested access."),
-                effectiveGrant.manifest.displayName
-            ))
-            .cmuxFont(size: 11)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(pendingPermissionDescriptions(effectiveGrant: effectiveGrant), id: \.self) { description in
-                    Label(description, systemImage: "circle")
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                        .labelStyle(.titleAndIcon)
-                }
-            }
-            .padding(.top, 2)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    limitedAccessActionButtons(identity: identity, effectiveGrant: effectiveGrant)
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    limitedAccessActionButtons(identity: identity, effectiveGrant: effectiveGrant)
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.88))
+    @objc func useDefaultSidebarNative(_ sender: Any?) {
+        detailsPopover?.close()
+        detailsPopover = nil
+        onUseDefaultSidebar()
     }
 
-    @ViewBuilder
-    private func limitedAccessActionButtons(
-        identity: AppExtensionIdentity,
-        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
-    ) -> some View {
-        Button {
-            isShowingAccessReview = true
-        } label: {
-            Text(String(localized: "sidebar.extensions.access.review", defaultValue: "Review Access..."))
-        }
-        .controlSize(.small)
-        Button {
-            keepLimitedAccess(identity: identity, effectiveGrant: effectiveGrant)
-        } label: {
-            Text(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited"))
-        }
-        .controlSize(.small)
+    @objc func retryExtensionNative(_ sender: Any?) {
+        blockedManifestReason = nil
+        effectiveGrant = nil
+        extensionPresentation = nil
+        xpcHost.invalidate()
+        destroyExtensionHost()
+        render()
     }
 
-    private func accessReviewSheet(
-        identity: AppExtensionIdentity,
-        effectiveGrant: CMUXSidebarExtensionEffectiveGrant
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "puzzlepiece.extension")
-                    .cmuxFont(size: 22, weight: .medium)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(String.localizedStringWithFormat(
-                        String(localized: "sidebar.extensions.access.review.title", defaultValue: "Review access for %@"),
-                        effectiveGrant.manifest.displayName
+    @objc func reviewAccessNative(_ sender: Any?) {
+        detailsPopover?.close()
+        detailsPopover = nil
+        guard let identity, let effectiveGrant else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String.localizedStringWithFormat(
+            String(
+                localized: "sidebar.extensions.access.review.title",
+                defaultValue: "Review access for %@"
+            ),
+            effectiveGrant.manifest.displayName
+        )
+        let configuration = "\(effectiveGrant.manifest.id) · API \(effectiveGrant.manifest.minimumAPIVersion.major).\(effectiveGrant.manifest.minimumAPIVersion.minor)"
+        let permissions = pendingPermissionDescriptionsNative(effectiveGrant: effectiveGrant)
+            .map { "• \($0)" }
+            .joined(separator: "\n")
+        alert.informativeText = [
+            identity.bundleIdentifier,
+            configuration,
+            String(
+                localized: "sidebar.extensions.access.review.detail",
+                defaultValue: "CMUX will only share the following data and actions if you allow this request."
+            ),
+            permissions,
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n\n")
+        alert.addButton(withTitle: String(
+            localized: "sidebar.extensions.access.allow",
+            defaultValue: "Allow Requested Access"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "sidebar.extensions.access.keepLimited",
+            defaultValue: "Keep Limited"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "common.cancel",
+            defaultValue: "Cancel"
+        ))
+
+        let handleResponse: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self else { return }
+            if response == .alertFirstButtonReturn {
+                grantRequestedAccessNative(identity: identity, effectiveGrant: effectiveGrant)
+            } else if response == .alertSecondButtonReturn {
+                keepLimitedAccessNative(identity: identity, effectiveGrant: effectiveGrant)
+            }
+        }
+        if let window = view.window {
+            alert.beginSheetModal(for: window) { response in
+                Task { @MainActor in handleResponse(response) }
+            }
+        } else {
+            handleResponse(alert.runModal())
+        }
+    }
+
+    @objc func keepLimitedAccessFromControlNative(_ sender: Any?) {
+        guard let identity, let effectiveGrant else { return }
+        keepLimitedAccessNative(identity: identity, effectiveGrant: effectiveGrant)
+    }
+
+    @objc func keepLimitedAccessFromDetailsNative(_ sender: Any?) {
+        detailsPopover?.close()
+        detailsPopover = nil
+        guard let identity, let effectiveGrant else { return }
+        keepLimitedAccessNative(identity: identity, effectiveGrant: effectiveGrant)
+    }
+
+    @objc func showDetailsNative(_ sender: NSButton) {
+        detailsPopover?.close()
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        let contentController = NSViewController()
+        contentController.view = makeDetailsViewNative(activeIdentity: identity)
+        let permissionCount = (effectiveGrant?.manifest.readScopes.count ?? 0)
+            + (effectiveGrant?.manifest.actionScopes.count ?? 0)
+        popover.contentSize = NSSize(
+            width: 340,
+            height: min(680, max(300, 290 + permissionCount * 38))
+        )
+        popover.contentViewController = contentController
+        detailsPopover = popover
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
+    }
+
+    func makeDetailsViewNative(activeIdentity: AppExtensionIdentity?) -> NSView {
+        let root = NSView()
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 14),
+            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -14),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -14),
+        ])
+
+        let headingText = NSStackView(views: [
+            makeLabel(
+                activeIdentity?.localizedName ?? String(
+                    localized: "sidebar.provider.extensions.title",
+                    defaultValue: "Extension Sidebar"
+                ),
+                size: 13,
+                weight: .semibold
+            ),
+            makeLabel(
+                String(
+                    localized: "sidebar.extensions.details.runtime",
+                    defaultValue: "Secure extension connection"
+                ),
+                size: 11,
+                color: .secondaryLabelColor
+            ),
+        ])
+        headingText.orientation = .vertical
+        headingText.alignment = .leading
+        headingText.spacing = 2
+        let heading = NSStackView(views: [
+            makeSymbolView("puzzlepiece.extension", pointSize: 18, weight: .medium),
+            headingText,
+        ])
+        heading.orientation = .horizontal
+        heading.alignment = .centerY
+        heading.spacing = 8
+        stack.addArrangedSubview(heading)
+
+        stack.addArrangedSubview(makeDetailRowNative(
+            title: String(
+                localized: "sidebar.extensions.details.status",
+                defaultValue: "Status"
+            ),
+            value: blockedManifestReason.map(blockedStatusTextNative(reason:))
+                ?? (activeIdentity == nil
+                    ? String(
+                        localized: "sidebar.extensions.details.statusWaiting",
+                        defaultValue: "Waiting for an enabled extension"
+                    )
+                    : String(
+                        localized: "sidebar.extensions.details.statusActive",
+                        defaultValue: "Connected"
                     ))
-                    .cmuxFont(size: 15, weight: .semibold)
-                    Text(identity.bundleIdentifier)
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
-
-            Text(String(localized: "sidebar.extensions.access.review.detail", defaultValue: "CMUX will only share the following data and actions if you allow this request."))
-                .cmuxFont(size: 12)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 8) {
-                detailRow(
-                    title: String(localized: "sidebar.extensions.details.manifest", defaultValue: "Configuration"),
-                    value: "\(effectiveGrant.manifest.id) · API \(effectiveGrant.manifest.minimumAPIVersion.major).\(effectiveGrant.manifest.minimumAPIVersion.minor)"
-                )
-                Divider()
-                permissionSection(effectiveGrant: effectiveGrant)
-            }
-
-            HStack(spacing: 8) {
-                Spacer()
-                Button(String(localized: "sidebar.extensions.access.keepLimited", defaultValue: "Keep Limited")) {
-                    keepLimitedAccess(identity: identity, effectiveGrant: effectiveGrant)
-                    isShowingAccessReview = false
-                }
-                .keyboardShortcut(.cancelAction)
-                Button(String(localized: "sidebar.extensions.access.allow", defaultValue: "Allow Requested Access")) {
-                    grantRequestedAccess(identity: identity, effectiveGrant: effectiveGrant)
-                    isShowingAccessReview = false
-                }
-                .keyboardShortcut(.defaultAction)
-            }
+        ))
+        if let activeIdentity {
+            stack.addArrangedSubview(makeDetailRowNative(
+                title: String(
+                    localized: "sidebar.extensions.details.bundle",
+                    defaultValue: "Bundle"
+                ),
+                value: activeIdentity.bundleIdentifier
+            ))
         }
-        .padding(18)
-        .frame(width: 420, alignment: .leading)
+        if let manifest = effectiveGrant?.manifest {
+            stack.addArrangedSubview(makeDetailRowNative(
+                title: String(
+                    localized: "sidebar.extensions.details.manifest",
+                    defaultValue: "Configuration"
+                ),
+                value: "\(manifest.id) · API \(manifest.minimumAPIVersion.major).\(manifest.minimumAPIVersion.minor)"
+            ))
+        }
+
+        if let effectiveGrant {
+            stack.addArrangedSubview(makeSeparatorNative())
+            let permissions = NSStackView()
+            permissions.orientation = .vertical
+            permissions.alignment = .leading
+            permissions.spacing = 8
+            permissions.addArrangedSubview(makeLabel(
+                String(
+                    localized: "sidebar.extensions.details.permissions",
+                    defaultValue: "Permissions"
+                ),
+                size: 12,
+                weight: .semibold
+            ))
+            for scope in effectiveGrant.manifest.readScopes {
+                permissions.addArrangedSubview(makePermissionRowNative(
+                    title: scope.displayName,
+                    detail: permissionDescriptionNative(scope: scope),
+                    isGranted: effectiveGrant.readScopes.contains(scope)
+                ))
+            }
+            for scope in effectiveGrant.manifest.actionScopes {
+                permissions.addArrangedSubview(makePermissionRowNative(
+                    title: scope.displayName,
+                    detail: permissionDescriptionNative(actionScope: scope),
+                    isGranted: effectiveGrant.actionScopes.contains(scope)
+                ))
+            }
+            stack.addArrangedSubview(permissions)
+            permissions.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        } else if let blockedManifestReason {
+            stack.addArrangedSubview(makeSeparatorNative())
+            stack.addArrangedSubview(makeLabel(
+                blockedDetailTextNative(reason: blockedManifestReason),
+                size: 11,
+                color: .secondaryLabelColor,
+                wraps: true
+            ))
+        }
+
+        stack.addArrangedSubview(makeSeparatorNative())
+        if let effectiveGrant {
+            let accessActions = NSStackView(views: [
+                makeButton(
+                    title: String(
+                        localized: "sidebar.extensions.access.review",
+                        defaultValue: "Review Access..."
+                    ),
+                    action: #selector(reviewAccessNative(_:))
+                ),
+                makeButton(
+                    title: String(
+                        localized: "sidebar.extensions.access.keepLimited",
+                        defaultValue: "Keep Limited"
+                    ),
+                    action: #selector(keepLimitedAccessFromDetailsNative(_:))
+                ),
+            ])
+            accessActions.orientation = .horizontal
+            accessActions.spacing = 8
+            (accessActions.arrangedSubviews[0] as? NSButton)?.isEnabled =
+                effectiveGrant.needsAdditionalApproval
+            (accessActions.arrangedSubviews[1] as? NSButton)?.isEnabled =
+                effectiveGrant.hasSensitiveAccess
+            stack.addArrangedSubview(accessActions)
+        }
+        let generalActions = NSStackView(views: [
+            makeButton(
+                title: String(
+                    localized: "sidebar.extensions.manage.short",
+                    defaultValue: "Manage"
+                ),
+                action: #selector(manageExtensionsNative(_:))
+            ),
+            makeButton(
+                title: String(
+                    localized: "sidebar.extensions.useDefault.short",
+                    defaultValue: "Use Default"
+                ),
+                action: #selector(useDefaultSidebarNative(_:))
+            ),
+        ])
+        generalActions.orientation = .horizontal
+        generalActions.spacing = 8
+        stack.addArrangedSubview(generalActions)
+        return root
     }
 
-    private func shouldShowAccessBanner(
+    func makeDetailRowNative(title: String, value: String) -> NSView {
+        let titleLabel = makeLabel(
+            title,
+            size: 11,
+            weight: .medium,
+            color: .secondaryLabelColor
+        )
+        titleLabel.widthAnchor.constraint(equalToConstant: 64).isActive = true
+        let valueLabel = makeLabel(value, size: 11, wraps: true)
+        let row = NSStackView(views: [titleLabel, valueLabel])
+        row.orientation = .horizontal
+        row.alignment = .firstBaseline
+        row.spacing = 8
+        return row
+    }
+
+    func makePermissionRowNative(
+        title: String,
+        detail: String,
+        isGranted: Bool
+    ) -> NSView {
+        let text = NSStackView(views: [
+            makeLabel(title, size: 11, weight: .medium),
+            makeLabel(detail, size: 10, color: .secondaryLabelColor, wraps: true),
+        ])
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = 1
+        let status = makeLabel(
+            isGranted
+                ? String(
+                    localized: "sidebar.extensions.details.granted",
+                    defaultValue: "Granted"
+                )
+                : String(
+                    localized: "sidebar.extensions.details.pending",
+                    defaultValue: "Pending"
+                ),
+            size: 10,
+            weight: .medium,
+            color: .secondaryLabelColor
+        )
+        let row = NSStackView(views: [
+            makeSymbolView(
+                isGranted ? "checkmark.circle.fill" : "circle",
+                pointSize: 11,
+                weight: .medium
+            ),
+            text,
+            NSView(),
+            status,
+        ])
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 6
+        if isGranted, let icon = row.arrangedSubviews.first as? NSImageView {
+            icon.contentTintColor = .systemGreen
+        }
+        row.arrangedSubviews[2].setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return row
+    }
+
+    func makeSeparatorNative() -> NSBox {
+        let separator = NSBox()
+        separator.boxType = .separator
+        return separator
+    }
+
+    func shouldShowAccessBannerNative(
         identity: AppExtensionIdentity,
         effectiveGrant: CMUXSidebarExtensionEffectiveGrant
     ) -> Bool {
-        effectiveGrant.needsAdditionalApproval && !keptLimitedManifestKeys.contains(limitedChoiceKey(identity: identity, effectiveGrant: effectiveGrant))
+        effectiveGrant.needsAdditionalApproval
+            && !keptLimitedManifestKeys.contains(
+                limitedChoiceKeyNative(identity: identity, effectiveGrant: effectiveGrant)
+            )
     }
 
-    private func grantRequestedAccess(
+    func grantRequestedAccessNative(
         identity: AppExtensionIdentity,
         effectiveGrant: CMUXSidebarExtensionEffectiveGrant
     ) {
-        let key = limitedChoiceKey(identity: identity, effectiveGrant: effectiveGrant)
+        let key = limitedChoiceKeyNative(identity: identity, effectiveGrant: effectiveGrant)
         keptLimitedManifestKeys.remove(key)
         CMUXSidebarExtensionLimitedChoiceStore().remove(key)
         xpcHost.grantRequestedAccess(bundleIdentifier: identity.bundleIdentifier)
         self.effectiveGrant = xpcHost.currentEffectiveGrant
         xpcHost.sendSnapshotDidChange()
+        render()
     }
 
-    private func keepLimitedAccess(
+    func keepLimitedAccessNative(
         identity: AppExtensionIdentity,
         effectiveGrant: CMUXSidebarExtensionEffectiveGrant
     ) {
-        let key = limitedChoiceKey(identity: identity, effectiveGrant: effectiveGrant)
+        let key = limitedChoiceKeyNative(identity: identity, effectiveGrant: effectiveGrant)
         keptLimitedManifestKeys.insert(key)
         CMUXSidebarExtensionLimitedChoiceStore().insert(key)
         xpcHost.revokeSensitiveAccess(bundleIdentifier: identity.bundleIdentifier)
         self.effectiveGrant = xpcHost.currentEffectiveGrant
         xpcHost.sendSnapshotDidChange()
+        render()
     }
 
-    private func limitedChoiceKey(
+    func limitedChoiceKeyNative(
         identity: AppExtensionIdentity,
         effectiveGrant: CMUXSidebarExtensionEffectiveGrant
     ) -> String {
-        let readScopes = effectiveGrant.manifest.readScopes.map(\.rawValue).sorted().joined(separator: ",")
-        let actionScopes = effectiveGrant.manifest.actionScopes.map(\.rawValue).sorted().joined(separator: ",")
+        let readScopes = effectiveGrant.manifest.readScopes
+            .map(\.rawValue)
+            .sorted()
+            .joined(separator: ",")
+        let actionScopes = effectiveGrant.manifest.actionScopes
+            .map(\.rawValue)
+            .sorted()
+            .joined(separator: ",")
         return "\(identity.bundleIdentifier)|\(effectiveGrant.manifest.id)|\(effectiveGrant.manifest.minimumAPIVersion.major).\(effectiveGrant.manifest.minimumAPIVersion.minor)|\(readScopes)|\(actionScopes)"
     }
 
-    private func pendingPermissionDescriptions(
+    func pendingPermissionDescriptionsNative(
         effectiveGrant: CMUXSidebarExtensionEffectiveGrant
     ) -> [String] {
         let pendingReadScopes = effectiveGrant.manifest.readScopes.filter {
@@ -959,11 +1465,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         let pendingActionScopes = effectiveGrant.manifest.actionScopes.filter {
             !effectiveGrant.actionScopes.contains($0)
         }
-        return pendingReadScopes.map(permissionDescription(scope:)) +
-            pendingActionScopes.map(permissionDescription(actionScope:))
+        return pendingReadScopes.map(permissionDescriptionNative(scope:))
+            + pendingActionScopes.map(permissionDescriptionNative(actionScope:))
     }
 
-    private func permissionDescription(scope: CmuxExtensionScope) -> String {
+    func permissionDescriptionNative(scope: CmuxExtensionScope) -> String {
         switch scope {
         case .workspaceList:
             return String(localized: "sidebar.extensions.permission.workspaceList.detail", defaultValue: "Read workspace IDs and names")
@@ -982,7 +1488,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
     }
 
-    private func permissionDescription(actionScope: CmuxExtensionActionScope) -> String {
+    func permissionDescriptionNative(actionScope: CmuxExtensionActionScope) -> String {
         switch actionScope {
         case .createWorkspace:
             return String(localized: "sidebar.extensions.permission.createWorkspace.detail", defaultValue: "Create workspaces")
@@ -1011,78 +1517,35 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
     }
 
-    private func observeIdentitySequence(extensionPointIdentifier: String) async throws {
-        var identities = try AppExtensionIdentity.matching(appExtensionPointIDs: extensionPointIdentifier)
-            .makeAsyncIterator()
-        let availabilityTask = Task {
-            var availabilityUpdates = AppExtensionIdentity.availabilityUpdates.makeAsyncIterator()
-            while !Task.isCancelled {
-                guard let availability = await availabilityUpdates.next() else { break }
-                disabledExtensionCount = availability.disabledCount
-                unapprovedExtensionCount = availability.unapprovedCount
-            }
-        }
-        defer {
-            availabilityTask.cancel()
-        }
-        while !Task.isCancelled {
-            guard let update = await identities.next() else { break }
-            applyEnabledExtensionIdentities(update)
+    func blockedStatusTextNative(reason: String) -> String {
+        switch reason {
+        case "connectionInterrupted":
+            return String(localized: "sidebar.extensions.blocked.status.connectionInterrupted", defaultValue: "Blocked, connection interrupted")
+        case "manifestTimedOut":
+            return String(localized: "sidebar.extensions.blocked.status.manifestTimedOut", defaultValue: "Blocked, configuration timed out")
+        case "missingManifest":
+            return String(localized: "sidebar.extensions.blocked.status.missingManifest", defaultValue: "Blocked, missing configuration")
+        case "invalidManifest":
+            return String(localized: "sidebar.extensions.blocked.status.invalidManifest", defaultValue: "Blocked, invalid configuration")
+        default:
+            return String(localized: "sidebar.extensions.blocked.status.failedManifest", defaultValue: "Blocked, configuration unavailable")
         }
     }
 
-    private func applyEnabledExtensionIdentities(_ identities: [AppExtensionIdentity]) {
-        let sortedIdentities = deduplicatedExtensionIdentities(identities)
-        enabledIdentities = sortedIdentities
-        let nextIdentity: AppExtensionIdentity?
-        if let selectedExtensionBundleID,
-           let selectedIdentity = sortedIdentities.first(where: { $0.bundleIdentifier == selectedExtensionBundleID }) {
-            nextIdentity = selectedIdentity
-        } else if selectedExtensionBundleID == nil, sortedIdentities.count == 1 {
-            nextIdentity = sortedIdentities[0]
-            selectedExtensionBundleID = nextIdentity?.bundleIdentifier
-            UserDefaults.standard.set(nextIdentity?.bundleIdentifier, forKey: Self.selectedExtensionBundleIDDefaultsKey)
-        } else {
-            nextIdentity = nil
-        }
-        updateSelectedExtensionName(nextIdentity)
-        if nextIdentity?.bundleIdentifier != identity?.bundleIdentifier {
-            xpcHost.invalidate()
-            effectiveGrant = nil
-            identity = nextIdentity
-        }
-        isLoading = false
-        errorText = nil
-    }
-
-    private func deduplicatedExtensionIdentities(_ identities: [AppExtensionIdentity]) -> [AppExtensionIdentity] {
-        let sortedIdentities = identities.sorted {
-            if $0.localizedName == $1.localizedName {
-                return $0.bundleIdentifier < $1.bundleIdentifier
-            }
-            return $0.localizedName < $1.localizedName
-        }
-        var seenBundleIdentifiers = Set<String>()
-        return sortedIdentities.filter { identity in
-            seenBundleIdentifiers.insert(identity.bundleIdentifier).inserted
+    func blockedDetailTextNative(reason: String) -> String {
+        switch reason {
+        case "connectionInterrupted":
+            return String(localized: "sidebar.extensions.blocked.detail.connectionInterrupted", defaultValue: "CMUX lost the extension connection. No workspace data or actions are being shared.")
+        case "manifestTimedOut":
+            return String(localized: "sidebar.extensions.blocked.detail.manifestTimedOut", defaultValue: "CMUX did not receive this extension's configuration in time. No workspace data or actions are being shared.")
+        case "missingManifest":
+            return String(localized: "sidebar.extensions.blocked.detail.missingManifest", defaultValue: "CMUX did not receive a sidebar extension configuration, so no workspace data or actions were shared.")
+        case "invalidManifest":
+            return String(localized: "sidebar.extensions.blocked.detail.invalidManifest", defaultValue: "CMUX rejected this extension's configuration. No workspace data or actions were shared.")
+        default:
+            return String(localized: "sidebar.extensions.blocked.detail.failedManifest", defaultValue: "CMUX could not load this extension's configuration. No workspace data or actions were shared.")
         }
     }
-
-    private func selectExtension(_ selectedIdentity: AppExtensionIdentity) {
-        selectedExtensionBundleID = selectedIdentity.bundleIdentifier
-        UserDefaults.standard.set(selectedIdentity.bundleIdentifier, forKey: Self.selectedExtensionBundleIDDefaultsKey)
-        UserDefaults.standard.set(selectedIdentity.localizedName, forKey: Self.selectedExtensionNameDefaultsKey)
-        applyEnabledExtensionIdentities(enabledIdentities)
-    }
-
-    private func updateSelectedExtensionName(_ selectedIdentity: AppExtensionIdentity?) {
-        if let selectedIdentity {
-            UserDefaults.standard.set(selectedIdentity.localizedName, forKey: Self.selectedExtensionNameDefaultsKey)
-        } else if selectedExtensionBundleID == nil {
-            UserDefaults.standard.removeObject(forKey: Self.selectedExtensionNameDefaultsKey)
-        }
-    }
-
 }
 
 private extension CmuxExtensionScope {
@@ -1141,7 +1604,7 @@ private extension CmuxExtensionActionScope {
 private final class CMUXSidebarExtensionHostXPC {
     private static let untrustedScopes: Set<CmuxExtensionScope> = []
     private static let untrustedActionScopes: Set<CmuxExtensionActionScope> = []
-    private static let manifestRequestTimeoutNanoseconds: UInt64 = 5_000_000_000
+    private static let manifestRequestTimeout: Duration = .seconds(5)
 
     private var connection: NSXPCConnection?
     private var extensionProxy: CMUXSidebarExtensionXPC?
@@ -1337,7 +1800,7 @@ private final class CMUXSidebarExtensionHostXPC {
         awaitingManifestGeneration = generation
         manifestRequestTimeoutTask = Task { @MainActor [weak self, generation] in
             do {
-                try await Task.sleep(nanoseconds: Self.manifestRequestTimeoutNanoseconds)
+                try await Task.sleep(for: Self.manifestRequestTimeout)
             } catch {
                 return
             }

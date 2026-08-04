@@ -2419,41 +2419,38 @@ struct NativeProBadgeLabelBridge: NSViewRepresentable {
 }
 
 @available(macOS 14.0, *)
-struct NativeSidebarExtensionHostBridge: NSViewControllerRepresentable {
-    let identity: AppExtensionIdentity
-    let presentation: CmuxSidebarPresentation?
-    var onConnection: (@MainActor (NSXPCConnection) -> Void)?
-    var onDeactivation: (@MainActor ((any Error)?) -> Void)?
-    var onTeardown: (@MainActor () -> Void)?
-    var onPresentationAction: (@MainActor (String) -> Void)?
+struct NativeInstalledExtensionSidebarHostView: NSViewControllerRepresentable {
+    let snapshotProvider: @MainActor () -> CmuxSidebarSnapshot
+    let snapshotUpdateToken: UInt64
+    let unreadSource: SidebarUnreadModel
+    let actionHandler: @MainActor (CmuxSidebarAction) -> CmuxSidebarActionResult
+    let onUseDefaultSidebar: @MainActor () -> Void
 
-    func makeNSViewController(context: Context) -> CMUXSidebarExtensionHostView {
-        CMUXSidebarExtensionHostView(
-            identity: identity,
-            presentation: presentation,
-            onConnection: onConnection,
-            onDeactivation: onDeactivation,
-            onTeardown: onTeardown,
-            onPresentationAction: onPresentationAction
+    func makeNSViewController(context: Context) -> CMUXInstalledExtensionSidebarHostController {
+        CMUXInstalledExtensionSidebarHostController(
+            snapshotProvider: snapshotProvider,
+            snapshotUpdateToken: snapshotUpdateToken,
+            unreadSource: unreadSource,
+            actionHandler: actionHandler,
+            onUseDefaultSidebar: onUseDefaultSidebar
         )
     }
 
     func updateNSViewController(
-        _ viewController: CMUXSidebarExtensionHostView,
+        _ viewController: CMUXInstalledExtensionSidebarHostController,
         context: Context
     ) {
         viewController.update(
-            identity: identity,
-            presentation: presentation,
-            onConnection: onConnection,
-            onDeactivation: onDeactivation,
-            onTeardown: onTeardown,
-            onPresentationAction: onPresentationAction
+            snapshotProvider: snapshotProvider,
+            snapshotUpdateToken: snapshotUpdateToken,
+            unreadSource: unreadSource,
+            actionHandler: actionHandler,
+            onUseDefaultSidebar: onUseDefaultSidebar
         )
     }
 
     static func dismantleNSViewController(
-        _ viewController: CMUXSidebarExtensionHostView,
+        _ viewController: CMUXInstalledExtensionSidebarHostController,
         coordinator: ()
     ) {
         viewController.teardown()
