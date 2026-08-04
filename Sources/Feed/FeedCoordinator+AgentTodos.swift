@@ -48,6 +48,12 @@ extension FeedCoordinator {
         guard let workspace = Self.resolveTodoWorkspace(for: event) else { return }
 
         let workstreamId = item.workstreamId
+        // A surface can move between workspaces mid-session. The agent's rows
+        // are recreated in the new one below, so retire the copies it left
+        // behind or they linger there forever, skewing that workspace's
+        // progress with tasks no later delta will ever touch.
+        retireAgentTodos(forWorkstream: workstreamId, excluding: workspace.id)
+        lastTodoWorkspaceByWorkstream[workstreamId] = workspace.id
         let tasks = todos.map { todo in
             WorkspaceAgentChecklistTask(
                 id: todo.stableChecklistItemId(workstreamId: workstreamId),
@@ -63,6 +69,23 @@ extension FeedCoordinator {
         ) else { return }
         workspace.replaceChecklist(with: replacements)
         WorkspaceTodoFeature.markUsed()
+    }
+
+    /// Clears this workstream's rows from the workspace it previously wrote
+    /// to, when that is no longer where it lives.
+    @MainActor
+    private func retireAgentTodos(forWorkstream workstreamId: String, excluding current: UUID) {
+        guard let previous = lastTodoWorkspaceByWorkstream[workstreamId],
+              previous != current,
+              let tabManager = AppDelegate.shared?.tabManagerFor(tabId: previous),
+              let workspace = tabManager.tabs.first(where: { $0.id == previous })
+        else { return }
+        guard let replacements = workspaceAgentChecklistReplacement(
+            existing: workspace.todoState.checklist,
+            agentTasks: [],
+            workstreamId: workstreamId
+        ) else { return }
+        workspace.replaceChecklist(with: replacements)
     }
 
     /// Resolves the workspace whose checklist this event may mutate.

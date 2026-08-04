@@ -434,10 +434,12 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.first?.state == .pending)
     }
 
-    /// Rewording an id-less task must keep its row, or the checklist merge
-    /// mints a new one and drops the attachments bound to the old id.
-    @Test("An unambiguous reword keeps the id-less task's identity")
-    func idlessRewordKeepsIdentity() {
+    /// Without a producer id a same-sized snapshot cannot distinguish a
+    /// reword from a removal plus an addition, so identity must never be
+    /// carried across a text change: doing so grafts one task's attachments
+    /// onto an unrelated one.
+    @Test("An id-less text change mints a new identity rather than guessing")
+    func idlessTextChangeFailsClosed() {
         let store = WorkstreamStore(ringCapacity: 50)
         store.ingest(toolCall(
             "s1",
@@ -445,15 +447,18 @@ struct WorkstreamTaskToolTodoTests {
             input: #"{"todos":[{"content":"alpha"},{"content":"beta"}]}"#,
             response: #"{"ok":true}"#
         ))
-        let betaId = latestTodos(store)?.first { $0.content == "beta" }?.id
+        let alphaId = latestTodos(store)?.first { $0.content == "alpha" }?.id
 
+        // Ambiguous: this is equally "alpha reworded to gamma" and "alpha
+        // removed, gamma added". Nothing may inherit alpha's identity.
         store.ingest(toolCall(
             "s1",
             tool: "TodoWrite",
-            input: #"{"todos":[{"content":"alpha"},{"content":"beta, revised"}]}"#,
+            input: #"{"todos":[{"content":"beta"},{"content":"gamma"}]}"#,
             response: #"{"ok":true}"#
         ))
-        #expect(latestTodos(store)?.first { $0.content == "beta, revised" }?.id == betaId)
+        #expect(latestTodos(store)?.map(\.content) == ["beta", "gamma"])
+        #expect(latestTodos(store)?.allSatisfy { $0.id != alphaId } == true)
     }
 
     /// A removal is not an unambiguous reword, so identity must not be
