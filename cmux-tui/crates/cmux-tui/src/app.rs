@@ -2751,13 +2751,14 @@ impl OrderedSession {
     }
 
     pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.new_tab_for_semantic_intent(pane, size, None)
+        self.new_tab_for_semantic_intent(pane, size, Vec::new(), None)
     }
 
     fn new_tab_for_semantic_intent(
         &self,
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
+        selector_candidates: Vec<cmux_tui_core::ResourceSelectors>,
         semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
         let receipt = CreationReceipt::new();
@@ -2765,7 +2766,7 @@ impl OrderedSession {
             "create tab",
             semantic_intent,
             CreationCompletionKind::Surface,
-            move |session| session.new_tab_receipted(pane, size, &receipt),
+            move |session| session.new_tab_receipted(pane, size, selector_candidates, &receipt),
         );
         Ok(())
     }
@@ -2778,11 +2779,15 @@ impl OrderedSession {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
         let receipt = CreationReceipt::new();
+        let selector_candidates =
+            self.inner.tree().resource_selectors_for_pane(pane).into_iter().collect();
         self.enqueue_creation_with_completion_for_semantic_intent(
             "run command",
             None,
             CreationCompletionKind::Surface,
-            move |session| session.run_command_receipted(argv, pane, cwd, size, &receipt),
+            move |session| {
+                session.run_command_receipted(argv, pane, cwd, size, selector_candidates, &receipt)
+            },
         );
         Ok(())
     }
@@ -2797,7 +2802,7 @@ impl OrderedSession {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.new_browser_tab_for_semantic_intent(url, pane, size, None)
+        self.new_browser_tab_for_semantic_intent(url, pane, size, Vec::new(), None)
     }
 
     fn new_browser_tab_for_semantic_intent(
@@ -2805,6 +2810,7 @@ impl OrderedSession {
         url: String,
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
+        selector_candidates: Vec<cmux_tui_core::ResourceSelectors>,
         semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
         let receipt = CreationReceipt::new();
@@ -2812,7 +2818,9 @@ impl OrderedSession {
             "create browser tab",
             semantic_intent,
             CreationCompletionKind::Browser,
-            move |session| session.new_browser_tab_receipted(url, pane, size, &receipt),
+            move |session| {
+                session.new_browser_tab_receipted(url, pane, size, selector_candidates, &receipt)
+            },
         );
         Ok(())
     }
@@ -2895,6 +2903,7 @@ impl OrderedSession {
         pane: PaneId,
         dir: SplitDir,
         size: Option<(u16, u16)>,
+        selector_candidates: Vec<cmux_tui_core::ResourceSelectors>,
         semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
         let receipt = CreationReceipt::new();
@@ -2902,7 +2911,7 @@ impl OrderedSession {
             "split pane",
             semantic_intent,
             CreationCompletionKind::Surface,
-            move |session| session.split_receipted(pane, dir, size, &receipt),
+            move |session| session.split_receipted(pane, dir, size, selector_candidates, &receipt),
         );
         Ok(())
     }
@@ -2911,6 +2920,7 @@ impl OrderedSession {
         &self,
         pane: PaneId,
         size: Option<(u16, u16)>,
+        selector_candidates: Vec<cmux_tui_core::ResourceSelectors>,
         semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
         let receipt = CreationReceipt::new();
@@ -2918,7 +2928,7 @@ impl OrderedSession {
             "create pane",
             semantic_intent,
             CreationCompletionKind::Surface,
-            move |session| session.new_pane_receipted(pane, size, &receipt),
+            move |session| session.new_pane_receipted(pane, size, selector_candidates, &receipt),
         );
         Ok(())
     }
@@ -2928,6 +2938,7 @@ impl OrderedSession {
         pane: PaneId,
         width: f32,
         size: Option<(u16, u16)>,
+        selector_candidates: Vec<cmux_tui_core::ResourceSelectors>,
         semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
         let receipt = CreationReceipt::new();
@@ -2935,7 +2946,9 @@ impl OrderedSession {
             localization::catalog().layout.create_viewport_pane_operation,
             semantic_intent,
             CreationCompletionKind::Surface,
-            move |session| session.new_pane_right_receipted(pane, width, size, &receipt),
+            move |session| {
+                session.new_pane_right_receipted(pane, width, size, selector_candidates, &receipt)
+            },
         );
         Ok(())
     }
@@ -11322,12 +11335,18 @@ impl App {
                 } else {
                     semantic_destination
                 };
+                let action_fallback_destination = self
+                    .input_creates_session_destination(&input)
+                    .then(|| admission.and_then(|value| value.destination))
+                    .flatten()
+                    .filter(|fallback| Some(*fallback) != action_destination);
                 self.dispatch_terminal_input(
                     input,
                     input_sequence,
                     terminal_pointer_admission,
                     semantic_result,
                     action_destination,
+                    action_fallback_destination,
                 )
             }
             AppEvent::HostInputFailed(error) => {
@@ -11347,6 +11366,7 @@ impl App {
         terminal_pointer_admission: Option<TerminalPointerAdmission>,
         semantic_result: Option<u64>,
         action_destination: Option<SurfaceId>,
+        action_fallback_destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
         let semantic_result =
             if semantic_result.is_none() && self.input_creates_session_destination(&input) {
@@ -11370,6 +11390,7 @@ impl App {
                     prefix,
                     semantic_result,
                     action_destination,
+                    action_fallback_destination,
                 )?;
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
@@ -12463,9 +12484,27 @@ impl App {
         self.size_of_rect(b)
     }
 
+    fn pane_creation_selector_candidates(
+        &self,
+        pane: PaneId,
+        fallback_pane: Option<PaneId>,
+    ) -> anyhow::Result<Vec<cmux_tui_core::ResourceSelectors>> {
+        let mut candidates = Vec::with_capacity(2);
+        for pane in [Some(pane), fallback_pane].into_iter().flatten() {
+            if let Some(selectors) = self.tree.resource_selectors_for_pane(Some(pane))
+                && !candidates.contains(&selectors)
+            {
+                candidates.push(selectors);
+            }
+        }
+        anyhow::ensure!(!candidates.is_empty(), "creation target has no stable identity");
+        Ok(candidates)
+    }
+
     fn split_pane(
         &mut self,
         pane: PaneId,
+        fallback_pane: Option<PaneId>,
         dir: SplitDir,
         semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
@@ -12473,18 +12512,31 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        self.session.split_for_semantic_intent(pane, dir, hint, semantic_intent)
+        let selector_candidates = self.pane_creation_selector_candidates(pane, fallback_pane)?;
+        self.session.split_for_semantic_intent(
+            pane,
+            dir,
+            hint,
+            selector_candidates,
+            semantic_intent,
+        )
     }
 
     fn new_terminal_tab(
         &mut self,
         pane: Option<PaneId>,
+        fallback_pane: Option<PaneId>,
         semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
         let pane = pane.or_else(|| self.active_pane());
+        let selector_candidates = pane
+            .map(|pane| self.pane_creation_selector_candidates(pane, fallback_pane))
+            .transpose()?
+            .unwrap_or_default();
         self.session.new_tab_for_semantic_intent(
             pane,
             self.terminal_tab_size_hint(pane),
+            selector_candidates,
             semantic_intent,
         )
     }
@@ -12504,6 +12556,7 @@ impl App {
     fn new_pane_smart(
         &mut self,
         pane: Option<PaneId>,
+        fallback_pane: Option<PaneId>,
         semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
         let Some(pane) = pane.or_else(|| self.active_pane()) else {
@@ -12539,11 +12592,22 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        self.session.new_pane_for_semantic_intent(pane, Some(hint), semantic_intent)
+        let selector_candidates = self.pane_creation_selector_candidates(pane, fallback_pane)?;
+        self.session.new_pane_for_semantic_intent(
+            pane,
+            Some(hint),
+            selector_candidates,
+            semantic_intent,
+        )
     }
 
-    fn new_pane_right(&mut self, semantic_intent: Option<u64>) -> anyhow::Result<()> {
-        let Some(pane) = self.active_pane() else {
+    fn new_pane_right(
+        &mut self,
+        pane: Option<PaneId>,
+        fallback_pane: Option<PaneId>,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let Some(pane) = pane.or_else(|| self.active_pane()) else {
             return Ok(());
         };
         let width = ((f32::from(self.content_area.width) * DEFAULT_VIEWPORT_PANE_WIDTH).round()
@@ -12552,10 +12616,13 @@ impl App {
         let rect = Rect { width, ..self.content_area };
         let hint = self.size_of_rect(rect);
         if self.prepare_pty_input_before_mutation() {
+            let selector_candidates =
+                self.pane_creation_selector_candidates(pane, fallback_pane)?;
             self.session.new_pane_right_for_semantic_intent(
                 pane,
                 DEFAULT_VIEWPORT_PANE_WIDTH,
                 hint,
+                selector_candidates,
                 semantic_intent,
             )?;
         }
@@ -13951,7 +14018,7 @@ impl App {
         action: Action,
         prefix: KeyEvent,
     ) -> anyhow::Result<RenderAction> {
-        self.run_resolved_action_with_semantic_intent(action, prefix, None, None)
+        self.run_resolved_action_with_semantic_intent(action, prefix, None, None, None)
     }
 
     fn run_resolved_action_with_semantic_intent(
@@ -13960,6 +14027,7 @@ impl App {
         prefix: KeyEvent,
         semantic_intent: Option<u64>,
         action_destination: Option<SurfaceId>,
+        action_fallback_destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
         if action == Action::SendPrefix && self.workspace_sidebar_focused() {
             self.forward_sidebar_key(prefix.into());
@@ -13969,14 +14037,24 @@ impl App {
             Some(surface) => self.pane_for_surface(surface),
             None => self.active_pane(),
         };
-        if action_destination.is_some() && pane.is_none() {
+        let fallback_pane =
+            action_fallback_destination.and_then(|surface| self.pane_for_surface(surface));
+        let pane = pane.or(fallback_pane);
+        if (action_destination.is_some() || action_fallback_destination.is_some()) && pane.is_none()
+        {
             if let Some(intent) = semantic_intent {
                 self.mark_semantic_destination_failed(intent);
             }
             return Ok(RenderAction::Draw);
         }
         let destination_started = self.session.destination_mutation_started();
-        let result = self.run_action_for_pane_with_prefix(action, pane, prefix, semantic_intent);
+        let result = self.run_action_for_pane_with_prefix(
+            action,
+            pane,
+            fallback_pane.filter(|fallback| Some(*fallback) != pane),
+            prefix,
+            semantic_intent,
+        );
         if let Some(intent) = semantic_intent
             && (result.is_err()
                 || self.session.destination_mutation_started() == destination_started)
@@ -14004,6 +14082,7 @@ impl App {
         self.run_action_for_pane_with_prefix(
             action,
             pane,
+            None,
             KeyEvent::new(prefix.code, prefix.mods),
             None,
         )
@@ -14013,6 +14092,7 @@ impl App {
         &mut self,
         action: Action,
         pane: Option<PaneId>,
+        fallback_pane: Option<PaneId>,
         prefix: KeyEvent,
         semantic_intent: Option<u64>,
     ) -> anyhow::Result<RenderAction> {
@@ -14027,10 +14107,12 @@ impl App {
                 self.forward_key_to_pane(&prefix, pane);
             }
             Action::NewTab => {
-                self.new_terminal_tab(pane, semantic_intent)?;
+                self.new_terminal_tab(pane, fallback_pane, semantic_intent)?;
             }
-            Action::NewBrowserTab => self.create_browser_tab_for_edit(pane, semantic_intent)?,
-            Action::NewPaneSmart => self.new_pane_smart(pane, semantic_intent)?,
+            Action::NewBrowserTab => {
+                self.create_browser_tab_for_edit(pane, fallback_pane, semantic_intent)?;
+            }
+            Action::NewPaneSmart => self.new_pane_smart(pane, fallback_pane, semantic_intent)?,
             Action::NextTab => self.select_tab_for_client(pane, None, Some(1)),
             Action::PrevTab => self.select_tab_for_client(pane, None, Some(-1)),
             Action::SelectTab(_) => {
@@ -14040,12 +14122,12 @@ impl App {
             }
             Action::SplitRight => {
                 if let Some(pane) = pane {
-                    self.split_pane(pane, SplitDir::Right, semantic_intent)?;
+                    self.split_pane(pane, fallback_pane, SplitDir::Right, semantic_intent)?;
                 }
             }
             Action::SplitDown => {
                 if let Some(pane) = pane {
-                    self.split_pane(pane, SplitDir::Down, semantic_intent)?;
+                    self.split_pane(pane, fallback_pane, SplitDir::Down, semantic_intent)?;
                 }
             }
             Action::CloseTab => {
@@ -14101,7 +14183,7 @@ impl App {
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
-            Action::NewPaneRight => self.new_pane_right(semantic_intent)?,
+            Action::NewPaneRight => self.new_pane_right(pane, fallback_pane, semantic_intent)?,
             Action::UndoLayout => {
                 if let Some(pane) = pane {
                     self.session.undo_layout(pane, None, false)?;
@@ -14251,16 +14333,22 @@ impl App {
     fn create_browser_tab_for_edit(
         &mut self,
         pane: Option<PaneId>,
+        fallback_pane: Option<PaneId>,
         semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
         let pane = pane.or_else(|| self.active_pane());
+        let selector_candidates = pane
+            .map(|pane| self.pane_creation_selector_candidates(pane, fallback_pane))
+            .transpose()?
+            .unwrap_or_default();
         self.session.new_browser_tab_for_semantic_intent(
             "about:blank".to_string(),
             pane,
             self.browser_tab_size_hint(pane),
+            selector_candidates,
             semantic_intent,
         )
     }
@@ -19444,8 +19532,17 @@ mod tests {
         app.replace_tree(app.session.tree());
 
         let (writes_tx, writes_rx) = std::sync::mpsc::sync_channel(16);
+        let observer_mux = mux.clone();
         app.pty_input.set_delivered_write_observer(Some(Arc::new(move |surface, bytes| {
             writes_tx.send((surface, bytes.to_vec())).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while observer_mux.surface(surface).is_some() {
+                assert!(
+                    Instant::now() < deadline,
+                    "Ctrl-D target did not exit before the next queued creation"
+                );
+                std::thread::yield_now();
+            }
         })));
         let (barrier_started_tx, barrier_started_rx) = std::sync::mpsc::sync_channel(1);
         let (release_barrier_tx, release_barrier_rx) = std::sync::mpsc::sync_channel(1);

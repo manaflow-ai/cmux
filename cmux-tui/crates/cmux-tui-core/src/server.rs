@@ -85,6 +85,7 @@ pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
+pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -107,6 +108,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
+        CREATION_SELECTOR_FALLBACKS_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
@@ -484,6 +486,10 @@ struct CreateSurfaceWithReceiptRequest {
     /// is sent. Numeric targets remain a legacy fallback.
     #[serde(default)]
     selectors: Option<crate::ResourceSelectors>,
+    /// Ordered client-local selection continuations used only when the
+    /// primary creation target disappeared before the mutation committed.
+    #[serde(default)]
+    selector_fallbacks: Vec<crate::ResourceSelectors>,
     #[serde(default)]
     pane: Option<PaneId>,
     #[serde(default)]
@@ -3523,6 +3529,7 @@ impl ClientRegistry {
                 capability == GUARDED_BROWSER_POINTER_CAPABILITY
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
+                    || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
             }));
         }
         Ok((record.name.clone(), record.kind.clone()))
@@ -7221,6 +7228,7 @@ fn create_surface_with_receipt(
         origin,
         receipt,
         selectors: supplied_selectors,
+        selector_fallbacks,
         pane,
         workspace,
         argv,
@@ -7358,10 +7366,36 @@ fn create_surface_with_receipt(
         }
         other => anyhow::bail!("unknown receipted creation operation {other:?}"),
     };
-    let commit =
-        mux.resource_topology_operation(resource_operation, selectors, fields, None, &mutation)?;
-    let surface = mux.resource_surface_for_created_path(&commit.result)?;
-    Ok(json!({"surface": surface, "replayed": commit.replayed}))
+    anyhow::ensure!(selector_fallbacks.len() <= 7, "too many creation selector fallbacks");
+    anyhow::ensure!(
+        selector_fallbacks.is_empty()
+            || mux
+                .control_clients
+                .supports_capability(client, CREATION_SELECTOR_FALLBACKS_CAPABILITY),
+        "client did not negotiate {CREATION_SELECTOR_FALLBACKS_CAPABILITY}"
+    );
+    anyhow::ensure!(
+        selector_fallbacks.is_empty()
+            || matches!(
+                resource_operation,
+                ResourceOperation::PaneSplit
+                    | ResourceOperation::PaneCreate
+                    | ResourceOperation::PaneRun
+                    | ResourceOperation::TabCreateTerminal
+                    | ResourceOperation::TabCreateBrowser
+            ),
+        "selector fallbacks require a pane-targeted creation"
+    );
+    let mut selector_candidates = Vec::with_capacity(1 + selector_fallbacks.len());
+    selector_candidates.push(selectors);
+    for fallback in selector_fallbacks {
+        if !selector_candidates.contains(&fallback) {
+            selector_candidates.push(fallback);
+        }
+    }
+    let (surface, replayed) =
+        mux.receipted_surface_creation(resource_operation, selector_candidates, fields, &mutation)?;
+    Ok(json!({"surface": surface, "replayed": replayed}))
 }
 
 fn parse_split_dir(dir: &str) -> anyhow::Result<SplitDir> {
@@ -15377,6 +15411,7 @@ mod tests {
                 origin: origin.to_string(),
                 receipt: receipt.to_string(),
                 selectors: Some(selectors.clone()),
+                selector_fallbacks: Vec::new(),
                 pane: Some(pane),
                 workspace: None,
                 argv: None,
@@ -15446,6 +15481,83 @@ mod tests {
             1
         );
         assert!(disconnect_client(&mux, second_client, true));
+        mux.shutdown();
+    }
+
+    #[test]
+    fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
+        let mux = test_mux();
+        let fallback = mux.new_workspace(None, Some((100, 30))).unwrap();
+        let fallback_pane = mux.with_state(|state| state.pane_of(fallback.id).unwrap());
+        let primary = mux.split(fallback_pane, SplitDir::Right, Some((50, 30))).unwrap();
+        let primary_pane = mux.with_state(|state| state.pane_of(primary.id).unwrap());
+        let primary_selectors = mux.resource_selectors_for_pane(Some(primary_pane)).unwrap();
+        let fallback_selectors = mux.resource_selectors_for_pane(Some(fallback_pane)).unwrap();
+        assert!(mux.close_pane(primary_pane).unwrap());
+
+        let command = || {
+            Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+                operation: "split-right".to_string(),
+                origin: "tui-fallback-test".to_string(),
+                receipt: "split-fallback-receipt-00000001".to_string(),
+                selectors: Some(primary_selectors.clone()),
+                selector_fallbacks: vec![fallback_selectors.clone()],
+                pane: Some(primary_pane),
+                workspace: None,
+                argv: None,
+                cwd: None,
+                url: None,
+                width: None,
+                cols: Some(50),
+                rows: Some(30),
+            }))
+        };
+        let register = |capabilities: &[&str], writer: &MessageWriter| {
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            handle_command(
+                &mux,
+                client,
+                Command::SetClientInfo {
+                    name: Some("fallback receipt test".to_string()),
+                    kind: Some("tui".to_string()),
+                    capabilities: Some(
+                        capabilities.iter().map(|capability| (*capability).to_string()).collect(),
+                    ),
+                },
+                writer,
+            )
+            .unwrap();
+            client
+        };
+
+        let old_writer = test_writer();
+        let old_client = register(&[CREATION_RECEIPTS_CAPABILITY], &old_writer);
+        let error = handle_command(&mux, old_client, command(), &old_writer).unwrap_err();
+        assert!(error.to_string().contains(CREATION_SELECTOR_FALLBACKS_CAPABILITY));
+        assert!(disconnect_client(&mux, old_client, true));
+
+        let first_writer = test_writer();
+        let first_client = register(
+            &[CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY],
+            &first_writer,
+        );
+        let first = handle_command(&mux, first_client, command(), &first_writer).unwrap();
+        assert_eq!(first["replayed"], false);
+        let created = first["surface"].as_u64().expect("creation omitted its surface");
+        assert!(mux.with_state(|state| state.pane_of(created).is_some()));
+        assert!(mux.close_pane(fallback_pane).unwrap());
+        assert!(disconnect_client(&mux, first_client, true));
+
+        let replay_writer = test_writer();
+        let replay_client = register(
+            &[CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY],
+            &replay_writer,
+        );
+        let replay = handle_command(&mux, replay_client, command(), &replay_writer).unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["surface"].as_u64(), Some(created));
+        assert!(disconnect_client(&mux, replay_client, true));
+        mux.close_surface(created).unwrap();
         mux.shutdown();
     }
 
@@ -17629,6 +17741,9 @@ mod tests {
             CLEAR_HISTORY_CAPABILITY,
             CLEAR_HISTORY_KEY_CAPABILITY,
             "surface-subscribe-filter",
+            VIEW_ATTACHMENT_LEASE_CAPABILITY,
+            CREATION_RECEIPTS_CAPABILITY,
+            CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));

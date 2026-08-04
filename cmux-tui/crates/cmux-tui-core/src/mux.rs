@@ -18717,6 +18717,81 @@ mod tests {
         mux.shutdown();
     }
 
+    #[test]
+    fn receipted_creation_atomically_uses_client_local_fallback_and_replays_it() {
+        let mux = test_mux();
+        let fallback = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let fallback_pane = mux.with_state(|state| state.pane_of(fallback.id).unwrap());
+        let primary = mux.split(fallback_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let primary_pane = mux.with_state(|state| state.pane_of(primary.id).unwrap());
+        let candidates = vec![
+            mux.resource_selectors_for_pane(Some(primary_pane)).unwrap(),
+            mux.resource_selectors_for_pane(Some(fallback_pane)).unwrap(),
+        ];
+        assert!(mux.close_pane(primary_pane).unwrap());
+
+        let mutation = WorkspaceMutation::new(
+            "selector-fallback-receipt-00000001".to_string(),
+            "selector-fallback-test".to_string(),
+        )
+        .unwrap();
+        let fields = Map::from_iter([
+            ("direction".to_string(), serde_json::json!("right")),
+            ("cols".to_string(), serde_json::json!(40)),
+            ("rows".to_string(), serde_json::json!(24)),
+        ]);
+        let (created, replayed) = mux
+            .receipted_surface_creation(
+                ResourceOperation::PaneSplit,
+                candidates.clone(),
+                fields.clone(),
+                &mutation,
+            )
+            .unwrap();
+        assert!(!replayed);
+        assert_ne!(created, fallback.id);
+        assert!(mux.with_state(|state| state.pane_of(created).is_some()));
+
+        assert!(mux.close_pane(fallback_pane).unwrap());
+        let (replayed_surface, replayed) = mux
+            .receipted_surface_creation(ResourceOperation::PaneSplit, candidates, fields, &mutation)
+            .unwrap();
+        assert!(replayed);
+        assert_eq!(replayed_surface, created);
+        mux.close_surface(created).unwrap();
+    }
+
+    #[test]
+    fn receipted_creation_rejects_fallbacks_that_drop_to_backend_selection() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        let pane_selectors = mux.resource_selectors_for_pane(Some(pane)).unwrap();
+        let session_selectors = crate::ResourceSelectors {
+            machine: pane_selectors.machine.clone(),
+            session: pane_selectors.session.clone(),
+            ..crate::ResourceSelectors::default()
+        };
+        let mutation = WorkspaceMutation::new(
+            "selector-fallback-receipt-00000002".to_string(),
+            "selector-fallback-test".to_string(),
+        )
+        .unwrap();
+
+        let error = mux
+            .receipted_surface_creation(
+                ResourceOperation::TabCreateTerminal,
+                vec![pane_selectors, session_selectors],
+                Map::new(),
+                &mutation,
+            )
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "creation selector fallbacks require pane selectors");
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), 1);
+        mux.close_surface(surface.id).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn failed_atomic_exit_retries_without_exposing_partial_topology() {

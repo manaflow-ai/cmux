@@ -22,7 +22,8 @@ use cmux_tui_core::{
     platform::transport,
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
-        GUARDED_BROWSER_POINTER_CAPABILITY, ProtocolKeyInput, VIEW_ATTACHMENT_LEASE_CAPABILITY,
+        CREATION_SELECTOR_FALLBACKS_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
+        ProtocolKeyInput, VIEW_ATTACHMENT_LEASE_CAPABILITY,
     },
 };
 use cmux_tui_machine_protocol::BearerToken;
@@ -1716,6 +1717,9 @@ impl RemoteSession {
         }
         if self.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
             negotiated.push(CREATION_RECEIPTS_CAPABILITY);
+        }
+        if self.supports_capability(CREATION_SELECTOR_FALLBACKS_CAPABILITY) {
+            negotiated.push(CREATION_SELECTOR_FALLBACKS_CAPABILITY);
         }
         if !negotiated.is_empty() {
             client_info["capabilities"] = json!(negotiated);

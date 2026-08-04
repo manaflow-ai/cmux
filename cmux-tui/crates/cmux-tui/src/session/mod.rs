@@ -13,8 +13,9 @@ pub(crate) mod tree;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
-    CREATION_RECEIPTS_CAPABILITY, LAYOUT_UNDO_CAPABILITY,
+    CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY, LAYOUT_UNDO_CAPABILITY,
     PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
     VIEWPORT_SPLITS_CAPABILITY,
 };
@@ -23,13 +24,13 @@ use cmux_tui_core::{
     LayoutRatioError, LayoutUndoError, LayoutUndoResult, Mux, MuxEventReceiver, PaneId,
     PointerSemanticProbe, PointerSnapshotProbe, ResourceSelectors, ScreenId, SidebarPluginStatus,
     SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
-    TerminalPointerSnapshot, ViewportWidthError, WorkspaceId, ZoomMode,
+    TerminalPointerSnapshot, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
 use ghostty_vt::{
     KeyInput, MouseInput, RenderState, Scrollbar, Terminal, TerminalPointerSemanticSnapshot,
 };
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Map, json};
 
 pub(crate) use remote::{
     REMOTE_CONTROL_MESSAGE_MAX_BYTES, read_bounded_json_line, read_json_line_with_progress,
@@ -103,26 +104,6 @@ fn request_receipted_creation(
         }
         Err(error) => Err(error),
     }
-}
-
-fn remote_pane_creation_selectors(
-    remote: &RemoteSession,
-    pane: Option<PaneId>,
-) -> anyhow::Result<ResourceSelectors> {
-    remote
-        .cached_tree()
-        .resource_selectors_for_pane(pane)
-        .ok_or_else(|| anyhow::anyhow!("pane has no stable resource identity"))
-}
-
-fn remote_workspace_creation_selectors(
-    remote: &RemoteSession,
-    workspace: Option<WorkspaceId>,
-) -> anyhow::Result<ResourceSelectors> {
-    remote
-        .cached_tree()
-        .resource_selectors_for_workspace(workspace)
-        .ok_or_else(|| anyhow::anyhow!("workspace has no stable resource identity"))
 }
 
 pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
@@ -305,6 +286,30 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
         cmd["rows"] = json!(rows);
     }
     cmd
+}
+
+fn creation_fields(size: Option<(u16, u16)>) -> Map<String, serde_json::Value> {
+    let mut fields = Map::new();
+    if let Some((cols, rows)) = size {
+        fields.insert("cols".to_string(), json!(cols));
+        fields.insert("rows".to_string(), json!(rows));
+    }
+    fields
+}
+
+fn creation_mutation(receipt: &CreationReceipt) -> anyhow::Result<WorkspaceMutation> {
+    WorkspaceMutation::new(receipt.id.clone(), receipt.origin.clone())
+}
+
+fn creation_selector_fallbacks(
+    remote: &RemoteSession,
+    candidates: Vec<ResourceSelectors>,
+) -> Vec<ResourceSelectors> {
+    if remote.supports_capability(CREATION_SELECTOR_FALLBACKS_CAPABILITY) {
+        candidates
+    } else {
+        Vec::new()
+    }
 }
 
 fn response_surface(result: &serde_json::Value, created: &str) -> anyhow::Result<SurfaceId> {
@@ -738,28 +743,49 @@ impl Session {
         }
     }
 
+    fn pane_creation_selector_candidates(
+        &self,
+        pane: Option<PaneId>,
+        mut candidates: Vec<ResourceSelectors>,
+    ) -> anyhow::Result<Vec<ResourceSelectors>> {
+        if candidates.is_empty() {
+            candidates.push(
+                self.tree()
+                    .resource_selectors_for_pane(pane)
+                    .ok_or_else(|| anyhow::anyhow!("pane has no stable resource identity"))?,
+            );
+        }
+        let mut unique = Vec::with_capacity(candidates.len());
+        for candidate in candidates {
+            if !unique.contains(&candidate) {
+                unique.push(candidate);
+            }
+        }
+        anyhow::ensure!(unique.len() <= 8, "too many creation selector candidates");
+        Ok(unique)
+    }
+
     pub(crate) fn new_tab_receipted(
         &self,
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
+        selector_candidates: Vec<ResourceSelectors>,
         receipt: &CreationReceipt,
     ) -> anyhow::Result<SurfaceId> {
-        self.new_tab_inner(pane, size, Some(receipt))
-    }
-
-    fn new_tab_inner(
-        &self,
-        pane: Option<PaneId>,
-        size: Option<(u16, u16)>,
-        receipt: Option<&CreationReceipt>,
-    ) -> anyhow::Result<SurfaceId> {
+        let mut selector_candidates =
+            self.pane_creation_selector_candidates(pane, selector_candidates)?;
         match self {
-            Session::Local(mux) => mux.new_tab(pane, None, size).map(|surface| surface.id),
+            Session::Local(mux) => mux
+                .receipted_surface_creation(
+                    ResourceOperation::TabCreateTerminal,
+                    selector_candidates,
+                    creation_fields(size),
+                    &creation_mutation(receipt)?,
+                )
+                .map(|(surface, _)| surface),
             Session::Remote(remote) => {
-                if let Some(receipt) = receipt
-                    && remote.supports_capability(CREATION_RECEIPTS_CAPABILITY)
-                {
-                    let selectors = remote_pane_creation_selectors(remote, pane)?;
+                if remote.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
+                    let selectors = selector_candidates.remove(0);
                     return request_receipted_creation(
                         remote,
                         with_size(
@@ -769,6 +795,10 @@ impl Session {
                                 "origin": &receipt.origin,
                                 "receipt": &receipt.id,
                                 "selectors": selectors,
+                                "selector_fallbacks": creation_selector_fallbacks(
+                                    remote,
+                                    selector_candidates,
+                                ),
                                 "pane": pane,
                             }),
                             size,
@@ -789,28 +819,29 @@ impl Session {
         pane: Option<PaneId>,
         cwd: Option<String>,
         size: Option<(u16, u16)>,
+        selector_candidates: Vec<ResourceSelectors>,
         receipt: &CreationReceipt,
     ) -> anyhow::Result<SurfaceId> {
-        self.run_command_inner(argv, pane, cwd, size, Some(receipt))
-    }
-
-    fn run_command_inner(
-        &self,
-        argv: Vec<String>,
-        pane: Option<PaneId>,
-        cwd: Option<String>,
-        size: Option<(u16, u16)>,
-        receipt: Option<&CreationReceipt>,
-    ) -> anyhow::Result<SurfaceId> {
+        let mut selector_candidates =
+            self.pane_creation_selector_candidates(pane, selector_candidates)?;
         match self {
-            Session::Local(mux) => mux
-                .run_command_surface(argv, pane, false, cwd, None, size)
-                .map(|placement| placement.surface),
+            Session::Local(mux) => {
+                let mut fields = creation_fields(size);
+                fields.insert("argv".to_string(), json!(argv));
+                if let Some(cwd) = cwd {
+                    fields.insert("cwd".to_string(), json!(cwd));
+                }
+                mux.receipted_surface_creation(
+                    ResourceOperation::PaneRun,
+                    selector_candidates,
+                    fields,
+                    &creation_mutation(receipt)?,
+                )
+                .map(|(surface, _)| surface)
+            }
             Session::Remote(remote) => {
-                if let Some(receipt) = receipt
-                    && remote.supports_capability(CREATION_RECEIPTS_CAPABILITY)
-                {
-                    let selectors = remote_pane_creation_selectors(remote, pane)?;
+                if remote.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
+                    let selectors = selector_candidates.remove(0);
                     return request_receipted_creation(
                         remote,
                         with_size(
@@ -820,6 +851,10 @@ impl Session {
                                 "origin": &receipt.origin,
                                 "receipt": &receipt.id,
                                 "selectors": selectors,
+                                "selector_fallbacks": creation_selector_fallbacks(
+                                    remote,
+                                    selector_candidates,
+                                ),
                                 "argv": argv,
                                 "pane": pane,
                                 "cwd": cwd,
@@ -854,28 +889,40 @@ impl Session {
         url: String,
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
+        selector_candidates: Vec<ResourceSelectors>,
         receipt: &CreationReceipt,
     ) -> anyhow::Result<SurfaceId> {
-        self.new_browser_tab_inner(url, pane, size, Some(receipt))
-    }
-
-    fn new_browser_tab_inner(
-        &self,
-        url: String,
-        pane: Option<PaneId>,
-        size: Option<(u16, u16)>,
-        receipt: Option<&CreationReceipt>,
-    ) -> anyhow::Result<SurfaceId> {
+        let mut selector_candidates =
+            self.pane_creation_selector_candidates(pane, selector_candidates)?;
         match self {
-            Session::Local(mux) => mux.new_browser_tab(url, pane, size).map(|surface| surface.id),
+            Session::Local(mux) => {
+                let mut fields = Map::new();
+                fields.insert("url".to_string(), json!(url));
+                if let Some((cols, rows)) = size {
+                    let (cell_width, cell_height) = mux.cell_pixel_size();
+                    fields.insert(
+                        "width_px".to_string(),
+                        json!(u64::from(cols) * u64::from(cell_width)),
+                    );
+                    fields.insert(
+                        "height_px".to_string(),
+                        json!(u64::from(rows) * u64::from(cell_height)),
+                    );
+                }
+                mux.receipted_surface_creation(
+                    ResourceOperation::TabCreateBrowser,
+                    selector_candidates,
+                    fields,
+                    &creation_mutation(receipt)?,
+                )
+                .map(|(surface, _)| surface)
+            }
             Session::Remote(remote) => {
                 if !remote.supports_browser_attach() {
                     anyhow::bail!("browser panes are not supported over attach yet");
                 }
-                if let Some(receipt) = receipt
-                    && remote.supports_capability(CREATION_RECEIPTS_CAPABILITY)
-                {
-                    let selectors = remote_pane_creation_selectors(remote, pane)?;
+                if remote.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
+                    let selectors = selector_candidates.remove(0);
                     return request_receipted_creation(
                         remote,
                         with_size(
@@ -885,6 +932,10 @@ impl Session {
                                 "origin": &receipt.origin,
                                 "receipt": &receipt.id,
                                 "selectors": selectors,
+                                "selector_fallbacks": creation_selector_fallbacks(
+                                    remote,
+                                    selector_candidates,
+                                ),
                                 "url": url,
                                 "pane": pane,
                             }),
@@ -958,20 +1009,20 @@ impl Session {
         size: Option<(u16, u16)>,
         receipt: &CreationReceipt,
     ) -> anyhow::Result<SurfaceId> {
-        self.new_workspace_inner(size, Some(receipt))
-    }
-
-    fn new_workspace_inner(
-        &self,
-        size: Option<(u16, u16)>,
-        receipt: Option<&CreationReceipt>,
-    ) -> anyhow::Result<SurfaceId> {
         match self {
-            Session::Local(mux) => mux.new_workspace(None, size).map(|surface| surface.id),
+            Session::Local(mux) => {
+                let mut fields = creation_fields(size);
+                fields.insert("initial_content".to_string(), json!("terminal"));
+                mux.receipted_surface_creation(
+                    ResourceOperation::WorkspaceCreate,
+                    vec![TreeView::session_resource_selectors()],
+                    fields,
+                    &creation_mutation(receipt)?,
+                )
+                .map(|(surface, _)| surface)
+            }
             Session::Remote(remote) => {
-                if let Some(receipt) = receipt
-                    && remote.supports_capability(CREATION_RECEIPTS_CAPABILITY)
-                {
+                if remote.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
                     let selectors = TreeView::session_resource_selectors();
                     return request_receipted_creation(
                         remote,
@@ -1000,22 +1051,21 @@ impl Session {
         size: Option<(u16, u16)>,
         receipt: &CreationReceipt,
     ) -> anyhow::Result<SurfaceId> {
-        self.new_screen_inner(workspace, size, Some(receipt))
-    }
-
-    fn new_screen_inner(
-        &self,
-        workspace: Option<WorkspaceId>,
-        size: Option<(u16, u16)>,
-        receipt: Option<&CreationReceipt>,
-    ) -> anyhow::Result<SurfaceId> {
+        let selectors = self
+            .tree()
+            .resource_selectors_for_workspace(workspace)
+            .ok_or_else(|| anyhow::anyhow!("workspace has no stable resource identity"))?;
         match self {
-            Session::Local(mux) => mux.new_screen(workspace, size).map(|surface| surface.id),
+            Session::Local(mux) => mux
+                .receipted_surface_creation(
+                    ResourceOperation::ScreenCreate,
+                    vec![selectors],
+                    creation_fields(size),
+                    &creation_mutation(receipt)?,
+                )
+                .map(|(surface, _)| surface),
             Session::Remote(remote) => {
-                if let Some(receipt) = receipt
-                    && remote.supports_capability(CREATION_RECEIPTS_CAPABILITY)
-                {
-                    let selectors = remote_workspace_creation_selectors(remote, workspace)?;
+                if remote.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
                     return request_receipted_creation(
                         remote,
                         with_size(
@@ -1090,38 +1140,48 @@ impl Session {
         pane: PaneId,
         dir: SplitDir,
         size: Option<(u16, u16)>,
+        mut selector_candidates: Vec<ResourceSelectors>,
         receipt: &CreationReceipt,
     ) -> anyhow::Result<SurfaceId> {
-        self.split_inner(pane, dir, size, Some(receipt))
-    }
-
-    fn split_inner(
-        &self,
-        pane: PaneId,
-        dir: SplitDir,
-        size: Option<(u16, u16)>,
-        receipt: Option<&CreationReceipt>,
-    ) -> anyhow::Result<SurfaceId> {
+        selector_candidates =
+            self.pane_creation_selector_candidates(Some(pane), selector_candidates)?;
+        let direction = match dir {
+            SplitDir::Right => "right",
+            SplitDir::Down => "down",
+        };
         match self {
-            Session::Local(mux) => mux.split(pane, dir, size).map(|surface| surface.id),
+            Session::Local(mux) => {
+                let mutation = WorkspaceMutation::new(receipt.id.clone(), receipt.origin.clone())?;
+                let mut fields = Map::new();
+                fields.insert("direction".to_string(), json!(direction));
+                if let Some((cols, rows)) = size {
+                    fields.insert("cols".to_string(), json!(cols));
+                    fields.insert("rows".to_string(), json!(rows));
+                }
+                mux.receipted_surface_creation(
+                    ResourceOperation::PaneSplit,
+                    selector_candidates,
+                    fields,
+                    &mutation,
+                )
+                .map(|(surface, _)| surface)
+            }
             Session::Remote(remote) => {
-                let dir = match dir {
-                    SplitDir::Right => "right",
-                    SplitDir::Down => "down",
-                };
-                if let Some(receipt) = receipt
-                    && remote.supports_capability(CREATION_RECEIPTS_CAPABILITY)
-                {
-                    let selectors = remote_pane_creation_selectors(remote, Some(pane))?;
+                if remote.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
+                    let selectors = selector_candidates.remove(0);
                     return request_receipted_creation(
                         remote,
                         with_size(
                             json!({
                                 "cmd": "create-surface-with-receipt",
-                                "operation": format!("split-{dir}"),
+                                "operation": format!("split-{direction}"),
                                 "origin": &receipt.origin,
                                 "receipt": &receipt.id,
                                 "selectors": selectors,
+                                "selector_fallbacks": creation_selector_fallbacks(
+                                    remote,
+                                    selector_candidates,
+                                ),
                                 "pane": pane,
                             }),
                             size,
@@ -1129,8 +1189,10 @@ impl Session {
                         "split",
                     );
                 }
-                let result = remote
-                    .request(with_size(json!({"cmd": "split", "pane": pane, "dir": dir}), size))?;
+                let result = remote.request(with_size(
+                    json!({"cmd": "split", "pane": pane, "dir": direction}),
+                    size,
+                ))?;
                 response_surface(&result, "split")
             }
         }
@@ -1140,24 +1202,23 @@ impl Session {
         &self,
         pane: PaneId,
         size: Option<(u16, u16)>,
+        selector_candidates: Vec<ResourceSelectors>,
         receipt: &CreationReceipt,
     ) -> anyhow::Result<SurfaceId> {
-        self.new_pane_inner(pane, size, Some(receipt))
-    }
-
-    fn new_pane_inner(
-        &self,
-        pane: PaneId,
-        size: Option<(u16, u16)>,
-        receipt: Option<&CreationReceipt>,
-    ) -> anyhow::Result<SurfaceId> {
+        let mut selector_candidates =
+            self.pane_creation_selector_candidates(Some(pane), selector_candidates)?;
         match self {
-            Session::Local(mux) => mux.new_pane(pane, size).map(|surface| surface.id),
+            Session::Local(mux) => mux
+                .receipted_surface_creation(
+                    ResourceOperation::PaneCreate,
+                    selector_candidates,
+                    creation_fields(size),
+                    &creation_mutation(receipt)?,
+                )
+                .map(|(surface, _)| surface),
             Session::Remote(remote) => {
-                if let Some(receipt) = receipt
-                    && remote.supports_capability(CREATION_RECEIPTS_CAPABILITY)
-                {
-                    let selectors = remote_pane_creation_selectors(remote, Some(pane))?;
+                if remote.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
+                    let selectors = selector_candidates.remove(0);
                     return request_receipted_creation(
                         remote,
                         with_size(
@@ -1167,6 +1228,10 @@ impl Session {
                                 "origin": &receipt.origin,
                                 "receipt": &receipt.id,
                                 "selectors": selectors,
+                                "selector_fallbacks": creation_selector_fallbacks(
+                                    remote,
+                                    selector_candidates,
+                                ),
                                 "pane": pane,
                             }),
                             size,
@@ -1186,31 +1251,33 @@ impl Session {
         pane: PaneId,
         width: f32,
         size: Option<(u16, u16)>,
+        selector_candidates: Vec<ResourceSelectors>,
         receipt: &CreationReceipt,
     ) -> anyhow::Result<SurfaceId> {
-        self.new_pane_right_inner(pane, width, size, Some(receipt))
-    }
-
-    fn new_pane_right_inner(
-        &self,
-        pane: PaneId,
-        width: f32,
-        size: Option<(u16, u16)>,
-        receipt: Option<&CreationReceipt>,
-    ) -> anyhow::Result<SurfaceId> {
         validate_viewport_width(width)?;
+        let mut selector_candidates =
+            self.pane_creation_selector_candidates(Some(pane), selector_candidates)?;
         match self {
-            Session::Local(mux) => mux.new_pane_right(pane, width, size).map(|surface| surface.id),
+            Session::Local(mux) => {
+                let mut fields = creation_fields(size);
+                fields.insert("direction".to_string(), json!("right"));
+                fields.insert("viewport_width".to_string(), json!(width));
+                mux.receipted_surface_creation(
+                    ResourceOperation::PaneSplit,
+                    selector_candidates,
+                    fields,
+                    &creation_mutation(receipt)?,
+                )
+                .map(|(surface, _)| surface)
+            }
             Session::Remote(remote) => {
                 if !remote.supports_capability(VIEWPORT_SPLITS_CAPABILITY) {
                     anyhow::bail!(
                         crate::localization::catalog().layout.remote_viewport_panes_unsupported
                     );
                 }
-                if let Some(receipt) = receipt
-                    && remote.supports_capability(CREATION_RECEIPTS_CAPABILITY)
-                {
-                    let selectors = remote_pane_creation_selectors(remote, Some(pane))?;
+                if remote.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
+                    let selectors = selector_candidates.remove(0);
                     return request_receipted_creation(
                         remote,
                         with_size(
@@ -1220,6 +1287,10 @@ impl Session {
                                 "origin": &receipt.origin,
                                 "receipt": &receipt.id,
                                 "selectors": selectors,
+                                "selector_fallbacks": creation_selector_fallbacks(
+                                    remote,
+                                    selector_candidates,
+                                ),
                                 "pane": pane,
                                 "width": width,
                             }),
