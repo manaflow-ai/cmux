@@ -2,9 +2,19 @@ import Foundation
 
 @MainActor
 final class GlobalSearchPanelCaptureManager {
+    @MainActor
     private enum CaptureNotificationPolicy {
         case notifyOnCommit
-        case deferToPresentation
+        case deferToPresentation(GlobalSearchPanelCaptureDeadline)
+
+        var shouldNotifyOnCommit: Bool {
+            switch self {
+            case .notifyOnCommit:
+                return true
+            case .deferToPresentation(let deadline):
+                return deadline.hasExpired
+            }
+        }
     }
 
     private let browserCaptureDebounceMilliseconds = 250
@@ -176,7 +186,7 @@ final class GlobalSearchPanelCaptureManager {
                 taskID: capture.taskID,
                 generation: capture.generation,
                 panelRevision: capture.panelRevision,
-                notificationPolicy: .deferToPresentation
+                notificationPolicy: .deferToPresentation(deadline)
             )
             browserCaptureTasks[panelID] = task
         }
@@ -326,7 +336,7 @@ final class GlobalSearchPanelCaptureManager {
                 taskID: capture.taskID,
                 generation: capture.generation,
                 panelRevision: capture.panelRevision,
-                notificationPolicy: .deferToPresentation
+                notificationPolicy: .deferToPresentation(deadline)
             )
             markdownCaptureTasks[panelID] = task
         }
@@ -408,7 +418,7 @@ final class GlobalSearchPanelCaptureManager {
                     return
                 }
                 self.indexedMarkdownPanelIDs.insert(panelID)
-                if notificationPolicy == .notifyOnCommit {
+                if notificationPolicy.shouldNotifyOnCommit {
                     self.contentDidChange(panelID)
                 }
                 return
@@ -436,7 +446,7 @@ final class GlobalSearchPanelCaptureManager {
                     return
                 }
                 self.indexedMarkdownPanelIDs.insert(panelID)
-                if notificationPolicy == .notifyOnCommit {
+                if notificationPolicy.shouldNotifyOnCommit {
                     self.contentDidChange(panelID)
                 }
             } catch {
@@ -592,7 +602,7 @@ final class GlobalSearchPanelCaptureManager {
                 return
             }
             indexedBrowserPanelIDs.insert(panelID)
-            if notificationPolicy == .notifyOnCommit {
+            if notificationPolicy.shouldNotifyOnCommit {
                 contentDidChange(panelID)
             }
         } catch {

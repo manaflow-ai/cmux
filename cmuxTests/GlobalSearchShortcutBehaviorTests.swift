@@ -1045,6 +1045,88 @@ extension GlobalSearchShortcutBehaviorTests {
     }
 
     @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func captureCompletingAfterPresentationDeadlineInvalidatesActiveQuery() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-late-refresh-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let token = "laterefresh\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let fileURL = directoryURL.appendingPathComponent("late.md")
+        try token.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspaceID = UUID()
+        let panel = MarkdownPanel(workspaceId: workspaceID, filePath: fileURL.path)
+        let index = try SearchIndex(
+            databaseURL: directoryURL.appendingPathComponent("search.sqlite3")
+        )
+        let indexRequestStarted = GlobalSearchAsyncSignal()
+        let releaseIndexRequest = GlobalSearchAsyncSignal()
+        let lateInvalidation = GlobalSearchAsyncSignal()
+        let refreshFinishedCount = GlobalSearchCounter()
+        var invalidatedPanelIDs: [UUID] = []
+        let captureManager = GlobalSearchPanelCaptureManager(
+            indexProvider: {
+                indexRequestStarted.signal()
+                await releaseIndexRequest.wait()
+                return index
+            },
+            cancelPanelPurge: { _ in },
+            contentDidChange: { panelID in
+                invalidatedPanelIDs.append(panelID)
+                lateInvalidation.signal()
+            }
+        )
+        defer {
+            releaseIndexRequest.signal()
+            captureManager.cancelCaptures(forPanelID: panel.id)
+            panel.close()
+        }
+        let context = GlobalSearchPanelContext(
+            windowID: UUID(),
+            windowTitle: "Window",
+            workspaceID: workspaceID,
+            workspaceTitle: "Workspace",
+            panelID: panel.id,
+            panelTitle: panel.displayTitle,
+            panel: panel
+        )
+
+        let refreshTask = Task { @MainActor in
+            await captureManager.refreshPanelContent(for: context)
+            refreshFinishedCount.increment()
+        }
+        await indexRequestStarted.wait()
+        #expect(
+            await waitUntil(timeout: 2) {
+                refreshFinishedCount.value == 1
+            },
+            "The presentation refresh must return at its deadline before the blocked capture commits"
+        )
+        #expect(
+            invalidatedPanelIDs.isEmpty,
+            "The refresh completion owns the query rerun until its deadline"
+        )
+
+        releaseIndexRequest.signal()
+        await lateInvalidation.wait()
+        await refreshTask.value
+
+        #expect(
+            invalidatedPanelIDs == [panel.id],
+            "A capture that commits after the presentation rerun must invalidate the active query once"
+        )
+        #expect(
+            try await index.search(token).contains(where: { $0.panelID == panel.id }),
+            "The late invalidation must follow a committed searchable document"
+        )
+    }
+
+    @MainActor
     @Test func reopeningSearchRecapturesDynamicBrowserContent() async throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
