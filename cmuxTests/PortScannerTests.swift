@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxFoundation
+import Darwin
 import Foundation
 import os
 import Testing
@@ -83,6 +84,32 @@ struct PortScannerProcessCaptureTests {
         #expect(scan.completeness == .incomplete)
     }
 
+    @Test("Filesystem warnings do not poison lsof TCP evidence")
+    func filesystemWarningsAreSuppressedForLsofTCPScan() async {
+        let pid = 123
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(pid),
+            startSeconds: 1,
+            startMicroseconds: 0
+        )
+        let runner = PortLifecycleCommandRunner(
+            ttyName: "ttys001",
+            sessionLeaderPID: 1,
+            pid: pid,
+            port: 4200
+        )
+        let scan = await PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: { $0 == identity.pid ? identity : nil },
+            processPresenceProvider: { $0 == identity.pid ? .present : .absent }
+        ).runLsof(pidsCsv: String(pid))
+        let arguments = await runner.lastLsofArguments
+
+        #expect(scan.values == [pid: [4200]])
+        #expect(scan.completeness(for: [pid]) == .complete)
+        #expect(arguments?.contains("-w") == true)
+    }
+
     @Test("A confirmed absent PID is safe negative lsof evidence")
     func absentPIDIsCompleteNegativeEvidence() async {
         let runner = StubCommandRunner(result: CommandResult(
@@ -113,6 +140,18 @@ struct PortScannerProcessCaptureTests {
         // launchd is root-owned on every macOS system, so `proc_pidinfo`
         // refuses it for an unprivileged caller — the same refusal that hides
         // the root `login` process heading every terminal's process group.
+        try #require(geteuid() != 0, "the cross-user identity test must run unprivileged")
+        var legacyInfo = proc_bsdinfo()
+        let expectedLegacySize = MemoryLayout<proc_bsdinfo>.stride
+        let legacySize = proc_pidinfo(
+            1,
+            PROC_PIDTBSDINFO,
+            0,
+            &legacyInfo,
+            Int32(expectedLegacySize)
+        )
+        #expect(legacySize != expectedLegacySize, "proc_pidinfo unexpectedly read launchd")
+
         let identity = try #require(AgentPIDProcessIdentity(pid: 1))
 
         #expect(identity.pid == 1)
@@ -862,8 +901,8 @@ struct ProcessTerminationGateTests {
     }
 }
 
-/// Replays one scripted result per invocation so a test can drive a retry
-/// sequence, repeating the last result once the script is exhausted.
+/// Replays exactly one scripted result per invocation so unexpected retries
+/// fail instead of silently reusing stale evidence.
 private actor ScriptedCommandRunner: CommandRunning {
     private let results: [CommandResult]
     private(set) var recordedArguments: [[String]] = []
@@ -879,7 +918,16 @@ private actor ScriptedCommandRunner: CommandRunning {
         timeout: TimeInterval?
     ) async -> CommandResult {
         recordedArguments.append(arguments)
-        let index = min(recordedArguments.count - 1, results.count - 1)
+        let index = recordedArguments.count - 1
+        guard results.indices.contains(index) else {
+            return CommandResult(
+                stdout: nil,
+                stderr: nil,
+                exitStatus: nil,
+                timedOut: false,
+                executionError: "unexpected scripted command invocation \(recordedArguments.count)"
+            )
+        }
         return results[index]
     }
 }
@@ -889,7 +937,7 @@ struct PortScannerPortRetirementTests {
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
     /// reconcile, publish — so a break anywhere in that chain surfaces even
     /// when every individual stage still passes its own test.
-    @Test("A published port is retired once its process stops listening")
+    @Test("A published port retires despite unrelated lsof filesystem warnings")
     func publishedPortIsRetiredAfterProcessStopsListening() async throws {
         let workspaceId = UUID()
         let panelId = UUID()
@@ -987,6 +1035,14 @@ private actor PortLifecycleCommandRunner: CommandRunning {
     private let pid: Int
     private let port: Int
     private var isListening = true
+    private(set) var lastLsofArguments: [String]?
+
+    private static let filesystemWarning = """
+    lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/example
+          Output information may be incomplete.
+          assuming "dev=deadbeef" from mount table
+
+    """
 
     init(ttyName: String, sessionLeaderPID: Int, pid: Int, port: Int) {
         self.ttyName = ttyName
@@ -1016,10 +1072,15 @@ private actor PortLifecycleCommandRunner: CommandRunning {
             }
             return Self.output("\(sessionLeaderPID) \(ttyName)\n\(pid) \(ttyName)\n")
         }
+        lastLsofArguments = arguments
+        // `lsof -w` suppresses filesystem warnings. They are unrelated to a
+        // PID-scoped TCP socket query, but any stderr currently makes the
+        // scanner globally incomplete and prevents stale ports from aging out.
+        let stderr = arguments.contains("-w") ? "" : Self.filesystemWarning
         guard isListening, Self.selection(for: "-p", in: arguments).contains(String(pid)) else {
-            return Self.noSelectedFiles()
+            return Self.noSelectedFiles(stderr: stderr)
         }
-        return Self.output("p\(pid)\nf3\nn127.0.0.1:\(port)\n")
+        return Self.output("p\(pid)\nf3\nn127.0.0.1:\(port)\n", stderr: stderr)
     }
 
     /// The comma-separated values the command was asked to select on.
@@ -1030,10 +1091,10 @@ private actor PortLifecycleCommandRunner: CommandRunning {
         return Set(arguments[valueIndex].split(separator: ",").map(String.init))
     }
 
-    private static func output(_ stdout: String) -> CommandResult {
+    private static func output(_ stdout: String, stderr: String = "") -> CommandResult {
         CommandResult(
             stdout: stdout,
-            stderr: "",
+            stderr: stderr,
             exitStatus: 0,
             timedOut: false,
             executionError: nil
@@ -1042,10 +1103,10 @@ private actor PortLifecycleCommandRunner: CommandRunning {
 
     /// Both `ps` and `lsof` exit 1 with no output when a valid selector matches
     /// nothing.
-    private static func noSelectedFiles() -> CommandResult {
+    private static func noSelectedFiles(stderr: String = "") -> CommandResult {
         CommandResult(
             stdout: "",
-            stderr: "",
+            stderr: stderr,
             exitStatus: 1,
             timedOut: false,
             executionError: nil
