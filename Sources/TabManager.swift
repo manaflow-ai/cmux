@@ -5758,7 +5758,7 @@ extension TabManager {
             for panelId in panelIds {
                 hasher.combine(panelId)
                 hasher.combine(workspace.panelDirectories[panelId] ?? "")
-                hasher.combine(workspace.panelCustomColors[panelId] ?? "")
+                hasher.combine(workspace.panelColorModel.color(forPanelID: panelId) ?? "")
                 hasher.combine(workspace.remoteDirectoryReportPanelIds.contains(panelId))
                 hasher.combine(workspace.remoteDirectoryTrustRequiredPanelIds.contains(panelId))
                 hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))

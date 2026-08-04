@@ -719,7 +719,7 @@ extension Workspace {
             title: panelTitle,
             customTitle: customTitle,
             customTitleSource: customTitleSource,
-            customColor: panelCustomColors[panelId],
+            customColor: panelColorModel.color(forPanelID: panelId),
             directory: directory,
             directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
             directoryRequiresRemoteTrust: directoryRequiresRemoteTrust ? true : nil,
@@ -2436,7 +2436,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
-    @Published var panelCustomColors: [UUID: String] = [:]
+    /// Observation-backed owner for per-panel custom colors.
+    let panelColorModel = WorkspacePanelColorModel()
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
@@ -4582,26 +4583,13 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
+    /// Assigns or clears one live panel's custom color and refreshes its overlay.
     @discardableResult
     func setPanelCustomColor(panelId: UUID, colorHex: String?) -> Bool {
         guard panels[panelId] != nil else { return false }
-
-        let normalizedColor: String?
-        if let colorHex {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorHex) else {
-                return false
-            }
-            normalizedColor = normalized
-        } else {
-            normalizedColor = nil
-        }
-
-        guard panelCustomColors[panelId] != normalizedColor else { return true }
-        if let normalizedColor {
-            panelCustomColors[panelId] = normalizedColor
-        } else {
-            panelCustomColors.removeValue(forKey: panelId)
-        }
+        let previousColor = panelColorModel.color(forPanelID: panelId)
+        guard panelColorModel.setColor(colorHex, forPanelID: panelId) else { return false }
+        guard panelColorModel.color(forPanelID: panelId) != previousColor else { return true }
         NotificationCenter.default.post(
             name: Self.panelCustomColorDidChangeNotification,
             object: self,
@@ -5391,7 +5379,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
-        panelCustomColors = panelCustomColors.filter { validSurfaceIds.contains($0.key) }
+        panelColorModel.retainColors(forPanelIDs: validSurfaceIds)
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         pinMutationTokensByPanelId = pinMutationTokensByPanelId.filter { validSurfaceIds.contains($0.key) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
@@ -12597,7 +12585,7 @@ extension Workspace: BonsplitDelegate {
                 customTitleSource: panelCustomTitles[panelId] != nil
                     ? (panelCustomTitleSources[panelId] ?? .user)
                     : nil,
-                customColor: panelCustomColors[panelId],
+                customColor: panelColorModel.color(forPanelID: panelId),
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,

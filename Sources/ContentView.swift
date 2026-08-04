@@ -1093,7 +1093,11 @@ struct ContentView: View {
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let resolvedActivePaneBorderColorHex = WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
         let shouldShowActivePaneBorder = shouldShowActivePaneBorder(for: workspace, colorHex: resolvedActivePaneBorderColorHex)
-        let shouldShowCustomPaneBorders = shouldShowCustomPaneBorders(for: workspace)
+        let panelColorSnapshot = workspace.panelColorModel.snapshot
+        let shouldShowCustomPaneBorders = shouldShowCustomPaneBorders(
+            for: workspace,
+            panelColors: panelColorSnapshot
+        )
         guard usesWorkspacePaneOverlay || shouldShowActivePaneBorder || shouldShowCustomPaneBorders else {
             return nil
         }
@@ -1180,7 +1184,7 @@ struct ContentView: View {
                     forSelectedTabId: pane.selectedTabId,
                     workspace: workspace
                 ),
-                      let colorHex = workspace.panelCustomColors[panelId].flatMap(
+                      let colorHex = panelColorSnapshot[panelId].flatMap(
                           WorkspaceTabColorSettings.normalizedHex
                       ) else {
                     return nil
@@ -1266,8 +1270,11 @@ struct ContentView: View {
         colorHex != nil && workspace.layoutMode != .canvas && !fileExplorerState.rightSidebarOwnsInputFocus && workspace.bonsplitController.allPaneIds.count > 1
     }
 
-    private func shouldShowCustomPaneBorders(for workspace: Workspace) -> Bool {
-        workspace.layoutMode != .canvas && !workspace.panelCustomColors.isEmpty
+    private func shouldShowCustomPaneBorders(
+        for workspace: Workspace,
+        panelColors: [UUID: String]
+    ) -> Bool {
+        workspace.layoutMode != .canvas && !panelColors.isEmpty
     }
 
     private func shouldScheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow) -> Bool {
@@ -1277,7 +1284,10 @@ struct ContentView: View {
         return shouldShowActivePaneBorder(
             for: workspace,
             colorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
-        ) || shouldShowCustomPaneBorders(for: workspace)
+        ) || shouldShowCustomPaneBorders(
+            for: workspace,
+            panelColors: workspace.panelColorModel.snapshot
+        )
     }
 
     private func scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow?) {

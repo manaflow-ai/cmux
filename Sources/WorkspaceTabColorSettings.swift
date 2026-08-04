@@ -127,12 +127,7 @@ enum WorkspaceTabColorSettings {
     }
 
     static func normalizedHex(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
-        guard body.count == 6 else { return nil }
-        guard UInt64(body, radix: 16) != nil else { return nil }
-        return "#" + body.uppercased()
+        WorkspaceTabColorInputResolver.normalizedHex(raw)
     }
 
     /// Builds the pure color-input resolver from the explicitly selected palette store.

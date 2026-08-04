@@ -18,6 +18,21 @@ struct WorkspaceTabColorInputResolverTests {
         #expect(resolver.resolve("#12ab34") == .resolved("#12AB34"))
     }
 
+    @Test("Signed and non-ASCII hexadecimal colors are rejected", arguments: [
+        "+ABCDE",
+        "-ABCDE",
+        "#+ABCDE",
+        "#-ABCDE",
+        "#12345G",
+        "#１２３４５６",
+    ])
+    func rejectsInvalidHexColor(_ input: String) {
+        #expect(
+            resolver.resolve(input) ==
+                .invalid(namedColors: ["Purple", "Blue"])
+        )
+    }
+
     @Test("Nil and whitespace-only colors are missing", arguments: [
         nil,
         "",

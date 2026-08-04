@@ -66,12 +66,28 @@ public struct WorkspaceTabColorInputResolver: Sendable {
         return .invalid(namedColors: namedColors.map(\.name))
     }
 
-    private static func normalizedHex(_ raw: String) -> String? {
+    /// Normalizes a six-digit ASCII hexadecimal color to `#RRGGBB`.
+    ///
+    /// The leading `#` is optional. Signed values and non-ASCII digits are
+    /// rejected even when radix integer parsing would otherwise accept
+    /// them.
+    ///
+    /// - Parameter raw: The hexadecimal color to normalize.
+    /// - Returns: The normalized color, or `nil` when the input is not exactly
+    ///   six ASCII hexadecimal digits after the optional leading `#`.
+    public static func normalizedHex(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
-        guard body.count == 6,
-              UInt64(body, radix: 16) != nil else {
+        guard body.utf8.count == 6,
+              body.utf8.allSatisfy({ byte in
+                  switch byte {
+                  case 48...57, 65...70, 97...102:
+                      return true
+                  default:
+                      return false
+                  }
+              }) else {
             return nil
         }
         return "#" + body.uppercased()

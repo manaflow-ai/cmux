@@ -53,6 +53,27 @@ struct TabColorActionTests {
                 .panels.first(where: { $0.id == targetSurfaceID })?.customColor == "#7A4FD8"
         )
 
+        let invalidResult = coordinator.handle(ControlRequest(
+            id: .string("invalid-color"),
+            method: "tab.action",
+            params: routingParams.merging([
+                "action": .string("set-color"),
+                "color": .string("#+ABCDE"),
+            ]) { _, new in new }
+        ))
+
+        guard case .err(let invalidCode, _, _) = invalidResult else {
+            Issue.record("Expected signed hexadecimal input to fail, got \(invalidResult)")
+            return
+        }
+        #expect(invalidCode == "invalid_params")
+        #expect(manager.selectedTabId == selectedWorkspace.id)
+        #expect(try surfaceColor(coordinator: coordinator, params: routingParams) == .string("#7A4FD8"))
+        #expect(
+            targetWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first(where: { $0.id == targetSurfaceID })?.customColor == "#7A4FD8"
+        )
+
         let clearResult = coordinator.handle(ControlRequest(
             id: .string("clear-color"),
             method: "tab.action",
