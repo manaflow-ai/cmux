@@ -2,6 +2,11 @@ import Foundation
 
 @MainActor
 final class GlobalSearchPanelCaptureManager {
+    private enum CaptureNotificationPolicy {
+        case notifyOnCommit
+        case deferToPresentation
+    }
+
     private let browserCaptureDebounceMilliseconds = 250
     private let markdownCaptureDebounceMilliseconds = 250
     private let refreshCaptureDeadlineMilliseconds = 1_000
@@ -146,7 +151,8 @@ final class GlobalSearchPanelCaptureManager {
                     context: nil,
                     taskID: capture.taskID,
                     generation: capture.generation,
-                    panelRevision: capture.panelRevision
+                    panelRevision: capture.panelRevision,
+                    notificationPolicy: .notifyOnCommit
                 )
                 self.browserCaptureTasks[panelID] = task
             }
@@ -169,7 +175,8 @@ final class GlobalSearchPanelCaptureManager {
                 context: context,
                 taskID: capture.taskID,
                 generation: capture.generation,
-                panelRevision: capture.panelRevision
+                panelRevision: capture.panelRevision,
+                notificationPolicy: .deferToPresentation
             )
             browserCaptureTasks[panelID] = task
         }
@@ -206,7 +213,8 @@ final class GlobalSearchPanelCaptureManager {
         context: GlobalSearchPanelContext?,
         taskID: UUID,
         generation: UInt64,
-        panelRevision: UInt64
+        panelRevision: UInt64,
+        notificationPolicy: CaptureNotificationPolicy
     ) -> Task<Void, Never> {
         let panelID = panel.id
         return Task { @MainActor [weak self, weak panel] in
@@ -237,7 +245,8 @@ final class GlobalSearchPanelCaptureManager {
                 context: context,
                 taskID: taskID,
                 generation: generation,
-                panelRevision: panelRevision
+                panelRevision: panelRevision,
+                notificationPolicy: notificationPolicy
             )
         }
     }
@@ -263,7 +272,8 @@ final class GlobalSearchPanelCaptureManager {
                 context: nil,
                 taskID: capture.taskID,
                 generation: capture.generation,
-                panelRevision: capture.panelRevision
+                panelRevision: capture.panelRevision,
+                notificationPolicy: .notifyOnCommit
             )
             markdownCaptureTasks[panelID] = task
             return
@@ -291,7 +301,8 @@ final class GlobalSearchPanelCaptureManager {
                     context: nil,
                     taskID: capture.taskID,
                     generation: capture.generation,
-                    panelRevision: capture.panelRevision
+                    panelRevision: capture.panelRevision,
+                    notificationPolicy: .notifyOnCommit
                 )
                 self.markdownCaptureTasks[panelID] = task
             }
@@ -314,7 +325,8 @@ final class GlobalSearchPanelCaptureManager {
                 context: context,
                 taskID: capture.taskID,
                 generation: capture.generation,
-                panelRevision: capture.panelRevision
+                panelRevision: capture.panelRevision,
+                notificationPolicy: .deferToPresentation
             )
             markdownCaptureTasks[panelID] = task
         }
@@ -353,7 +365,8 @@ final class GlobalSearchPanelCaptureManager {
         context: GlobalSearchPanelContext?,
         taskID: UUID,
         generation: UInt64,
-        panelRevision: UInt64
+        panelRevision: UInt64,
+        notificationPolicy: CaptureNotificationPolicy
     ) -> Task<Void, Never> {
         let panelID = panel.id
         return Task { @MainActor [weak self, weak panel] in
@@ -395,7 +408,9 @@ final class GlobalSearchPanelCaptureManager {
                     return
                 }
                 self.indexedMarkdownPanelIDs.insert(panelID)
-                self.contentDidChange(panelID)
+                if notificationPolicy == .notifyOnCommit {
+                    self.contentDidChange(panelID)
+                }
                 return
             }
 
@@ -421,7 +436,9 @@ final class GlobalSearchPanelCaptureManager {
                     return
                 }
                 self.indexedMarkdownPanelIDs.insert(panelID)
-                self.contentDidChange(panelID)
+                if notificationPolicy == .notifyOnCommit {
+                    self.contentDidChange(panelID)
+                }
             } catch {
                 guard !Task.isCancelled else { return }
 #if DEBUG
@@ -500,7 +517,8 @@ final class GlobalSearchPanelCaptureManager {
         context: GlobalSearchPanelContext?,
         taskID: UUID,
         generation: UInt64,
-        panelRevision: UInt64
+        panelRevision: UInt64,
+        notificationPolicy: CaptureNotificationPolicy
     ) async {
         let panelID = panel.id
         // A memory-discarded panel exposes its unloaded replacement WebView
@@ -574,7 +592,9 @@ final class GlobalSearchPanelCaptureManager {
                 return
             }
             indexedBrowserPanelIDs.insert(panelID)
-            contentDidChange(panelID)
+            if notificationPolicy == .notifyOnCommit {
+                contentDidChange(panelID)
+            }
         } catch {
             guard !Task.isCancelled else { return }
 #if DEBUG

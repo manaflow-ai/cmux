@@ -105,9 +105,25 @@ enum SearchIndexError: LocalizedError {
 }
 
 actor SearchIndex {
+    struct QueryCancellation: Sendable {
+        let progressInstructionInterval: Int32
+        let shouldCancel: @Sendable () -> Bool
+
+        init(
+            progressInstructionInterval: Int32 = 1_000,
+            shouldCancel: @escaping @Sendable () -> Bool = { Task.isCancelled }
+        ) {
+            self.progressInstructionInterval = max(1, progressInstructionInterval)
+            self.shouldCancel = shouldCancel
+        }
+
+        static let currentTask = QueryCancellation()
+    }
+
     private static let schemaVersion = 1
 
     private var database: OpaquePointer?
+    private let queryCancellation: QueryCancellation
 
     nonisolated static func open(databaseURL: URL = .cmuxSearchDatabaseURL) async throws -> SearchIndex {
         // Actor initializers run on the caller executor, so open SQLite off the MainActor.
@@ -116,7 +132,11 @@ actor SearchIndex {
         }.value
     }
 
-    init(databaseURL: URL = .cmuxSearchDatabaseURL) throws {
+    init(
+        databaseURL: URL = .cmuxSearchDatabaseURL,
+        queryCancellation: QueryCancellation = .currentTask
+    ) throws {
+        self.queryCancellation = queryCancellation
         try Self.ensureParentDirectoryExists(for: databaseURL)
 
         var openedDatabase: OpaquePointer?
@@ -231,27 +251,32 @@ actor SearchIndex {
             LIMIT ?2
             """
 
-        return try withStatement(sql) { statement in
-            try bind(matchQuery, at: 1, in: statement)
-            let limitBindResult = sqlite3_bind_int64(statement, 2, sqlite3_int64(limit))
-            guard limitBindResult == SQLITE_OK else {
-                throw SearchIndexError.bindFailed(
-                    Self.sqliteMessage(database) ?? "bind failed with code \(limitBindResult)"
-                )
-            }
+        return try withQueryCancellation {
+            try withStatement(sql) { statement in
+                try bind(matchQuery, at: 1, in: statement)
+                let limitBindResult = sqlite3_bind_int64(statement, 2, sqlite3_int64(limit))
+                guard limitBindResult == SQLITE_OK else {
+                    throw SearchIndexError.bindFailed(
+                        Self.sqliteMessage(database) ?? "bind failed with code \(limitBindResult)"
+                    )
+                }
 
-            var hits: [SearchIndexHit] = []
-            while true {
-                try Task.checkCancellation()
-                let stepResult = sqlite3_step(statement)
-                switch stepResult {
-                case SQLITE_ROW:
-                    guard let hit = Self.hit(from: statement) else { continue }
-                    hits.append(hit)
-                case SQLITE_DONE:
-                    return hits
-                default:
-                    throw SearchIndexError.stepFailed(Self.sqliteMessage(database) ?? "step failed with code \(stepResult)")
+                var hits: [SearchIndexHit] = []
+                while true {
+                    try Task.checkCancellation()
+                    let stepResult = sqlite3_step(statement)
+                    try Task.checkCancellation()
+                    switch stepResult {
+                    case SQLITE_ROW:
+                        guard let hit = Self.hit(from: statement) else { continue }
+                        hits.append(hit)
+                    case SQLITE_DONE:
+                        return hits
+                    default:
+                        throw SearchIndexError.stepFailed(
+                            Self.sqliteMessage(database) ?? "step failed with code \(stepResult)"
+                        )
+                    }
                 }
             }
         }
@@ -384,6 +409,44 @@ actor SearchIndex {
         return try body(statement)
     }
 
+    private func withQueryCancellation<T>(
+        _ body: () throws -> T
+    ) throws -> T {
+        guard let database else {
+            throw SearchIndexError.executeFailed("database is closed")
+        }
+
+        let context = SearchIndexProgressCancellationContext(
+            shouldCancel: queryCancellation.shouldCancel
+        )
+        sqlite3_progress_handler(
+            database,
+            queryCancellation.progressInstructionInterval,
+            { rawContext in
+                guard let rawContext else { return 0 }
+                return Unmanaged<SearchIndexProgressCancellationContext>
+                    .fromOpaque(rawContext)
+                    .takeUnretainedValue()
+                    .checkForCancellation()
+            },
+            Unmanaged.passUnretained(context).toOpaque()
+        )
+        defer {
+            sqlite3_progress_handler(database, 0, nil, nil)
+        }
+
+        do {
+            let result = try body()
+            try Task.checkCancellation()
+            return result
+        } catch {
+            if context.didInterrupt {
+                throw CancellationError()
+            }
+            throw error
+        }
+    }
+
     private func bind(_ value: String, at index: Int32, in statement: OpaquePointer) throws {
         let result = sqlite3_bind_text(statement, index, value, -1, Self.sqliteTransient)
         guard result == SQLITE_OK else {
@@ -484,6 +547,21 @@ actor SearchIndex {
         OpaquePointer(bitPattern: -1),
         to: sqlite3_destructor_type.self
     )
+}
+
+private final class SearchIndexProgressCancellationContext {
+    private let shouldCancel: @Sendable () -> Bool
+    private(set) var didInterrupt = false
+
+    init(shouldCancel: @escaping @Sendable () -> Bool) {
+        self.shouldCancel = shouldCancel
+    }
+
+    func checkForCancellation() -> Int32 {
+        guard shouldCancel() else { return 0 }
+        didInterrupt = true
+        return 1
+    }
 }
 
 extension URL {

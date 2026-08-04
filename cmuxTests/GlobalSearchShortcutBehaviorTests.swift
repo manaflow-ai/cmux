@@ -822,6 +822,53 @@ extension GlobalSearchShortcutBehaviorTests {
     }
 
     @MainActor
+    @Test func activeSQLiteSearchRespondsToProgressCancellation() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-progress-cancellation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let cancellationState = OSAllocatedUnfairLock(
+            initialState: (isEnabled: true, progressChecks: 0)
+        )
+        let index = try SearchIndex(
+            databaseURL: directoryURL.appendingPathComponent("search.sqlite3"),
+            queryCancellation: SearchIndex.QueryCancellation(
+                progressInstructionInterval: 1,
+                shouldCancel: {
+                    cancellationState.withLock { state in
+                        state.progressChecks += 1
+                        return state.isEnabled
+                    }
+                }
+            )
+        )
+        let document = makeSearchDocument(
+            id: "progress-cancellation-document",
+            panelID: UUID(),
+            token: "progresscancellationtoken"
+        )
+        try await index.upsert(document)
+
+        await #expect(throws: CancellationError.self) {
+            _ = try await index.search("progresscancellationtoken")
+        }
+        #expect(
+            cancellationState.withLock { $0.progressChecks } > 0,
+            "SQLite must consult cancellation after query execution begins"
+        )
+
+        cancellationState.withLock { $0.isEnabled = false }
+        #expect(
+            try await index.search("progresscancellationtoken").map(\.id) == [document.id],
+            "A canceled query must leave the connection reusable"
+        )
+    }
+
+    @MainActor
     @Test func reopeningSearchRefreshesLiveIndex() async throws {
 #if DEBUG
         let appDelegate = try #require(AppDelegate.shared)
@@ -911,6 +958,88 @@ extension GlobalSearchShortcutBehaviorTests {
                 $0.panelID == panel.id && $0.kind == .markdown
             }),
             "A completed live refresh must make a newly discovered Markdown panel searchable"
+        )
+    }
+
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func presentationOwnedCapturesDeferPerPanelInvalidations() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-refresh-invalidation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let firstToken = "firstrefresh\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let secondToken = "secondrefresh\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let firstFileURL = directoryURL.appendingPathComponent("first.md")
+        let secondFileURL = directoryURL.appendingPathComponent("second.md")
+        try firstToken.write(to: firstFileURL, atomically: true, encoding: .utf8)
+        try secondToken.write(to: secondFileURL, atomically: true, encoding: .utf8)
+
+        let workspaceID = UUID()
+        let firstPanel = MarkdownPanel(workspaceId: workspaceID, filePath: firstFileURL.path)
+        let secondPanel = MarkdownPanel(workspaceId: workspaceID, filePath: secondFileURL.path)
+        let independentPanel = MarkdownPanel(
+            workspaceId: workspaceID,
+            filePath: directoryURL.appendingPathComponent("missing.md").path
+        )
+        let index = try SearchIndex(
+            databaseURL: directoryURL.appendingPathComponent("search.sqlite3")
+        )
+        let independentCaptureFinished = GlobalSearchAsyncSignal()
+        var invalidatedPanelIDs: [UUID] = []
+        let captureManager = GlobalSearchPanelCaptureManager(
+            indexProvider: { index },
+            cancelPanelPurge: { _ in },
+            contentDidChange: { panelID in
+                invalidatedPanelIDs.append(panelID)
+                if panelID == independentPanel.id {
+                    independentCaptureFinished.signal()
+                }
+            }
+        )
+        defer {
+            captureManager.cancelCaptures(forPanelID: firstPanel.id)
+            captureManager.cancelCaptures(forPanelID: secondPanel.id)
+            captureManager.cancelCaptures(forPanelID: independentPanel.id)
+            firstPanel.close()
+            secondPanel.close()
+            independentPanel.close()
+        }
+        let contexts = [firstPanel, secondPanel].map { panel in
+            GlobalSearchPanelContext(
+                windowID: UUID(),
+                windowTitle: "Window",
+                workspaceID: workspaceID,
+                workspaceTitle: "Workspace",
+                panelID: panel.id,
+                panelTitle: panel.displayTitle,
+                panel: panel
+            )
+        }
+
+        await captureManager.refreshPanelContent(for: contexts)
+
+        #expect(
+            try await index.search(firstToken).contains(where: { $0.panelID == firstPanel.id })
+        )
+        #expect(
+            try await index.search(secondToken).contains(where: { $0.panelID == secondPanel.id })
+        )
+        #expect(
+            invalidatedPanelIDs.isEmpty,
+            "One presentation refresh must defer its per-panel invalidations to presentation completion"
+        )
+
+        #expect(independentPanel.isFileUnavailable)
+        captureManager.captureMarkdownPanel(independentPanel)
+        await independentCaptureFinished.wait()
+        #expect(
+            invalidatedPanelIDs == [independentPanel.id],
+            "Independent lifecycle captures must continue to invalidate active search immediately"
         )
     }
 
