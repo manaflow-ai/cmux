@@ -179,6 +179,9 @@ final class CLIMockAcceptLoopRegistry: @unchecked Sendable {
                     }
                     let handlerThread = Thread { onConnection(clientFD) }
                     handlerThread.stackSize = 1 << 20
+                    // XCTest waits synchronously for handler completion on its
+                    // user-interactive runner thread, so match that QoS.
+                    handlerThread.qualityOfService = .userInteractive
                     handlerThread.start()
                     continue
                 }
@@ -189,6 +192,11 @@ final class CLIMockAcceptLoopRegistry: @unchecked Sendable {
             }
         }
         thread.stackSize = 1 << 20
+        // XCTest may supersede or reap this loop from a user-interactive thread
+        // and must synchronously join it before the listener FD can be reused.
+        // Match the waiter's QoS so Thread Performance Checker does not report a
+        // priority inversion while preserving the required stop-and-join order.
+        thread.qualityOfService = .userInteractive
         thread.start()
     }
 
