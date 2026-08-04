@@ -619,17 +619,12 @@ final class MarkdownPanelTests: XCTestCase {
             window.close()
         }
 
-        let loaded = expectation(description: "markdown shell loaded")
-        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
-        webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(
+        let loadDelegate = MarkdownShellLoadDelegate()
+        try await loadDelegate.load(
             MarkdownViewerAssets.shared.shellHTML(isDark: true),
-            baseURL: FileManager.default.temporaryDirectory.appendingPathComponent("scroll.md")
+            baseURL: FileManager.default.temporaryDirectory.appendingPathComponent("scroll.md"),
+            in: webView
         )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
 
         try await renderMarkdown(scrollSmokeMarkdown(extraBeforeSection20: false), in: webView)
         let before = try await evaluateScrollSnapshot(
@@ -707,17 +702,12 @@ final class MarkdownPanelTests: XCTestCase {
             window.close()
         }
 
-        let loaded = expectation(description: "markdown shell loaded")
-        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
-        webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(
+        let loadDelegate = MarkdownShellLoadDelegate()
+        try await loadDelegate.load(
             MarkdownViewerAssets.shared.shellHTML(isDark: true),
-            baseURL: markdownURL
+            baseURL: markdownURL,
+            in: webView
         )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
         defer { coordinator.cancelLocalImageLoads() }
 
         try await renderMarkdown(
@@ -804,17 +794,12 @@ final class MarkdownPanelTests: XCTestCase {
             window.close()
         }
 
-        let loaded = expectation(description: "markdown shell loaded")
-        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
-        webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(
+        let loadDelegate = MarkdownShellLoadDelegate()
+        try await loadDelegate.load(
             MarkdownViewerAssets.shared.shellHTML(isDark: true),
-            baseURL: markdownURL
+            baseURL: markdownURL,
+            in: webView
         )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
 
         try await renderMarkdown("![Inline pixel](\(Self.onePixelPNGDataURI))\n", in: webView)
         let image = try await waitForMarkdownImage(in: webView)
@@ -850,17 +835,12 @@ final class MarkdownPanelTests: XCTestCase {
             window.close()
         }
 
-        let loaded = expectation(description: "markdown shell loaded")
-        let loadDelegate = MarkdownShellLoadDelegate(expectation: loaded)
-        webView.navigationDelegate = loadDelegate
-        webView.loadHTMLString(
+        let loadDelegate = MarkdownShellLoadDelegate()
+        try await loadDelegate.load(
             MarkdownViewerAssets.shared.shellHTML(isDark: true),
-            baseURL: markdownURL
+            baseURL: markdownURL,
+            in: webView
         )
-        await fulfillment(of: [loaded], timeout: 5)
-        if let error = loadDelegate.error {
-            throw error
-        }
 
         let expectedBlockedTitle = String(
             localized: "markdown.web.remoteImageBlocked",
@@ -1588,25 +1568,60 @@ final class MarkdownPanelTests: XCTestCase {
     private static let onePixelPNGDataURI = "data:image/png;base64,\(onePixelPNG.base64EncodedString())"
 }
 
+@MainActor
 private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
-    let expectation: XCTestExpectation
-    var error: Error?
-    private var didSettle = false
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var timeoutTask: Task<Void, Never>?
 
-    init(expectation: XCTestExpectation) {
-        self.expectation = expectation
+    func load(
+        _ html: String,
+        baseURL: URL,
+        in webView: WKWebView,
+        timeout: Duration = .seconds(5)
+    ) async throws {
+        precondition(continuation == nil, "Markdown shell load delegate cannot await concurrent loads")
+        webView.navigationDelegate = self
+
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+
+                guard !Task.isCancelled else {
+                    settle(CancellationError())
+                    return
+                }
+
+                timeoutTask = Task { @MainActor [weak self] in
+                    do {
+                        try await Task.sleep(for: timeout)
+                    } catch {
+                        return
+                    }
+                    self?.settle(MarkdownShellLoadError.timedOut)
+                }
+                webView.loadHTMLString(html, baseURL: baseURL)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.settle(CancellationError())
+            }
+        }
     }
 
-    /// WebKit can report more than one terminal outcome for a single load (a
-    /// provisional failure followed by a finish, for instance), so only the first
-    /// one counts. Fulfilling the same one-shot expectation twice raises XCTest's
-    /// API-violation exception from inside the callback, which takes the test host
-    /// down instead of failing the test.
+    /// WebKit can report more than one terminal outcome for a single load. Consume the
+    /// continuation before resuming it so every later callback becomes a no-op without
+    /// involving XCTest's exception-raising expectation machinery.
     private func settle(_ error: Error?) {
-        guard !didSettle else { return }
-        didSettle = true
-        self.error = error
-        expectation.fulfill()
+        guard let continuation else { return }
+        self.continuation = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
+
+        if let error {
+            continuation.resume(throwing: error)
+        } else {
+            continuation.resume(returning: ())
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -1619,6 +1634,14 @@ private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         settle(error)
+    }
+}
+
+private enum MarkdownShellLoadError: LocalizedError {
+    case timedOut
+
+    var errorDescription: String? {
+        "Timed out waiting for the markdown shell to finish loading"
     }
 }
 
