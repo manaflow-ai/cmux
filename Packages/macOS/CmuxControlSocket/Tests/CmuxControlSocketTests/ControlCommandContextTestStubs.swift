@@ -420,6 +420,15 @@ extension ControlSurfaceContext {
         )
     }
 
+    func controlSurfaceApplicationStrings() -> ControlSurfaceApplicationStrings {
+        ControlSurfaceApplicationStrings(
+            splitUnsupported: "",
+            invalidWindowID: "",
+            invalidProcessID: "",
+            invalidFrameRate: ""
+        )
+    }
+
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceSplitInputs
@@ -432,7 +441,8 @@ extension ControlSurfaceContext {
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceCreateInputs
+        inputs: ControlSurfaceCreateInputs,
+        requestOrigin: ControlRequestOrigin
     ) -> ControlSurfaceCreateResolution { .tabManagerUnavailable }
 
     func controlSurfaceClose(
@@ -487,7 +497,8 @@ extension ControlSurfaceContext {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        key: String
+        key: String,
+        requestOrigin: ControlRequestOrigin
     ) -> ControlSurfaceSendResolution { .tabManagerUnavailable }
 
     func controlSurfaceResumeSet(
@@ -565,4 +576,21 @@ extension ControlMobileHostContext {
     func controlMobileTerminalMouse(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileChatSessionsDump() -> ControlCallResult { mobileHostStubResult }
+}
+
+extension ControlCommandCoordinator {
+    func handle(_ request: ControlRequest) -> ControlCallResult? {
+        handle(request, requestOrigin: .inProcess)
+    }
+
+    nonisolated func handleSocketWorkerV2(
+        _ request: ControlRequest,
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult? {
+        handleSocketWorkerV2(
+            request,
+            context: context,
+            requestOrigin: .inProcess
+        )
+    }
 }

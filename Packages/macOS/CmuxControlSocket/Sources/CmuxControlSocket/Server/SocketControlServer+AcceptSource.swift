@@ -122,6 +122,7 @@ extension SocketControlServer {
                 ControlConnection(
                     socket: clientSocket,
                     peerProcessID: peerPid,
+                    acceptedAccessMode: authorization.accessMode,
                     authorizationGeneration: authorization.generation,
                     authorizationRevocationSignal: authorization.revocationSignal
                 )

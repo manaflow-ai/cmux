@@ -1,4 +1,5 @@
 import Carbon
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -73,6 +74,109 @@ extension GlobalSearchShortcutBehaviorTests {
 
         #expect(observer.globalSearchShortcut == .unbound)
         #expect(globalSearchLookupCount == initialLookupCount + 2)
+    }
+
+    @Test func bindingSnapshotsReloadAfterSettingsChange() {
+        let notificationCenter = NotificationCenter()
+        let chordAction = KeyboardShortcutSettings.Action.splitRight
+        let explicitAction = KeyboardShortcutSettings.Action.showNotifications
+        let firstChord = StoredShortcut(
+            key: "k",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "s"
+        )
+        let secondChord = StoredShortcut(
+            key: "j",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            chordKey: "v"
+        )
+        let firstExplicit = StoredShortcut(
+            key: "i",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+        let secondExplicit = StoredShortcut(
+            key: "n",
+            command: true,
+            shift: true,
+            option: false,
+            control: false
+        )
+        var chordShortcut = firstChord
+        var explicitShortcut = firstExplicit
+        var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [
+            chordAction: .key("beforeChord"),
+            explicitAction: .key("beforeExplicit"),
+        ]
+        let observer = KeyboardShortcutSettingsObserver(
+            notificationCenter: notificationCenter,
+            distributedNotificationCenter: DistributedNotificationCenter(),
+            shortcutProvider: { action in
+                action == chordAction ? chordShortcut : .unbound
+            },
+            explicitShortcutProvider: { action in
+                action == explicitAction ? explicitShortcut : nil
+            },
+            whenClauseProvider: { action in
+                whenClauses[action] ?? .always
+            }
+        )
+
+        #expect(observer.configuredChordBindings == [
+            KeyboardShortcutBinding(
+                action: chordAction,
+                shortcut: firstChord,
+                whenClause: .key("beforeChord")
+            ),
+        ])
+        #expect(observer.applicationPaneExplicitShortcutBindings == [
+            KeyboardShortcutBinding(
+                action: explicitAction,
+                shortcut: firstExplicit,
+                whenClause: .key("beforeExplicit")
+            ),
+        ])
+
+        chordShortcut = secondChord
+        explicitShortcut = secondExplicit
+        whenClauses = [
+            chordAction: .key("afterChord"),
+            explicitAction: .key("afterExplicit"),
+        ]
+
+        #expect(observer.configuredChordBindings.first?.shortcut == firstChord)
+        #expect(
+            observer.applicationPaneExplicitShortcutBindings.first?.shortcut
+                == firstExplicit
+        )
+
+        notificationCenter.post(
+            name: KeyboardShortcutSettings.didChangeNotification,
+            object: nil
+        )
+
+        #expect(observer.configuredChordBindings == [
+            KeyboardShortcutBinding(
+                action: chordAction,
+                shortcut: secondChord,
+                whenClause: .key("afterChord")
+            ),
+        ])
+        #expect(observer.applicationPaneExplicitShortcutBindings == [
+            KeyboardShortcutBinding(
+                action: explicitAction,
+                shortcut: secondExplicit,
+                whenClause: .key("afterExplicit")
+            ),
+        ])
     }
 
     @Test func legacyMediaKeyGlobalSearchBindingFallsBackToDefault() throws {

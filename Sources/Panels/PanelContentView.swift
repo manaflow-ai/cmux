@@ -82,6 +82,16 @@ struct PanelContentView: View {
                 // to the panel instead of carrying the prior panel's omnibar draft forward.
                 .id(browserPanel.id)
             }
+        case .application:
+            if let applicationPanel = panel as? ApplicationPanel {
+                ApplicationPanelView(
+                    panel: applicationPanel,
+                    isVisibleInUI: isVisibleInUI,
+                    allowsPointerInput: allowsPointerInput,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {
                 MarkdownPanelView(
@@ -223,7 +233,7 @@ struct PanelContentView: View {
         switch panel.panelType {
         case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return true
-        case .terminal, .browser:
+        case .terminal, .browser, .application:
             return false
         }
     }

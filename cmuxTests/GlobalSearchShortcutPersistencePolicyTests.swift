@@ -74,6 +74,11 @@ extension GlobalSearchShortcutBehaviorTests {
         )
 
         #expect(KeyboardShortcutSettings.shortcut(for: .globalSearch) == defaultGlobalSearchShortcut)
+        #expect(
+            KeyboardShortcutSettings.explicitlyConfiguredShortcutIfBound(
+                for: .globalSearch
+            ) == nil
+        )
     }
 
     @Test func settingsFileStringRejectsBareGlobalSearchShortcut() throws {

@@ -399,15 +399,16 @@ extension CMUXCLI {
         }
     }
 
-    /// Strip control characters (ANSI escapes, CR/LF, etc.) before printing a
-    /// registry string in the `remotes list` table. A `displayName` is set by a
-    /// team member via `remotes add`, so without this a member could embed
-    /// terminal escape sequences that render in another member's terminal when
-    /// they run `remotes list`. Replaces control chars with U+FFFD; `--json`
-    /// output is unaffected (it goes through the JSON encoder).
+    /// Replaces terminal controls, Unicode line separators, and bidirectional
+    /// layout controls in text supplied by another process. Text tables use
+    /// U+FFFD so one value cannot add or reorder rows; JSON encoding is safe
+    /// without this presentation-layer transform.
     static func sanitizeForTerminal(_ value: String) -> String {
         String(value.unicodeScalars.map { scalar in
-            (scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format)
+            (scalar.properties.generalCategory == .control
+                || scalar.properties.generalCategory == .format
+                || scalar.properties.generalCategory == .lineSeparator
+                || scalar.properties.generalCategory == .paragraphSeparator)
                 ? Character("\u{FFFD}")
                 : Character(scalar)
         })

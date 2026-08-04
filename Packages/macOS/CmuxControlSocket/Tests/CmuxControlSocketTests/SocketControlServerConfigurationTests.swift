@@ -57,6 +57,7 @@ struct SocketControlServerConfigurationTests {
         let connection = try #require(await nextConnection(from: fixture.server.connections))
         defer { close(connection.socket) }
         let originalIdentity = try #require(fixture.server.transport.pathIdentity(at: fixture.socketPath))
+        #expect(connection.acceptedAccessMode == .allowAll)
         #expect(fixture.server.isConnectionAuthorizationCurrent(connection.authorizationGeneration))
 
         #expect(fixture.server.reconfigure(accessMode: .automation))

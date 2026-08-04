@@ -152,6 +152,12 @@ extension TerminalController: ControlPaneContext {
         if panelType == .agentSession {
             return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
+        if panelType == .application {
+            return .applicationRejected(
+                typeRawValue: panelType.rawValue,
+                message: controlSurfaceApplicationStrings().splitUnsupported
+            )
+        }
         let placement = resolveControlPlacement(inputs.placementRaw)
         if case .invalid(let raw) = placement {
             return .invalidPlacement(rawValue: raw)

@@ -132,6 +132,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private var pendingPermissionStep: ComputerUseOnboardingStep?
     private var presentationState: ComputerUseOnboardingPresentationState?
     private var completionDismissTask: Task<Void, Never>?
+    private var completionIsPending = false
+    private var completionHandler: (@MainActor () -> Void)?
+    private var dismissalHandler: (@MainActor () -> Void)?
 
     init(
         runtimeService: ComputerUseRuntimeService,
@@ -164,13 +167,20 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         (window?.isVisible ?? false) || (permissionCompanionWindow?.isVisible ?? false)
     }
 
-    func present(startingAt startingPoint: StartingPoint = .overview) {
+    func present(
+        startingAt startingPoint: StartingPoint = .overview,
+        onCompleted: (@MainActor () -> Void)? = nil,
+        onDismissed: (@MainActor () -> Void)? = nil
+    ) {
         runtimeService.onboardingWasPresented()
         stopSystemSettingsObservation()
         completionDismissTask?.cancel()
         completionDismissTask = nil
         dismissPermissionCompanion()
         window?.close()
+        completionIsPending = false
+        completionHandler = onCompleted
+        dismissalHandler = onDismissed
         let window = makeWindow(startingAt: startingPoint)
         self.window = window
         window.delegate = self
@@ -249,9 +259,26 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
               closingWindow === window
         else { return }
         stopSystemSettingsObservation()
+        completionDismissTask?.cancel()
+        completionDismissTask = nil
         dismissPermissionCompanion()
         closingWindow.delegate = nil
         window = nil
+        presentationState = nil
+        let pendingCompletionHandler = completionIsPending
+            ? self.completionHandler
+            : nil
+        let pendingDismissalHandler = completionIsPending
+            ? nil
+            : self.dismissalHandler
+        completionIsPending = false
+        self.completionHandler = nil
+        self.dismissalHandler = nil
+        if let pendingCompletionHandler {
+            pendingCompletionHandler()
+        } else {
+            pendingDismissalHandler?()
+        }
     }
 
     private func stopSystemSettingsObservation() {
@@ -569,6 +596,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         userDefaults.set(true, forKey: Self.directCaptureReadyDefaultsKey)
         runtimeService.onboardingWasCompleted()
         guard let window else { return }
+        completionIsPending = true
         revealExpandedOnboarding(
             window,
             resetStep: false,

@@ -551,6 +551,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let workspaceTerminalFontSizeArbiter =
         WorkspaceTerminalFontSizeArbiter()
     private let systemAppearanceObserver = SystemAppearanceObserver()
+    private let keyboardShortcutSettingsObserver =
+        KeyboardShortcutSettingsObserver.shared
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
         environment: ProcessInfo.processInfo.environment
@@ -2225,6 +2227,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
+    }
+
+    func presentNewApplicationSurface(
+        tabManager preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil
+    ) {
+        guard
+            let surfaceTabOwner = preferredTabManager
+                ?? synchronizeActiveMainWindowContext(preferredWindow: preferredWindow),
+            let workspace = surfaceTabOwner.selectedWorkspace,
+            let paneID = workspace.bonsplitController.focusedPaneId
+                ?? workspace.bonsplitController.allPaneIds.first,
+            workspace.newApplicationSurface(
+                inPane: paneID,
+                focus: true
+            ) != nil
+        else {
+            NSSound.beep()
+            return
+        }
+    }
+
+    func presentApplicationSurfacePermissions(
+        onCompleted: @escaping @MainActor () -> Void
+    ) {
+        let status = computerUseRuntimeService?.status() ?? (
+            accessibility: false,
+            screenRecording: false
+        )
+        computerUseUXCoordinator.presentOnboarding(
+            startingAt: status.accessibility ? .screenRecording : .accessibility,
+            onCompleted: onCompleted
+        )
     }
 
     func configure(
@@ -5148,6 +5183,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             return moved
+        }
+
+        guard
+            let sourcePanel = sourceWorkspace.panels[panelId],
+            destinationWorkspace.acceptsDetachedSurface(sourcePanel)
+        else {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=destinationRejectedSurface " +
+                "destinationWs=\(destinationWorkspace.id.uuidString.prefix(5)) elapsedMs=\(elapsedMs(since: moveStart))"
+            )
+#endif
+            return false
         }
 
         let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
@@ -8976,7 +9024,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            applicationSurfaceRuntime: computerUseRuntimeService
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -12952,17 +13001,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
     }
 
-    private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
-        KeyboardShortcutSettings.Action.allCases.filter { action in
-            // Carbon owns the opt-in hotkey, while Global Search has a cached
-            // foreground route before generic chord handling.
-            guard !action.isSystemWideHotkey,
-                  action != .globalSearch,
-                  action.allowsChordShortcut else {
-                return false
-            }
-            guard !action.isBrowserContentShortcut else { return false }
-            return KeyboardShortcutSettings.shortcut(for: action).hasChord
+    private func currentConfiguredShortcutChordShortcuts(
+        for context: ShortcutContext
+    ) -> [StoredShortcut] {
+        keyboardShortcutSettingsObserver.configuredChordBindings.compactMap { binding in
+            binding.whenClause.evaluate(context) ? binding.shortcut : nil
         }
     }
 
@@ -13664,6 +13707,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
+        // Application panes own standard document commands. Preserve configured
+        // chord prefixes before yielding the command to the capture view, then let
+        // the window's content-first key-equivalent path forward it to the helper.
+        if let applicationCaptureView = shortcutEventFirstResponderApplicationCaptureView(event),
+           applicationCaptureView.shouldRouteCommandEquivalentThroughContentFirst(
+               event
+           ),
+           activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
+            let shortcutContext = shortcutEventFocusContext(event).shortcutContext
+            let availableChordShortcuts =
+                currentConfiguredShortcutChordShortcuts(
+                    for: shortcutContext
+                )
+            if armConfiguredShortcutChordIfNeeded(
+                event: event,
+                actions: [],
+                shortcuts: availableChordShortcuts
+            ) {
+                return true
+            }
+            let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
+            let configuredCmuxShortcutActions = configuredCmuxShortcutActions(
+                for: configuredCmuxShortcutContext
+            )
+            if armConfiguredShortcutChordIfNeeded(
+                event: event,
+                actions: [],
+                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
+            ) {
+                return true
+            }
+            if globalSearchShortcut.hasChord,
+               globalSearchShortcutWhenClauseAllows(event: event),
+               armConfiguredShortcutChordIfNeeded(
+                   event: event,
+                   actions: [],
+                   shortcuts: [globalSearchShortcut]
+               ) {
+                return true
+            }
+            if !applicationPaneExplicitCmuxShortcutMatches(
+                event: event,
+                configuredActions: configuredCmuxShortcutActions
+            ) {
+                return false
+            }
+        }
         if handleFocusedFileExplorerOpenSelectionShortcut(
             event,
             preferredWindow: mainWindowForShortcutEvent(event) ?? resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
@@ -13730,14 +13820,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
             let shortcutContext = shortcutEventFocusContext(event).shortcutContext
-            let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
-                // Arm by the effective `when` clause (its shortcuts.when override or
-                // the built-in context default), matching the keyDown gate, so a
-                // `when`-broadened chord arms in its allowed context and a narrowed
-                // one does not swallow its first stroke elsewhere (issue #5189).
-                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(shortcutContext)
-            }
-            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
+            let availableChordShortcuts =
+                currentConfiguredShortcutChordShortcuts(
+                    for: shortcutContext
+                )
+            if armConfiguredShortcutChordIfNeeded(
+                event: event,
+                actions: [],
+                shortcuts: availableChordShortcuts
+            ) {
                 return true
             }
         }
@@ -15789,6 +15880,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context?.cmuxConfigStore?.shortcutActions() ?? []
     }
 
+    private func applicationPaneExplicitCmuxShortcutMatches(
+        event: NSEvent,
+        configuredActions: [CmuxResolvedConfigAction]
+    ) -> Bool {
+        let shortcutContext =
+            shortcutEventFocusContext(event).shortcutContext
+        for binding in keyboardShortcutSettingsObserver
+            .applicationPaneExplicitShortcutBindings {
+            guard binding.whenClause.evaluate(shortcutContext),
+                  matchConfiguredShortcut(
+                      event: event,
+                      shortcut: binding.shortcut
+                  ) else {
+                continue
+            }
+            return true
+        }
+        return configuredActions.contains { action in
+            guard let shortcut = action.shortcut else { return false }
+            return matchConfiguredShortcut(event: event, shortcut: shortcut)
+        }
+    }
+
     private func handleConfiguredCmuxShortcut(
         event: NSEvent,
         actions: [CmuxResolvedConfigAction],
@@ -17541,6 +17655,8 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        let firstResponderApplicationCaptureView =
+            self.firstResponder as? ApplicationCaptureView
         let firstResponderHasMarkedText = shortcutResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -17581,6 +17697,15 @@ private extension NSWindow {
             return false
         }
         if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
+        if let firstResponderApplicationCaptureView,
+           firstResponderApplicationCaptureView
+               .shouldRouteCommandEquivalentThroughContentFirst(event) {
+            return firstResponderApplicationCaptureView.performKeyEquivalent(
+                with: event
+            ) {
+                NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
+            }
+        }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(

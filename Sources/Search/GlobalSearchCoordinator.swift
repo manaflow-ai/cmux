@@ -86,6 +86,23 @@ final class GlobalSearchCoordinator {
             guard !Task.isCancelled else { return }
             cancelPanelPurge(forPanelID: context.panelID)
 
+            guard GlobalSearchDocuments.shouldPersistTitleDocument(
+                for: context.panel.panelType
+            ) else {
+                do {
+                    try await index.deletePanel(context.panelID)
+                } catch {
+#if DEBUG
+                    cmuxDebugLog(
+                        "globalSearch.privateTitle.purge failed"
+                            + " panel=\(context.panelID.uuidString.prefix(5))"
+                            + " error=\(error.localizedDescription)"
+                    )
+#endif
+                }
+                continue
+            }
+
             let titleDocument = GlobalSearchDocuments.titleDocument(for: context)
             do {
                 try await index.upsert(titleDocument)

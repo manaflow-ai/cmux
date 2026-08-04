@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxControlSocket
 import CmuxFoundation
 import CmuxSettings
 import CmuxTerminal
@@ -499,8 +500,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [processID],
+            processIdentities: [:],
             agentProcessIDs: [processID],
-            agentProcessIdentities: [:]
+            agentProcessIdentities: [:],
+            hibernationPanelProcessIDs: [processID],
+            terminationProcessIDs: [processID],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
         )
 
         let session = try #require(ComputerUseLiveDriverSession(
@@ -523,8 +529,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [exitedProcessID],
+            processIdentities: [:],
             agentProcessIDs: [exitedProcessID],
-            agentProcessIdentities: [:]
+            agentProcessIdentities: [:],
+            hibernationPanelProcessIDs: [exitedProcessID],
+            terminationProcessIDs: [exitedProcessID],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
         )
 
         #expect(ComputerUseLiveDriverSession(
@@ -553,8 +564,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [Int(processID)],
+            processIdentities: [Int(processID): currentIdentity],
             agentProcessIDs: [Int(processID)],
-            agentProcessIdentities: [Int(processID): currentIdentity]
+            agentProcessIdentities: [Int(processID): currentIdentity],
+            hibernationPanelProcessIDs: [Int(processID)],
+            terminationProcessIDs: [Int(processID)],
+            terminationProcessIdentities: [Int(processID): currentIdentity],
+            containsUnrelatedProcess: false
         )
         var liveEntries = [(
             panelKey: RestorableAgentSessionIndex.PanelKey(
@@ -604,8 +620,13 @@ struct ComputerUseUXTests {
             updatedAt: Date().timeIntervalSince1970,
             processLiveness: .running,
             processIDs: [Int(processID)],
+            processIdentities: [Int(processID): currentIdentity],
             agentProcessIDs: [Int(processID)],
-            agentProcessIdentities: [Int(processID): currentIdentity]
+            agentProcessIdentities: [Int(processID): currentIdentity],
+            hibernationPanelProcessIDs: [Int(processID)],
+            terminationProcessIDs: [Int(processID)],
+            terminationProcessIdentities: [Int(processID): currentIdentity],
+            containsUnrelatedProcess: false
         )
         let projection = ComputerUseLiveSessionProjection(
             liveEntries: {
@@ -1683,26 +1704,166 @@ struct ComputerUseUXTests {
         #expect(ComputerUseRuntimeService.shouldScheduleHelperRecovery(
             desiredEnabled: true,
             acceptsNewLaunches: true,
-            daemonListening: false,
-            recoveryInFlight: false
+            profilesNeedingRecovery: [.native]
         ))
         #expect(!ComputerUseRuntimeService.shouldScheduleHelperRecovery(
             desiredEnabled: false,
             acceptsNewLaunches: true,
-            daemonListening: false,
-            recoveryInFlight: false
+            profilesNeedingRecovery: [.native]
         ))
         #expect(!ComputerUseRuntimeService.shouldScheduleHelperRecovery(
             desiredEnabled: true,
             acceptsNewLaunches: true,
-            daemonListening: true,
-            recoveryInFlight: false
+            profilesNeedingRecovery: []
         ))
-        #expect(!ComputerUseRuntimeService.shouldScheduleHelperRecovery(
-            desiredEnabled: true,
-            acceptsNewLaunches: true,
-            daemonListening: false,
-            recoveryInFlight: true
+    }
+
+    @Test func applicationSurfaceDemandRequiresOnlyTheNativeHelperProfile() {
+        let applicationProfiles =
+            ComputerUseRuntimeService.desiredHelperProfiles(
+                computerUseEnabled: false,
+                hasApplicationSurfaceLeases: true
+            )
+        let computerUseProfiles =
+            ComputerUseRuntimeService.desiredHelperProfiles(
+                computerUseEnabled: true,
+                hasApplicationSurfaceLeases: false
+            )
+
+        #expect(applicationProfiles == [.native])
+        #expect(computerUseProfiles == Set(ComputerUseDaemonProfile.allCases))
+        #expect(ComputerUseRuntimeService.helperProfilesNeedingRecovery(
+            nativeHealthy: true,
+            codexCompatibilityHealthy: false,
+            requiredProfiles: applicationProfiles
+        ).isEmpty)
+    }
+
+    @Test func untrackedReboundHelperDoesNotPassProfileHealthOwnership() {
+        let tracked = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let rebound = AgentPIDProcessIdentity(
+            pid: 202,
+            startSeconds: 30,
+            startMicroseconds: 40
+        )
+
+        #expect(ComputerUseRuntimeService.helperProfileOwnsListeningPeer(
+            trackedIdentity: tracked,
+            peerIdentity: tracked
+        ))
+        #expect(!ComputerUseRuntimeService.helperProfileOwnsListeningPeer(
+            trackedIdentity: nil,
+            peerIdentity: rebound
+        ))
+        #expect(!ComputerUseRuntimeService.helperProfileOwnsListeningPeer(
+            trackedIdentity: tracked,
+            peerIdentity: rebound
+        ))
+    }
+
+    @Test @MainActor
+    func reboundHelperRecoveryConvergesOnTheReprobedInstalledPeer() async {
+        let tracked = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let rebound = AgentPIDProcessIdentity(
+            pid: 202,
+            startSeconds: 30,
+            startMicroseconds: 40
+        )
+        var operations: [String] = []
+        var adoptedIdentity: AgentPIDProcessIdentity?
+
+        let result = await ComputerUseRuntimeService
+            .reconcileReboundHelperProfile(
+                trackedIdentity: tracked,
+                peerIdentity: rebound,
+                terminateTracked: { identity in
+                    operations.append("terminate:\(identity.pid)")
+                    return identity == tracked
+                },
+                reprobePeer: {
+                    operations.append("reprobe")
+                    return rebound
+                },
+                validatePeer: { identity in
+                    operations.append("validate:\(identity.pid)")
+                    return identity == rebound
+                },
+                adoptPeer: { identity in
+                    operations.append("adopt:\(identity.pid)")
+                    adoptedIdentity = identity
+                }
+            )
+
+        #expect(result == .ownedPeer(rebound))
+        #expect(adoptedIdentity == rebound)
+        #expect(operations == [
+            "terminate:101",
+            "reprobe",
+            "validate:202",
+            "adopt:202",
+        ])
+    }
+
+    @Test @MainActor
+    func reboundHelperRecoveryDoesNotAdoptAnUnvalidatedPeer() async {
+        let tracked = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let foreign = AgentPIDProcessIdentity(
+            pid: 303,
+            startSeconds: 50,
+            startMicroseconds: 60
+        )
+        var adoptedIdentity: AgentPIDProcessIdentity?
+
+        let result = await ComputerUseRuntimeService
+            .reconcileReboundHelperProfile(
+                trackedIdentity: tracked,
+                peerIdentity: foreign,
+                terminateTracked: { _ in true },
+                reprobePeer: { foreign },
+                validatePeer: { _ in false },
+                adoptPeer: { adoptedIdentity = $0 }
+            )
+
+        #expect(result == .blocked)
+        #expect(adoptedIdentity == nil)
+    }
+
+    @Test func codexCompatibilityOutageKeepsNativeApplicationSurfaceIdentity() {
+        let profiles = ComputerUseRuntimeService.helperProfilesNeedingRecovery(
+            nativeHealthy: true,
+            codexCompatibilityHealthy: false
+        )
+
+        #expect(profiles == [.codexCompatibility])
+        #expect(!ComputerUseRuntimeService.helperTerminationInvalidatesApplicationSurfaces(
+            profile: .codexCompatibility
+        ))
+    }
+
+    @Test func nativeOutageInvalidatesApplicationSurfaceIdentity() {
+        let profiles = ComputerUseRuntimeService.helperProfilesNeedingRecovery(
+            nativeHealthy: false,
+            codexCompatibilityHealthy: true
+        )
+
+        #expect(profiles == [.native])
+        #expect(ComputerUseRuntimeService.helperTerminationInvalidatesApplicationSurfaces(
+            profile: .native
+        ))
+        #expect(!ComputerUseRuntimeService.helperTerminationInvalidatesApplicationSurfaces(
+            profile: nil
         ))
     }
 
@@ -1875,6 +2036,211 @@ struct ComputerUseUXTests {
         #expect(envelope["host_auth_token"] == nil)
         responder.stop()
         runtime.stopForTermination()
+    }
+
+    @Test
+    func applicationSurfaceStopRequiresExplicitHelperAcknowledgement() {
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
+            "ok": true,
+            "result": ["stopped": true],
+        ]))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged(nil))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
+            "ok": false,
+            "result": ["stopped": true],
+        ]))
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
+            "ok": true,
+            "result": ["stopped": false],
+        ]))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceStopWasAcknowledged([
+            "ok": true,
+        ]))
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopFailureAction(
+            failedAttemptCount: 1,
+            helperRestartAttempted: false
+        ) == .retry)
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopFailureAction(
+            failedAttemptCount: 3,
+            helperRestartAttempted: false
+        ) == .restartHelper)
+        #expect(ComputerUseRuntimeService.applicationSurfaceStopFailureAction(
+            failedAttemptCount: 3,
+            helperRestartAttempted: true
+        ) == .retainUntilHelperExit)
+        #expect(ComputerUseRuntimeService.shouldScheduleFinalHelperCleanup(
+            desiredEnabled: false,
+            helperStopped: false
+        ))
+        #expect(!ComputerUseRuntimeService.shouldScheduleFinalHelperCleanup(
+            desiredEnabled: false,
+            helperStopped: true
+        ))
+        #expect(!ComputerUseRuntimeService.shouldScheduleFinalHelperCleanup(
+            desiredEnabled: true,
+            helperStopped: false
+        ))
+        #expect(
+            ComputerUseRuntimeService.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: 0
+            ) == .seconds(1)
+        )
+        #expect(
+            ComputerUseRuntimeService.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: 1
+            ) == .seconds(2)
+        )
+        #expect(
+            ComputerUseRuntimeService.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: 2
+            ) == .seconds(4)
+        )
+        #expect(
+            ComputerUseRuntimeService.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: 3
+            ) == .seconds(8)
+        )
+        #expect(
+            ComputerUseRuntimeService.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: 4
+            ) == nil
+        )
+    }
+
+    @Test
+    func malformedApplicationSurfaceStartRetainsSessionForCleanup() {
+        let parsed = ComputerUseRuntimeService.parseApplicationSurfaceStartResult([
+            "sessionId": "orphaned-session",
+            "frameTransport": [
+                "sharedMemoryName": "/cmux-incomplete",
+            ],
+        ])
+
+        #expect(parsed.sessionID == "orphaned-session")
+        #expect(parsed.descriptor == nil)
+    }
+
+    @Test
+    func applicationSurfaceAttachmentRequiresHelperAcknowledgment() {
+        #expect(ComputerUseRuntimeService.applicationSurfaceAttachmentWasAcknowledged([
+            "ok": true,
+            "result": ["attached": true],
+        ]))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceAttachmentWasAcknowledged([
+            "ok": true,
+            "result": ["attached": false],
+        ]))
+        #expect(!ComputerUseRuntimeService.applicationSurfaceAttachmentWasAcknowledged(nil))
+    }
+
+    @Test
+    func applicationWindowDescriptorsRejectUnsafeDimensions() {
+        let valid: [String: Any] = [
+            "window_id": NSNumber(value: 42),
+            "process_id": NSNumber(value: 43),
+            "owner": "Dictionary",
+            "title": "Dictionary",
+            "width": NSNumber(value: 800.5),
+            "height": NSNumber(value: 600.5),
+        ]
+
+        #expect(
+            ComputerUseRuntimeService.applicationWindowDescriptor(valid)
+                == ApplicationWindowDescriptor(
+                    windowID: 42,
+                    processID: 43,
+                    owner: "Dictionary",
+                    title: "Dictionary",
+                    width: 800.5,
+                    height: 600.5
+                )
+        )
+        for unsafeDimension in [
+            -1.0,
+            0.0,
+            Double.nan,
+            Double.infinity,
+            1e300,
+        ] {
+            var invalid = valid
+            invalid["width"] = NSNumber(value: unsafeDimension)
+            #expect(
+                ComputerUseRuntimeService
+                    .applicationWindowDescriptor(invalid) == nil
+            )
+        }
+    }
+
+    @Test
+    func applicationWindowDescriptorsRejectNonIntegralOrBooleanIdentifiers() {
+        let valid: [String: Any] = [
+            "window_id": NSNumber(value: 42),
+            "process_id": NSNumber(value: 43),
+            "owner": "Dictionary",
+            "title": "Dictionary",
+            "width": NSNumber(value: 800),
+            "height": NSNumber(value: 600),
+        ]
+
+        for key in ["window_id", "process_id"] {
+            for malformedIdentifier in [
+                NSNumber(value: 42.9),
+                NSNumber(value: true),
+            ] {
+                var invalid = valid
+                invalid[key] = malformedIdentifier
+                #expect(
+                    ComputerUseRuntimeService
+                        .applicationWindowDescriptor(invalid) == nil
+                )
+            }
+        }
+    }
+
+    @Test
+    func applicationSurfaceResponseErrorsUseStructuredCodes() {
+        let cases: [(String, ApplicationSurfaceRuntimeError)] = [
+            ("permission_required", .permissionRequired),
+            ("window_unavailable", .windowUnavailable),
+            ("point_outside_content", .pointOutsideContent),
+            ("capture_unavailable", .captureUnavailable),
+            ("resource_limit", .resourceLimit),
+            ("session_unavailable", .helperUnavailable),
+        ]
+        for (code, expectedError) in cases {
+            do {
+                try ComputerUseRuntimeService
+                    .throwApplicationSurfaceResponseError([
+                        "ok": false,
+                        "error_code": code,
+                        "error": "Localized diagnostic without protocol markers",
+                    ])
+                Issue.record("Expected \(code) to throw")
+            } catch let error as ApplicationSurfaceRuntimeError {
+                #expect(error == expectedError)
+            } catch {
+                Issue.record("Unexpected error for \(code): \(error)")
+            }
+        }
+    }
+
+    @Test
+    func applicationSurfaceDiagnosticTextDoesNotSelectErrorType() {
+        let detail =
+            "A localized diagnostic happens to mention permission_required"
+        do {
+            try ComputerUseRuntimeService
+                .throwApplicationSurfaceResponseError([
+                    "ok": false,
+                    "error": detail,
+                ])
+            Issue.record("Expected helper response to throw")
+        } catch let error as ApplicationSurfaceRuntimeError {
+            #expect(error == .invalidResponse)
+            #expect(!error.localizedDescription.contains(detail))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
@@ -2245,6 +2611,9 @@ struct ComputerUseUXTests {
             "1.75",
         ])
         #expect(configuration.environment["CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW"] == "1")
+        #expect(configuration.environment[
+            "CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL"
+        ] == "1")
         #expect(configuration.environment["CUA_DRIVER_RS_PERMISSIONS_GATE"] == "0")
         #expect(configuration.environment["CUA_DRIVER_RS_TELEMETRY_ENABLED"] == "false")
         #expect(configuration.environment["CUA_DRIVER_RS_UPDATE_CHECK"] == "false")
@@ -2289,20 +2658,32 @@ struct ComputerUseUXTests {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        for wrapperName in [
-            "cmux-codex-wrapper",
-            "cmux-claude-wrapper",
+        for (
+            wrapperName,
+            externalFlowEnabled,
+            readinessProtocolEnabled,
+            externalFlowDisabled
+        ) in [
+            (
+                "cmux-codex-wrapper",
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1""#,
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL="1""#,
+                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0""#
+            ),
+            (
+                "cmux-claude-wrapper",
+                #""CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"1""#,
+                #""CUA_DRIVER_RS_EXTERNAL_PERMISSION_READINESS_PROTOCOL":"1""#,
+                #""CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW":"0""#
+            ),
         ] {
             let wrapperURL = repositoryRoot
                 .appendingPathComponent("Resources/bin", isDirectory: true)
                 .appendingPathComponent(wrapperName, isDirectory: false)
             let source = try String(contentsOf: wrapperURL, encoding: .utf8)
-            #expect(source.contains(
-                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="1""#
-            ))
-            #expect(!source.contains(
-                #"CUA_DRIVER_RS_EXTERNAL_PERMISSION_FLOW="0""#
-            ))
+            #expect(source.contains(externalFlowEnabled))
+            #expect(source.contains(readinessProtocolEnabled))
+            #expect(!source.contains(externalFlowDisabled))
         }
     }
 

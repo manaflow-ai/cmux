@@ -16,6 +16,13 @@ import Testing
         let timedOut: Bool
     }
 
+    @Test func terminalTextSanitizerRejectsUnicodeLayoutControls() {
+        let unsafe = "owner\u{2028}forged row\u{2029}next\u{202E}reordered\u{2066}isolated"
+        let sanitized = CMUXCLI.sanitizeForTerminal(unsafe)
+
+        #expect(sanitized == "owner\u{FFFD}forged row\u{FFFD}next\u{FFFD}reordered\u{FFFD}isolated")
+    }
+
     @Test func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
         let cliPath = try bundledCLIPath()
         let result = runShell(
@@ -49,6 +56,108 @@ import Testing
             XCTAssertEqual(result.status, 0, result.stdout)
             XCTAssertTrue(result.stdout.contains("Usage: cmux \(command)"), result.stdout)
             XCTAssertFalse(result.stdout.contains("Failed to launch"), result.stdout)
+        }
+    }
+
+    @Test func testListApplicationWindowsRejectsUnexpectedArguments() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-application-windows", "--jsoon"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 2, result.stdout)
+        XCTAssertTrue(
+            result.stdout.contains(
+                "list-application-windows: unexpected argument '--jsoon'"
+            ),
+            result.stdout
+        )
+    }
+
+    @Test func testListApplicationWindowsAcceptsDocumentedJSONFlag() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-application-windows", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let data = try XCTUnwrap(result.stdout.data(using: .utf8))
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        #expect(object["windows"] as? [[String: Any]] != nil)
+        let screenRecordingAuthorized = try #require(
+            object["screen_recording_authorized"] as? Bool
+        )
+        if screenRecordingAuthorized {
+            #expect(object["warning"] == nil)
+        } else {
+            #expect(
+                (object["warning"] as? String)?.isEmpty == false
+            )
+        }
+    }
+
+    @Test func testApplicationSurfaceValueFlagsPreservePresentationLikeValues()
+        throws
+    {
+        let cliPath = try bundledCLIPath()
+        let socketPath =
+            "/tmp/cmux-app-options-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"surface_id":"surface:1","pane_id":"pane:1"}}"#
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let cases = [
+            (
+                option: "--native-window-id",
+                error: "--native-window-id must be a positive integer"
+            ),
+            (
+                option: "--process-id",
+                error: "--process-id must be a positive integer"
+            ),
+            (
+                option: "--frame-rate",
+                error: "--frame-rate must be between 1 and 120"
+            ),
+        ]
+
+        for testCase in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "--socket", socketPath,
+                    "new-surface", "--type", "terminal",
+                    testCase.option, "--json",
+                ],
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stdout)
+            XCTAssertNotEqual(result.status, 0, result.stdout)
+            XCTAssertTrue(
+                result.stdout.contains(testCase.error),
+                result.stdout
+            )
         }
     }
 

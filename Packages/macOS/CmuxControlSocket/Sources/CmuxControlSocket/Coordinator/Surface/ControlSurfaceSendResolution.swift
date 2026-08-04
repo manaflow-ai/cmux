@@ -31,6 +31,9 @@ public enum ControlSurfaceSendResolution: Sendable, Equatable {
     /// The surface is unavailable (legacy `surface_unavailable`,
     /// `data: {"surface_id": …}`). Carries the surface id.
     case surfaceUnavailable(UUID)
+    /// Native application input is unavailable. Carries the surface id and an
+    /// app-bundle-resolved localized explanation.
+    case applicationInputUnavailable(UUID, message: String)
     /// The process has exited (legacy `process_exited`,
     /// `data: {"surface_id": …}`). Carries the surface id.
     case processExited(UUID)

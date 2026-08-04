@@ -408,11 +408,16 @@ public final class SocketControlServer {
     }
 
     nonisolated func acceptedConnectionAuthorization() -> (
+        accessMode: SocketControlMode,
         generation: UInt64,
         revocationSignal: SocketAuthorizationRevocationSignal
     ) {
-        let generation = connectionAuthorizationState.currentGeneration
-        return (generation.number, generation.revocationSignal)
+        let authorization = connectionAuthorizationState.acceptedConnectionAuthorization()
+        return (
+            authorization.accessMode,
+            authorization.generation.number,
+            authorization.generation.revocationSignal
+        )
     }
 
     // MARK: - Telemetry helpers

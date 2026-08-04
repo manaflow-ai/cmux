@@ -192,6 +192,8 @@ extension TerminalController {
             return .terminal
         case "browser":
             return .browser
+        case "application", "app":
+            return .application
         case "markdown":
             return .markdown
         case "filepreview":

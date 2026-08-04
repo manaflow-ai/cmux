@@ -1,9 +1,13 @@
+// CmuxFoundation already exposes AppKit-backed shortcut policy to this target,
+// so importing AppKit here does not add a framework to the CLI's dylib graph.
+import AppKit
 import Foundation
 import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxSettings
 import CmuxSimulator
 import CoreFoundation
+import CoreGraphics
 import CryptoKit
 import Darwin
 #if canImport(LocalAuthentication)
@@ -3221,11 +3225,12 @@ struct CMUXCLI {
         "--action", "--after-workspace", "--agent", "--amount", "--arch",
         "--attr", "--before-workspace", "--body", "--color", "--command",
         "--config", "--cwd", "--description", "--direction", "--domain",
-        "--dx", "--dy", "--email", "--event", "--expires", "--focus",
+        "--dx", "--dy", "--email", "--event", "--expires", "--focus", "--frame-rate",
         "--function", "--id", "--image", "--index", "--key", "--kind",
-        "--label", "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
+        "--label", "--layout", "--lines", "--load-state", "--max-depth", "--name",
+        "--native-window-id", "--os",
         "--order", "--out", "--pane", "--panel", "--path", "--profile", "--property",
-        "--provider", "--relay-port", "--script", "--selector", "--session",
+        "--process-id", "--provider", "--relay-port", "--script", "--selector", "--session",
         "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane", "--team",
         "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
         "--turn", "--type", "--url", "--url-contains", "--value", "--window",
@@ -3356,6 +3361,75 @@ struct CMUXCLI {
             return false
         }
         return true
+    }
+
+    private func runListApplicationWindows(
+        jsonOutput: Bool,
+        hostBundleIdentifier: String?
+    ) {
+        let screenRecordingAuthorized = CGPreflightScreenCaptureAccess()
+        let permissionWarning = String(
+            localized: "cli.applicationSurface.list.permissionWarning",
+            defaultValue: "Screen Recording access is off, so window titles may fall back to application names. Allow Screen Recording for the terminal running this command, then retry."
+        )
+        let options: CGWindowListOption = [
+            .optionOnScreenOnly,
+            .excludeDesktopElements,
+        ]
+        let rawWindows = CGWindowListCopyWindowInfo(
+            options,
+            kCGNullWindowID
+        ) as? [[String: Any]] ?? []
+        var excludedProcessIDs: Set<pid_t> = [getpid()]
+        if let hostBundleIdentifier =
+            hostBundleIdentifier?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ),
+            !hostBundleIdentifier.isEmpty
+        {
+            excludedProcessIDs.formUnion(
+                NSWorkspace.shared.runningApplications.compactMap {
+                    $0.bundleIdentifier == hostBundleIdentifier
+                        ? $0.processIdentifier
+                        : nil
+                }
+            )
+        }
+        let filter = ApplicationWindowListFilter(
+            excludedProcessIDs: excludedProcessIDs,
+            isRegularApplication: { processID in
+                NSRunningApplication(
+                    processIdentifier: processID
+                )?.activationPolicy == .regular
+            }
+        )
+        let windows = rawWindows.compactMap(filter.entry)
+        if jsonOutput {
+            var payload: [String: Any] = [
+                "screen_recording_authorized": screenRecordingAuthorized,
+                "windows": windows,
+            ]
+            if !screenRecordingAuthorized {
+                payload["warning"] = permissionWarning
+            }
+            print(jsonString(payload))
+            return
+        }
+        if !screenRecordingAuthorized {
+            Self.writeStderrLine(permissionWarning)
+        }
+        if windows.isEmpty {
+            print(String(
+                localized: "cli.applicationSurface.list.empty",
+                defaultValue: "No application windows found"
+            ))
+        } else {
+            for window in windows {
+                let owner = Self.sanitizeForTerminal(window["owner"] as? String ?? "")
+                let title = Self.sanitizeForTerminal(window["title"] as? String ?? "")
+                print("\(window["window_id"] ?? "")\t\(window["process_id"] ?? "")\t\(owner)\t\(title)")
+            }
+        }
     }
 
     func run() throws {
@@ -3504,6 +3578,28 @@ struct CMUXCLI {
                 socketPath: nil,
                 explicitPassword: socketPasswordArg,
                 jsonOutput: jsonOutput
+            )
+            return
+        }
+
+        if command == "list-application-windows" {
+            if let unexpected = commandArgs.first {
+                throw CLIError(
+                    message: String(
+                        format: String(
+                            localized:
+                                "cli.applicationSurface.list.error.unexpectedArgument",
+                            defaultValue:
+                                "list-application-windows: unexpected argument '%@'"
+                        ),
+                        unexpected
+                    ),
+                    exitCode: 2
+                )
+            }
+            runListApplicationWindows(
+                jsonOutput: jsonOutput,
+                hostBundleIdentifier: cliBundleIdentifier
             )
             return
         }
@@ -4894,6 +4990,10 @@ struct CMUXCLI {
             let url = optionValue(commandArgs, name: "--url")
             let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
             let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
+            let nativeWindowID = optionValue(commandArgs, name: "--native-window-id")
+            let processID = optionValue(commandArgs, name: "--process-id")
+            let title = optionValue(commandArgs, name: "--title")
+            let frameRate = optionValue(commandArgs, name: "--frame-rate")
             let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
@@ -4910,9 +5010,48 @@ struct CMUXCLI {
             if let placement { params["placement"] = placement }
             if let provider { params["provider_id"] = provider }
             if let renderer { params["renderer_kind"] = renderer }
+            if let nativeWindowID {
+                guard let parsed = Int(nativeWindowID),
+                      let value = UInt32(exactly: parsed),
+                      value > 0 else {
+                    throw CLIError(message: String(
+                        localized: "cli.applicationSurface.error.invalidWindowId",
+                        defaultValue: "--native-window-id must be a positive integer"
+                    ))
+                }
+                params["window_id_native"] = Int(value)
+            }
+            if let processID {
+                guard let parsed = Int(processID),
+                      let value = Int32(exactly: parsed),
+                      value > 0 else {
+                    throw CLIError(message: String(
+                        localized: "cli.applicationSurface.error.invalidProcessId",
+                        defaultValue: "--process-id must be a positive integer"
+                    ))
+                }
+                params["process_id"] = Int(value)
+            }
+            if let title { params["title"] = title }
+            if let frameRate {
+                guard let value = Int(frameRate), (1...120).contains(value) else {
+                    throw CLIError(message: String(
+                        localized: "cli.applicationSurface.error.invalidFrameRate",
+                        defaultValue: "--frame-rate must be between 1 and 120"
+                    ))
+                }
+                params["frame_rate"] = value
+            }
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workingDirectory.isEmpty {
                 params["working_directory"] = resolvePath(workingDirectory)
+            }
+            if type.map({ ["application", "app"].contains($0.lowercased()) }) == true,
+               nativeWindowID == nil || processID == nil {
+                throw CLIError(message: String(
+                    localized: "cli.applicationSurface.error.missingTarget",
+                    defaultValue: "Application surfaces require --native-window-id and --process-id"
+                ))
             }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
@@ -16565,7 +16704,8 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser|simulator|agent-session>   Surface type (default: terminal)
+              --type <terminal|browser|application|simulator|agent-session>
+                                           Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
               --placement <workspace|dock>  Target container (default: workspace).
                                            dock adds the surface to the right-sidebar Dock
@@ -16576,6 +16716,10 @@ struct CMUXCLI {
               --provider <codex|claude|opencode>
                                            Provider for agent-session surfaces (default: codex)
               --renderer <react|solid>    Renderer for agent-session surfaces (default: react)
+              --native-window-id <id>     \(String(localized: "cli.applicationSurface.help.windowId", defaultValue: "Native window captured by application surfaces"))
+              --process-id <pid>          \(String(localized: "cli.applicationSurface.help.processId", defaultValue: "Process receiving application-surface input"))
+              --title <title>             \(String(localized: "cli.applicationSurface.help.title", defaultValue: "Application surface title"))
+              --frame-rate <1...120>      \(String(localized: "cli.applicationSurface.help.frameRate", defaultValue: "Application capture frame rate (default: 60)"))
               --working-directory <path>   Working directory for terminal and agent surfaces
               --focus <true|false>        Focus the new surface (default: false)
 
@@ -16584,7 +16728,20 @@ struct CMUXCLI {
               cmux new-surface --type browser --pane pane:1 --url https://example.com
               cmux new-surface --type simulator --pane pane:1 --focus true
               cmux new-surface --type agent-session --provider claude --renderer solid --focus true
+              cmux new-surface --type application --native-window-id 123 --process-id 456 --title Preview --focus true
               cmux new-surface --type browser --placement dock --url https://example.com
+            """
+        case "list-application-windows":
+            return """
+            Usage: cmux list-application-windows [--json]
+
+            \(String(localized: "cli.applicationSurface.list.help.description", defaultValue: "List capturable native application windows without connecting to CMUX."))
+
+            \(String(localized: "cli.applicationSurface.list.help.textOutput", defaultValue: "Text output columns:"))
+              window_id    process_id    owner    title
+
+            \(String(localized: "cli.applicationSurface.list.help.jsonOutput", defaultValue: "JSON output:"))
+              {"screen_recording_authorized":true,"windows":[{"window_id":123,"process_id":456,"owner":"Preview","title":"Document"}]}
             """
         case "close-surface":
             return """
@@ -35955,7 +36112,8 @@ export default CMUXSessionRestore;
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
           new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
-          new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
+          new-surface [--type <terminal|browser|application|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--native-window-id <id>] [--process-id <pid>] [--title <title>] [--frame-rate <1...120>] [--focus <true|false>]
+          list-application-windows
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]

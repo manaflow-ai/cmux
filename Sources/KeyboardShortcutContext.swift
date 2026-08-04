@@ -328,6 +328,13 @@ extension AppDelegate {
         return shortcutBrowserPanel(webView: webView) != nil
     }
 
+    func shortcutEventFirstResponderApplicationCaptureView(
+        _ event: NSEvent
+    ) -> ApplicationCaptureView? {
+        let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        return shortcutWindow?.firstResponder as? ApplicationCaptureView
+    }
+
     private func shortcutFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {
         if let window {
             guard let context = shortcutMainWindowContext(in: window) else {

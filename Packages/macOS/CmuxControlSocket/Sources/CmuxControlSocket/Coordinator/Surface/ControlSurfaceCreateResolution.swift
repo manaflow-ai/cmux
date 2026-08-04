@@ -30,6 +30,9 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     case dockConflictingRoutingSelectors(message: String)
     /// The browser was disabled; carries the shared external-open outcome.
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)
+    /// Native application control is unavailable under the current socket
+    /// access policy. The app resolves the localized explanation.
+    case applicationControlUnavailable(message: String)
     /// No workspace resolved (legacy `not_found` / "Workspace not found").
     case workspaceNotFound
     /// The requested/focused pane did not resolve (legacy `not_found` / "Pane not

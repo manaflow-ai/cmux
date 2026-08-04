@@ -32,7 +32,11 @@ extension Workspace {
         Self.normalizedCustomDescription(customDescription) != nil
     }
 
-    func applyProcessTitle(_ title: String) {
+    func applyProcessTitle(
+        _ title: String,
+        source: (panelId: UUID, panelType: PanelType)? = nil
+    ) {
+        processTitleSource = source
         if processTitle != title {
             processTitle = title
         }
@@ -75,14 +79,37 @@ extension Workspace {
     func applyFocusedPanelTitle(panelId: UUID, requiresFocus: Bool = true) -> Bool {
         guard !isRemoteTmuxMirror,
               !requiresFocus || focusedPanelId == panelId,
+              let panel = panels[panelId],
               let resolvedTitle = panelTitle(panelId: panelId)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !resolvedTitle.isEmpty else {
             return false
         }
         let previousProcessTitle = processTitle
         let previousTitle = title
-        applyProcessTitle(resolvedTitle)
+        applyProcessTitle(
+            resolvedTitle,
+            source: (
+                panelId: panelId,
+                panelType: panel.panelType
+            )
+        )
         return processTitle != previousProcessTitle || title != previousTitle
+    }
+
+    func processTitleForSessionSnapshot() -> String {
+        guard let source = processTitleSource,
+              source.panelType == .application else {
+            return processTitle
+        }
+        if let customTitle = panelCustomTitles[source.panelId]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !customTitle.isEmpty {
+            return customTitle
+        }
+        return String(
+            localized: "panel.application.defaultTitle",
+            defaultValue: "Application"
+        )
     }
 
     /// The single write path for automatic (non-user) workspace titles.

@@ -270,7 +270,9 @@ final class ComputerUseUXCoordinator {
     }
 
     func presentOnboarding(
-        startingAt startingPoint: ComputerUseOnboardingWindowController.StartingPoint = .overview
+        startingAt startingPoint: ComputerUseOnboardingWindowController.StartingPoint = .overview,
+        onCompleted: (@MainActor () -> Void)? = nil,
+        onDismissed: (@MainActor () -> Void)? = nil
     ) {
         userDefaults.set(true, forKey: ComputerUseOnboardingWindowController.seenDefaultsKey)
         let controller = onboardingWindowController ?? ComputerUseOnboardingWindowController(
@@ -278,7 +280,11 @@ final class ComputerUseUXCoordinator {
             userDefaults: userDefaults
         )
         onboardingWindowController = controller
-        controller.present(startingAt: startingPoint)
+        controller.present(
+            startingAt: startingPoint,
+            onCompleted: onCompleted,
+            onDismissed: onDismissed
+        )
     }
 
     private func handleWorkstreamEvent(_ event: WorkstreamEvent) {

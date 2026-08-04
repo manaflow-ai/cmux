@@ -60,6 +60,24 @@ extension KeyboardShortcutSettings {
         shortcutIfBound(for: action) ?? .unbound
     }
 
+    static func explicitlyConfiguredShortcutIfBound(
+        for action: Action
+    ) -> StoredShortcut? {
+        guard
+            let configuredShortcut = explicitlyConfiguredShortcut(for: action),
+            !configuredShortcut.isUnbound,
+            case let .accepted(normalizedShortcut) =
+                action.resolvedRecordedShortcutIgnoringConflicts(
+                    configuredShortcut,
+                    checkingSystemWideConflicts: false
+                ),
+            shortcutIfBound(for: action) == normalizedShortcut
+        else {
+            return nil
+        }
+        return normalizedShortcut
+    }
+
     private static func explicitlyConfiguredShortcut(for action: Action) -> StoredShortcut? {
         if settingsFileStore.isManagedByFile(action) {
             return settingsFileStore.override(for: action)

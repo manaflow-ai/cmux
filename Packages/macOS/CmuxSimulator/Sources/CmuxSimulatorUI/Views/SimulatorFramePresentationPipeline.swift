@@ -7,9 +7,12 @@ import Foundation
 @MainActor
 final class SimulatorFramePresentationPipeline {
     private let source: any SimulatorFrameSurfaceReading
+    private let framePublicationDidArrive: (@MainActor () -> Void)?
     private let presentationDidComplete: @MainActor () -> Void
+    private let sourceFailureDidOccur: @MainActor () -> Void
     private nonisolated let framePublicationWakeup = SimulatorFramePublicationWakeup()
     private var isActive = true
+    private var sourceFailureWasReported = false
     private var copyIsInFlight = false
     private var publicationArrivedWhileCopying = false
     private var framePublicationHandlerIsInstalled = false
@@ -18,18 +21,29 @@ final class SimulatorFramePresentationPipeline {
 
     init(
         source: any SimulatorFrameSurfaceReading,
-        presentationDidComplete: @escaping @MainActor () -> Void
+        framePublicationDidArrive: (@MainActor () -> Void)? = nil,
+        presentationDidComplete: @escaping @MainActor () -> Void,
+        sourceFailureDidOccur: @escaping @MainActor () -> Void = {}
     ) {
         self.source = source
+        self.framePublicationDidArrive = framePublicationDidArrive
         self.presentationDidComplete = presentationDidComplete
+        self.sourceFailureDidOccur = sourceFailureDidOccur
         setFramePublicationNotificationsEnabled(true)
     }
 
     func displayTick() -> SimulatorFramePresentation? {
         guard isActive else { return nil }
+        guard !reportSourceFailureIfNeeded() else { return nil }
+        let presentation = takeCompletedPresentation()
+        requestCopy()
+        return presentation
+    }
+
+    /// Takes the newest completed copy without requesting another source read.
+    func takeCompletedPresentation() -> SimulatorFramePresentation? {
         let presentation = newestCompletedPresentation
         newestCompletedPresentation = nil
-        requestCopy()
         return presentation
     }
 
@@ -69,7 +83,8 @@ final class SimulatorFramePresentationPipeline {
     }
 
     private func requestCopy() {
-        guard !copyIsInFlight,
+        guard !reportSourceFailureIfNeeded(),
+              !copyIsInFlight,
               source.hasPublishedFrame(after: lastCopiedSequence) else { return }
         copyIsInFlight = true
         let source = self.source
@@ -91,10 +106,15 @@ final class SimulatorFramePresentationPipeline {
 
     private func framePublicationDidFire() {
         guard isActive, framePublicationHandlerIsInstalled else { return }
+        guard !reportSourceFailureIfNeeded() else { return }
         if copyIsInFlight {
             publicationArrivedWhileCopying = true
+        }
+        if let framePublicationDidArrive {
+            framePublicationDidArrive()
             return
         }
+        guard !copyIsInFlight else { return }
         requestCopy()
     }
 
@@ -130,7 +150,20 @@ final class SimulatorFramePresentationPipeline {
             presentationDidComplete()
         }
         if shouldRetry {
-            requestCopy()
+            if let framePublicationDidArrive {
+                framePublicationDidArrive()
+            } else {
+                requestCopy()
+            }
         }
+    }
+
+    private func reportSourceFailureIfNeeded() -> Bool {
+        guard source.hasFailed() else { return false }
+        guard !sourceFailureWasReported else { return true }
+        sourceFailureWasReported = true
+        invalidate()
+        sourceFailureDidOccur()
+        return true
     }
 }

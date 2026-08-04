@@ -17,6 +17,14 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let rendererRaw: String?
     /// The raw `url` string, or `nil`.
     public let urlRaw: String?
+    /// The native application window identifier.
+    public let applicationWindowID: UInt32?
+    /// The native application process identifier.
+    public let applicationProcessID: Int32?
+    /// The title displayed for an application surface.
+    public let applicationTitle: String?
+    /// The requested application capture frame rate.
+    public let applicationFrameRate: Int?
     /// The trimmed-non-empty `working_directory`, or `nil`.
     public let workingDirectory: String?
     /// The trimmed-non-empty `initial_command`, or `nil`.
@@ -39,11 +47,34 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let placementRaw: String?
 
     /// Creates surface-create inputs.
+    ///
+    /// - Parameters:
+    ///   - typeRaw: Raw surface type token.
+    ///   - providerRaw: Raw agent-session provider token.
+    ///   - rendererRaw: Raw agent-session renderer token.
+    ///   - urlRaw: Raw browser URL.
+    ///   - applicationWindowID: Native application window identifier.
+    ///   - applicationProcessID: Native application process identifier.
+    ///   - applicationTitle: Application surface title.
+    ///   - applicationFrameRate: Requested capture frame rate.
+    ///   - workingDirectory: Working directory for supported surface types.
+    ///   - initialCommand: Initial terminal command.
+    ///   - tmuxStartCommand: Initial tmux command.
+    ///   - remotePTYSessionID: Remote PTY session identifier.
+    ///   - remoteContextRaw: Raw remote context token.
+    ///   - startupEnvironment: Startup environment variables.
+    ///   - requestedPaneID: Target pane identifier.
+    ///   - requestedFocus: Whether to focus the new surface.
+    ///   - placementRaw: Raw workspace or Dock placement token.
     public init(
         typeRaw: String?,
         providerRaw: String?,
         rendererRaw: String?,
         urlRaw: String?,
+        applicationWindowID: UInt32? = nil,
+        applicationProcessID: Int32? = nil,
+        applicationTitle: String? = nil,
+        applicationFrameRate: Int? = nil,
         workingDirectory: String?,
         initialCommand: String?,
         tmuxStartCommand: String?,
@@ -58,6 +89,10 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         self.providerRaw = providerRaw
         self.rendererRaw = rendererRaw
         self.urlRaw = urlRaw
+        self.applicationWindowID = applicationWindowID
+        self.applicationProcessID = applicationProcessID
+        self.applicationTitle = applicationTitle
+        self.applicationFrameRate = applicationFrameRate
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
         self.tmuxStartCommand = tmuxStartCommand

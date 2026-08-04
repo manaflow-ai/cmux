@@ -54,6 +54,9 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The respawn strings.
     func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings
 
+    /// App-bundle-resolved application-surface validation strings.
+    func controlSurfaceApplicationStrings() -> ControlSurfaceApplicationStrings
+
     // MARK: - focus / split / respawn / create / close
 
     /// Focuses a surface for `surface.focus`.
@@ -97,10 +100,13 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Parameters:
     ///   - routing: The routing selectors.
     ///   - inputs: The pre-parsed create inputs.
+    ///   - requestOrigin: The explicit origin and any accepted socket
+    ///     authorization for this request.
     /// - Returns: The create resolution.
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceCreateInputs
+        inputs: ControlSurfaceCreateInputs,
+        requestOrigin: ControlRequestOrigin
     ) -> ControlSurfaceCreateResolution
 
     /// Closes a surface for `surface.close`.
@@ -213,12 +219,15 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused surface.
     ///   - hasSurfaceIDParam: Whether a `surface_id` param was present at all.
     ///   - key: The named key to send.
+    ///   - requestOrigin: The explicit origin and any accepted socket
+    ///     authorization for this request.
     /// - Returns: The send resolution.
     func controlSurfaceSendKey(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        key: String
+        key: String,
+        requestOrigin: ControlRequestOrigin
     ) -> ControlSurfaceSendResolution
 
     // `surface.read_text` has no witness here: it runs on the socket-worker lane

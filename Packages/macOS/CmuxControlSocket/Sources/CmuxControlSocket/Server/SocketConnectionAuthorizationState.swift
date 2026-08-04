@@ -24,6 +24,13 @@ final class SocketConnectionAuthorizationState: Sendable {
         state.withLock { $0.generation }
     }
 
+    func acceptedConnectionAuthorization() -> (
+        accessMode: SocketControlMode,
+        generation: SocketConnectionAuthorizationGeneration
+    ) {
+        state.withLock { ($0.accessMode, $0.generation) }
+    }
+
     func configure(accessMode: SocketControlMode, effectivePassword: String?) {
         let fingerprint = accessMode.requiresPasswordAuth
             ? fingerprint(effectivePassword)

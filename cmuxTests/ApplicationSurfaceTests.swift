@@ -1,0 +1,2982 @@
+import AppKit
+import Bonsplit
+import Carbon.HIToolbox
+import CmuxAppKitSupportUI
+import CmuxControlSocket
+import CmuxExtensionKit
+import CmuxSettings
+import CmuxSimulator
+import Darwin
+import SwiftUI
+import Testing
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite("Application surfaces", .serialized)
+struct ApplicationSurfaceTests {
+    @Test func applicationSurfaceRejectsOversizedFrameTransports() {
+        let parsed = ComputerUseRuntimeService.parseApplicationSurfaceStartResult([
+            "sessionId": "oversized-session",
+            "frameTransport": [
+                "sharedMemoryName": "/cmux-sim-frame-oversized",
+                "width": 4_096,
+                "height": 2_048,
+                "bytesPerRow": 16_384,
+                "slotCount": 3,
+                "sharedMemoryByteCount": 100_667_392,
+            ],
+        ])
+
+        #expect(parsed.sessionID == "oversized-session")
+        #expect(parsed.descriptor == nil)
+    }
+
+    @Test func applicationSurfaceCapsPresentationByFrameByteCost() throws {
+        let parsed = ComputerUseRuntimeService.parseApplicationSurfaceStartResult(
+            [
+                "sessionId": "bounded-session",
+                "frameTransport": [
+                    "sharedMemoryName": "/cmux-sim-frame-bounded",
+                    "width": 4_096,
+                    "height": 1_024,
+                    "bytesPerRow": 16_384,
+                    "slotCount": 3,
+                    "sharedMemoryByteCount": 50_335_744,
+                ],
+            ],
+            requestedFrameRate: 120
+        )
+        let descriptor = try #require(parsed.descriptor)
+
+        #expect(descriptor.maximumPresentationFramesPerSecond == 32)
+    }
+
+    @Test func applicationSurfaceStartPreservesResolvedWindowAndProcessGeneration() throws {
+        let parsed = ComputerUseRuntimeService.parseApplicationSurfaceStartResult(
+            [
+                "sessionId": "rebound-session",
+                "targetWindowId": 84,
+                "processStartSeconds": 1_700_000_000,
+                "processStartMicroseconds": 123_456,
+                "frameTransport": [
+                    "sharedMemoryName": "/cmux-sim-frame-rebound",
+                    "width": 4_096,
+                    "height": 1_024,
+                    "bytesPerRow": 16_384,
+                    "slotCount": 3,
+                    "sharedMemoryByteCount": 50_335_744,
+                ],
+            ],
+            requestedWindowID: 42,
+            requestedFrameRate: 60
+        )
+        let descriptor = try #require(parsed.descriptor)
+
+        #expect(descriptor.targetWindowID == 84)
+        #expect(descriptor.processIdentity == ApplicationSurfaceProcessIdentity(
+            startSeconds: 1_700_000_000,
+            startMicroseconds: 123_456
+        ))
+    }
+
+    @Test func runtimeDaemonRequestsCannotUseUnboundedOneShotReads() throws {
+        let serviceSourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "Sources/App/ComputerUseRuntimeService.swift"
+            )
+        let serviceSource = try String(
+            contentsOf: serviceSourceURL,
+            encoding: .utf8
+        )
+
+        #expect(!serviceSource.contains("probeCommandWithPeerProcessID"))
+    }
+
+    @Test func cancelledWindowListInterruptsDefaultHelperRead() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-application-list-cancel-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-app-list-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: root,
+            socketRootDirectoryURL: sockets,
+            environment: ["CMUX_TAG": "cancel-window-list"],
+            authenticationToken: "cancel-list-token"
+        )
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let responder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"windows":[]}}"#,
+            responseDelay: 2
+        )
+        defer { responder.stop() }
+        let request = Task {
+            await ComputerUseRuntimeService.sendDaemonRequest(
+                ["method": "application_windows"],
+                paths: paths,
+                transport: SocketTransport(),
+                timeout: 5,
+                socketURL: paths.daemonSocketURL
+            )
+        }
+        let requestDeadline = ContinuousClock.now + .seconds(1)
+        while responder.receivedRequests.isEmpty,
+              ContinuousClock.now < requestDeadline {
+            try await ContinuousClock().sleep(for: .milliseconds(10))
+        }
+        #expect(!responder.receivedRequests.isEmpty)
+        let cancelledAt = ContinuousClock.now
+
+        request.cancel()
+        let response = await request.value
+
+        #expect(response == nil)
+        #expect(ContinuousClock.now - cancelledAt < .milliseconds(500))
+    }
+
+    @Test func cancelledPaneRequestInterruptsPersistentHelperRead() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-application-cancel-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-app-cancel-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: root,
+            socketRootDirectoryURL: sockets,
+            environment: ["CMUX_TAG": "cancel-request"],
+            authenticationToken: "cancel-test-token"
+        )
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let responder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true}"#,
+            responseDelay: 2
+        )
+        defer { responder.stop() }
+        let connection = PersistentSocketLineConnection()
+        let request = Task {
+            await ComputerUseRuntimeService.sendDaemonRequest(
+                ["method": "application_surface_start"],
+                paths: paths,
+                transport: SocketTransport(),
+                timeout: 5,
+                socketURL: paths.daemonSocketURL,
+                persistentConnection: connection
+            )
+        }
+        let requestDeadline = ContinuousClock.now + .seconds(1)
+        while responder.receivedRequests.isEmpty,
+              ContinuousClock.now < requestDeadline {
+            try await ContinuousClock().sleep(for: .milliseconds(10))
+        }
+        #expect(!responder.receivedRequests.isEmpty)
+        let cancelledAt = ContinuousClock.now
+
+        request.cancel()
+        let response = await request.value
+
+        #expect(response == nil)
+        #expect(ContinuousClock.now - cancelledAt < .milliseconds(500))
+        await connection.invalidate()
+    }
+
+    @Test func focusIntentWaitsForCaptureViewWindow() async {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let target = panel.captureTarget!
+        let token = panel.beginCaptureSession()
+        let view = ApplicationCaptureView(
+            windowID: target.windowID,
+            processID: target.processID,
+            targetFrameRate: panel.targetFrameRate,
+            runtime: runtime,
+            leaseProvider: { nil },
+            onStateChanged: { _, _ in },
+            onMovedToWindow: { view in
+                panel.captureViewDidMoveToWindow(view, token: token)
+            }
+        )
+        panel.attach(view, token: token)
+        panel.focus()
+
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+        window.contentView = view
+
+        #expect(window.firstResponder === view)
+        #expect(!view.isReleasingForwardedInput)
+        panel.unfocus()
+        #expect(window.firstResponder !== view)
+        #expect(view.isReleasingForwardedInput)
+        await view.waitUntilForwardedInputReleased()
+        #expect(!view.isReleasingForwardedInput)
+    }
+
+    @Test func applicationCaptureFocusCanBeRecognizedAndYielded() async {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let view = panel.captureView(windowID: 42, processID: 43)
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            panel.close()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+        window.contentView = view
+        panel.focus()
+
+        #expect(panel.ownedFocusIntent(for: view, in: window) == .panel)
+        #expect(panel.yieldFocusIntent(.panel, in: window))
+        #expect(window.firstResponder !== view)
+        #expect(view.isReleasingForwardedInput)
+        await view.waitUntilForwardedInputReleased()
+    }
+
+    @Test func inactiveWorkspaceHostRevokesApplicationCaptureInputOwnership() throws {
+        let settingKey = PaneFirstClickFocusSettings.enabledKey
+        let previousSetting = UserDefaults.standard.object(forKey: settingKey)
+        UserDefaults.standard.set(true, forKey: settingKey)
+        defer {
+            if let previousSetting {
+                UserDefaults.standard.set(previousSetting, forKey: settingKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: settingKey)
+            }
+        }
+
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+        let size = NSSize(width: 400, height: 300)
+        let hostingView = NSHostingView(
+            rootView: applicationPanelContent(
+                panel: panel,
+                allowsPointerInput: false
+            )
+        )
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.orderBack(nil)
+        defer {
+            panel.close()
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+
+        settleApplicationPanel(hostingView)
+        let captureView = try #require(
+            firstApplicationCaptureView(in: hostingView)
+        )
+
+        #expect(!captureView.acceptsFirstMouse(for: nil))
+    }
+
+    @Test func applicationInputConnectionCanOwnStartBeforeSessionIDExists() {
+        let registry = ApplicationSurfaceInputConnectionRegistry(
+            transport: SocketTransport()
+        )
+
+        let first = registry.makeConnection()
+        let second = registry.makeConnection()
+        #expect(first !== second)
+        #expect(registry.connection(for: "first") == nil)
+
+        registry.register(first, for: "first")
+        registry.register(second, for: "second")
+
+        #expect(registry.connection(for: "first") === first)
+        #expect(registry.connection(for: "second") === second)
+        registry.removeConnection(for: "first")
+        #expect(registry.connection(for: "first") == nil)
+    }
+
+    @Test func helperFailureFansOutWithoutPerSurfacePolling() async {
+        let registry = ApplicationSurfaceFailureEventRegistry()
+        var first = registry.events(for: "first").makeAsyncIterator()
+        var second = registry.events(for: "second").makeAsyncIterator()
+
+        registry.failAll(with: .helperUnavailable)
+
+        #expect(await first.next() == .helperUnavailable)
+        #expect(await first.next() == nil)
+        #expect(await second.next() == .helperUnavailable)
+        #expect(await second.next() == nil)
+    }
+
+    @Test func captureOwnershipSurvivesTransientHostDetachButInputDoesNot() {
+        let visible = ApplicationCaptureActivity(
+            paneWantsCapture: true,
+            hostAttached: true,
+            hostVisible: true
+        )
+        #expect(visible.ownsSession)
+        #expect(visible.acceptsInput)
+
+        let occluded = ApplicationCaptureActivity(
+            paneWantsCapture: true,
+            hostAttached: true,
+            hostVisible: false
+        )
+        #expect(occluded.ownsSession)
+        #expect(!occluded.acceptsInput)
+
+        let detached = ApplicationCaptureActivity(
+            paneWantsCapture: true,
+            hostAttached: false,
+            hostVisible: false
+        )
+        #expect(detached.ownsSession)
+        #expect(!detached.acceptsInput)
+    }
+
+    @Test func inputRequiresPaneOwnershipAttachmentAndFirstPresentedFrame() {
+        func ready(
+            hasInputOwnership: Bool = true,
+            attachmentAcknowledged: Bool,
+            firstFramePresented: Bool
+        ) -> Bool {
+            ApplicationCaptureView.inputIsReady(
+                hasInputOwnership: hasInputOwnership,
+                activity: ApplicationCaptureActivity(
+                    paneWantsCapture: true,
+                    hostAttached: true,
+                    hostVisible: true
+                ),
+                hasSession: true,
+                hasLease: true,
+                attachmentAcknowledged: attachmentAcknowledged,
+                firstFramePresented: firstFramePresented,
+                isReleasingInput: false,
+                isStopping: false
+            )
+        }
+
+        #expect(!ready(
+            hasInputOwnership: false,
+            attachmentAcknowledged: true,
+            firstFramePresented: true
+        ))
+        #expect(!ready(
+            attachmentAcknowledged: false,
+            firstFramePresented: false
+        ))
+        #expect(!ready(
+            attachmentAcknowledged: true,
+            firstFramePresented: false
+        ))
+        #expect(!ready(
+            attachmentAcknowledged: false,
+            firstFramePresented: true
+        ))
+        #expect(ready(
+            attachmentAcknowledged: true,
+            firstFramePresented: true
+        ))
+    }
+
+    @Test func losingPaneInputOwnershipReleasesForwardedInput() async {
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime(),
+            leaseProvider: { nil },
+            onStateChanged: { _, _ in },
+            onMovedToWindow: { _ in }
+        )
+
+        view.setInputOwnership(true)
+        view.setInputOwnership(false)
+
+        #expect(view.isReleasingForwardedInput)
+        await view.waitUntilForwardedInputReleased()
+        #expect(!view.isReleasingForwardedInput)
+    }
+
+    @Test
+    func regainingPaneInputOwnershipRestoresPhysicallyHeldModifier() async throws {
+        _ = NSApplication.shared
+        let frameRing = try ApplicationSurfaceFrameRingFixture()
+        let service = ComputerUseRuntimeService()
+        let lease = ApplicationSurfaceRuntimeLease(
+            service: service,
+            identifier: UUID()
+        )
+        let runtime = FakeApplicationSurfaceRuntime()
+        runtime.sessionToStart = ApplicationSurfaceSessionDescriptor(
+            sessionID: "modifier-ownership-resume",
+            frameTransport: frameRing.descriptor
+        )
+        var physicalModifierFlagsRawValue = UInt(0)
+        var captureStates: [ApplicationCaptureState] = []
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { lease },
+            onStateChanged: { state, _ in
+                captureStates.append(state)
+            },
+            onMovedToWindow: { _ in },
+            modifierFlagsRawValueProvider: {
+                physicalModifierFlagsRawValue
+            }
+        )
+        let window = ApplicationSurfaceVisibleTestWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        #expect(window.makeFirstResponder(view))
+        view.setCaptureActive(true)
+        defer {
+            view.teardown()
+            window.contentView = nil
+            window.close()
+            withExtendedLifetime(service) {}
+        }
+
+        let streamingDeadline = ContinuousClock.now + .seconds(2)
+        while !captureStates.contains(.streaming),
+              ContinuousClock.now < streamingDeadline {
+            await Task.yield()
+        }
+        try #require(captureStates.contains(.streaming))
+
+        physicalModifierFlagsRawValue =
+            NSEvent.ModifierFlags.shift.rawValue
+                | UInt(NX_DEVICELSHIFTKEYMASK)
+        view.setInputOwnership(true)
+        let initialPressDeadline = ContinuousClock.now + .seconds(1)
+        while runtime.sentEvents.count < 1,
+              ContinuousClock.now < initialPressDeadline {
+            await Task.yield()
+        }
+        try #require(runtime.sentEvents.count >= 1)
+        #expect(runtime.sentEvents[0] == ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: UInt16(kVK_Shift),
+            keyDown: true
+        ))
+
+        view.setInputOwnership(false)
+        await view.waitUntilForwardedInputReleased()
+        try #require(runtime.sentEvents.count >= 2)
+        #expect(runtime.sentEvents[1] == ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: UInt16(kVK_Shift),
+            keyDown: false
+        ))
+
+        view.setInputOwnership(true)
+        let restoredPressDeadline = ContinuousClock.now + .seconds(1)
+        while runtime.sentEvents.count < 3,
+              ContinuousClock.now < restoredPressDeadline {
+            await Task.yield()
+        }
+        try #require(runtime.sentEvents.count >= 3)
+        #expect(runtime.sentEvents[2] == ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: UInt16(kVK_Shift),
+            keyDown: true
+        ))
+
+        window.reportsKeyWindow = false
+        NotificationCenter.default.post(
+            name: NSWindow.didResignKeyNotification,
+            object: window
+        )
+        await view.waitUntilForwardedInputReleased()
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+        #expect(runtime.sentEvents.count == 4)
+        #expect(runtime.sentEvents[3] == ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: UInt16(kVK_Shift),
+            keyDown: false
+        ))
+
+        window.reportsKeyWindow = true
+        NotificationCenter.default.post(
+            name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+        let keyWindowPressDeadline = ContinuousClock.now + .seconds(1)
+        while runtime.sentEvents.count < 5,
+              ContinuousClock.now < keyWindowPressDeadline {
+            await Task.yield()
+        }
+        try #require(runtime.sentEvents.count >= 5)
+        #expect(runtime.sentEvents[4] == ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: UInt16(kVK_Shift),
+            keyDown: true
+        ))
+    }
+
+    @Test func frameTransportFailuresResolveThroughTheAppStringCatalog() {
+        let expected = String(
+            localized: "panel.application.captureFailed.detail",
+            defaultValue: "cmux could not capture this window. Try again or choose another window."
+        )
+
+        #expect(
+            ApplicationCaptureView.localizedTransportFailureDetail(
+                .invalidTransport
+            ) == expected
+        )
+        #expect(
+            ApplicationCaptureView.localizedTransportFailureDetail(
+                .producerFailed
+            ) == expected
+        )
+    }
+
+    @Test func captureFailureOverlayPreservesLocalizedRuntimeGuidance() {
+        let fallback = String(
+            localized: "panel.application.captureFailed.detail",
+            defaultValue: "cmux could not capture this window. Try again or choose another window."
+        )
+
+        #expect(
+            ApplicationPanelView.localizedCaptureFailureDetail(
+                "Close another application pane and try again."
+            ) == "Close another application pane and try again."
+        )
+        #expect(ApplicationPanelView.localizedCaptureFailureDetail(nil) == fallback)
+    }
+
+    @Test func captureLivenessAllowsStaticContentAfterFirstFrame() {
+        var state = ApplicationCaptureLivenessState(startedAt: 10)
+
+        #expect(state.failure(
+            at: 17.9,
+            firstFrameTimeout: 8
+        ) == nil)
+        #expect(state.failure(
+            at: 18,
+            firstFrameTimeout: 8
+        ) == .firstFrameTimedOut)
+
+        state.recordFrame(at: 20)
+        #expect(state.failure(
+            at: 120,
+            firstFrameTimeout: 8
+        ) == nil)
+    }
+
+    @Test func letterboxMarginsDoNotMapToNativeWindowEdges() {
+        let bounds = CGRect(x: 0, y: 0, width: 200, height: 100)
+        let sourceFrame = CGRect(x: 1_000, y: 500, width: 100, height: 100)
+
+        #expect(ApplicationCaptureView.sourcePoint(
+            for: CGPoint(x: 25, y: 50),
+            in: bounds,
+            sourceFrame: sourceFrame
+        ) == nil)
+        #expect(ApplicationCaptureView.sourcePoint(
+            for: CGPoint(x: 100, y: 50),
+            in: bounds,
+            sourceFrame: sourceFrame
+        ) == CGPoint(x: 1_050, y: 550))
+    }
+
+    @Test func mouseReleaseOutsideLetterboxUsesLastForwardedPoint() {
+        let lastLeftPoint = CGPoint(x: 0.25, y: 0.75)
+        let lastRightPoint = CGPoint(x: 0.8, y: 0.2)
+
+        #expect(ApplicationCaptureView.resolvedMousePoint(
+            kind: .leftMouseUp,
+            normalizedPoint: nil,
+            lastLeftPoint: lastLeftPoint,
+            lastRightPoint: lastRightPoint
+        ) == lastLeftPoint)
+        #expect(ApplicationCaptureView.resolvedMousePoint(
+            kind: .rightMouseUp,
+            normalizedPoint: nil,
+            lastLeftPoint: lastLeftPoint,
+            lastRightPoint: lastRightPoint
+        ) == lastRightPoint)
+        #expect(ApplicationCaptureView.resolvedMousePoint(
+            kind: .leftMouseDragged,
+            normalizedPoint: nil,
+            lastLeftPoint: lastLeftPoint,
+            lastRightPoint: lastRightPoint
+        ) == lastLeftPoint)
+        #expect(ApplicationCaptureView.resolvedMousePoint(
+            kind: .rightMouseDragged,
+            normalizedPoint: nil,
+            lastLeftPoint: lastLeftPoint,
+            lastRightPoint: lastRightPoint
+        ) == lastRightPoint)
+        #expect(ApplicationCaptureView.resolvedMousePoint(
+            kind: .leftMouseDown,
+            normalizedPoint: nil,
+            lastLeftPoint: lastLeftPoint,
+            lastRightPoint: lastRightPoint
+        ) == nil)
+    }
+
+    @Test func relativePointerDeltaPreservesHostDistance() {
+        #expect(ApplicationCaptureView.resolvedMouseDelta(
+            reportedDelta: CGPoint(x: 20, y: -10),
+            previousPoint: nil,
+            currentPoint: .zero,
+            in: CGRect(x: 0, y: 0, width: 200, height: 100),
+            sourceFrameSize: CGSize(width: 100, height: 100)
+        ) == CGPoint(x: 20, y: -10))
+    }
+
+    @Test func relativePointerDeltaFallsBackToAbsoluteDragMotion() {
+        #expect(ApplicationCaptureView.resolvedMouseDelta(
+            reportedDelta: .zero,
+            previousPoint: CGPoint(x: 0.25, y: 0.75),
+            currentPoint: CGPoint(x: 0.5, y: 0.5),
+            in: CGRect(x: 0, y: 0, width: 200, height: 100),
+            sourceFrameSize: CGSize(width: 100, height: 100)
+        ) == CGPoint(x: 25, y: -25))
+    }
+
+    @Test func applicationNamedKeysAcceptTerminalSeparators() {
+        let plus = ApplicationCaptureView.parseNamedKey("ctrl+c")
+        let dash = ApplicationCaptureView.parseNamedKey("ctrl-c")
+
+        #expect(plus?.keyCode == CGKeyCode(kVK_ANSI_C))
+        #expect(plus?.flags.contains(.maskControl) == true)
+        #expect(dash?.keyCode == plus?.keyCode)
+        #expect(dash?.flags == plus?.flags)
+        #expect(ApplicationCaptureView.parseNamedKey("hyper-c") == nil)
+    }
+
+    @Test func modifierTransitionsUsePhysicalEventState() {
+        let leftShiftDown =
+            NSEvent.ModifierFlags.shift.rawValue
+                | UInt(NX_DEVICELSHIFTKEYMASK)
+        let rightShiftDown =
+            NSEvent.ModifierFlags.shift.rawValue
+                | UInt(NX_DEVICERSHIFTKEYMASK)
+
+        #expect(ApplicationCaptureView.modifierKeyIsDown(
+            keyCode: UInt16(kVK_Shift),
+            modifierFlagsRawValue: leftShiftDown
+        ) == true)
+        #expect(ApplicationCaptureView.modifierKeyIsDown(
+            keyCode: UInt16(kVK_Shift),
+            modifierFlagsRawValue: 0
+        ) == false)
+        #expect(ApplicationCaptureView.modifierKeyIsDown(
+            keyCode: UInt16(kVK_Shift),
+            modifierFlagsRawValue: rightShiftDown
+        ) == false)
+        #expect(ApplicationCaptureView.modifierKeyIsDown(
+            keyCode: UInt16(kVK_RightShift),
+            modifierFlagsRawValue: rightShiftDown
+        ) == true)
+    }
+
+    @Test func applicationCaptureHonorsInactiveWindowFirstClickSetting() async {
+        let key = PaneFirstClickFocusSettings.enabledKey
+        let previousValue = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let previousValue {
+                UserDefaults.standard.set(previousValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime(),
+            leaseProvider: { nil },
+            onStateChanged: { _, _ in },
+            onMovedToWindow: { _ in }
+        )
+
+        view.setInputOwnership(true)
+        UserDefaults.standard.set(true, forKey: key)
+        #expect(view.acceptsFirstMouse(for: nil))
+        UserDefaults.standard.set(false, forKey: key)
+        #expect(!view.acceptsFirstMouse(for: nil))
+        UserDefaults.standard.set(true, forKey: key)
+        view.setInputOwnership(false)
+        #expect(!view.acceptsFirstMouse(for: nil))
+        await view.waitUntilForwardedInputReleased()
+    }
+
+    @Test func inputPumpRejectsNonMotionEventsBeyondItsBound() async {
+        var delivered: [ApplicationSurfaceInputEvent] = []
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { events in
+            delivered.append(contentsOf: events)
+            return true
+        }
+        let first = ApplicationSurfaceInputEvent(kind: .key, keyCode: 1, keyDown: true)
+        let second = ApplicationSurfaceInputEvent(kind: .scroll, deltaY: 1)
+        let rejected = ApplicationSurfaceInputEvent(kind: .key, keyCode: 2, keyDown: true)
+
+        #expect(pump.enqueue(first) == .accepted)
+        #expect(pump.enqueue(second) == .accepted)
+        #expect(pump.enqueue(rejected) == .full)
+        await pump.waitUntilIdle()
+
+        #expect(delivered == [first, second])
+    }
+
+    @Test func applicationInputSerializesTheDisplayedFrameSequence() {
+        let arguments = ComputerUseRuntimeService.applicationSurfaceEventArguments(
+            sessionID: "surface-one",
+            event: ApplicationSurfaceInputEvent(
+                kind: .mouseMoved,
+                frameSequence: 73,
+                x: 0.25,
+                y: 0.75
+            )
+        )
+
+        #expect((arguments["frame_sequence"] as? NSNumber)?.uint64Value == 73)
+    }
+
+    @Test func inputPumpQueuesNamedKeyPairAtomically() async {
+        var delivered: [ApplicationSurfaceInputEvent] = []
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 1) { events in
+            delivered.append(contentsOf: events)
+            return true
+        }
+        let keyDown = ApplicationSurfaceInputEvent(kind: .key, keyCode: 12, keyDown: true)
+        let keyUp = ApplicationSurfaceInputEvent(kind: .key, keyCode: 12, keyDown: false)
+
+        #expect(pump.enqueue([keyDown, keyUp]) == .full)
+        await pump.waitUntilIdle()
+
+        #expect(delivered.isEmpty)
+    }
+
+    @Test func inputPumpCoalescesMotionBeforeApplyingBackpressure() async {
+        var delivered: [ApplicationSurfaceInputEvent] = []
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { events in
+            delivered.append(contentsOf: events)
+            return true
+        }
+        for coordinate in 0..<100 {
+            #expect(pump.enqueue(ApplicationSurfaceInputEvent(
+                kind: .mouseMoved,
+                x: Double(coordinate),
+                y: Double(coordinate),
+                deltaX: 0.25,
+                deltaY: -0.5
+            )) == .accepted)
+        }
+        let key = ApplicationSurfaceInputEvent(kind: .key, keyCode: 1, keyDown: true)
+        #expect(pump.enqueue(key) == .accepted)
+
+        await pump.waitUntilIdle()
+
+        #expect(delivered.count == 2)
+        #expect(delivered.first?.kind == .mouseMoved)
+        #expect(delivered.first?.x == 99)
+        #expect(delivered.first?.deltaX == 25)
+        #expect(delivered.first?.deltaY == -50)
+        #expect(delivered.last == key)
+    }
+
+    @Test func inputPumpCoalescesScrollBurstsBeforeApplyingBackpressure() async {
+        var delivered: [ApplicationSurfaceInputEvent] = []
+        let pump = ApplicationSurfaceInputPump(maximumQueuedEventCount: 2) { events in
+            delivered.append(contentsOf: events)
+            return true
+        }
+
+        for _ in 0..<100 {
+            #expect(pump.enqueue(ApplicationSurfaceInputEvent(
+                kind: .scroll,
+                x: 0.25,
+                y: 0.75,
+                modifiers: UInt64(NSEvent.ModifierFlags.shift.rawValue),
+                deltaX: 1,
+                deltaY: -2
+            )) == .accepted)
+        }
+        await pump.waitUntilIdle()
+
+        #expect(delivered == [
+            ApplicationSurfaceInputEvent(
+                kind: .scroll,
+                x: 0.25,
+                y: 0.75,
+                modifiers: UInt64(NSEvent.ModifierFlags.shift.rawValue),
+                deltaX: 100,
+                deltaY: -200
+            ),
+        ])
+    }
+
+    @Test func inputPumpBatchesBacklogWithoutDelayingFirstEvent() async {
+        var batches: [[ApplicationSurfaceInputEvent]] = []
+        var releaseFirstBatch: CheckedContinuation<Void, Never>?
+        let pump = ApplicationSurfaceInputPump(
+            maximumQueuedEventCount: 64,
+            batchSender: { events in
+                batches.append(events)
+                if batches.count == 1 {
+                    await withCheckedContinuation { continuation in
+                        releaseFirstBatch = continuation
+                    }
+                }
+                return true
+            }
+        )
+        let first = ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: 1,
+            keyDown: true
+        )
+        #expect(pump.enqueue(first) == .accepted)
+        while batches.isEmpty {
+            await Task.yield()
+        }
+        #expect(batches == [[first]])
+
+        let backlog = (2 ... 33).map {
+            ApplicationSurfaceInputEvent(
+                kind: .key,
+                keyCode: UInt16($0),
+                keyDown: true
+            )
+        }
+        for event in backlog {
+            #expect(pump.enqueue(event) == .accepted)
+        }
+        releaseFirstBatch?.resume()
+        await pump.waitUntilIdle()
+
+        #expect(batches.count == 2)
+        #expect(batches[1] == backlog)
+    }
+
+    @Test func inputPumpNeverExceedsTheHelperProtocolBatchLimit() async {
+        var batches: [[ApplicationSurfaceInputEvent]] = []
+        var releaseFirstBatch: CheckedContinuation<Void, Never>?
+        let pump = ApplicationSurfaceInputPump(
+            maximumQueuedEventCount: 128,
+            batchSender: { events in
+                batches.append(events)
+                if batches.count == 1 {
+                    await withCheckedContinuation { continuation in
+                        releaseFirstBatch = continuation
+                    }
+                }
+                return true
+            }
+        )
+        let first = ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: 1,
+            keyDown: true
+        )
+        #expect(pump.enqueue(first) == .accepted)
+        while batches.isEmpty {
+            await Task.yield()
+        }
+
+        let backlog = (2 ... 101).map {
+            ApplicationSurfaceInputEvent(
+                kind: .key,
+                keyCode: UInt16($0),
+                keyDown: true
+            )
+        }
+        for event in backlog {
+            #expect(pump.enqueue(event) == .accepted)
+        }
+        releaseFirstBatch?.resume()
+        await pump.waitUntilIdle()
+
+        #expect(batches.map(\.count) == [1, 64, 36])
+        #expect(Array(batches.dropFirst().joined()) == backlog)
+    }
+
+    @Test func inputPumpSynthesizesReleasesForDeliveredPresses() async {
+        var delivered: [ApplicationSurfaceInputEvent] = []
+        let pump = ApplicationSurfaceInputPump { events in
+            delivered.append(contentsOf: events)
+            return true
+        }
+        let keyDown = ApplicationSurfaceInputEvent(kind: .key, keyCode: 56, keyDown: true)
+        let mouseDown = ApplicationSurfaceInputEvent(
+            kind: .leftMouseDown,
+            frameSequence: 41,
+            x: 0.25,
+            y: 0.5
+        )
+        let mouseDrag = ApplicationSurfaceInputEvent(
+            kind: .leftMouseDragged,
+            frameSequence: 42,
+            x: 0.75,
+            y: 0.8
+        )
+
+        #expect(pump.enqueue(keyDown) == .accepted)
+        #expect(pump.enqueue(mouseDown) == .accepted)
+        #expect(pump.enqueue(mouseDrag) == .accepted)
+        await pump.waitUntilIdle()
+
+        let releases = await pump.discardPendingAndSnapshotReleaseEvents()
+
+        #expect(releases.contains(ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: 56,
+            keyDown: false
+        )))
+        #expect(releases.contains(ApplicationSurfaceInputEvent(
+            kind: .leftMouseUp,
+            frameSequence: 42,
+            x: 0.75,
+            y: 0.8
+        )))
+    }
+
+    @Test func inputPumpRetainsReleaseStateUntilAcknowledged() async {
+        let pump = ApplicationSurfaceInputPump { _ in true }
+        let keyDown = ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: 56,
+            keyDown: true
+        )
+        let mouseDown = ApplicationSurfaceInputEvent(
+            kind: .leftMouseDown,
+            frameSequence: 41,
+            x: 0.25,
+            y: 0.5
+        )
+
+        #expect(pump.enqueue(keyDown) == .accepted)
+        #expect(pump.enqueue(mouseDown) == .accepted)
+        await pump.waitUntilIdle()
+
+        let firstAttempt = await pump.snapshotReleaseEventsAfterDraining()
+        let retryAttempt = await pump.snapshotReleaseEventsAfterDraining()
+
+        #expect(!firstAttempt.isEmpty)
+        #expect(retryAttempt == firstAttempt)
+
+        var failedAttemptCount = 0
+        let failed = await pump.releasePossibleInputsAfterDraining(
+            maximumAttemptCount: 2
+        ) { events in
+            failedAttemptCount += 1
+            #expect(events == firstAttempt)
+            return false
+        }
+
+        #expect(!failed)
+        #expect(failedAttemptCount == 2)
+        #expect(await pump.snapshotReleaseEventsAfterDraining() == firstAttempt)
+
+        let acknowledged = await pump.releasePossibleInputsAfterDraining(
+            maximumAttemptCount: 1
+        ) { events in
+            #expect(events == firstAttempt)
+            return true
+        }
+
+        #expect(acknowledged)
+        #expect(await pump.snapshotReleaseEventsAfterDraining().isEmpty)
+    }
+
+    @Test func pickerSearchMatchesOwnerAndWindowTitle() {
+        let model = ApplicationSurfacePickerModel()
+        model.replaceWindows([
+            ApplicationWindowDescriptor(
+                windowID: 1,
+                processID: 10,
+                owner: "Calculator",
+                title: "Calculator",
+                width: 400,
+                height: 600
+            ),
+            ApplicationWindowDescriptor(
+                windowID: 2,
+                processID: 20,
+                owner: "Preview",
+                title: "Release Notes.pdf",
+                width: 800,
+                height: 600
+            ),
+        ])
+
+        #expect(model.selectedWindowID == 1)
+        model.query = "release"
+        #expect(model.filteredWindows.map(\.windowID) == [2])
+        model.query = "calculator"
+        #expect(model.filteredWindows.map(\.windowID) == [1])
+    }
+
+    @Test func applicationPaneOwnsWindowSelection() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let panelID = panel.id
+        var titleChanges: [String] = []
+        panel.setDisplayTitleChangeHandler { titleChanges.append($0) }
+
+        #expect(panel.captureTarget == nil)
+        #expect(panel.captureStateDescription == "selecting")
+
+        panel.selectWindow(ApplicationWindowDescriptor(
+            windowID: 88,
+            processID: 99,
+            owner: "Calculator",
+            title: "Calculator",
+            width: 674,
+            height: 408
+        ))
+
+        #expect(panel.id == panelID)
+        #expect(panel.captureTarget == ApplicationCaptureTarget(
+            windowID: 88,
+            processID: 99
+        ))
+        #expect(panel.displayTitle == "Calculator")
+        #expect(panel.selectedWindowTitle == "Calculator")
+
+        panel.chooseAnotherWindow()
+
+        #expect(panel.id == panelID)
+        #expect(panel.captureTarget == nil)
+        #expect(panel.displayTitle == "Application")
+        #expect(titleChanges == ["Calculator", "Application"])
+    }
+
+    @Test func applicationPanelRetainsCaptureViewAcrossRepresentableLifetime() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let token = panel.beginCaptureSession()
+        var view: ApplicationCaptureView? = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { nil },
+            onStateChanged: { _, _ in },
+            onMovedToWindow: { _ in }
+        )
+        weak var retainedView = view
+
+        panel.attach(view!, token: token)
+        view = nil
+
+        #expect(retainedView != nil)
+        panel.close()
+    }
+
+    @Test func applicationPanelReusesCaptureViewAcrossRepresentableRemounts() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+
+        let firstView = panel.captureView(windowID: 42, processID: 43)
+        let secondView = panel.captureView(windowID: 42, processID: 43)
+
+        #expect(firstView === secondView)
+        panel.close()
+    }
+
+    @Test func applicationPanelClosePurgesSearchIndexExactlyOnce() {
+        let panelID = UUID()
+        var purgedPanelIDs: [UUID] = []
+        let panel = ApplicationPanel(
+            id: panelID,
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Private quarterly plan",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime(),
+            searchIndexPurge: { purgedPanelIDs.append($0) }
+        )!
+
+        panel.close()
+        panel.close()
+
+        #expect(purgedPanelIDs == [panelID])
+    }
+
+    @Test func applicationTitlesStayOutOfPersistentGlobalSearch() {
+        #expect(
+            !GlobalSearchDocuments.shouldPersistTitleDocument(
+                for: .application
+            )
+        )
+        #expect(
+            GlobalSearchDocuments.shouldPersistTitleDocument(
+                for: .terminal
+            )
+        )
+    }
+
+    @Test func dismantlingRepresentableSuspendsItsHostedCapture() {
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+        let view = panel.captureView(windowID: 42, processID: 43)
+        let mountID = UUID()
+        panel.updateCaptureViewMount(
+            isVisibleInUI: true,
+            allowsPointerInput: false,
+            view: view,
+            mountID: mountID
+        )
+        #expect(panel.captureEligibleForCurrentVisibility)
+
+        ApplicationCaptureRepresentable.dismantleNSView(
+            view,
+            coordinator: mountID
+        )
+
+        #expect(!panel.captureEligibleForCurrentVisibility)
+        panel.close()
+    }
+
+    @Test func staleRepresentableTeardownPreservesTheReplacementMount() {
+        let firstClickSettingKey = PaneFirstClickFocusSettings.enabledKey
+        let previousFirstClickSetting = UserDefaults.standard.object(
+            forKey: firstClickSettingKey
+        )
+        UserDefaults.standard.set(true, forKey: firstClickSettingKey)
+        defer {
+            if let previousFirstClickSetting {
+                UserDefaults.standard.set(
+                    previousFirstClickSetting,
+                    forKey: firstClickSettingKey
+                )
+            } else {
+                UserDefaults.standard.removeObject(
+                    forKey: firstClickSettingKey
+                )
+            }
+        }
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+        let staleView = panel.captureView(windowID: 42, processID: 43)
+        let staleMountID = UUID()
+        panel.updateCaptureViewMount(
+            isVisibleInUI: true,
+            allowsPointerInput: false,
+            view: staleView,
+            mountID: staleMountID
+        )
+        let replacementView = panel.captureView(windowID: 42, processID: 43)
+        let replacementMountID = UUID()
+        panel.updateCaptureViewMount(
+            isVisibleInUI: true,
+            allowsPointerInput: true,
+            view: replacementView,
+            mountID: replacementMountID
+        )
+        #expect(staleView === replacementView)
+        #expect(replacementView.acceptsFirstMouse(for: nil))
+
+        ApplicationCaptureRepresentable.dismantleNSView(
+            staleView,
+            coordinator: staleMountID
+        )
+
+        #expect(panel.captureEligibleForCurrentVisibility)
+        #expect(replacementView.acceptsFirstMouse(for: nil))
+        panel.close()
+    }
+
+    @Test func leavingCanvasRestoresSplitCaptureEligibility() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let view = panel.captureView(windowID: 42, processID: 43)
+        panel.setCaptureVisibleInUI(true, view: view)
+        let container = NSView()
+        let mount = CanvasPaneContentMount(
+            content: .hosted(
+                panel,
+                view,
+                CanvasHostedPanelPresentation(
+                    isFocused: false,
+                    allowsPointerInput: true,
+                    pointerInputOwner: view
+                )
+            ),
+            panelId: panel.id,
+            container: container,
+            onFocusPanel: { _ in }
+        )
+
+        mount.setRendering(false)
+        #expect(!panel.captureEligibleForCurrentVisibility)
+
+        mount.unmount()
+        #expect(panel.captureEligibleForCurrentVisibility)
+        panel.close()
+    }
+
+    @Test func hiddenApplicationCaptureReportsSuspendedHealth() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let view = panel.captureView(windowID: 42, processID: 43)
+
+        panel.setCaptureVisibleInUI(true, view: view)
+
+        #expect(panel.captureStateDescription == "suspended")
+        panel.close()
+    }
+
+    @Test
+    func hiddenCaptureIgnoresCancelledStartFailureAndResumes() async throws {
+        _ = NSApplication.shared
+        let frameRing = try ApplicationSurfaceFrameRingFixture()
+        let service = ComputerUseRuntimeService()
+        let lease = ApplicationSurfaceRuntimeLease(
+            service: service,
+            identifier: UUID()
+        )
+        let runtime = FakeApplicationSurfaceRuntime()
+        runtime.waitForStartCancellation = true
+        var captureStates: [ApplicationCaptureState] = []
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { lease },
+            onStateChanged: { state, _ in
+                captureStates.append(state)
+            },
+            onMovedToWindow: { _ in }
+        )
+        let window = ApplicationSurfaceVisibleTestWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        view.setCaptureActive(true)
+        defer {
+            view.teardown()
+            window.contentView = nil
+            window.close()
+            withExtendedLifetime(service) {}
+        }
+
+        let startDeadline = ContinuousClock.now + .seconds(1)
+        while !runtime.startWasRequested,
+              ContinuousClock.now < startDeadline {
+            await Task.yield()
+        }
+        try #require(runtime.startWasRequested)
+
+        view.setCaptureActive(false)
+        let cancellationDeadline = ContinuousClock.now + .seconds(1)
+        while !runtime.startCancellationObserved,
+              ContinuousClock.now < cancellationDeadline {
+            await Task.yield()
+        }
+        try #require(runtime.startCancellationObserved)
+        #expect(captureStates.last == .suspended)
+        #expect(!captureStates.contains(.failed))
+
+        runtime.waitForStartCancellation = false
+        runtime.sessionToStart = ApplicationSurfaceSessionDescriptor(
+            sessionID: "resumed-after-hidden-start",
+            frameTransport: frameRing.descriptor
+        )
+        view.setCaptureActive(true)
+
+        let streamingDeadline = ContinuousClock.now + .seconds(2)
+        while !captureStates.contains(.streaming),
+              ContinuousClock.now < streamingDeadline {
+            await Task.yield()
+        }
+        #expect(captureStates.contains(.streaming))
+    }
+
+    @Test
+    func transientHostOcclusionKeepsCaptureSessionAlive() async throws {
+        _ = NSApplication.shared
+        let frameRing = try ApplicationSurfaceFrameRingFixture()
+        let service = ComputerUseRuntimeService()
+        let lease = ApplicationSurfaceRuntimeLease(
+            service: service,
+            identifier: UUID()
+        )
+        let runtime = FakeApplicationSurfaceRuntime()
+        runtime.sessionToStart = ApplicationSurfaceSessionDescriptor(
+            sessionID: "survives-host-occlusion",
+            frameTransport: frameRing.descriptor
+        )
+        var captureStates: [ApplicationCaptureState] = []
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { lease },
+            onStateChanged: { state, _ in
+                captureStates.append(state)
+            },
+            onMovedToWindow: { _ in }
+        )
+        let window = ApplicationSurfaceOcclusionTestWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        view.setCaptureActive(true)
+        defer {
+            view.teardown()
+            window.contentView = nil
+            window.close()
+            withExtendedLifetime(service) {}
+        }
+
+        let streamingDeadline = ContinuousClock.now + .seconds(2)
+        while !captureStates.contains(.streaming),
+              ContinuousClock.now < streamingDeadline {
+            await Task.yield()
+        }
+        try #require(captureStates.contains(.streaming))
+        #expect(runtime.startRequestCount == 1)
+
+        window.reportsOccluded = true
+        NotificationCenter.default.post(
+            name: NSWindow.didChangeOcclusionStateNotification,
+            object: window
+        )
+        await Task.yield()
+
+        #expect(runtime.stoppedSessionIDs.isEmpty)
+        #expect(runtime.startRequestCount == 1)
+        #expect(captureStates.last == .streaming)
+    }
+
+    @Test func dormantApplicationCaptureStartsWithSuspendedHealth() {
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+
+        #expect(panel.captureStateDescription == "suspended")
+        panel.close()
+    }
+
+    @Test func pickerFailureSeparatesStableCodeFromLocalizedDetail() {
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+        panel.pickerModel.phase = .failed("Localized helper failure")
+
+        #expect(panel.captureFailureCode == "window_list_failed")
+        #expect(panel.captureFailureDetail == "Localized helper failure")
+        panel.close()
+    }
+
+    @Test func terminalCaptureFailureSurvivesVisibilityChanges() {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: runtime
+        )!
+        let token = panel.beginCaptureSession()
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { nil },
+            onStateChanged: { _, _ in },
+            onMovedToWindow: { _ in }
+        )
+        panel.attach(view, token: token)
+        panel.updateCaptureState(.windowUnavailable, token: token)
+
+        panel.setCaptureVisibleInUI(false, view: view)
+
+        #expect(panel.captureStateDescription == "window_unavailable")
+        panel.close()
+    }
+
+    @Test func failedCaptureRequiresExplicitRetryBeforeVisibilityCanReactivateIt() {
+        for state in [
+            ApplicationCaptureState.permissionRequired,
+            .windowUnavailable,
+            .failed,
+        ] {
+            #expect(!ApplicationPanel.shouldRequestCaptureActivation(
+                captureEligible: true,
+                state: state
+            ))
+        }
+
+        for state in [
+            ApplicationCaptureState.starting,
+            .streaming,
+            .suspended,
+        ] {
+            #expect(ApplicationPanel.shouldRequestCaptureActivation(
+                captureEligible: true,
+                state: state
+            ))
+        }
+        #expect(!ApplicationPanel.shouldRequestCaptureActivation(
+            captureEligible: false,
+            state: .suspended
+        ))
+    }
+
+    @Test func captureFailurePreservesLocalizedRuntimeDetailUntilRetry() {
+        let panel = ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            targetFrameRate: 60,
+            runtime: FakeApplicationSurfaceRuntime()
+        )!
+        let token = panel.beginCaptureSession()
+
+        panel.updateCaptureState(
+            .failed,
+            failureDetail: "Localized helper failure",
+            token: token
+        )
+
+        #expect(panel.captureFailureCode == "capture_failed")
+        #expect(panel.captureFailureDetail == "Localized helper failure")
+
+        panel.updateCaptureState(.starting, token: token)
+
+        #expect(panel.captureFailureCode == nil)
+        #expect(panel.captureFailureDetail == nil)
+        panel.close()
+    }
+
+    @Test func unavailableApplicationEditingKeyEquivalentFallsThroughToMainMenu() throws {
+        _ = NSApplication.shared
+        let runtime = FakeApplicationSurfaceRuntime()
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { nil },
+            onStateChanged: { _, _ in },
+            onMovedToWindow: { _ in }
+        )
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "i",
+            charactersIgnoringModifiers: "i",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_I)
+        ))
+
+        var fallbackCallCount = 0
+        let handled = view.performKeyEquivalent(
+            with: event
+        ) {
+            fallbackCallCount += 1
+            return true
+        }
+        #expect(handled)
+        #expect(fallbackCallCount == 1)
+    }
+
+    @Test func applicationEditingCommandsFollowTheProducedCharacter() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "z",
+            charactersIgnoringModifiers: "z",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_Q)
+        ))
+
+        #expect(
+            ApplicationCommandEquivalentRoutingPolicy()
+                .shouldRouteThroughContentFirst(event)
+        )
+    }
+
+    @Test func applicationEditingCommandForwardsBalancedKeyPress() async throws {
+        _ = NSApplication.shared
+        let frameRing = try ApplicationSurfaceFrameRingFixture()
+        let service = ComputerUseRuntimeService()
+        let lease = ApplicationSurfaceRuntimeLease(
+            service: service,
+            identifier: UUID()
+        )
+        let runtime = FakeApplicationSurfaceRuntime()
+        runtime.sessionToStart = ApplicationSurfaceSessionDescriptor(
+            sessionID: "balanced-command",
+            frameTransport: frameRing.descriptor
+        )
+        var captureStates: [ApplicationCaptureState] = []
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { lease },
+            onStateChanged: { state, _ in
+                captureStates.append(state)
+            },
+            onMovedToWindow: { _ in }
+        )
+        let window = ApplicationSurfaceVisibleTestWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        view.setInputOwnership(true)
+        view.setCaptureActive(true)
+        defer {
+            view.teardown()
+            window.contentView = nil
+            window.close()
+            withExtendedLifetime(service) {}
+        }
+
+        let streamingDeadline = ContinuousClock.now + .seconds(2)
+        while !captureStates.contains(.streaming),
+              ContinuousClock.now < streamingDeadline {
+            await Task.yield()
+        }
+        try #require(captureStates.contains(.streaming))
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        ))
+
+        #expect(view.performKeyEquivalent(with: event))
+        let deliveryDeadline = ContinuousClock.now + .seconds(1)
+        while runtime.sentEvents.count < 2,
+              ContinuousClock.now < deliveryDeadline {
+            await Task.yield()
+        }
+        #expect(runtime.sentEvents == [
+            ApplicationSurfaceInputEvent(
+                kind: .key,
+                keyCode: UInt16(kVK_ANSI_C),
+                keyDown: true,
+                modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)
+            ),
+            ApplicationSurfaceInputEvent(
+                kind: .key,
+                keyCode: UInt16(kVK_ANSI_C),
+                keyDown: false,
+                modifiers: UInt64(NSEvent.ModifierFlags.command.rawValue)
+            ),
+        ])
+    }
+
+    @Test func explicitCmuxShortcutWinsOverFocusedApplicationPane() throws {
+        _ = NSApplication.shared
+        let runtime = FakeApplicationSurfaceRuntime()
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { nil },
+            onStateChanged: { _, _ in },
+            onMovedToWindow: { _ in }
+        )
+        let windowID = UUID()
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier(
+            "cmux.main.\(windowID.uuidString)"
+        )
+        window.contentView = view
+        #expect(window.makeFirstResponder(view))
+
+        let action = KeyboardShortcutSettings.Action.showNotifications
+        let previousShortcutData = UserDefaults.standard.data(
+            forKey: action.defaultsKey
+        )
+        let previousSettingsFileStore =
+            KeyboardShortcutSettings.installIsolatedTestFileStore(
+                prefix: "cmux-application-shortcut-routing"
+            )
+        KeyboardShortcutSettings.setShortcut(
+            action.defaultShortcut,
+            for: action
+        )
+
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "i",
+            charactersIgnoringModifiers: "i",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_I)
+        ))
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(applicationSurfaceRuntime: runtime)
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: tabManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.clearConfiguredShortcutChordState()
+#if DEBUG
+        var shortcutLookups: [KeyboardShortcutSettings.Action] = []
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            shortcutLookups.append(action)
+        }
+#endif
+        defer {
+            _ = appDelegate.dismissNotificationsPopoverIfShown()
+            appDelegate.clearConfiguredShortcutChordState()
+#if DEBUG
+            KeyboardShortcutSettings.shortcutLookupObserver = nil
+#endif
+            AppDelegate.shared = previousAppDelegate
+            KeyboardShortcutSettings.settingsFileStore =
+                previousSettingsFileStore
+            if let previousShortcutData {
+                UserDefaults.standard.set(
+                    previousShortcutData,
+                    forKey: action.defaultsKey
+                )
+            } else {
+                UserDefaults.standard.removeObject(
+                    forKey: action.defaultsKey
+                )
+            }
+            KeyboardShortcutSettings.notifySettingsFileDidChange()
+            window.contentView = nil
+            window.close()
+        }
+
+        #expect(appDelegate.handleConfiguredShortcutKeyEquivalent(event))
+#if DEBUG
+        #expect(
+            !shortcutLookups.contains(.renameWorkspace),
+            "Application command routing must use the settings revision snapshot instead of rescanning unrelated actions."
+        )
+#endif
+    }
+
+    @Test func applicationSurfacePaneRestoresWithoutReusingOSWindowIDs() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let source = Workspace(applicationSurfaceRuntime: runtime)
+        let sourcePane = try #require(
+            source.bonsplitController.allPaneIds.first
+        )
+        let sourcePanel = try #require(source.newApplicationSurface(
+            inPane: sourcePane,
+            windowID: 42,
+            processID: 43,
+            title: "Dictionary",
+            targetFrameRate: 45
+        ))
+        defer { sourcePanel.close() }
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        _ = try #require(
+            snapshot.panels.first { $0.type == .application }
+        )
+
+        let restored = Workspace(applicationSurfaceRuntime: runtime)
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanel = try #require(
+            restored.panels.values
+                .compactMap { $0 as? ApplicationPanel }
+                .first
+        )
+        defer { restoredPanel.close() }
+
+        #expect(restoredPanel.captureTarget == nil)
+        #expect(restoredPanel.targetFrameRate == 45)
+        #expect(restoredPanel.runtime === runtime)
+        #expect(
+            restored.panelTitle(panelId: restoredPanel.id)
+                == String(
+                    localized: "panel.application.defaultTitle",
+                    defaultValue: "Application"
+                )
+        )
+    }
+
+    @Test func applicationSnapshotOmitsCapturedTitleAndPreservesUserRename() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let pane = try #require(
+            workspace.bonsplitController.allPaneIds.first
+        )
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: "Private quarterly plan"
+        ))
+        defer { panel.close() }
+
+        let capturedSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first {
+                $0.type == .application
+            }
+        )
+        #expect(capturedSnapshot.title == nil)
+        #expect(capturedSnapshot.customTitle == nil)
+        #expect(
+            ClosedItemHistoryStore.title(for: capturedSnapshot)
+                == String(
+                    localized: "menu.history.recentlyClosed.panel.application",
+                    defaultValue: "Application"
+                )
+        )
+
+        #expect(workspace.setPanelCustomTitle(
+            panelId: panel.id,
+            title: "Pinned app"
+        ))
+        let renamedSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first {
+                $0.type == .application
+            }
+        )
+        #expect(renamedSnapshot.title == nil)
+        #expect(renamedSnapshot.customTitle == "Pinned app")
+        #expect(ClosedItemHistoryStore.title(for: renamedSnapshot) == "Pinned app")
+    }
+
+    @Test func applicationSnapshotOmitsCapturedWorkspaceProcessTitle() throws {
+        let privateTitle = "Private quarterly plan"
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let pane = try #require(
+            workspace.bonsplitController.allPaneIds.first
+        )
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: privateTitle,
+            focus: true
+        ))
+        defer { panel.close() }
+
+        #expect(workspace.processTitle == privateTitle)
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        #expect(
+            snapshot.processTitle
+                == String(
+                    localized: "panel.application.defaultTitle",
+                    defaultValue: "Application"
+                )
+        )
+        let encodedSnapshot = try JSONEncoder().encode(snapshot)
+        let persistedText = try #require(
+            String(data: encodedSnapshot, encoding: .utf8)
+        )
+        #expect(!persistedText.contains(privateTitle))
+    }
+
+    @Test func movedApplicationSnapshotOmitsAutomaticallyDerivedTitles() throws {
+        let privateTitle = "Private quarterly plan"
+        let runtime = FakeApplicationSurfaceRuntime()
+        let manager = TabManager(applicationSurfaceRuntime: runtime)
+        let source = try #require(manager.selectedWorkspace)
+        let pane = try #require(source.bonsplitController.allPaneIds.first)
+        let panel = try #require(source.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: privateTitle
+        ))
+        defer { panel.close() }
+        let detached = try #require(source.detachSurface(panelId: panel.id))
+
+        let destination = try #require(manager.addWorkspace(
+            fromDetachedSurface: detached,
+            title: privateTitle,
+            titleSource: .auto,
+            select: false
+        ))
+        let snapshot = destination.sessionSnapshot(includeScrollback: false)
+
+        #expect(
+            snapshot.processTitle
+                == String(
+                    localized: "panel.application.defaultTitle",
+                    defaultValue: "Application"
+                )
+        )
+        #expect(snapshot.customTitle == nil)
+        let encodedSnapshot = try JSONEncoder().encode(snapshot)
+        let persistedText = try #require(
+            String(data: encodedSnapshot, encoding: .utf8)
+        )
+        #expect(!persistedText.contains(privateTitle))
+    }
+
+    @Test func movedApplicationSnapshotPreservesUserTitle() throws {
+        let privateTitle = "Private quarterly plan"
+        let userTitle = "Pinned app"
+        let runtime = FakeApplicationSurfaceRuntime()
+        let manager = TabManager(applicationSurfaceRuntime: runtime)
+        let source = try #require(manager.selectedWorkspace)
+        let pane = try #require(source.bonsplitController.allPaneIds.first)
+        let panel = try #require(source.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: privateTitle
+        ))
+        defer { panel.close() }
+        #expect(source.setPanelCustomTitle(
+            panelId: panel.id,
+            title: userTitle
+        ))
+        let detached = try #require(source.detachSurface(panelId: panel.id))
+
+        let destination = try #require(manager.addWorkspace(
+            fromDetachedSurface: detached,
+            title: detached.title,
+            titleSource: .auto,
+            select: false
+        ))
+        let snapshot = destination.sessionSnapshot(includeScrollback: false)
+
+        #expect(snapshot.processTitle == userTitle)
+        #expect(snapshot.customTitle == userTitle)
+        #expect(snapshot.customTitleSource == .user)
+        let encodedSnapshot = try JSONEncoder().encode(snapshot)
+        let persistedText = try #require(
+            String(data: encodedSnapshot, encoding: .utf8)
+        )
+        #expect(!persistedText.contains(privateTitle))
+    }
+
+    @Test func pickerFailuresDoNotExposeRawHelperDiagnostics() async throws {
+        let privateDiagnostic =
+            "Failed to map /Users/private/Library/Application Support/cmux/frame"
+        let runtime = FakeApplicationSurfaceRuntime()
+        runtime.windowListError = NSError(
+            domain: "ComputerUseHelper",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: privateDiagnostic]
+        )
+        let lease = ApplicationSurfaceRuntimeLease(
+            service: ComputerUseRuntimeService(),
+            identifier: UUID()
+        )
+        let panel = try #require(ApplicationPanel(
+            workspaceId: UUID(),
+            targetFrameRate: 60,
+            runtime: runtime,
+            runtimeLease: lease
+        ))
+        defer { panel.close() }
+
+        panel.refreshAvailableWindows()
+        while panel.pickerModel.phase == .loading {
+            await Task.yield()
+        }
+
+        guard case let .failed(message) = panel.pickerModel.phase else {
+            Issue.record("Expected a sanitized picker failure")
+            return
+        }
+        #expect(!message.contains(privateDiagnostic))
+        #expect(!message.contains("/Users/private"))
+    }
+
+    @Test func restoredWorkspacesKeepApplicationSurfaceRuntime() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let manager = TabManager(applicationSurfaceRuntime: runtime)
+        let persistedSnapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        manager.restoreSessionSnapshot(persistedSnapshot)
+        var workspace = try #require(manager.selectedWorkspace)
+        var pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        var panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: "Preview"
+        ))
+        #expect(panel.runtime === runtime)
+        panel.close()
+
+        manager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: nil,
+            workspaces: []
+        ))
+        workspace = try #require(manager.selectedWorkspace)
+        pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 44,
+            processID: 45,
+            title: "Dictionary"
+        ))
+        #expect(panel.runtime === runtime)
+        panel.close()
+    }
+
+    @Test func socketApplicationControlRequiresTrustedMode() {
+        #expect(TerminalController.applicationSurfaceSocketControlIsAllowed(
+            accessMode: .cmuxOnly
+        ))
+        #expect(TerminalController.applicationSurfaceSocketControlIsAllowed(
+            accessMode: .password
+        ))
+        #expect(!TerminalController.applicationSurfaceSocketControlIsAllowed(
+            accessMode: .automation
+        ))
+        #expect(!TerminalController.applicationSurfaceSocketControlIsAllowed(
+            accessMode: .allowAll
+        ))
+        #expect(!TerminalController.applicationSurfaceSocketControlIsAllowed(
+            accessMode: .off
+        ))
+    }
+
+    @Test func inProcessApplicationControlIgnoresExternalSocketMode() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+        let runtime = FakeApplicationSurfaceRuntime()
+        let manager = TabManager(applicationSurfaceRuntime: runtime)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-app-in-process-auth-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        controller.start(
+            tabManager: manager,
+            socketPath: directory.appendingPathComponent("cmux.sock").path,
+            accessMode: .automation
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+
+        let resolution = controller.controlSurfaceCreate(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: workspace.id,
+                surfaceID: nil,
+                paneID: nil
+            ),
+            inputs: ControlSurfaceCreateInputs(
+                typeRaw: "application",
+                providerRaw: nil,
+                rendererRaw: nil,
+                urlRaw: nil,
+                applicationWindowID: 42,
+                applicationProcessID: 43,
+                applicationTitle: "Preview",
+                applicationFrameRate: 60,
+                workingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                remotePTYSessionID: nil,
+                remoteContextRaw: nil,
+                startupEnvironment: [:],
+                requestedPaneID: nil,
+                requestedFocus: false
+            ),
+            requestOrigin: .inProcess
+        )
+
+        guard case let .created(
+            _,
+            createdWorkspaceID,
+            _,
+            surfaceID,
+            typeRawValue
+        ) = resolution else {
+            Issue.record("Expected trusted in-process application creation")
+            return
+        }
+        #expect(createdWorkspaceID == workspace.id)
+        #expect(typeRawValue == PanelType.application.rawValue)
+        workspace.panels[surfaceID]?.close()
+    }
+
+    @Test func socketApplicationControlRejectsAuthorizationFromPriorMode() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-app-auth-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        controller.start(
+            tabManager: TabManager(),
+            socketPath: directory.appendingPathComponent("cmux.sock").path,
+            accessMode: .automation
+        )
+        #expect(controller.socketServer.isRunning)
+        let staleAuthorization = ControlSocketRequestAuthorization(
+            acceptedAccessMode: .automation,
+            generation: controller.socketServer.connectionAuthorizationGeneration,
+            passwordAuthorization: SocketPasswordAuthorization()
+        )
+
+        #expect(controller.socketServer.reconfigure(accessMode: .cmuxOnly))
+        #expect(!controller.applicationSurfaceControlIsAuthorized(
+            .socket(staleAuthorization)
+        ))
+        let staleCreateResolution = controller.controlSurfaceCreate(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: nil,
+                surfaceID: nil,
+                paneID: nil
+            ),
+            inputs: ControlSurfaceCreateInputs(
+                typeRaw: "application",
+                providerRaw: nil,
+                rendererRaw: nil,
+                urlRaw: nil,
+                applicationWindowID: 42,
+                applicationProcessID: 43,
+                applicationTitle: "Preview",
+                applicationFrameRate: 60,
+                workingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                remotePTYSessionID: nil,
+                remoteContextRaw: nil,
+                startupEnvironment: [:],
+                requestedPaneID: nil,
+                requestedFocus: false
+            ),
+            requestOrigin: .socket(staleAuthorization)
+        )
+        #expect(staleCreateResolution == .applicationControlUnavailable(
+            message: TerminalController.applicationSurfaceSocketControlUnavailableMessage
+        ))
+
+        let currentAuthorization = ControlSocketRequestAuthorization(
+            acceptedAccessMode: .cmuxOnly,
+            generation: controller.socketServer.connectionAuthorizationGeneration,
+            passwordAuthorization: SocketPasswordAuthorization()
+        )
+        #expect(controller.applicationSurfaceControlIsAuthorized(
+            .socket(currentAuthorization)
+        ))
+    }
+
+    @Test func socketApplicationControlRejectsCurrentAutomationMode() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+        let runtime = FakeApplicationSurfaceRuntime()
+        let manager = TabManager(applicationSurfaceRuntime: runtime)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-app-automation-auth-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        controller.start(
+            tabManager: manager,
+            socketPath: directory.appendingPathComponent("cmux.sock").path,
+            accessMode: .automation
+        )
+        let authorization = ControlSocketRequestAuthorization(
+            acceptedAccessMode: .automation,
+            generation: controller.socketServer.connectionAuthorizationGeneration,
+            passwordAuthorization: SocketPasswordAuthorization()
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneID = try #require(
+            workspace.bonsplitController.allPaneIds.first
+        )
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: paneID,
+            windowID: 42,
+            processID: 43,
+            title: "Preview"
+        ))
+        defer { panel.close() }
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: workspace.id,
+            surfaceID: panel.id,
+            paneID: nil
+        )
+
+        let createResolution = controller.controlSurfaceCreate(
+            routing: routing,
+            inputs: ControlSurfaceCreateInputs(
+                typeRaw: "application",
+                providerRaw: nil,
+                rendererRaw: nil,
+                urlRaw: nil,
+                applicationWindowID: 44,
+                applicationProcessID: 45,
+                applicationTitle: "Calculator",
+                applicationFrameRate: 60,
+                workingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                remotePTYSessionID: nil,
+                remoteContextRaw: nil,
+                startupEnvironment: [:],
+                requestedPaneID: nil,
+                requestedFocus: false
+            ),
+            requestOrigin: .socket(authorization)
+        )
+        let sendKeyResolution = controller.controlSurfaceSendKey(
+            routing: routing,
+            surfaceID: panel.id,
+            hasSurfaceIDParam: true,
+            key: "return",
+            requestOrigin: .socket(authorization)
+        )
+        let sendTextResolution = controller.controlSurfaceSendText(
+            routing: routing,
+            surfaceID: panel.id,
+            hasSurfaceIDParam: true,
+            text: "must remain terminal-only"
+        )
+
+        #expect(createResolution == .applicationControlUnavailable(
+            message: TerminalController.applicationSurfaceSocketControlUnavailableMessage
+        ))
+        #expect(sendKeyResolution == .applicationInputUnavailable(
+            panel.id,
+            message: TerminalController.applicationSurfaceSocketControlUnavailableMessage
+        ))
+        #expect(sendTextResolution == .surfaceNotTerminal(panel.id))
+    }
+
+    @Test func implicitSendKeyTargetsFocusedApplicationSurface() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: "Dictionary",
+            focus: true
+        ))
+
+        let target = workspace.controlDefaultSurfaceTarget(paneID: nil)
+
+        #expect(target?.surfaceID == panel.id)
+        #expect(target?.panel === panel)
+        panel.close()
+    }
+
+    @Test func implicitSendKeyTargetsApplicationSurfaceInRoutedPane() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let rootPane = try #require(
+            workspace.bonsplitController.allPaneIds.first
+        )
+        let applicationPane = try #require(
+            workspace.bonsplitController.splitPane(
+                rootPane,
+                orientation: .horizontal,
+                withTab: nil,
+                initialDividerPosition: 0.5
+            )
+        )
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: applicationPane,
+            windowID: 42,
+            processID: 43,
+            title: "Dictionary",
+            focus: true
+        ))
+        workspace.bonsplitController.focusPane(rootPane)
+
+        let target = workspace.controlDefaultSurfaceTarget(
+            paneID: applicationPane.id
+        )
+
+        #expect(target?.surfaceID == panel.id)
+        #expect(target?.panel === panel)
+        panel.close()
+    }
+
+    @Test func applicationSurfaceHasPublicSidebarKind() {
+        #expect(CmuxSidebarSurfaceKind.application.rawValue == "application")
+        #expect(
+            CmuxSidebarSurfaceKind(panelType: .application)
+                == .application
+        )
+    }
+
+    @Test func applicationTitleChangesFollowPanelAcrossWorkspaces() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let source = Workspace()
+        let destination = Workspace()
+        let sourcePane = try #require(source.bonsplitController.allPaneIds.first)
+        let destinationPane = try #require(
+            destination.bonsplitController.allPaneIds.first
+        )
+        let panel = try #require(source.newApplicationSurface(
+            inPane: sourcePane,
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            runtime: runtime
+        ))
+        let detached = try #require(source.detachSurface(panelId: panel.id))
+
+        #expect(destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        ) == panel.id)
+        panel.selectWindow(ApplicationWindowDescriptor(
+            windowID: 88,
+            processID: 99,
+            owner: "Calculator",
+            title: "Calculator",
+            width: 674,
+            height: 408
+        ))
+
+        #expect(panel.workspaceId == destination.id)
+        #expect(destination.panelTitle(panelId: panel.id) == "Calculator")
+        #expect(source.panelTitle(panelId: panel.id) == nil)
+    }
+
+    @Test func applicationSurfaceMoveRejectsRemoteTmuxMirrorDestinationWithoutDetachingSource() throws {
+        let app = AppDelegate()
+        let windowID = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(
+            windowId: windowID,
+            tabManager: manager
+        )
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+        }
+
+        let runtime = FakeApplicationSurfaceRuntime()
+        let source = try #require(manager.selectedWorkspace)
+        let sourcePane = try #require(
+            source.bonsplitController.allPaneIds.first
+        )
+        let panel = try #require(source.newApplicationSurface(
+            inPane: sourcePane,
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            runtime: runtime
+        ))
+        let destination = manager.addWorkspace(
+            title: "Remote tmux",
+            select: false
+        )
+        destination.isRemoteTmuxMirror = true
+        let sourceSurfaceID = try #require(
+            source.surfaceIdFromPanelId(panel.id)
+        )
+        let destinationPanelIDs = Set(destination.panels.keys)
+        #expect(!app.canMoveBonsplitTab(
+            tabId: sourceSurfaceID.uuid,
+            toWorkspace: destination.id
+        ))
+        #expect(!app.workspaceMoveTargets(forSurface: panel.id).contains {
+            $0.workspaceId == destination.id
+        })
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+        let lifecycleSequence = CmuxEventBus.shared.latestSequence
+
+        #expect(!app.moveSurface(
+            panelId: panel.id,
+            toWorkspace: destination.id,
+            focus: false,
+            focusWindow: false
+        ))
+        #expect(source.panels[panel.id] as? ApplicationPanel === panel)
+        #expect(source.surfaceIdFromPanelId(panel.id) == sourceSurfaceID)
+        #expect(destination.panels[panel.id] == nil)
+        #expect(Set(destination.panels.keys) == destinationPanelIDs)
+        #expect(CmuxEventBus.shared.latestSequence == lifecycleSequence)
+        panel.close()
+    }
+
+    @Test func workspaceUsesItsInjectedApplicationSurfaceRuntime() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: "Preview"
+        ))
+
+        #expect(panel.runtime === runtime)
+        panel.close()
+    }
+
+    @Test func applicationSurfaceCannotMoveIntoDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager =
+                TerminalController.shared.activeTabManagerForCallerNotification()
+            let runtime = FakeApplicationSurfaceRuntime()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(
+                autoWelcomeIfNeeded: false,
+                applicationSurfaceRuntime: runtime
+            )
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowID = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager
+            )
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(
+                    windowId: windowID
+                )
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            let pane = try #require(
+                workspace.bonsplitController.allPaneIds.first
+            )
+            let application = try #require(workspace.newApplicationSurface(
+                inPane: pane,
+                windowID: 42,
+                processID: 43,
+                title: "Dictionary",
+                focus: false
+            ))
+            let sourceTabID = try #require(
+                workspace.surfaceIdFromPanelId(application.id)
+            )
+            let dock = workspace.dockSplit
+            let rootPane = try #require(
+                dock.bonsplitController.allPaneIds.first
+            )
+
+            #expect(!appDelegate.canMoveSurfaceIntoDock(
+                sourceTabId: sourceTabID.uuid,
+                destinationDock: dock
+            ))
+            #expect(!appDelegate.moveSurfaceIntoDock(
+                sourceTabId: sourceTabID.uuid,
+                destinationDock: dock,
+                destination: .insert(
+                    targetPane: rootPane,
+                    targetIndex: nil
+                )
+            ))
+            #expect(workspace.panels[application.id] === application)
+            #expect(dock.panel(for: sourceTabID) == nil)
+        }
+    }
+
+    @Test func cliListsOnlyCapturableApplicationWindows() throws {
+        let cliProcessID = pid_t(900)
+        let applicationProcessID = pid_t(901)
+        let hostProcessID = pid_t(902)
+        let excludedProcessIDs: Set<pid_t> = [
+            cliProcessID,
+            hostProcessID,
+        ]
+        let base: [String: Any] = [
+            kCGWindowNumber as String: NSNumber(value: 42),
+            kCGWindowOwnerPID as String: NSNumber(value: applicationProcessID),
+            kCGWindowOwnerName as String: "Dictionary",
+            kCGWindowName as String: "Dictionary",
+            kCGWindowLayer as String: NSNumber(value: 0),
+            kCGWindowAlpha as String: NSNumber(value: 1),
+            kCGWindowIsOnscreen as String: true,
+            kCGWindowSharingState as String: NSNumber(value: 1),
+            kCGWindowBounds as String: [
+                "X": 10,
+                "Y": 20,
+                "Width": 800,
+                "Height": 600,
+            ] as NSDictionary,
+        ]
+        let regularApplication: (pid_t) -> Bool = {
+            $0 == applicationProcessID
+        }
+        let filter = ApplicationWindowListFilter(
+            excludedProcessIDs: excludedProcessIDs,
+            isRegularApplication: regularApplication
+        )
+
+        let listed = try #require(filter.entry(base))
+        #expect(listed["window_id"] as? Int == 42)
+        #expect((listed["width"] as? NSNumber)?.doubleValue == 800)
+        #expect((listed["height"] as? NSNumber)?.doubleValue == 600)
+
+        var invalid = base
+        invalid[kCGWindowOwnerPID as String] = NSNumber(
+            value: cliProcessID
+        )
+        #expect(filter.entry(invalid) == nil)
+
+        invalid = base
+        invalid[kCGWindowOwnerPID as String] = NSNumber(
+            value: hostProcessID
+        )
+        #expect(ApplicationWindowListFilter(
+            excludedProcessIDs: excludedProcessIDs,
+            isRegularApplication: { _ in true }
+        ).entry(invalid) == nil)
+
+        invalid = base
+        invalid[kCGWindowSharingState as String] = NSNumber(value: 0)
+        #expect(filter.entry(invalid) == nil)
+
+        invalid = base
+        invalid.removeValue(forKey: kCGWindowSharingState as String)
+        #expect(filter.entry(invalid) == nil)
+
+        invalid = base
+        invalid[kCGWindowSharingState as String] = "1"
+        #expect(filter.entry(invalid) == nil)
+
+        invalid = base
+        invalid[kCGWindowAlpha as String] = NSNumber(value: 0)
+        #expect(filter.entry(invalid) == nil)
+
+        invalid = base
+        invalid[kCGWindowIsOnscreen as String] = false
+        #expect(filter.entry(invalid) == nil)
+
+        invalid = base
+        invalid[kCGWindowBounds as String] = [
+            "X": 10,
+            "Y": 20,
+            "Width": 0,
+            "Height": 600,
+        ] as NSDictionary
+        #expect(filter.entry(invalid) == nil)
+
+        #expect(ApplicationWindowListFilter(
+            excludedProcessIDs: excludedProcessIDs,
+            isRegularApplication: { _ in false }
+        ).entry(base) == nil)
+    }
+
+    @Test func applicationTargetsRejectTheCurrentCmuxProcess() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        #expect(ApplicationPanel(
+            workspaceId: UUID(),
+            windowID: 42,
+            processID: getpid(),
+            title: "cmux",
+            targetFrameRate: 60,
+            runtime: runtime
+        ) == nil)
+
+        let panel = try #require(ApplicationPanel(
+            workspaceId: UUID(),
+            targetFrameRate: 60,
+            runtime: runtime
+        ))
+        panel.selectWindow(ApplicationWindowDescriptor(
+            windowID: 42,
+            processID: getpid(),
+            owner: "cmux",
+            title: "cmux",
+            width: 800,
+            height: 600
+        ))
+        #expect(panel.captureTarget == nil)
+    }
+
+    @Test func applicationPointerDownSynchronizesWorkspaceFocus() throws {
+        let runtime = FakeApplicationSurfaceRuntime()
+        let workspace = Workspace(applicationSurfaceRuntime: runtime)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let previousPanelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.newApplicationSurface(
+            inPane: pane,
+            windowID: 42,
+            processID: 43,
+            title: "Preview",
+            focus: false
+        ))
+        let view = panel.captureView(windowID: 42, processID: 43)
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        #expect(workspace.focusedPanelId == previousPanelID)
+        view.setInputOwnership(true)
+        view.mouseDown(with: event)
+        #expect(workspace.focusedPanelId == panel.id)
+        panel.close()
+    }
+
+    private func applicationPanelContent(
+        panel: ApplicationPanel,
+        allowsPointerInput: Bool
+    ) -> PanelContentView {
+        PanelContentView(
+            panel: panel,
+            workspaceId: panel.workspaceId,
+            paneId: PaneID(),
+            isFocused: false,
+            isSelectedInPane: true,
+            isVisibleInUI: true,
+            allowsPointerInput: allowsPointerInput,
+            portalPriority: 0,
+            isSplit: false,
+            appearance: PanelAppearance(
+                backgroundColor: .windowBackgroundColor,
+                foregroundColor: .labelColor,
+                dividerColor: Color(nsColor: .separatorColor),
+                unfocusedOverlayNSColor: .clear,
+                unfocusedOverlayOpacity: 0,
+                usesClearContentBackground: false
+            ),
+            windowAppearance: .rightSidebarPanelViewTestDefault,
+            customSidebarTabManager: nil,
+            hasUnreadNotification: false,
+            terminalAgentContext: "",
+            onFocus: {},
+            onRequestPanelFocus: {},
+            onResumeAgentHibernation: {},
+            onAutoResumeAgentHibernation: {},
+            onTriggerFlash: {}
+        )
+    }
+
+    private func firstApplicationCaptureView(
+        in view: NSView
+    ) -> ApplicationCaptureView? {
+        if let captureView = view as? ApplicationCaptureView {
+            return captureView
+        }
+        for subview in view.subviews {
+            if let captureView = firstApplicationCaptureView(in: subview) {
+                return captureView
+            }
+        }
+        return nil
+    }
+
+    private func settleApplicationPanel(_ view: NSView) {
+        for _ in 0..<4 {
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+    }
+}
+
+@MainActor
+private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
+    var windowListError: (any Error)?
+    var sessionToStart: ApplicationSurfaceSessionDescriptor?
+    var sentEvents: [ApplicationSurfaceInputEvent] = []
+    var waitForStartCancellation = false
+    var startWasRequested = false
+    var startRequestCount = 0
+    var startCancellationObserved = false
+    var stoppedSessionIDs: [String] = []
+
+    func acquireApplicationSurfaceLease() async -> ApplicationSurfaceRuntimeLease? {
+        nil
+    }
+
+    func listApplicationWindows(
+        lease: ApplicationSurfaceRuntimeLease
+    ) async throws -> [ApplicationWindowDescriptor] {
+        if let windowListError {
+            throw windowListError
+        }
+        return []
+    }
+
+    func startApplicationSurface(
+        lease: ApplicationSurfaceRuntimeLease,
+        windowID: UInt32,
+        processID: Int32,
+        processIdentity: ApplicationSurfaceProcessIdentity?,
+        frameRate: Int
+    ) async throws -> ApplicationSurfaceSessionDescriptor {
+        startWasRequested = true
+        startRequestCount += 1
+        if waitForStartCancellation {
+            while !Task.isCancelled {
+                await Task.yield()
+            }
+            startCancellationObserved = true
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        if let sessionToStart {
+            return sessionToStart
+        }
+        throw ApplicationSurfaceRuntimeError.helperUnavailable
+    }
+
+    func stopApplicationSurface(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) async {
+        stoppedSessionIDs.append(sessionID)
+    }
+
+    func acknowledgeApplicationSurfaceAttachment(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) async throws {}
+
+    func sendApplicationSurfaceEvent(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String,
+        event: ApplicationSurfaceInputEvent
+    ) async throws {
+        sentEvents.append(event)
+    }
+}
+
+private final class ApplicationSurfaceFrameRingFixture {
+    let descriptor: SimulatorFrameTransportDescriptor
+
+    private let sharedMemoryName: String
+    private let handle: Int32
+    private let mapping: UnsafeMutableRawPointer
+    private let byteCount: Int
+
+    init() throws {
+        let token = UUID().uuidString
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+            .prefix(12)
+        sharedMemoryName = "/cmux-sim-frame-\(token)"
+        byteCount = Int(getpagesize())
+        let openedHandle = sharedMemoryName.withCString {
+            cmuxApplicationTestOpenSharedMemory(
+                $0,
+                O_CREAT | O_EXCL | O_RDWR,
+                UInt16(S_IRUSR | S_IWUSR)
+            )
+        }
+        guard openedHandle >= 0 else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        guard ftruncate(openedHandle, off_t(byteCount)) == 0 else {
+            close(openedHandle)
+            shm_unlink(sharedMemoryName)
+            throw CocoaError(.fileWriteUnknown)
+        }
+        guard
+            let mapped = mmap(
+                nil,
+                byteCount,
+                PROT_READ | PROT_WRITE,
+                MAP_SHARED,
+                openedHandle,
+                0
+            ),
+            mapped != MAP_FAILED
+        else {
+            close(openedHandle)
+            shm_unlink(sharedMemoryName)
+            throw CocoaError(.fileWriteUnknown)
+        }
+        handle = openedHandle
+        mapping = mapped
+        descriptor = SimulatorFrameTransportDescriptor(
+            sharedMemoryName: sharedMemoryName,
+            width: 1,
+            height: 1,
+            bytesPerRow: 4,
+            slotCount: 3,
+            sharedMemoryByteCount: byteCount
+        )
+
+        memset(mapping, 0, byteCount)
+        mapping.storeBytes(of: UInt32(0x434D_5846), toByteOffset: 0, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(2), toByteOffset: 4, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(1), toByteOffset: 8, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(1), toByteOffset: 12, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(4), toByteOffset: 16, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(3), toByteOffset: 20, as: UInt32.self)
+        mapping.storeBytes(of: UInt64(byteCount), toByteOffset: 24, as: UInt64.self)
+        mapping.storeBytes(of: Int64(4), toByteOffset: 32, as: Int64.self)
+        mapping.storeBytes(of: Int64(2), toByteOffset: 40, as: Int64.self)
+        mapping.storeBytes(of: UInt32(0xFF_20_20_20), toByteOffset: 64, as: UInt32.self)
+    }
+
+    deinit {
+        munmap(mapping, byteCount)
+        close(handle)
+        shm_unlink(sharedMemoryName)
+    }
+}
+
+private final class ApplicationSurfaceVisibleTestWindow: NSWindow {
+    var reportsKeyWindow: Bool?
+
+    override var isVisible: Bool { true }
+
+    override var isKeyWindow: Bool {
+        reportsKeyWindow ?? super.isKeyWindow
+    }
+
+    override var occlusionState: NSWindow.OcclusionState { [.visible] }
+}
+
+@MainActor
+private final class ApplicationSurfaceOcclusionTestWindow: NSWindow {
+    var reportsOccluded = false
+
+    override var isVisible: Bool { true }
+
+    override var occlusionState: NSWindow.OcclusionState {
+        reportsOccluded ? [] : [.visible]
+    }
+}
+
+@_silgen_name("cmux_simulator_shm_open")
+private func cmuxApplicationTestOpenSharedMemory(
+    _ name: UnsafePointer<CChar>,
+    _ flags: Int32,
+    _ permissions: UInt16
+) -> Int32
+
+extension ControlCommandCoordinator {
+    func handle(_ request: ControlRequest) -> ControlCallResult? {
+        handle(request, requestOrigin: .inProcess)
+    }
+}

@@ -120,6 +120,355 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
     }
 
+    @Test func applicationSurfaceCreatePreservesCaptureInputs() throws {
+        let surfaceID = UUID()
+        let paneID = UUID()
+        let workspaceID = UUID()
+        let windowID = UUID()
+        let (coordinator, context) = coordinator(createResolution: .created(
+            windowID: windowID,
+            workspaceID: workspaceID,
+            paneID: paneID,
+            surfaceID: surfaceID,
+            typeRawValue: "application"
+        ))
+
+        let authorization = ControlSocketRequestAuthorization(
+            acceptedAccessMode: .cmuxOnly,
+            generation: 17,
+            passwordAuthorization: SocketPasswordAuthorization()
+        )
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(34599),
+                "process_id": .int(34401),
+                "title": .string("Preview"),
+                "frame_rate": .int(120),
+            ]
+        ), requestOrigin: .socket(authorization))
+
+        #expect(context.lastCreateInputs?.applicationWindowID == 34599)
+        #expect(context.lastCreateInputs?.applicationProcessID == 34401)
+        #expect(context.lastCreateInputs?.applicationTitle == "Preview")
+        #expect(context.lastCreateInputs?.applicationFrameRate == 120)
+        #expect(context.lastCreateAuthorization?.acceptedAccessMode == .cmuxOnly)
+        #expect(context.lastCreateAuthorization?.generation == 17)
+    }
+
+    @Test func applicationSurfaceCreateRejectsOutOfRangeWindowID() {
+        let (coordinator, context) = coordinator(createResolution: .createFailed)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(Int64(UInt32.max) + 1),
+                "process_id": .int(42),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "invalid native window ID",
+            data: .object(["field": .string("window_id_native")])
+        ))
+        #expect(context.lastCreateInputs == nil)
+    }
+
+    @Test func applicationSurfaceCreateRejectsOutOfRangeProcessID() {
+        let (coordinator, context) = coordinator(createResolution: .createFailed)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(42),
+                "process_id": .int(Int64(Int32.max) + 1),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "invalid application process ID",
+            data: .object(["field": .string("process_id")])
+        ))
+        #expect(context.lastCreateInputs == nil)
+    }
+
+    @Test func applicationSurfaceCreateRejectsNonpositiveIdentifiers() {
+        let (coordinator, context) = coordinator(createResolution: .createFailed)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(-1),
+                "process_id": .int(0),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "invalid native window ID",
+            data: .object(["field": .string("window_id_native")])
+        ))
+        #expect(context.lastCreateInputs == nil)
+    }
+
+    @Test func applicationSurfaceCreateRejectsNonpositiveProcessID() {
+        let (coordinator, context) = coordinator(createResolution: .createFailed)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(42),
+                "process_id": .int(0),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "invalid application process ID",
+            data: .object(["field": .string("process_id")])
+        ))
+        #expect(context.lastCreateInputs == nil)
+    }
+
+    @Test func applicationSurfaceCreateRejectsInvalidFrameRate() {
+        let (coordinator, context) = coordinator(createResolution: .createFailed)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .int(42),
+                "process_id": .int(43),
+                "frame_rate": .int(121),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "invalid application frame rate",
+            data: .object(["field": .string("frame_rate")])
+        ))
+        #expect(context.lastCreateInputs == nil)
+    }
+
+    @Test func applicationSurfaceCreateRejectsCoercedIdentifiersAndFrameRate() {
+        let cases: [(
+            params: [String: JSONValue],
+            message: String,
+            field: String
+        )] = [
+            (
+                [
+                    "type": .string("application"),
+                    "window_id_native": .bool(true),
+                    "process_id": .int(43),
+                ],
+                "invalid native window ID",
+                "window_id_native"
+            ),
+            (
+                [
+                    "type": .string("application"),
+                    "window_id_native": .int(42),
+                    "process_id": .double(43.9),
+                ],
+                "invalid application process ID",
+                "process_id"
+            ),
+            (
+                [
+                    "type": .string("application"),
+                    "window_id_native": .int(42),
+                    "process_id": .int(43),
+                    "frame_rate": .bool(true),
+                ],
+                "invalid application frame rate",
+                "frame_rate"
+            ),
+        ]
+
+        for testCase in cases {
+            let (coordinator, context) = coordinator(
+                createResolution: .createFailed
+            )
+            let result = coordinator.handle(ControlRequest(
+                id: .int(1),
+                method: "surface.create",
+                params: testCase.params
+            ))
+
+            #expect(result == .err(
+                code: "invalid_params",
+                message: testCase.message,
+                data: .object(["field": .string(testCase.field)])
+            ))
+            #expect(context.lastCreateInputs == nil)
+        }
+    }
+
+    @Test func applicationValidationWithoutContextReturnsNonemptyUnavailableError() {
+        let coordinator = ControlCommandCoordinator()
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("application"),
+                "window_id_native": .bool(true),
+                "process_id": .bool(true),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "unavailable",
+            message: "TabManager not available",
+            data: nil
+        ))
+    }
+
+    @Test func nonApplicationCreateDropsApplicationCaptureParameters() {
+        let (coordinator, context) = coordinator(
+            createResolution: .createFailed
+        )
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.create",
+            params: [
+                "type": .string("terminal"),
+                "window_id_native": .int(42),
+                "process_id": .int(43),
+                "frame_rate": .int(60),
+            ]
+        ))
+
+        #expect(context.lastCreateInputs?.applicationWindowID == nil)
+        #expect(context.lastCreateInputs?.applicationProcessID == nil)
+        #expect(context.lastCreateInputs?.applicationFrameRate == nil)
+    }
+
+    @Test func surfaceSplitRejectsApplicationType() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.split",
+            params: [
+                "direction": .string("right"),
+                "type": .string("application"),
+            ]
+        ))
+        _ = context
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "application split unsupported",
+            data: .object(["type": .string("application")])
+        ))
+    }
+
+    @Test func applicationInputUnavailablePreservesReason() {
+        let surfaceID = UUID()
+        let (coordinator, context) = makeCoordinator()
+        context.sendKeyResolution = .applicationInputUnavailable(
+            surfaceID,
+            message: "Application input unavailable"
+        )
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.send_key",
+            params: [
+                "surface_id": .string(surfaceID.uuidString),
+                "key": .string("ctrl+c"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "surface_unavailable",
+            message: "Application input unavailable",
+            data: .object(["surface_id": .string(surfaceID.uuidString)])
+        ))
+    }
+
+    @Test func applicationSendKeyPreservesSocketAuthorizationOnWorkerLane() {
+        let surfaceID = UUID()
+        let (coordinator, context) = makeCoordinator()
+        context.sendKeyResolution = .applicationInputUnavailable(
+            surfaceID,
+            message: "Application input unavailable"
+        )
+        var passwordAuthorization = SocketPasswordAuthorization()
+        passwordAuthorization.authenticate(password: "test-password")
+        let authorization = ControlSocketRequestAuthorization(
+            acceptedAccessMode: .password,
+            generation: 29,
+            passwordAuthorization: passwordAuthorization
+        )
+
+        _ = coordinator.handleSocketWorkerV2(
+            ControlRequest(
+                id: .int(1),
+                method: "surface.send_key",
+                params: [
+                    "surface_id": .string(surfaceID.uuidString),
+                    "key": .string("ctrl+c"),
+                ]
+            ),
+            context: context,
+            requestOrigin: .socket(authorization)
+        )
+
+        #expect(context.lastSendKeyAuthorization?.acceptedAccessMode == .password)
+        #expect(context.lastSendKeyAuthorization?.generation == 29)
+        #expect(context.lastSendKeyAuthorization?.passwordAuthorization.isAuthenticated == true)
+    }
+
+    @Test func applicationHealthUsesStableFailureCode() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let (coordinator, context) = makeCoordinator()
+        context.healthSnapshot = ControlSurfaceHealthSnapshot(
+            workspaceID: workspaceID,
+            windowID: nil,
+            surfaces: [
+                ControlSurfaceHealthEntry(
+                    surfaceID: surfaceID,
+                    typeRawValue: "application",
+                    inWindow: true,
+                    applicationCaptureState: "failed",
+                    applicationCaptureError: "capture_failed",
+                    applicationCaptureErrorDetail: "Localized capture failure",
+                    applicationWindowID: 42,
+                    applicationProcessID: 43
+                ),
+            ]
+        )
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.health",
+            params: [:]
+        ))
+
+        guard case .ok(.object(let payload)) = result,
+              case .array(let surfaces)? = payload["surfaces"],
+              case .object(let surface)? = surfaces.first else {
+            Issue.record("expected application health payload")
+            return
+        }
+        #expect(surface["capture_error"] == JSONValue.string("capture_failed"))
+        #expect(
+            surface["capture_error_detail"]
+                == JSONValue.string("Localized capture failure")
+        )
+        #expect(surface["capture_state"] == JSONValue.string("failed"))
+    }
+
     @Test func surfaceCreateDockUnsupportedTypeReturnsInvalidParams() throws {
         let (coordinator, context) = coordinator(createResolution: .dockUnsupportedType(
             typeRawValue: "agentSession",
@@ -421,6 +770,32 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(code == "invalid_params")
         #expect(message == "Dock placement supports only terminal and browser surfaces")
         #expect(data == .object(["type": .string("markdown")]))
+    }
+
+    @Test func paneCreateApplicationReturnsInvalidParams() throws {
+        let context = FakeSurfaceControlCommandContext()
+        context.paneCreateResolution = .applicationRejected(
+            typeRawValue: "application",
+            message: "Application surfaces are only supported by surface.create."
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "pane.create",
+            params: [
+                "direction": .string("right"),
+                "type": .string("application"),
+            ]
+        ))
+
+        guard case .err(let code, let message, let data) = result else {
+            Issue.record("expected invalid_params error")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(message == "Application surfaces are only supported by surface.create.")
+        #expect(data == .object(["type": .string("application")]))
     }
 
     private func makeCoordinator() -> (ControlCommandCoordinator, FakeSurfaceControlCommandContext) {

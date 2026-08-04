@@ -66,8 +66,47 @@ extension TabManager {
             Self.nextPortOrdinal += 1
             let workingDirectory =
                 normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory
+            let isApplication = detached.panel.panelType == .application
+            let explicitUserTitle: String? = {
+                guard isApplication, titleSource == .user else { return nil }
+                let trimmed = title?.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }()
+            let transferredUserTitle: String? = {
+                guard isApplication,
+                      detached.customTitleSource == .user else { return nil }
+                let trimmed = detached.customTitle?.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }()
+            let userOwnedApplicationTitle =
+                explicitUserTitle ?? transferredUserTitle
+            let workspaceTitle: String
+            let customizationTitle: String?
+            let customizationTitleSource: Workspace.CustomTitleSource
+            if isApplication {
+                if let userOwnedApplicationTitle {
+                    workspaceTitle = userOwnedApplicationTitle
+                    customizationTitle = userOwnedApplicationTitle
+                    customizationTitleSource = .user
+                } else {
+                    workspaceTitle = String(
+                        localized: "panel.application.defaultTitle",
+                        defaultValue: "Application"
+                    )
+                    customizationTitle = nil
+                    customizationTitleSource = .auto
+                }
+            } else {
+                workspaceTitle = title ?? detached.title
+                customizationTitle = title
+                customizationTitleSource = titleSource
+            }
             let newWorkspace = makeWorkspaceForDetachedSurface(
-                title: title ?? detached.title,
+                title: workspaceTitle,
                 workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
@@ -82,8 +121,8 @@ extension TabManager {
             newWorkspace.owningTabManager = self
             applyCreationWorkspaceCustomization(
                 to: newWorkspace,
-                explicitTitle: title,
-                explicitTitleSource: titleSource
+                explicitTitle: customizationTitle,
+                explicitTitleSource: customizationTitleSource
             )
             wireClosedBrowserTracking(for: newWorkspace)
 

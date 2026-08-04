@@ -2714,6 +2714,80 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
     }
 }
 
+@MainActor
+@Suite("Application surface picker theme")
+struct ApplicationSurfacePickerThemeTests {
+    @Test func pickerAllowsGhosttyThemeBackgroundToShowThrough() throws {
+        let themeColor = NSColor(
+            srgbRed: 39.0 / 255.0,
+            green: 40.0 / 255.0,
+            blue: 35.0 / 255.0,
+            alpha: 1.0
+        )
+        let model = ApplicationSurfacePickerModel()
+        model.phase = .ready
+        model.replaceWindows([])
+
+        let size = NSSize(width: 320, height: 240)
+        let expected = try renderedCornerColor(
+            Color(nsColor: themeColor),
+            size: size
+        )
+        let sampled = try renderedCornerColor(
+            ZStack {
+                Color(nsColor: themeColor)
+                ApplicationSurfacePickerView(
+                    model: model,
+                    onRefresh: {},
+                    onSetUpPermissions: {},
+                    onSelect: { _ in }
+                )
+            },
+            size: size
+        )
+
+        #expect(abs(sampled.redComponent - expected.redComponent) < 0.01)
+        #expect(abs(sampled.greenComponent - expected.greenComponent) < 0.01)
+        #expect(abs(sampled.blueComponent - expected.blueComponent) < 0.01)
+    }
+
+    private func renderedCornerColor<Content: View>(
+        _ content: Content,
+        size: NSSize
+    ) throws -> NSColor {
+        let host = NSHostingView(
+            rootView: content.frame(width: size.width, height: size.height)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.contentView = host
+        host.frame = NSRect(origin: .zero, size: size)
+        window.orderBack(nil)
+        defer { window.orderOut(nil) }
+
+        for _ in 0..<4 {
+            host.layoutSubtreeIfNeeded()
+            host.displayIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        let bitmap = try #require(
+            host.bitmapImageRepForCachingDisplay(in: host.bounds)
+        )
+        bitmap.size = host.bounds.size
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        return try #require(
+            bitmap.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB)
+        )
+    }
+}
+
 
 final class GhosttyResponderResolutionTests: XCTestCase {
     private final class FocusProbeView: NSView {

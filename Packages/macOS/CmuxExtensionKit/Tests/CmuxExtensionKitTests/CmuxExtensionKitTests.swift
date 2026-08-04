@@ -5,6 +5,20 @@ import Testing
 @Suite
 struct CMUXExtensionKitTests {
     @Test
+    func testApplicationSidebarSurfaceKindHasStableWireValue() throws {
+        let encoded = try JSONEncoder().encode(
+            CmuxSidebarSurfaceKind.application
+        )
+        let decoded = try JSONDecoder().decode(
+            CmuxSidebarSurfaceKind.self,
+            from: encoded
+        )
+
+        #expect(decoded == .application)
+        #expect(decoded.rawValue == "application")
+    }
+
+    @Test
     func testSidebarSnapshotRoundTripsStableContract() throws {
         let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let snapshot = CmuxSidebarSnapshot(

@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxSettings
 import Foundation
 import GhosttyKit
 
@@ -9,6 +10,46 @@ extension TerminalController {
     /// its file-length budget.
     nonisolated static var terminalSurfaceUnavailableSocketError: String {
         "ERROR: \(terminalSurfaceUnavailableMessage)"
+    }
+
+    nonisolated static func applicationSurfaceSocketControlIsAllowed(
+        accessMode: SocketControlMode
+    ) -> Bool {
+        switch accessMode {
+        case .cmuxOnly, .password:
+            return true
+        case .off, .automation, .allowAll:
+            return false
+        }
+    }
+
+    func applicationSurfaceControlIsAuthorized(
+        _ requestOrigin: ControlRequestOrigin
+    ) -> Bool {
+        switch requestOrigin {
+        case .inProcess:
+            return true
+        case .socket(let authorization):
+            guard authorization.acceptedAccessMode == socketServer.accessMode,
+                  Self.applicationSurfaceSocketControlIsAllowed(
+                      accessMode: authorization.acceptedAccessMode
+                  ),
+                  socketServer.isConnectionAuthorizationCurrent(
+                      authorization.generation,
+                      passwordAuthorization: authorization.passwordAuthorization
+                  ) else {
+                return false
+            }
+            return authorization.acceptedAccessMode != .password
+                || authorization.passwordAuthorization.isAuthenticated
+        }
+    }
+
+    nonisolated static var applicationSurfaceSocketControlUnavailableMessage: String {
+        String(
+            localized: "socket.application.allowAllUnavailable",
+            defaultValue: "Application control is unavailable with the current socket security settings. Choose a more restrictive access option in Settings."
+        )
     }
 }
 
@@ -206,23 +247,37 @@ extension TerminalController: ControlSurfaceContext {
 
     // MARK: - health
 
+    private func controlSurfaceHealthEntry(for panel: any Panel) -> ControlSurfaceHealthEntry {
+        let inWindow: Bool?
+        if let terminalPanel = panel as? TerminalPanel {
+            inWindow = terminalPanel.surface.isViewInWindow
+        } else if let browserPanel = panel as? BrowserPanel {
+            inWindow = browserPanel.webView.window != nil
+        } else if let applicationPanel = panel as? ApplicationPanel {
+            inWindow = applicationPanel.isCaptureViewInWindow
+        } else {
+            inWindow = nil
+        }
+        let applicationPanel = panel as? ApplicationPanel
+        return ControlSurfaceHealthEntry(
+            surfaceID: panel.id,
+            typeRawValue: panel.panelType.rawValue,
+            inWindow: inWindow,
+            applicationCaptureState: applicationPanel?.captureStateDescription,
+            applicationCaptureError: applicationPanel?.captureFailureCode,
+            applicationCaptureErrorDetail: applicationPanel?.captureFailureDetail,
+            applicationWindowID: applicationPanel?.windowID,
+            applicationProcessID: applicationPanel?.processID
+        )
+    }
+
     func controlSurfaceHealth(routing: ControlRoutingSelectors) -> ControlSurfaceHealthSnapshot? {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return nil
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {
-            let items: [ControlSurfaceHealthEntry] = orderedPanels(in: dock).map { panel in
-                var inWindow: Bool?
-                if let tp = panel as? TerminalPanel {
-                    inWindow = tp.surface.isViewInWindow
-                } else if let bp = panel as? BrowserPanel {
-                    inWindow = bp.webView.window != nil
-                }
-                return ControlSurfaceHealthEntry(
-                    surfaceID: panel.id,
-                    typeRawValue: panel.panelType.rawValue,
-                    inWindow: inWindow
-                )
+            let items = orderedPanels(in: dock).map {
+                controlSurfaceHealthEntry(for: $0)
             }
             return ControlSurfaceHealthSnapshot(
                 workspaceID: dock.workspaceId,
@@ -231,18 +286,8 @@ extension TerminalController: ControlSurfaceContext {
             )
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
-        let items: [ControlSurfaceHealthEntry] = controlSurfacePanels(workspace: ws).map { panel in
-            var inWindow: Bool?
-            if let tp = panel as? TerminalPanel {
-                inWindow = tp.surface.isViewInWindow
-            } else if let bp = panel as? BrowserPanel {
-                inWindow = bp.webView.window != nil
-            }
-            return ControlSurfaceHealthEntry(
-                surfaceID: panel.id,
-                typeRawValue: panel.panelType.rawValue,
-                inWindow: inWindow
-            )
+        let items = controlSurfacePanels(workspace: ws).map {
+            controlSurfaceHealthEntry(for: $0)
         }
         return ControlSurfaceHealthSnapshot(
             workspaceID: ws.id,

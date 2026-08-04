@@ -1,14 +1,9 @@
 import AppKit
 import CmuxControlSocket
+import CmuxSimulator
 import Darwin
 import Foundation
 import Security
-
-enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
-    case ready
-    case notCapturable
-    case unavailable
-}
 
 /// The single app-side owner of the standalone Computer Use helper lifecycle.
 ///
@@ -16,9 +11,11 @@ enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
 /// driver binary. It installs the helper, launches that app through
 /// LaunchServices, and reads permission status exclusively over the daemon UDS.
 @MainActor
-final class ComputerUseRuntimeService {
+final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
     static let helperAppName = "cmux Computer Use"
     nonisolated private static let helperExecutableName = "cmux Computer Use"
+    nonisolated private static let maximumApplicationWindowDimension =
+        1_000_000.0
 
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
@@ -28,6 +25,10 @@ final class ComputerUseRuntimeService {
 
     private let bundledHelperAppURL: URL?
     private let transport: SocketTransport
+    private let applicationSurfaceInputConnections:
+        ApplicationSurfaceInputConnectionRegistry
+    private let applicationSurfaceFailureEventRegistry =
+        ApplicationSurfaceFailureEventRegistry()
     private var installedHelperURL: URL?
     private var helperLifecycleTask: Task<Void, Never>?
     private var helperLifecycleCancellationActions: [Int: @Sendable () -> Void] = [:]
@@ -35,6 +36,11 @@ final class ComputerUseRuntimeService {
     private var helperTerminationObservationTask: Task<Void, Never>?
     private var helperHealthTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
+    private var recoveryGeneration = 0
+    private var finalHelperCleanupTask: Task<Void, Never>?
+    private var finalHelperCleanupGeneration = UUID()
+    private var finalHelperCleanupState =
+        ComputerUseFinalHelperCleanupState.idle
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
     private(set) var permissionPhase =
@@ -42,11 +48,42 @@ final class ComputerUseRuntimeService {
     private var readinessPublicationTask: Task<Void, Never>?
     private var readinessPublicationGeneration = 0
     private var acceptsNewLaunches = true
-    private var desiredEnabled = false
+    private var computerUseEnabled = false
+    private var applicationSurfaceLeaseIdentifiers: Set<UUID> = []
+    private var applicationSurfaceSessionIDsByLease: [UUID: Set<String>] = [:]
+    private var applicationSurfacePendingStops:
+        [String: ApplicationSurfacePendingStop] = [:]
     private var runningHelperProcesses:
         [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
-    private var missedHelperHealthChecks = 0
+    private var missedHelperHealthChecks:
+        [ComputerUseDaemonProfile: Int] = [:]
+    private var pendingHelperRecoveryProfiles:
+        Set<ComputerUseDaemonProfile> = []
+    private var pendingForcedHelperRestartIdentities:
+        [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
     private var expectedTerminationProcessIdentifiers: Set<pid_t> = []
+
+    private var requiredHelperProfiles: Set<ComputerUseDaemonProfile> {
+        Self.desiredHelperProfiles(
+            computerUseEnabled: computerUseEnabled,
+            hasApplicationSurfaceLeases:
+                !applicationSurfaceLeaseIdentifiers.isEmpty
+        )
+    }
+
+    private var desiredEnabled: Bool {
+        !requiredHelperProfiles.isEmpty
+    }
+
+    nonisolated static func desiredHelperProfiles(
+        computerUseEnabled: Bool,
+        hasApplicationSurfaceLeases: Bool
+    ) -> Set<ComputerUseDaemonProfile> {
+        if computerUseEnabled {
+            return Set(ComputerUseDaemonProfile.allCases)
+        }
+        return hasApplicationSurfaceLeases ? [.native] : []
+    }
 
     init(
         bundle: Bundle = .main,
@@ -55,6 +92,8 @@ final class ComputerUseRuntimeService {
     ) {
         self.paths = paths
         self.transport = transport
+        applicationSurfaceInputConnections =
+            ApplicationSurfaceInputConnectionRegistry(transport: transport)
         stateAuthenticationKey = Self.makeStateAuthenticationKey()
         let nestedURL = bundle.bundleURL
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app", isDirectory: true)
@@ -75,6 +114,7 @@ final class ComputerUseRuntimeService {
         helperTerminationObservationTask?.cancel()
         helperHealthTask?.cancel()
         recoveryTask?.cancel()
+        finalHelperCleanupTask?.cancel()
         readinessPublicationTask?.cancel()
     }
 
@@ -154,25 +194,19 @@ final class ComputerUseRuntimeService {
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
     func setEnabled(_ newValue: Bool) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
+        let previousProfiles = requiredHelperProfiles
         permissionRefreshGeneration &+= 1
         permissionPhase = permissionPhase.applying(.setEnabled(newValue))
-        desiredEnabled = newValue
-        if newValue {
-            await startIfNeeded()
+        computerUseEnabled = newValue
+        if desiredEnabled {
+            cancelFinalHelperCleanup()
+            await reconcileHelperProfilesAfterDemandChange(
+                previousProfiles: previousProfiles
+            )
             startMonitoringHelperHealth()
         } else {
             cancelReadinessPublication()
-            helperHealthTask?.cancel()
-            helperHealthTask = nil
-            missedHelperHealthChecks = 0
-            recoveryTask?.cancel()
-            recoveryTask = nil
-            await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
-                guard let self else { return }
-                _ = await self.stopDaemon()
-            }
-            try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
-            cachedStatus = .unknown
+            await stopHelperAfterLastDemand()
         }
     }
 
@@ -181,7 +215,7 @@ final class ComputerUseRuntimeService {
     func ensureStandaloneHelperInstalled() async -> URL? {
         await serializeHelperLifecycle(cancelledResult: nil as URL?) { [weak self] in
             guard let self else { return nil }
-            return await self.ensureStandaloneHelperInstalledWithinLifecycle()
+            return await self.ensureStandaloneHelperInstalledWithinLifecycle()?.url
         }
     }
 
@@ -241,7 +275,7 @@ final class ComputerUseRuntimeService {
         guard desiredEnabled else {
             return await refreshHelperStatus()
         }
-        missedHelperHealthChecks = 0
+        missedHelperHealthChecks.removeAll()
         let recovery = scheduleHelperRecovery()
         await recovery?.value
         guard
@@ -291,7 +325,7 @@ final class ComputerUseRuntimeService {
             else {
                 return .unknown
             }
-            await self.startIfNeededWithinLifecycle()
+            await self.startIfNeededWithinLifecycle(profiles: [.native])
             guard
                 !Task.isCancelled,
                 let expectedPeerIdentity = self.processIdentity(for: .native),
@@ -346,6 +380,719 @@ final class ComputerUseRuntimeService {
         return .accepted
     }
 
+    func acquireApplicationSurfaceLease() async -> ApplicationSurfaceRuntimeLease? {
+        guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+        let identifier = UUID()
+        applicationSurfaceLeaseIdentifiers.insert(identifier)
+        applicationSurfaceSessionIDsByLease[identifier] = []
+        cancelFinalHelperCleanup()
+        permissionRefreshGeneration &+= 1
+        await startIfNeeded(profiles: [.native])
+        startMonitoringHelperHealth()
+        guard
+            applicationSurfaceLeaseIdentifiers.contains(identifier),
+            let identity = processIdentity(for: .native),
+            AgentPIDProcessIdentity(pid: identity.pid) == identity
+        else {
+            applicationSurfaceLeaseIdentifiers.remove(identifier)
+            applicationSurfaceSessionIDsByLease.removeValue(forKey: identifier)
+            await stopHelperAfterLastDemand()
+            return nil
+        }
+        return ApplicationSurfaceRuntimeLease(service: self, identifier: identifier)
+    }
+
+    func releaseApplicationSurfaceLease(_ identifier: UUID) async {
+        guard applicationSurfaceLeaseIdentifiers.contains(identifier) else { return }
+        let sessionIDs = applicationSurfaceSessionIDsByLease[identifier] ?? []
+        if let identity = processIdentity(for: .native),
+           AgentPIDProcessIdentity(pid: identity.pid) == identity {
+            for sessionID in sessionIDs {
+                let connection =
+                    applicationSurfaceInputConnections.connection(
+                        for: sessionID
+                    )
+                let response = await requestApplicationSurfaceStop(
+                    sessionID: sessionID,
+                    expectedPeerIdentity: identity,
+                    persistentConnection: connection
+                )
+                if Self.applicationSurfaceStopWasAcknowledged(response) {
+                    applicationSurfacePendingStops.removeValue(forKey: sessionID)
+                } else {
+                    recordPendingApplicationSurfaceStop(
+                        sessionID: sessionID,
+                        helperIdentity: identity
+                    )
+                }
+            }
+        }
+        for sessionID in sessionIDs {
+            applicationSurfaceInputConnections.removeConnection(for: sessionID)
+            applicationSurfaceFailureEventRegistry.finish(sessionID: sessionID)
+        }
+        applicationSurfaceSessionIDsByLease.removeValue(forKey: identifier)
+        applicationSurfaceLeaseIdentifiers.remove(identifier)
+        permissionRefreshGeneration &+= 1
+        await stopHelperAfterLastDemand()
+    }
+
+    func listApplicationWindows(
+        lease: ApplicationSurfaceRuntimeLease
+    ) async throws -> [ApplicationWindowDescriptor] {
+        let identity = try validatedApplicationSurfaceIdentity(lease: lease)
+        guard let response = await Self.sendDaemonRequest(
+            ["method": "application_windows"],
+            paths: paths,
+            transport: transport,
+            timeout: 8,
+            expectedPeerIdentity: identity,
+            socketURL: paths.daemonSocketURL
+        ) else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        try Self.throwApplicationSurfaceResponseError(response)
+        guard
+            let result = response["result"] as? [String: Any],
+            let rawWindows = result["windows"] as? [[String: Any]]
+        else {
+            throw ApplicationSurfaceRuntimeError.invalidResponse
+        }
+        return rawWindows.compactMap(Self.applicationWindowDescriptor)
+    }
+
+    func startApplicationSurface(
+        lease: ApplicationSurfaceRuntimeLease,
+        windowID: UInt32,
+        processID: Int32,
+        processIdentity: ApplicationSurfaceProcessIdentity?,
+        frameRate: Int
+    ) async throws -> ApplicationSurfaceSessionDescriptor {
+        guard (1...120).contains(frameRate), windowID > 0, processID > 0 else {
+            throw ApplicationSurfaceRuntimeError.windowUnavailable
+        }
+        let identity = try validatedApplicationSurfaceIdentity(lease: lease)
+        let connection = applicationSurfaceInputConnections.makeConnection()
+        var args: [String: Any] = [
+            "window_id": Int(windowID),
+            "process_id": Int(processID),
+            "frame_rate": frameRate,
+        ]
+        if let processIdentity {
+            args["process_start_seconds"] = processIdentity.startSeconds
+            args["process_start_microseconds"] = processIdentity.startMicroseconds
+        }
+        guard let response = await Self.sendDaemonRequest(
+            [
+                "method": "application_surface_start",
+                "args": args,
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 8,
+            expectedPeerIdentity: identity,
+            socketURL: paths.daemonSocketURL,
+            persistentConnection: connection
+        ) else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        try Self.throwApplicationSurfaceResponseError(response)
+        guard let result = response["result"] as? [String: Any] else {
+            throw ApplicationSurfaceRuntimeError.invalidResponse
+        }
+        let parsed = Self.parseApplicationSurfaceStartResult(
+            result,
+            requestedWindowID: windowID,
+            requestedFrameRate: frameRate
+        )
+        guard let sessionID = parsed.sessionID else {
+            throw ApplicationSurfaceRuntimeError.invalidResponse
+        }
+        guard let descriptor = parsed.descriptor else {
+            let stopResponse = await requestApplicationSurfaceStop(
+                sessionID: sessionID,
+                expectedPeerIdentity: identity,
+                persistentConnection: connection
+            )
+            if !Self.applicationSurfaceStopWasAcknowledged(stopResponse) {
+                recordPendingApplicationSurfaceStop(
+                    sessionID: sessionID,
+                    helperIdentity: identity
+                )
+            }
+            throw ApplicationSurfaceRuntimeError.invalidResponse
+        }
+        guard applicationSurfaceLeaseIdentifiers.contains(lease.identifier) else {
+            let stopResponse = await requestApplicationSurfaceStop(
+                sessionID: sessionID,
+                expectedPeerIdentity: identity,
+                persistentConnection: connection
+            )
+            if !Self.applicationSurfaceStopWasAcknowledged(stopResponse) {
+                recordPendingApplicationSurfaceStop(
+                    sessionID: sessionID,
+                    helperIdentity: identity
+                )
+                await stopHelperAfterLastDemand()
+            }
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        applicationSurfaceSessionIDsByLease[lease.identifier, default: []]
+            .insert(sessionID)
+        applicationSurfaceInputConnections.register(
+            connection,
+            for: sessionID
+        )
+        return descriptor
+    }
+
+    func stopApplicationSurface(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) async {
+        guard
+            !sessionID.isEmpty,
+            lease.service === self,
+            applicationSurfaceLeaseIdentifiers.contains(lease.identifier)
+        else {
+            return
+        }
+        applicationSurfaceFailureEventRegistry.finish(sessionID: sessionID)
+        guard let identity = try? validatedApplicationSurfaceIdentity(lease: lease) else {
+            applicationSurfaceInputConnections.removeConnection(for: sessionID)
+            applicationSurfaceSessionIDsByLease[lease.identifier]?.remove(sessionID)
+            return
+        }
+        let connection = applicationSurfaceInputConnections.connection(
+            for: sessionID
+        )
+        let response = await requestApplicationSurfaceStop(
+            sessionID: sessionID,
+            expectedPeerIdentity: identity,
+            persistentConnection: connection
+        )
+        applicationSurfaceInputConnections.removeConnection(for: sessionID)
+        if Self.applicationSurfaceStopWasAcknowledged(response) {
+            applicationSurfacePendingStops.removeValue(forKey: sessionID)
+            applicationSurfaceSessionIDsByLease[lease.identifier]?.remove(sessionID)
+        } else {
+            recordPendingApplicationSurfaceStop(
+                sessionID: sessionID,
+                helperIdentity: identity
+            )
+        }
+    }
+
+    func applicationSurfaceFailureEvents(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) -> AsyncStream<ApplicationSurfaceRuntimeError> {
+        guard
+            !sessionID.isEmpty,
+            lease.service === self,
+            applicationSurfaceSessionIDsByLease[lease.identifier]?
+                .contains(sessionID) == true
+        else {
+            return AsyncStream { continuation in
+                continuation.yield(.helperUnavailable)
+                continuation.finish()
+            }
+        }
+        return applicationSurfaceFailureEventRegistry.events(for: sessionID)
+    }
+
+    func acknowledgeApplicationSurfaceAttachment(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String
+    ) async throws {
+        let identity = try validatedApplicationSurfaceIdentity(lease: lease)
+        guard
+            !sessionID.isEmpty,
+            applicationSurfaceSessionIDsByLease[lease.identifier]?
+                .contains(sessionID) == true,
+            let connection = applicationSurfaceInputConnections.connection(
+                for: sessionID
+            )
+        else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        let response = await Self.sendDaemonRequest(
+            [
+                "method": "application_surface_attach",
+                "args": ["session": sessionID],
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 3,
+            expectedPeerIdentity: identity,
+            socketURL: paths.daemonSocketURL,
+            persistentConnection: connection
+        )
+        guard Self.applicationSurfaceAttachmentWasAcknowledged(response) else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+    }
+
+    func sendApplicationSurfaceEvent(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String,
+        event: ApplicationSurfaceInputEvent
+    ) async throws {
+        try await sendApplicationSurfaceEvents(
+            lease: lease,
+            sessionID: sessionID,
+            events: [event]
+        )
+    }
+
+    func sendApplicationSurfaceEvents(
+        lease: ApplicationSurfaceRuntimeLease,
+        sessionID: String,
+        events: [ApplicationSurfaceInputEvent]
+    ) async throws {
+        let identity = try validatedApplicationSurfaceIdentity(lease: lease)
+        guard
+            !sessionID.isEmpty,
+            !events.isEmpty,
+            events.count <= 64,
+            applicationSurfaceSessionIDsByLease[lease.identifier]?
+                .contains(sessionID) == true,
+            let connection = applicationSurfaceInputConnections.connection(
+                for: sessionID
+            )
+        else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        let args: [String: Any] = [
+            "events": events.map {
+                Self.applicationSurfaceEventArguments(
+                    sessionID: sessionID,
+                    event: $0
+                )
+            },
+        ]
+        guard let response = await Self.sendDaemonRequest(
+            [
+                "method": "application_surface_events",
+                "args": args,
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 3,
+            expectedPeerIdentity: identity,
+            socketURL: paths.daemonSocketURL,
+            persistentConnection: connection
+        ) else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        try Self.throwApplicationSurfaceResponseError(response)
+    }
+
+    nonisolated static func applicationSurfaceEventArguments(
+        sessionID: String,
+        event: ApplicationSurfaceInputEvent
+    ) -> [String: Any] {
+        [
+            "session": sessionID,
+            "kind": event.kind.rawValue,
+            "frame_sequence": Int64(clamping: event.frameSequence),
+            "x": event.x,
+            "y": event.y,
+            "key_code": Int(event.keyCode),
+            "key_down": event.keyDown,
+            "modifiers": event.modifiers,
+            "click_count": event.clickCount,
+            "delta_x": event.deltaX,
+            "delta_y": event.deltaY,
+        ]
+    }
+
+    private func validatedApplicationSurfaceIdentity(
+        lease: ApplicationSurfaceRuntimeLease
+    ) throws -> AgentPIDProcessIdentity {
+        guard
+            lease.service === self,
+            applicationSurfaceLeaseIdentifiers.contains(lease.identifier),
+            desiredEnabled,
+            acceptsNewLaunches,
+            let identity = processIdentity(for: .native),
+            AgentPIDProcessIdentity(pid: identity.pid) == identity
+        else {
+            throw ApplicationSurfaceRuntimeError.helperUnavailable
+        }
+        return identity
+    }
+
+    private func requestApplicationSurfaceStop(
+        sessionID: String,
+        expectedPeerIdentity: AgentPIDProcessIdentity,
+        persistentConnection: PersistentSocketLineConnection? = nil
+    ) async -> [String: Any]? {
+        await Self.sendDaemonRequest(
+            [
+                "method": "application_surface_stop",
+                "args": ["session": sessionID],
+            ],
+            paths: paths,
+            transport: transport,
+            timeout: 3,
+            expectedPeerIdentity: expectedPeerIdentity,
+            socketURL: paths.daemonSocketURL,
+            persistentConnection: persistentConnection
+        )
+    }
+
+    nonisolated static func applicationSurfaceStopWasAcknowledged(
+        _ response: [String: Any]?
+    ) -> Bool {
+        guard
+            response?["ok"] as? Bool == true,
+            let result = response?["result"] as? [String: Any],
+            result["stopped"] is Bool
+        else {
+            return false
+        }
+        return true
+    }
+
+    nonisolated static func applicationSurfaceAttachmentWasAcknowledged(
+        _ response: [String: Any]?
+    ) -> Bool {
+        guard
+            response?["ok"] as? Bool == true,
+            let result = response?["result"] as? [String: Any]
+        else {
+            return false
+        }
+        return result["attached"] as? Bool == true
+    }
+
+    nonisolated static func applicationSurfaceStopFailureAction(
+        failedAttemptCount: Int,
+        helperRestartAttempted: Bool
+    ) -> ApplicationSurfaceStopFailureAction {
+        guard
+            failedAttemptCount
+                >= ApplicationSurfacePendingStop.maximumFailedAttemptCount
+        else {
+            return .retry
+        }
+        return helperRestartAttempted
+            ? .retainUntilHelperExit
+            : .restartHelper
+    }
+
+    nonisolated static func parseApplicationSurfaceStartResult(
+        _ result: [String: Any],
+        requestedWindowID: UInt32? = nil,
+        requestedFrameRate: Int = 60
+    ) -> (
+        sessionID: String?,
+        descriptor: ApplicationSurfaceSessionDescriptor?
+    ) {
+        let sessionID = (result["sessionId"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            let sessionID,
+            !sessionID.isEmpty,
+            sessionID.count <= 128
+        else {
+            return (nil, nil)
+        }
+        let targetWindowID: UInt32
+        if let rawTargetWindowID = result["targetWindowId"] as? NSNumber {
+            guard
+                CFGetTypeID(rawTargetWindowID) != CFBooleanGetTypeID(),
+                rawTargetWindowID.doubleValue.isFinite,
+                rawTargetWindowID.doubleValue.rounded()
+                    == rawTargetWindowID.doubleValue,
+                let parsedTargetWindowID = UInt32(
+                    exactly: rawTargetWindowID.doubleValue
+                ),
+                parsedTargetWindowID > 0,
+                rawTargetWindowID.compare(
+                    NSNumber(value: parsedTargetWindowID)
+                ) == .orderedSame
+            else {
+                return (sessionID, nil)
+            }
+            targetWindowID = parsedTargetWindowID
+        } else if let requestedWindowID, requestedWindowID > 0 {
+            targetWindowID = requestedWindowID
+        } else {
+            targetWindowID = 0
+        }
+        let processIdentity: ApplicationSurfaceProcessIdentity?
+        switch (
+            result["processStartSeconds"] as? NSNumber,
+            result["processStartMicroseconds"] as? NSNumber
+        ) {
+        case (nil, nil):
+            processIdentity = nil
+        case let (.some(rawSeconds), .some(rawMicroseconds)):
+            guard
+                CFGetTypeID(rawSeconds) != CFBooleanGetTypeID(),
+                CFGetTypeID(rawMicroseconds) != CFBooleanGetTypeID(),
+                rawSeconds.doubleValue.isFinite,
+                rawMicroseconds.doubleValue.isFinite,
+                rawSeconds.doubleValue.rounded() == rawSeconds.doubleValue,
+                rawMicroseconds.doubleValue.rounded()
+                    == rawMicroseconds.doubleValue,
+                let startSeconds = Int64(exactly: rawSeconds.doubleValue),
+                let startMicroseconds = Int64(
+                    exactly: rawMicroseconds.doubleValue
+                ),
+                startSeconds >= 0,
+                (0..<1_000_000).contains(startMicroseconds),
+                rawSeconds.compare(NSNumber(value: startSeconds)) == .orderedSame,
+                rawMicroseconds.compare(
+                    NSNumber(value: startMicroseconds)
+                ) == .orderedSame
+            else {
+                return (sessionID, nil)
+            }
+            processIdentity = ApplicationSurfaceProcessIdentity(
+                startSeconds: startSeconds,
+                startMicroseconds: startMicroseconds
+            )
+        default:
+            return (sessionID, nil)
+        }
+        guard
+            let frame = result["frameTransport"] as? [String: Any],
+            let sharedMemoryName = frame["sharedMemoryName"] as? String,
+            !sharedMemoryName.isEmpty,
+            let width = frame["width"] as? Int,
+            width > 0,
+            let height = frame["height"] as? Int,
+            height > 0,
+            let bytesPerRow = frame["bytesPerRow"] as? Int,
+            bytesPerRow > 0,
+            let slotCount = frame["slotCount"] as? Int,
+            slotCount > 0,
+            let sharedMemoryByteCount = frame["sharedMemoryByteCount"] as? Int,
+            sharedMemoryByteCount > 0
+        else {
+            return (sessionID, nil)
+        }
+        let frameTransport = SimulatorFrameTransportDescriptor(
+            sharedMemoryName: sharedMemoryName,
+            width: width,
+            height: height,
+            bytesPerRow: bytesPerRow,
+            slotCount: slotCount,
+            sharedMemoryByteCount: sharedMemoryByteCount
+        )
+        guard let maximumPresentationFramesPerSecond =
+            ApplicationSurfaceSessionDescriptor
+                .validatedPresentationFramesPerSecond(
+                    for: frameTransport,
+                    requestedFramesPerSecond: requestedFrameRate
+                ) else {
+            return (sessionID, nil)
+        }
+        return (
+            sessionID,
+            ApplicationSurfaceSessionDescriptor(
+                sessionID: sessionID,
+                targetWindowID: targetWindowID > 0 ? targetWindowID : nil,
+                processIdentity: processIdentity,
+                frameTransport: frameTransport,
+                maximumPresentationFramesPerSecond:
+                    maximumPresentationFramesPerSecond
+            )
+        )
+    }
+
+    private func recordPendingApplicationSurfaceStop(
+        sessionID: String,
+        helperIdentity: AgentPIDProcessIdentity
+    ) {
+        let failedAttemptCount: Int
+        let helperRestartAttempted: Bool
+        if let pending = applicationSurfacePendingStops[sessionID],
+           pending.helperIdentity == helperIdentity {
+            failedAttemptCount = min(
+                pending.failedAttemptCount + 1,
+                ApplicationSurfacePendingStop.maximumFailedAttemptCount
+            )
+            helperRestartAttempted = pending.helperRestartAttempted
+        } else {
+            failedAttemptCount = 1
+            helperRestartAttempted = false
+        }
+        applicationSurfacePendingStops[sessionID] = ApplicationSurfacePendingStop(
+            sessionID: sessionID,
+            helperIdentity: helperIdentity,
+            failedAttemptCount: failedAttemptCount,
+            helperRestartAttempted: helperRestartAttempted
+        )
+    }
+
+    private func retryPendingApplicationSurfaceStops(
+        expectedPeerIdentity: AgentPIDProcessIdentity
+    ) async {
+        let pendingStops = Array(applicationSurfacePendingStops.values)
+        guard !pendingStops.isEmpty else { return }
+        for pending in pendingStops {
+            guard !Task.isCancelled else { return }
+            guard pending.helperIdentity == expectedPeerIdentity else {
+                clearPendingApplicationSurfaceStops(
+                    for: pending.helperIdentity
+                )
+                continue
+            }
+            switch Self.applicationSurfaceStopFailureAction(
+                failedAttemptCount: pending.failedAttemptCount,
+                helperRestartAttempted: pending.helperRestartAttempted
+            ) {
+            case .retry:
+                break
+            case .restartHelper:
+                guard scheduleHelperRestartAfterApplicationSurfaceStopFailure(
+                    expectedPeerIdentity: expectedPeerIdentity
+                ) else {
+                    continue
+                }
+                var retained = pending
+                retained.helperRestartAttempted = true
+                applicationSurfacePendingStops[pending.sessionID] = retained
+                continue
+            case .retainUntilHelperExit:
+                continue
+            }
+            let response = await requestApplicationSurfaceStop(
+                sessionID: pending.sessionID,
+                expectedPeerIdentity: expectedPeerIdentity
+            )
+            if Self.applicationSurfaceStopWasAcknowledged(response) {
+                applicationSurfacePendingStops.removeValue(
+                    forKey: pending.sessionID
+                )
+                removeTrackedApplicationSurfaceSession(pending.sessionID)
+            } else {
+                recordPendingApplicationSurfaceStop(
+                    sessionID: pending.sessionID,
+                    helperIdentity: expectedPeerIdentity
+                )
+            }
+        }
+    }
+
+    @discardableResult
+    private func scheduleHelperRestartAfterApplicationSurfaceStopFailure(
+        expectedPeerIdentity: AgentPIDProcessIdentity
+    ) -> Bool {
+        guard
+            desiredEnabled,
+            acceptsNewLaunches,
+            processIdentity(for: .native) == expectedPeerIdentity
+        else {
+            return false
+        }
+        return scheduleHelperRecovery(
+            profiles: [.native],
+            forcedRestartIdentities: [.native: expectedPeerIdentity]
+        ) != nil
+    }
+
+    private func clearPendingApplicationSurfaceStops(
+        for helperIdentity: AgentPIDProcessIdentity
+    ) {
+        let sessionIDs = applicationSurfacePendingStops.values.compactMap {
+            $0.helperIdentity == helperIdentity ? $0.sessionID : nil
+        }
+        for sessionID in sessionIDs {
+            applicationSurfacePendingStops.removeValue(forKey: sessionID)
+            removeTrackedApplicationSurfaceSession(sessionID)
+        }
+    }
+
+    private func clearApplicationSurfaceSessionsAfterHelperExit() {
+        applicationSurfacePendingStops.removeAll()
+        applicationSurfaceInputConnections.removeAllConnections()
+        applicationSurfaceFailureEventRegistry.failAll(with: .helperUnavailable)
+        for leaseIdentifier in Array(applicationSurfaceSessionIDsByLease.keys) {
+            applicationSurfaceSessionIDsByLease[leaseIdentifier]?.removeAll()
+        }
+    }
+
+    private func removeTrackedApplicationSurfaceSession(_ sessionID: String) {
+        applicationSurfaceInputConnections.removeConnection(for: sessionID)
+        applicationSurfaceFailureEventRegistry.finish(sessionID: sessionID)
+        for leaseIdentifier in Array(applicationSurfaceSessionIDsByLease.keys) {
+            applicationSurfaceSessionIDsByLease[leaseIdentifier]?.remove(sessionID)
+        }
+    }
+
+    nonisolated static func applicationWindowDescriptor(
+        _ value: [String: Any]
+    ) -> ApplicationWindowDescriptor? {
+        guard
+            let rawWindowID = value["window_id"] as? NSNumber,
+            let rawProcessID = value["process_id"] as? NSNumber,
+            CFGetTypeID(rawWindowID) != CFBooleanGetTypeID(),
+            CFGetTypeID(rawProcessID) != CFBooleanGetTypeID(),
+            rawWindowID.doubleValue.isFinite,
+            rawProcessID.doubleValue.isFinite,
+            rawWindowID.doubleValue.rounded() == rawWindowID.doubleValue,
+            rawProcessID.doubleValue.rounded() == rawProcessID.doubleValue,
+            let windowID = UInt32(exactly: rawWindowID.doubleValue),
+            let processID = Int32(exactly: rawProcessID.doubleValue),
+            windowID > 0,
+            processID > 0,
+            rawWindowID.compare(NSNumber(value: windowID)) == .orderedSame,
+            rawProcessID.compare(NSNumber(value: processID)) == .orderedSame,
+            let owner = value["owner"] as? String,
+            let title = value["title"] as? String,
+            let rawWidth = value["width"] as? NSNumber,
+            let rawHeight = value["height"] as? NSNumber
+        else {
+            return nil
+        }
+        let width = rawWidth.doubleValue
+        let height = rawHeight.doubleValue
+        guard
+            width.isFinite,
+            height.isFinite,
+            (1...maximumApplicationWindowDimension).contains(width),
+            (1...maximumApplicationWindowDimension).contains(height)
+        else {
+            return nil
+        }
+        return ApplicationWindowDescriptor(
+            windowID: windowID,
+            processID: processID,
+            owner: owner,
+            title: title,
+            width: width,
+            height: height
+        )
+    }
+
+    nonisolated static func throwApplicationSurfaceResponseError(
+        _ response: [String: Any]
+    ) throws {
+        guard response["ok"] as? Bool == true else {
+            switch response["error_code"] as? String {
+            case "permission_required":
+                throw ApplicationSurfaceRuntimeError.permissionRequired
+            case "window_unavailable":
+                throw ApplicationSurfaceRuntimeError.windowUnavailable
+            case "point_outside_content":
+                throw ApplicationSurfaceRuntimeError.pointOutsideContent
+            case "capture_unavailable":
+                throw ApplicationSurfaceRuntimeError.captureUnavailable
+            case "resource_limit":
+                throw ApplicationSurfaceRuntimeError.resourceLimit
+            case "session_unavailable":
+                throw ApplicationSurfaceRuntimeError.helperUnavailable
+            default:
+                throw ApplicationSurfaceRuntimeError.invalidResponse
+            }
+        }
+    }
+
     /// Verifies the helper can perform direct ScreenCaptureKit capture now.
     ///
     /// On macOS 26 this is the prompt-capable check for the separate private
@@ -367,12 +1114,13 @@ final class ComputerUseRuntimeService {
             else {
                 return .unavailable
             }
-            await self.startIfNeededWithinLifecycle()
+            let profiles = self.requiredHelperProfiles
+            await self.startIfNeededWithinLifecycle(profiles: profiles)
             guard !Task.isCancelled else {
                 return .unavailable
             }
             let expectedPeerIdentities = Dictionary(
-                uniqueKeysWithValues: ComputerUseDaemonProfile.allCases
+                uniqueKeysWithValues: profiles
                     .compactMap { profile in
                         self.processIdentity(for: profile).map {
                             (profile, $0)
@@ -382,22 +1130,28 @@ final class ComputerUseRuntimeService {
             return await Self.verifyDirectScreenCaptureOutcomes(
                 paths: self.paths,
                 transport: self.transport,
-                expectedPeerIdentities: expectedPeerIdentities
+                expectedPeerIdentities: expectedPeerIdentities,
+                profiles: profiles
             )
         }
     }
 
-    /// Verifies every helper profile that can perform a real capture. Tahoe's
-    /// direct-capture consent can be process-generation scoped, so validating
-    /// only the native daemon lets the Codex compatibility daemon prompt later
-    /// during the first actual Computer Use call.
+    /// Verifies every currently required helper profile that can capture.
+    /// Tahoe's direct-capture consent can be process-generation scoped, so the
+    /// compatibility profile is included whenever full Computer Use is active.
     nonisolated static func verifyDirectScreenCaptureOutcomes(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport = SocketTransport(),
         expectedPeerIdentities:
-            [ComputerUseDaemonProfile: AgentPIDProcessIdentity]
+            [ComputerUseDaemonProfile: AgentPIDProcessIdentity],
+        profiles: Set<ComputerUseDaemonProfile> = Set(
+            ComputerUseDaemonProfile.allCases
+        )
     ) async -> ComputerUseDirectScreenCaptureVerification {
-        for profile in ComputerUseDaemonProfile.allCases {
+        guard !profiles.isEmpty else { return .unavailable }
+        for profile in ComputerUseDaemonProfile.allCases where
+            profiles.contains(profile)
+        {
             guard
                 let expectedPeerIdentity = expectedPeerIdentities[profile],
                 AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
@@ -649,11 +1403,162 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    private func startIfNeeded() async {
+    private func startIfNeeded(
+        profiles: Set<ComputerUseDaemonProfile>
+    ) async {
+        guard !profiles.isEmpty else { return }
         await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
             guard let self else { return }
-            await self.startIfNeededWithinLifecycle()
+            await self.startIfNeededWithinLifecycle(profiles: profiles)
         }
+    }
+
+    private func reconcileHelperProfilesAfterDemandChange(
+        previousProfiles: Set<ComputerUseDaemonProfile>
+    ) async {
+        await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
+            guard let self else { return }
+            let requiredProfiles = self.requiredHelperProfiles
+            self.pendingHelperRecoveryProfiles.formIntersection(
+                requiredProfiles
+            )
+            self.pendingForcedHelperRestartIdentities =
+                self.pendingForcedHelperRestartIdentities.filter {
+                    requiredProfiles.contains($0.key)
+                }
+            self.missedHelperHealthChecks =
+                self.missedHelperHealthChecks.filter {
+                    requiredProfiles.contains($0.key)
+                }
+
+            for profile in ComputerUseDaemonProfile.allCases where
+                previousProfiles.contains(profile)
+                    && !requiredProfiles.contains(profile)
+            {
+                _ = await self.stopDaemon(profile: profile)
+            }
+            guard !requiredProfiles.isEmpty else { return }
+            await self.startIfNeededWithinLifecycle(
+                profiles: requiredProfiles
+            )
+        }
+    }
+
+    private func stopHelperAfterLastDemand() async {
+        guard !desiredEnabled else { return }
+        helperHealthTask?.cancel()
+        helperHealthTask = nil
+        missedHelperHealthChecks.removeAll()
+        recoveryGeneration &+= 1
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        pendingHelperRecoveryProfiles.removeAll()
+        pendingForcedHelperRestartIdentities.removeAll()
+        let helperStopped = await serializeHelperLifecycle(cancelledResult: false) { [weak self] in
+            guard let self, !self.desiredEnabled else { return false }
+            return await self.stopDaemon()
+        }
+        if helperStopped {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+            cancelFinalHelperCleanup()
+        } else if Self.shouldScheduleFinalHelperCleanup(
+            desiredEnabled: desiredEnabled,
+            helperStopped: helperStopped
+        ) {
+            scheduleFinalHelperCleanup()
+        }
+        guard !desiredEnabled else { return }
+        try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
+        cachedStatus = .unknown
+    }
+
+    nonisolated static func shouldScheduleFinalHelperCleanup(
+        desiredEnabled: Bool,
+        helperStopped: Bool
+    ) -> Bool {
+        !desiredEnabled && !helperStopped
+    }
+
+    nonisolated static func finalHelperCleanupRetryDelay(
+        afterFailedAttempt failedAttempt: Int
+    ) -> Duration? {
+        guard failedAttempt >= 0, failedAttempt < 4 else { return nil }
+        return .seconds(1 << failedAttempt)
+    }
+
+    /// Performs four serialized, exponentially delayed cleanup attempts after
+    /// the last pane closes. If the exact helper still has not exited, the
+    /// termination observer retains passive ownership without recurring work.
+    private func scheduleFinalHelperCleanup() {
+        guard
+            finalHelperCleanupTask == nil,
+            finalHelperCleanupState == .idle
+        else {
+            return
+        }
+        let generation = UUID()
+        finalHelperCleanupGeneration = generation
+        finalHelperCleanupState = .retrying
+        finalHelperCleanupTask = Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            var failedAttempt = 0
+            while let delay = Self.finalHelperCleanupRetryDelay(
+                afterFailedAttempt: failedAttempt
+            ) {
+                do {
+                    try await clock.sleep(for: delay)
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled else { break }
+                guard await self?.retryFinalHelperCleanupOnce() == true else {
+                    break
+                }
+                failedAttempt += 1
+            }
+            guard
+                let self,
+                self.finalHelperCleanupGeneration == generation
+            else {
+                return
+            }
+            self.finalHelperCleanupTask = nil
+            if
+                !Task.isCancelled,
+                !self.desiredEnabled,
+                Self.finalHelperCleanupRetryDelay(
+                    afterFailedAttempt: failedAttempt
+                ) == nil
+            {
+                self.finalHelperCleanupState = .awaitingTermination
+            } else {
+                self.finalHelperCleanupState = .idle
+            }
+        }
+    }
+
+    private func retryFinalHelperCleanupOnce() async -> Bool {
+        guard !desiredEnabled else { return false }
+        let helperStopped = await serializeHelperLifecycle(
+            cancelledResult: false
+        ) { [weak self] in
+            guard let self, !self.desiredEnabled else { return false }
+            return await self.stopDaemon()
+        }
+        if helperStopped {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+        }
+        return Self.shouldScheduleFinalHelperCleanup(
+            desiredEnabled: desiredEnabled,
+            helperStopped: helperStopped
+        )
+    }
+
+    private func cancelFinalHelperCleanup() {
+        finalHelperCleanupGeneration = UUID()
+        finalHelperCleanupTask?.cancel()
+        finalHelperCleanupTask = nil
+        finalHelperCleanupState = .idle
     }
 
     private func serializeHelperLifecycle<Result: Sendable>(
@@ -693,7 +1598,9 @@ final class ComputerUseRuntimeService {
     /// onboarding rather than surprising the user mid-session.
     var helperBuildReplacedHandler: (@MainActor () -> Void)?
 
-    private func ensureStandaloneHelperInstalledWithinLifecycle() async -> URL? {
+    private func ensureStandaloneHelperInstalledWithinLifecycle() async
+        -> (url: URL, invalidatedAllProfiles: Bool)?
+    {
         guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return nil }
         guard let bundledHelperAppURL else { return nil }
         let destination = paths.installedHelperAppURL
@@ -708,10 +1615,11 @@ final class ComputerUseRuntimeService {
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         if isCurrent {
             installedHelperURL = destination
-            return destination
+            return (destination, false)
         }
 
         guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return nil }
+        clearApplicationSurfaceSessionsAfterHelperExit()
         let replacesExistingHelper = FileManager.default.fileExists(
             atPath: destination.path
         )
@@ -729,75 +1637,295 @@ final class ComputerUseRuntimeService {
             installationTask.cancel()
         }
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+        guard let result else { return nil }
         installedHelperURL = result
-        if result != nil, replacesExistingHelper {
+        if replacesExistingHelper {
             permissionPhase = permissionPhase.applying(.helperReplaced)
             cancelReadinessPublication()
             helperBuildReplacedHandler?()
         }
-        return result
+        return (result, true)
     }
 
-    private func startIfNeededWithinLifecycle() async {
-        guard acceptsNewLaunches, !Task.isCancelled else { return }
-        guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
-        guard acceptsNewLaunches, !Task.isCancelled else { return }
-        let nativeListening = await Self.isDaemonListening(
-            paths: paths,
-            transport: transport,
-            socketURL: paths.daemonSocketURL
-        )
-        let nativeReady: Bool
-        if nativeListening {
-            nativeReady = await configureHostAuthority(for: .native)
-        } else {
-            nativeReady = false
+    private func startIfNeededWithinLifecycle(
+        profiles: Set<ComputerUseDaemonProfile>,
+        forcedRestartIdentities:
+            [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
+    ) async {
+        let requiredProfiles = requiredHelperProfiles
+        let requestedProfiles = profiles.intersection(requiredProfiles)
+        guard
+            acceptsNewLaunches,
+            !Task.isCancelled,
+            !requestedProfiles.isEmpty
+        else {
+            return
         }
-        let codexListening = await Self.isDaemonListening(
-            paths: paths,
-            transport: transport,
-            socketURL: paths.codexDaemonSocketURL
-        )
-        let codexReady: Bool
-        if codexListening {
-            codexReady = await configureHostAuthority(
-                for: .codexCompatibility
+        guard let installation = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
+        guard acceptsNewLaunches, !Task.isCancelled else { return }
+        let profilesToEnsure = installation.invalidatedAllProfiles
+            ? requiredHelperProfiles
+            : requestedProfiles.intersection(requiredHelperProfiles)
+        for profile in ComputerUseDaemonProfile.allCases where
+            profilesToEnsure.contains(profile)
+        {
+            await ensureHelperProfileRunningWithinLifecycle(
+                profile,
+                helperURL: installation.url,
+                forcedRestartIdentity: forcedRestartIdentities[profile]
             )
-        } else {
-            codexReady = false
         }
-        if nativeReady, codexReady { return }
+    }
+
+    private func ensureHelperProfileRunningWithinLifecycle(
+        _ profile: ComputerUseDaemonProfile,
+        helperURL: URL,
+        forcedRestartIdentity: AgentPIDProcessIdentity?
+    ) async {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
-        // A failed probe does not prove that an older helper exited. Stop and
-        // verify the exact installed helper before launching a replacement, or a
-        // wedged process can retain TCC privileges beside the new daemon.
-        guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return }
-        for profile in ComputerUseDaemonProfile.allCases {
-            guard await launchHelper(at: helperURL, profile: profile) else {
-                _ = await stopDaemon()
+        let trackedIdentity = processIdentity(for: profile)
+        let forcesTrackedGeneration = forcedRestartIdentity.map {
+            trackedIdentity == $0
+        } ?? false
+        if let forcedRestartIdentity,
+           !forcesTrackedGeneration,
+           profile == .native {
+            clearPendingApplicationSurfaceStops(for: forcedRestartIdentity)
+        }
+        if !forcesTrackedGeneration {
+            let listening = await Self.isDaemonListening(
+                paths: paths,
+                transport: transport,
+                socketURL: socketURL(for: profile)
+            )
+            if listening, await configureHostAuthority(for: profile) {
                 return
             }
-            guard acceptsNewLaunches, !Task.isCancelled else {
-                _ = await stopDaemon()
-                return
+        } else if let forcedRestartIdentity {
+            cmuxDebugLog(
+                "applicationSurface.stop.restartHelper"
+                    + " pid=\(forcedRestartIdentity.pid)"
+            )
+        }
+
+        // A failed probe does not prove that an older helper exited. Stop the
+        // exact profile generation before replacing it so one wedged protocol
+        // surface cannot retain authority or disrupt its healthy sibling.
+        guard await stopDaemon(profile: profile) else { return }
+        if Self.helperTerminationInvalidatesApplicationSurfaces(
+            profile: profile
+        ) {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+        }
+        guard acceptsNewLaunches, !Task.isCancelled else { return }
+        guard await launchHelper(at: helperURL, profile: profile) else { return }
+        guard acceptsNewLaunches, !Task.isCancelled else {
+            _ = await stopDaemon(profile: profile)
+            return
+        }
+        let socketURL = socketURL(for: profile)
+        let readiness = daemonReadiness(for: profile, timeout: .seconds(5))
+        guard await readiness.waitUntilReady({
+            await Self.isDaemonListening(
+                paths: self.paths,
+                transport: self.transport,
+                socketURL: socketURL
+            )
+        }) else {
+            _ = await stopDaemon(profile: profile)
+            return
+        }
+        guard await configureHostAuthority(for: profile) else {
+            _ = await stopDaemon(profile: profile)
+            return
+        }
+    }
+
+    private func stopDaemon(profile: ComputerUseDaemonProfile) async -> Bool {
+        let helperURL = installedHelperURL ?? paths.installedHelperAppURL
+        let socketURL = socketURL(for: profile)
+        var trackedIdentity = processIdentity(for: profile).flatMap {
+            AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
+        }
+        var peerIdentity = await Self.daemonPeerIdentity(
+            paths: paths,
+            transport: transport,
+            socketURL: socketURL
+        )
+        let rebound = await Self.reconcileReboundHelperProfile(
+            trackedIdentity: trackedIdentity,
+            peerIdentity: peerIdentity,
+            terminateTracked: { identity in
+                await self.terminateTrackedHelperGeneration(
+                    identity,
+                    profile: profile
+                )
+            },
+            reprobePeer: {
+                await Self.daemonPeerIdentity(
+                    paths: self.paths,
+                    transport: self.transport,
+                    socketURL: socketURL
+                )
+            },
+            validatePeer: { identity in
+                let ownedBySibling = self.runningHelperProcesses.contains {
+                    $0.key != profile && $0.value == identity
+                }
+                return !ownedBySibling
+                    && self.helperProcess(identity, matches: helperURL)
+            },
+            adoptPeer: { identity in
+                self.runningHelperProcesses[profile] = identity
             }
-            let socketURL = socketURL(for: profile)
-            let readiness = daemonReadiness(for: profile, timeout: .seconds(5))
-            guard await readiness.waitUntilReady({
+        )
+        switch rebound {
+        case .unchanged:
+            break
+        case .noListeningPeer:
+            trackedIdentity = nil
+            peerIdentity = nil
+        case .ownedPeer(let identity):
+            trackedIdentity = identity
+            peerIdentity = identity
+        case .blocked:
+            return false
+        }
+        let daemonListening: Bool
+        if peerIdentity != nil {
+            daemonListening = true
+        } else {
+            daemonListening = await Self.isDaemonListening(
+                paths: paths,
+                transport: transport,
+                socketURL: socketURL
+            )
+        }
+
+        // A listening socket without a kernel-authenticated peer is ambiguous.
+        // Leave it untouched instead of risking another profile or process.
+        guard !daemonListening || peerIdentity != nil else { return false }
+
+        var targetIdentities: Set<AgentPIDProcessIdentity> = []
+        if let trackedIdentity {
+            targetIdentities.insert(trackedIdentity)
+        }
+        if let peerIdentity {
+            guard trackedIdentity == peerIdentity
+                || helperProcess(peerIdentity, matches: helperURL)
+            else {
+                return false
+            }
+            targetIdentities.insert(peerIdentity)
+        }
+        guard !targetIdentities.isEmpty else {
+            return await clearStoppedHelperProfileRuntime(profile)
+        }
+
+        expectedTerminationProcessIdentifiers.formUnion(
+            targetIdentities.map(\.pid)
+        )
+        if let peerIdentity {
+            _ = await Self.sendDaemonRequest(
+                ["method": "shutdown"],
+                paths: paths,
+                transport: transport,
+                timeout: 2,
+                expectedPeerIdentity: peerIdentity,
+                socketURL: socketURL
+            )
+            let readiness = daemonReadiness(
+                for: profile,
+                timeout: .seconds(3)
+            )
+            _ = await readiness.waitUntilStopped({
                 await Self.isDaemonListening(
                     paths: self.paths,
                     transport: self.transport,
                     socketURL: socketURL
                 )
-            }) else {
-                _ = await stopDaemon()
-                return
-            }
-            guard await configureHostAuthority(for: profile) else {
-                _ = await stopDaemon()
-                return
+            })
+        }
+
+        if await waitForHelperProcessIdentitiesToExit(
+            targetIdentities,
+            attempts: peerIdentity == nil ? 0 : 10
+        ) {
+            return await clearStoppedHelperProfileRuntime(profile)
+        }
+
+        var signalSucceeded = true
+        for identity in targetIdentities where
+            AgentPIDProcessIdentity(pid: identity.pid) == identity
+        {
+            if Darwin.kill(identity.pid, SIGKILL) != 0, errno != ESRCH {
+                signalSucceeded = false
             }
         }
+        guard signalSucceeded else { return false }
+        let terminated = await waitForHelperProcessIdentitiesToExit(
+            targetIdentities,
+            attempts: 20
+        )
+        guard terminated else { return false }
+        return await clearStoppedHelperProfileRuntime(profile)
+    }
+
+    static func reconcileReboundHelperProfile(
+        trackedIdentity: AgentPIDProcessIdentity?,
+        peerIdentity: AgentPIDProcessIdentity?,
+        terminateTracked:
+            (AgentPIDProcessIdentity) async -> Bool,
+        reprobePeer: () async -> AgentPIDProcessIdentity?,
+        validatePeer: (AgentPIDProcessIdentity) -> Bool,
+        adoptPeer: (AgentPIDProcessIdentity) -> Void
+    ) async -> ComputerUseReboundHelperProfileReconciliation {
+        guard
+            let trackedIdentity,
+            let peerIdentity,
+            trackedIdentity != peerIdentity
+        else {
+            return .unchanged
+        }
+        guard await terminateTracked(trackedIdentity) else {
+            return .blocked
+        }
+        guard let reprobedPeer = await reprobePeer() else {
+            return .noListeningPeer
+        }
+        guard validatePeer(reprobedPeer) else {
+            return .blocked
+        }
+        adoptPeer(reprobedPeer)
+        return .ownedPeer(reprobedPeer)
+    }
+
+    private func terminateTrackedHelperGeneration(
+        _ identity: AgentPIDProcessIdentity,
+        profile: ComputerUseDaemonProfile
+    ) async -> Bool {
+        if AgentPIDProcessIdentity(pid: identity.pid) == identity {
+            expectedTerminationProcessIdentifiers.insert(identity.pid)
+            if Darwin.kill(identity.pid, SIGKILL) != 0, errno != ESRCH {
+                expectedTerminationProcessIdentifiers.remove(identity.pid)
+                return false
+            }
+            guard await waitForHelperProcessIdentitiesToExit(
+                [identity],
+                attempts: 20
+            ) else {
+                return false
+            }
+        }
+        if processIdentity(for: profile) == identity {
+            clearTrackedHelperProcess(for: profile)
+        }
+        if Self.helperTerminationInvalidatesApplicationSurfaces(
+            profile: profile
+        ) {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+        }
+        return true
     }
 
     private func stopDaemon() async -> Bool {
@@ -1031,7 +2159,7 @@ final class ComputerUseRuntimeService {
             else {
                 return
             }
-            await self.startIfNeeded()
+            await self.startIfNeeded(profiles: self.requiredHelperProfiles)
             guard
                 !Task.isCancelled,
                 generation == self.readinessPublicationGeneration
@@ -1110,7 +2238,12 @@ final class ComputerUseRuntimeService {
     /// Synchronously prevents relaunch and stops the out-of-process helper.
     /// App termination cannot rely on an unstructured async task surviving exit.
     func stopForTermination() {
-        desiredEnabled = false
+        computerUseEnabled = false
+        applicationSurfaceLeaseIdentifiers.removeAll()
+        applicationSurfaceSessionIDsByLease.removeAll()
+        applicationSurfaceInputConnections.removeAllConnections()
+        applicationSurfaceFailureEventRegistry.finishAll()
+        applicationSurfacePendingStops.removeAll()
         acceptsNewLaunches = false
         permissionRefreshGeneration &+= 1
         for cancel in helperLifecycleCancellationActions.values {
@@ -1124,9 +2257,13 @@ final class ComputerUseRuntimeService {
         helperTerminationObservationTask = nil
         helperHealthTask?.cancel()
         helperHealthTask = nil
-        missedHelperHealthChecks = 0
+        missedHelperHealthChecks.removeAll()
+        recoveryGeneration &+= 1
         recoveryTask?.cancel()
         recoveryTask = nil
+        pendingHelperRecoveryProfiles.removeAll()
+        pendingForcedHelperRestartIdentities.removeAll()
+        cancelFinalHelperCleanup()
         cancelReadinessPublication()
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         clearTrackedHelperProcess()
@@ -1180,7 +2317,10 @@ final class ComputerUseRuntimeService {
         if let bundleIdentifier = Bundle(url: helperURL)?.bundleIdentifier {
             for application in NSRunningApplication.runningApplications(
                 withBundleIdentifier: bundleIdentifier
-            ) where application.bundleURL?.standardizedFileURL == expectedURL {
+            ) where
+                application.bundleURL?.standardizedFileURL == expectedURL
+                    && !application.isTerminated
+            {
                 applicationsByPID[application.processIdentifier] = application
             }
         }
@@ -1194,6 +2334,23 @@ final class ComputerUseRuntimeService {
             $0.pid == processIdentifier
                 && AgentPIDProcessIdentity(pid: processIdentifier) == $0
         }
+    }
+
+    private func helperProcess(
+        _ identity: AgentPIDProcessIdentity,
+        matches helperURL: URL
+    ) -> Bool {
+        guard
+            AgentPIDProcessIdentity(pid: identity.pid) == identity,
+            let application = NSRunningApplication(
+                processIdentifier: identity.pid
+            ),
+            !application.isTerminated
+        else {
+            return false
+        }
+        return application.bundleURL?.standardizedFileURL
+            == helperURL.standardizedFileURL
     }
 
     private func trackedHelperProfile(
@@ -1212,6 +2369,37 @@ final class ComputerUseRuntimeService {
         for profile: ComputerUseDaemonProfile
     ) {
         runningHelperProcesses.removeValue(forKey: profile)
+    }
+
+    private func clearHelperProfileRuntime(
+        _ profile: ComputerUseDaemonProfile
+    ) {
+        clearTrackedHelperProcess(for: profile)
+        missedHelperHealthChecks.removeValue(forKey: profile)
+        let socketURL = socketURL(for: profile)
+        try? FileManager.default.removeItem(at: socketURL)
+        try? FileManager.default.removeItem(
+            at: socketURL.deletingPathExtension()
+                .appendingPathExtension("pid")
+        )
+    }
+
+    private func clearStoppedHelperProfileRuntime(
+        _ profile: ComputerUseDaemonProfile
+    ) async -> Bool {
+        // A new daemon may have rebound this profile while the old exact
+        // generation exited. Preserve its live socket here; the health monitor
+        // authenticates the peer generation and schedules scoped recovery when
+        // it is not the host-tracked process.
+        guard !(await Self.isDaemonListening(
+            paths: paths,
+            transport: transport,
+            socketURL: socketURL(for: profile)
+        )) else {
+            return false
+        }
+        clearHelperProfileRuntime(profile)
+        return true
     }
 
     private func recordExpectedTerminationOfRunningHelper(at helperURL: URL) {
@@ -1298,6 +2486,26 @@ final class ComputerUseRuntimeService {
         return false
     }
 
+    private func waitForHelperProcessIdentitiesToExit(
+        _ identities: Set<AgentPIDProcessIdentity>,
+        attempts: Int
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        for attempt in 0 ... attempts {
+            let stillRunning = identities.contains {
+                AgentPIDProcessIdentity(pid: $0.pid) == $0
+            }
+            if !stillRunning { return true }
+            guard attempt < attempts, !Task.isCancelled else { return false }
+            do {
+                try await clock.sleep(for: .milliseconds(50))
+            } catch {
+                return false
+            }
+        }
+        return false
+    }
+
     private func startObservingHelperTermination() {
         helperTerminationObservationTask = Task { @MainActor [weak self] in
             for await notification in NSWorkspace.shared.notificationCenter.notifications(
@@ -1315,17 +2523,30 @@ final class ComputerUseRuntimeService {
     }
 
     private func helperDidTerminate(_ application: NSRunningApplication) {
+        let helperURL = installedHelperURL ?? paths.installedHelperAppURL
         let trackedProfile = trackedHelperProfile(
             for: application.processIdentifier
         )
+        let isTrackedHelperProcess = trackedProfile != nil
+        let matchesInstalledHelper =
+            application.bundleURL?.standardizedFileURL
+                == helperURL.standardizedFileURL
         if let trackedProfile {
             clearTrackedHelperProcess(for: trackedProfile)
+            missedHelperHealthChecks.removeValue(forKey: trackedProfile)
         }
-        let isTrackedHelperProcess = trackedProfile != nil
         let wasExpected = expectedTerminationProcessIdentifiers.remove(
             application.processIdentifier
         ) != nil
-        let helperURL = installedHelperURL ?? paths.installedHelperAppURL
+        if
+            finalHelperCleanupState != .idle,
+            !desiredEnabled,
+            isTrackedHelperProcess || matchesInstalledHelper,
+            runningHelperApplications(at: helperURL).isEmpty
+        {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+            cancelFinalHelperCleanup()
+        }
         guard Self.shouldRecoverAfterHelperTermination(
             desiredEnabled: desiredEnabled,
             acceptsNewLaunches: acceptsNewLaunches,
@@ -1338,7 +2559,15 @@ final class ComputerUseRuntimeService {
         ) else {
             return
         }
-        scheduleHelperRecovery()
+        if Self.helperTerminationInvalidatesApplicationSurfaces(
+            profile: trackedProfile
+        ) {
+            clearApplicationSurfaceSessionsAfterHelperExit()
+        }
+        scheduleHelperRecovery(
+            profiles: trackedProfile.map { Set([$0]) }
+                ?? Set(ComputerUseDaemonProfile.allCases)
+        )
     }
 
     private func startMonitoringHelperHealth() {
@@ -1358,48 +2587,160 @@ final class ComputerUseRuntimeService {
     }
 
     private func checkHelperHealth() async {
-        async let nativeListening = Self.isDaemonListening(
-            paths: paths,
-            transport: transport,
-            socketURL: paths.daemonSocketURL
+        let requiredProfiles = requiredHelperProfiles
+        let peerIdentities: (
+            native: AgentPIDProcessIdentity?,
+            codexCompatibility: AgentPIDProcessIdentity?
         )
-        async let codexListening = Self.isDaemonListening(
-            paths: paths,
-            transport: transport,
-            socketURL: paths.codexDaemonSocketURL
-        )
-        let listeningResults = await (nativeListening, codexListening)
-        let daemonListening = listeningResults.0 && listeningResults.1
+        switch (
+            requiredProfiles.contains(.native),
+            requiredProfiles.contains(.codexCompatibility)
+        ) {
+        case (true, true):
+            async let native = Self.daemonPeerIdentity(
+                paths: paths,
+                transport: transport,
+                socketURL: paths.daemonSocketURL
+            )
+            async let codexCompatibility = Self.daemonPeerIdentity(
+                paths: paths,
+                transport: transport,
+                socketURL: paths.codexDaemonSocketURL
+            )
+            peerIdentities = await (native, codexCompatibility)
+        case (true, false):
+            peerIdentities = (
+                await Self.daemonPeerIdentity(
+                    paths: paths,
+                    transport: transport,
+                    socketURL: paths.daemonSocketURL
+                ),
+                nil
+            )
+        case (false, true):
+            peerIdentities = (
+                nil,
+                await Self.daemonPeerIdentity(
+                    paths: paths,
+                    transport: transport,
+                    socketURL: paths.codexDaemonSocketURL
+                )
+            )
+        case (false, false):
+            peerIdentities = (nil, nil)
+        }
         guard !Task.isCancelled else { return }
-        if daemonListening {
-            missedHelperHealthChecks = 0
-            return
+        let nativeIdentity = processIdentity(for: .native)
+        let codexIdentity = processIdentity(for: .codexCompatibility)
+        let nativeHealthy = !requiredProfiles.contains(.native)
+            || Self.helperProfileOwnsListeningPeer(
+                trackedIdentity: nativeIdentity.flatMap {
+                    AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
+                },
+                peerIdentity: peerIdentities.native
+            )
+        let codexHealthy = !requiredProfiles.contains(.codexCompatibility)
+            || Self.helperProfileOwnsListeningPeer(
+                trackedIdentity: codexIdentity.flatMap {
+                    AgentPIDProcessIdentity(pid: $0.pid) == $0 ? $0 : nil
+                },
+                peerIdentity: peerIdentities.codexCompatibility
+            )
+        let unavailableProfiles = Self.helperProfilesNeedingRecovery(
+            nativeHealthy: nativeHealthy,
+            codexCompatibilityHealthy: codexHealthy,
+            requiredProfiles: requiredProfiles
+        )
+        var profilesReadyForRecovery: Set<ComputerUseDaemonProfile> = []
+        for profile in ComputerUseDaemonProfile.allCases {
+            guard unavailableProfiles.contains(profile) else {
+                missedHelperHealthChecks.removeValue(forKey: profile)
+                continue
+            }
+            let misses = missedHelperHealthChecks[profile, default: 0] + 1
+            if misses >= 2 {
+                missedHelperHealthChecks.removeValue(forKey: profile)
+                profilesReadyForRecovery.insert(profile)
+            } else {
+                missedHelperHealthChecks[profile] = misses
+            }
         }
 
-        missedHelperHealthChecks += 1
-        guard missedHelperHealthChecks >= 2 else { return }
-        missedHelperHealthChecks = 0
+        if requiredProfiles.contains(.native),
+           nativeHealthy,
+           let identity = nativeIdentity {
+            await retryPendingApplicationSurfaceStops(
+                expectedPeerIdentity: identity
+            )
+        }
         guard Self.shouldScheduleHelperRecovery(
             desiredEnabled: desiredEnabled,
             acceptsNewLaunches: acceptsNewLaunches,
-            daemonListening: daemonListening,
-            recoveryInFlight: recoveryTask != nil
+            profilesNeedingRecovery: profilesReadyForRecovery
         ) else {
             return
         }
-        scheduleHelperRecovery()
+        scheduleHelperRecovery(profiles: profilesReadyForRecovery)
     }
 
     @discardableResult
-    private func scheduleHelperRecovery() -> Task<Void, Never>? {
-        guard desiredEnabled, acceptsNewLaunches else { return nil }
+    private func scheduleHelperRecovery(
+        profiles: Set<ComputerUseDaemonProfile> = Set(
+            ComputerUseDaemonProfile.allCases
+        ),
+        forcedRestartIdentities:
+            [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
+    ) -> Task<Void, Never>? {
+        let requestedProfiles = profiles.intersection(requiredHelperProfiles)
+        guard
+            desiredEnabled,
+            acceptsNewLaunches,
+            !requestedProfiles.isEmpty
+        else {
+            return nil
+        }
+        pendingHelperRecoveryProfiles.formUnion(requestedProfiles)
+        for (profile, identity) in forcedRestartIdentities where
+            requestedProfiles.contains(profile)
+        {
+            pendingForcedHelperRestartIdentities[profile] = identity
+        }
         if let recoveryTask {
             return recoveryTask
         }
+        recoveryGeneration &+= 1
+        let generation = recoveryGeneration
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.startIfNeeded()
-            self.recoveryTask = nil
+            while
+                !Task.isCancelled,
+                self.desiredEnabled,
+                self.acceptsNewLaunches,
+                !self.pendingHelperRecoveryProfiles.isEmpty
+            {
+                let profiles = self.pendingHelperRecoveryProfiles
+                    .intersection(self.requiredHelperProfiles)
+                self.pendingHelperRecoveryProfiles.removeAll()
+                var forcedRestartIdentities:
+                    [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
+                for profile in profiles {
+                    if let identity = self
+                        .pendingForcedHelperRestartIdentities
+                        .removeValue(forKey: profile)
+                    {
+                        forcedRestartIdentities[profile] = identity
+                    }
+                }
+                await self.serializeHelperLifecycle(cancelledResult: ()) {
+                    await self.startIfNeededWithinLifecycle(
+                        profiles: profiles,
+                        forcedRestartIdentities: forcedRestartIdentities
+                    )
+                }
+            }
+            if self.recoveryGeneration == generation {
+                self.recoveryTask = nil
+            }
         }
         recoveryTask = task
         return task
@@ -1428,13 +2769,43 @@ final class ComputerUseRuntimeService {
     nonisolated static func shouldScheduleHelperRecovery(
         desiredEnabled: Bool,
         acceptsNewLaunches: Bool,
-        daemonListening: Bool,
-        recoveryInFlight: Bool
+        profilesNeedingRecovery: Set<ComputerUseDaemonProfile>
     ) -> Bool {
         desiredEnabled
             && acceptsNewLaunches
-            && !daemonListening
-            && !recoveryInFlight
+            && !profilesNeedingRecovery.isEmpty
+    }
+
+    nonisolated static func helperProfilesNeedingRecovery(
+        nativeHealthy: Bool,
+        codexCompatibilityHealthy: Bool,
+        requiredProfiles: Set<ComputerUseDaemonProfile> = Set(
+            ComputerUseDaemonProfile.allCases
+        )
+    ) -> Set<ComputerUseDaemonProfile> {
+        var profiles: Set<ComputerUseDaemonProfile> = []
+        if requiredProfiles.contains(.native), !nativeHealthy {
+            profiles.insert(.native)
+        }
+        if requiredProfiles.contains(.codexCompatibility),
+           !codexCompatibilityHealthy {
+            profiles.insert(.codexCompatibility)
+        }
+        return profiles
+    }
+
+    nonisolated static func helperProfileOwnsListeningPeer(
+        trackedIdentity: AgentPIDProcessIdentity?,
+        peerIdentity: AgentPIDProcessIdentity?
+    ) -> Bool {
+        guard let trackedIdentity, let peerIdentity else { return false }
+        return trackedIdentity == peerIdentity
+    }
+
+    nonisolated static func helperTerminationInvalidatesApplicationSurfaces(
+        profile: ComputerUseDaemonProfile?
+    ) -> Bool {
+        profile == .native
     }
 
     nonisolated private static func ensurePrivateDirectory(_ directoryURL: URL) -> Bool {
@@ -1657,6 +3028,54 @@ final class ComputerUseRuntimeService {
         )?["ok"] as? Bool == true
     }
 
+    nonisolated private static func daemonPeerIdentity(
+        paths: ComputerUseRuntimePaths,
+        transport: SocketTransport,
+        socketURL: URL
+    ) async -> AgentPIDProcessIdentity? {
+        let requestTask = Task.detached(priority: .userInitiated) {
+            let authenticatedRequest: [String: Any] = [
+                "auth_token": paths.authenticationToken,
+                "request": ["method": "list"],
+            ]
+            guard
+                JSONSerialization.isValidJSONObject(authenticatedRequest),
+                let data = try? JSONSerialization.data(
+                    withJSONObject: authenticatedRequest
+                ),
+                let line = String(data: data, encoding: .utf8)
+            else {
+                return nil as AgentPIDProcessIdentity?
+            }
+            let connection = PersistentSocketLineConnection(
+                transport: transport
+            )
+            let probe = await connection.command(
+                line,
+                at: socketURL.path,
+                timeout: 1
+            )
+            await connection.invalidate()
+            guard
+                let probe,
+                let peerProcessID = probe.peerProcessID,
+                let responseData = probe.response.data(using: .utf8),
+                let response = try? JSONSerialization.jsonObject(
+                    with: responseData
+                ) as? [String: Any],
+                response["ok"] as? Bool == true
+            else {
+                return nil
+            }
+            return AgentPIDProcessIdentity(pid: peerProcessID)
+        }
+        return await withTaskCancellationHandler {
+            await requestTask.value
+        } onCancel: {
+            requestTask.cancel()
+        }
+    }
+
     nonisolated private static func queryPermissionStatus(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport
@@ -1682,34 +3101,42 @@ final class ComputerUseRuntimeService {
         return ComputerUsePermissionStatus(structuredContent: structured)
     }
 
-    nonisolated private static func sendDaemonRequest(
+    nonisolated static func sendDaemonRequest(
         _ request: [String: Any],
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
         timeout: TimeInterval,
         expectedPeerIdentity: AgentPIDProcessIdentity? = nil,
-        socketURL: URL
+        socketURL: URL,
+        persistentConnection: PersistentSocketLineConnection? = nil
     ) async -> [String: Any]? {
-        await Task.detached(priority: .userInitiated) {
-            sendDaemonRequestSynchronously(
+        let requestTask = Task.detached(priority: .userInitiated) {
+            await performDaemonRequest(
                 request,
                 paths: paths,
                 transport: transport,
                 timeout: timeout,
                 expectedPeerIdentity: expectedPeerIdentity,
-                socketURL: socketURL
+                socketURL: socketURL,
+                persistentConnection: persistentConnection
             )
-        }.value
+        }
+        return await withTaskCancellationHandler {
+            await requestTask.value
+        } onCancel: {
+            requestTask.cancel()
+        }
     }
 
-    nonisolated private static func sendDaemonRequestSynchronously(
+    nonisolated private static func performDaemonRequest(
         _ request: [String: Any],
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
         timeout: TimeInterval,
         expectedPeerIdentity: AgentPIDProcessIdentity? = nil,
-        socketURL: URL
-    ) -> [String: Any]? {
+        socketURL: URL,
+        persistentConnection: PersistentSocketLineConnection? = nil
+    ) async -> [String: Any]? {
         var authenticatedRequest: [String: Any] = [
             "auth_token": paths.authenticationToken,
             "request": request,
@@ -1718,33 +3145,41 @@ final class ComputerUseRuntimeService {
             authenticatedRequest["host_auth_token"] =
                 paths.hostAuthenticationToken
         }
-        guard
-            JSONSerialization.isValidJSONObject(authenticatedRequest),
-            let data = try? JSONSerialization.data(withJSONObject: authenticatedRequest),
-            let line = String(data: data, encoding: .utf8)
-        else {
+        guard JSONSerialization.isValidJSONObject(authenticatedRequest),
+              let data = try? JSONSerialization.data(
+                  withJSONObject: authenticatedRequest
+              ),
+              let line = String(data: data, encoding: .utf8) else {
             return nil
         }
         let socketPath = socketURL.path
-        guard
-            let probe = transport.probeCommandWithPeerProcessID(
-                line,
-                at: socketPath,
-                timeout: timeout,
-                validatingPeer: { peerProcessID in
-                    expectedPeerIdentity.map { expected in
-                        guard
-                            peerProcessID == expected.pid,
-                            let current = AgentPIDProcessIdentity(
-                                pid: expected.pid
-                            )
-                        else {
-                            return false
-                        }
-                        return current == expected
-                    } ?? true
+        let validatePeer: @Sendable (pid_t?) -> Bool = { peerProcessID in
+            expectedPeerIdentity.map { expected in
+                guard
+                    peerProcessID == expected.pid,
+                    let current = AgentPIDProcessIdentity(
+                        pid: expected.pid
+                    )
+                else {
+                    return false
                 }
-            ),
+                return current == expected
+            } ?? true
+        }
+        let ownsConnection = persistentConnection == nil
+        let connection = persistentConnection
+            ?? PersistentSocketLineConnection(transport: transport)
+        let probe = await connection.command(
+            line,
+            at: socketPath,
+            timeout: timeout,
+            validatingPeer: validatePeer
+        )
+        if ownsConnection {
+            await connection.invalidate()
+        }
+        guard
+            let probe,
             let data = probe.response.data(using: .utf8),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {

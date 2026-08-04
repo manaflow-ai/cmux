@@ -5,6 +5,11 @@ import Foundation
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var healthSnapshot: ControlSurfaceHealthSnapshot?
+    var sendKeyResolution: ControlSurfaceSendResolution = .tabManagerUnavailable
+    var lastCreateInputs: ControlSurfaceCreateInputs?
+    var lastCreateAuthorization: ControlSocketRequestAuthorization?
+    var lastSendKeyAuthorization: ControlSocketRequestAuthorization?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
@@ -45,9 +50,52 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceCreateInputs
+        inputs: ControlSurfaceCreateInputs,
+        requestOrigin: ControlRequestOrigin
     ) -> ControlSurfaceCreateResolution {
-        createResolution
+        lastCreateInputs = inputs
+        if case .socket(let authorization) = requestOrigin {
+            lastCreateAuthorization = authorization
+        } else {
+            lastCreateAuthorization = nil
+        }
+        return createResolution
+    }
+
+    func controlSurfaceHealth(routing: ControlRoutingSelectors) -> ControlSurfaceHealthSnapshot? {
+        healthSnapshot
+    }
+
+    func controlSurfaceApplicationStrings() -> ControlSurfaceApplicationStrings {
+        ControlSurfaceApplicationStrings(
+            splitUnsupported: "application split unsupported",
+            invalidWindowID: "invalid native window ID",
+            invalidProcessID: "invalid application process ID",
+            invalidFrameRate: "invalid application frame rate"
+        )
+    }
+
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+        ControlSurfaceInputStrings(
+            inputQueueFull: "queue full",
+            surfaceUnavailable: "surface unavailable",
+            processExited: "process exited"
+        )
+    }
+
+    func controlSurfaceSendKey(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        key: String,
+        requestOrigin: ControlRequestOrigin
+    ) -> ControlSurfaceSendResolution {
+        if case .socket(let authorization) = requestOrigin {
+            lastSendKeyAuthorization = authorization
+        } else {
+            lastSendKeyAuthorization = nil
+        }
+        return sendKeyResolution
     }
 
     func controlSurfaceResumeSet(

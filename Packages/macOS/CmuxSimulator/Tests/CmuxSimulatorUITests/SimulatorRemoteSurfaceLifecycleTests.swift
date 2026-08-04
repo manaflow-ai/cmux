@@ -1,5 +1,7 @@
 import AppKit
 import CmuxSimulator
+import CmuxSimulatorSystem
+import Darwin
 import IOSurface
 import Testing
 
@@ -175,6 +177,76 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         ) == 0xFF_77_88_99)
     }
 
+    @Test("A producer failure reaches the Simulator coordinator callback")
+    func producerFailureReachesCoordinatorCallback() {
+        let descriptor = simulatorFrameTransportDescriptor(52)
+        let view = SimulatorRemoteSurfaceView(
+            frameSourceFactory: { _ in FailedSimulatorFrameSurfaceSource() }
+        )
+        var reportedDescriptor: SimulatorFrameTransportDescriptor?
+        var reportedFailure: SimulatorFailure?
+        view.onFrameTransportFailure = { descriptor, failure in
+            reportedDescriptor = descriptor
+            reportedFailure = failure
+        }
+
+        view.update(
+            frameTransport: descriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        view.renderLatestFrame()
+
+        #expect(reportedDescriptor == descriptor)
+        #expect(reportedFailure?.code == "framebuffer_unavailable")
+        #expect(reportedFailure?.isRecoverable == true)
+    }
+
+    @Test("A failed Simulator frame view can readopt the same transport")
+    func failedSimulatorFrameViewReadoptsSameTransport() async throws {
+        let descriptor = simulatorFrameTransportDescriptor(53)
+        let recoveredSource = EmptySimulatorFrameSurfaceSource(
+            snapshot: simulatorFrameSnapshot(
+                pixel: 0xFF_65_43_21,
+                sequence: 1
+            )
+        )
+        var sourceCount = 0
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in
+            sourceCount += 1
+            return sourceCount == 1
+                ? FailedSimulatorFrameSurfaceSource()
+                : recoveredSource
+        })
+        defer { view.teardown() }
+        var failureCount = 0
+        view.onFrameTransportFailure = { _, _ in failureCount += 1 }
+
+        view.update(
+            frameTransport: descriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        view.renderLatestFrame()
+        #expect(failureCount == 1)
+
+        view.update(
+            frameTransport: descriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        try await waitUntil {
+            simulatorFrameImageFirstPixel(view.frameLayer?.contents)
+                == 0xFF_65_43_21
+        }
+
+        #expect(sourceCount == 2)
+        #expect(
+            simulatorFrameImageFirstPixel(view.frameLayer?.contents)
+                == 0xFF_65_43_21
+        )
+    }
+
     @Test("Frame publication signals wake a static pipeline without display polling")
     func publicationSignalsWakeStaticPipeline() async throws {
         let source = SignaledSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
@@ -230,6 +302,34 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(source.availabilityCheckCount - availabilityChecksBeforeBurst <= 2)
     }
 
+    @Test("Notification-backed controllers cap frame copies to display cadence")
+    func notificationControllerCapsFrameCopiesToDisplayCadence() async throws {
+        let source = SignaledSimulatorFrameSurfaceSource(
+            snapshot: simulatorFrameSnapshot(
+                pixel: 0xFF_12_34_56,
+                sequence: 1
+            )
+        )
+        let controller = SimulatorFramePresentationController(
+            source: source,
+            presentationDidComplete: { _ in },
+            sourceFailureDidOccur: {}
+        )
+        defer { controller.invalidate() }
+
+        controller.startPresenting(maximumFramesPerSecond: 1)
+        controller.presentLatestFrame()
+        try await waitUntil { source.copyCount == 1 }
+
+        source.publish(simulatorFrameSnapshot(
+            pixel: 0xFF_65_43_21,
+            sequence: 2
+        ))
+        try await ContinuousClock().sleep(for: .milliseconds(50))
+
+        #expect(source.copyCount == 1)
+    }
+
     @Test("A publication invalidating an in-flight copy retries the newest frame")
     func invalidatedCopyRetriesNewestPublication() async throws {
         let source = InvalidatingSignaledSimulatorFrameSurfaceSource(
@@ -256,6 +356,39 @@ struct SimulatorRemoteSurfaceLifecycleTests {
 
         #expect(source.copyCount == 2)
         #expect(pipeline.displayTick()?.sequence == 2)
+    }
+
+    @Test("Controller retries a publication after its cadence fires during a copy")
+    func controllerRetriesPublicationAfterInFlightCadence() async throws {
+        let source = InvalidatingSignaledSimulatorFrameSurfaceSource(
+            snapshot: simulatorFrameSnapshot(
+                pixel: 0xFF_12_34_56,
+                sequence: 1
+            )
+        )
+        var presentedSequences: [UInt64] = []
+        let controller = SimulatorFramePresentationController(
+            source: source,
+            presentationDidComplete: {
+                presentedSequences.append($0.sequence)
+            },
+            sourceFailureDidOccur: {}
+        )
+        defer { controller.invalidate() }
+
+        controller.startPresenting(maximumFramesPerSecond: 120)
+        try await waitUntil { source.hasStartedCopy }
+        source.publish(simulatorFrameSnapshot(
+            pixel: 0xFF_65_43_21,
+            sequence: 2
+        ))
+        try await ContinuousClock().sleep(for: .milliseconds(50))
+
+        #expect(source.copyCount == 1)
+        source.releaseCopy()
+        try await waitUntil { presentedSequences == [2] }
+
+        #expect(source.copyCount == 2)
     }
 
     @Test("Worker frame publication wakes the host pipeline")
@@ -322,6 +455,18 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(simulatorPresentationTimerIntervalNanoseconds(
             maximumFramesPerSecond: 240
         ) == 8_333_333)
+        #expect(simulatorPresentationFramesPerSecond(
+            displayMaximumFramesPerSecond: 120,
+            transportMaximumFramesPerSecond: 32
+        ) == 32)
+        #expect(simulatorPresentationFramesPerSecond(
+            displayMaximumFramesPerSecond: 60,
+            transportMaximumFramesPerSecond: 120
+        ) == 60)
+        #expect(simulatorPresentationFramesPerSecond(
+            displayMaximumFramesPerSecond: nil,
+            transportMaximumFramesPerSecond: 32
+        ) == 32)
     }
 
     @Test("Frame presentation does not request a second smoothing pass")
@@ -331,6 +476,88 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         ))
 
         #expect(!presentation.image.shouldInterpolate)
+    }
+
+    @Test("A reusable frame view releases and can replace its transport")
+    func reusableFrameViewResetsTransport() throws {
+        let firstRing = try SimulatorFramebufferSurfaceRing(width: 320, height: 240)
+        defer { firstRing.releaseResources() }
+        let secondRing = try SimulatorFramebufferSurfaceRing(width: 640, height: 480)
+        defer { secondRing.releaseResources() }
+        let view = CmuxRemoteFrameView(frame: .zero)
+        defer { view.teardown() }
+
+        view.adopt(firstRing.descriptor)
+        #expect(view.framePixelSize == CGSize(width: 320, height: 240))
+
+        view.resetTransport()
+        #expect(view.framePixelSize == .zero)
+
+        view.adopt(secondRing.descriptor)
+        #expect(view.framePixelSize == CGSize(width: 640, height: 480))
+    }
+
+    @Test("A failed remote frame view can readopt the same transport")
+    func failedRemoteFrameViewReadoptsSameTransport() async throws {
+        let producer = try SimulatorFramebufferSurfaceRing(width: 2, height: 2)
+        defer { producer.releaseResources() }
+        let descriptor = producer.descriptor
+        let layout = try SimulatorFrameSharedMemoryLayout(descriptor: descriptor)
+        let handle = try simulatorOpenSharedMemory(
+            named: descriptor.sharedMemoryName,
+            flags: O_RDWR
+        )
+        #expect(handle >= 0)
+        let mapping = try #require(mmap(
+            nil,
+            layout.totalByteCount,
+            PROT_READ | PROT_WRITE,
+            MAP_SHARED,
+            handle,
+            0
+        ))
+        #expect(mapping != MAP_FAILED)
+        defer {
+            munmap(mapping, layout.totalByteCount)
+            close(handle)
+        }
+
+        let view = CmuxRemoteFrameView(frame: .zero)
+        defer { view.teardown() }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = root
+        view.frame = root.bounds
+        root.addSubview(view)
+        var failureCount = 0
+        view.onTransportFailure = { _ in failureCount += 1 }
+
+        let publication = layout.publishedWordPointer(in: mapping)
+        cmux_simulator_atomic_store_u64_release(
+            publication,
+            UInt64(bitPattern: Int64.min)
+        )
+        #expect(view.adopt(descriptor))
+        #expect(failureCount == 1)
+
+        cmux_simulator_atomic_store_u64_release(publication, 0)
+        let input = try #require(IOSurfaceCreate([
+            kIOSurfaceWidth: 2,
+            kIOSurfaceHeight: 2,
+            kIOSurfaceBytesPerElement: 4,
+            kIOSurfacePixelFormat: kCVPixelFormatType_32BGRA,
+        ] as CFDictionary))
+        try producer.publish(input)
+        #expect(view.adopt(descriptor))
+
+        try await waitUntil { view.presentedFrameSequence == 1 }
+        #expect(view.presentedFrameSequence == 1)
+        withExtendedLifetime(window) {}
     }
 
     @Test("The managed frame layer preserves one-to-one backing pixels")

@@ -157,7 +157,7 @@ extension Workspace {
             workspaceId: id,
             stableId: stableId,
             taskCreateOperationID: taskCreateOperationID,
-            processTitle: processTitle,
+            processTitle: processTitleForSessionSnapshot(),
             customTitle: customTitle,
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
@@ -458,6 +458,7 @@ extension Workspace {
         let ttyName = surfaceTTYNames[panelId]
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
+        var applicationSnapshot: SessionApplicationPanelSnapshot? = nil
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?; var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
@@ -636,6 +637,20 @@ extension Workspace {
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
             projectSnapshot = nil
+        case .application:
+            guard let applicationPanel = panel as? ApplicationPanel else {
+                return nil
+            }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            applicationSnapshot = SessionApplicationPanelSnapshot(
+                targetFrameRate: applicationPanel.targetFrameRate
+            )
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            agentSessionSnapshot = nil
+            projectSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
@@ -712,11 +727,14 @@ extension Workspace {
         case .accountSignIn:
             return nil
         }
+        let persistedPanelTitle = panel.panelType == .application
+            ? nil
+            : panelTitle
         return SessionPanelSnapshot(
             id: panelId,
             stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
-            title: panelTitle,
+            title: persistedPanelTitle,
             customTitle: customTitle,
             customTitleSource: customTitleSource,
             directory: directory,
@@ -732,6 +750,7 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
+            application: applicationSnapshot,
             markdown: markdownSnapshot,
             filePreview: filePreviewSnapshot,
             rightSidebarTool: rightSidebarToolSnapshot,
@@ -1765,6 +1784,26 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
+        case .application:
+            let applicationSnapshot = snapshot.application
+            let requestedFrameRate =
+                applicationSnapshot?.targetFrameRate ?? 60
+            let targetFrameRate = (1...120).contains(requestedFrameRate)
+                ? requestedFrameRate
+                : 60
+            guard let applicationPanel = newApplicationSurface(
+                inPane: paneId,
+                targetFrameRate: targetFrameRate,
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(
+                snapshot,
+                toPanelId: applicationPanel.id,
+                restoreDynamicTitle: false
+            )
+            return applicationPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
                   let markdownPanel = newMarkdownSurface(
@@ -1840,10 +1879,18 @@ extension Workspace {
         }
     }
 
-    func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+    func applySessionPanelMetadata(
+        _ snapshot: SessionPanelSnapshot,
+        toPanelId panelId: UUID,
+        restoreDynamicTitle: Bool = true
+    ) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
 
-        if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+        if restoreDynamicTitle,
+           let title = snapshot.title?.trimmingCharacters(
+               in: .whitespacesAndNewlines
+           ),
+           !title.isEmpty {
             panelTitles[panelId] = title
         }
 
@@ -2601,6 +2648,7 @@ final class Workspace: Identifiable, ObservableObject {
     let todoState = WorkspaceTodoState()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
+    private let applicationSurfaceRuntime: (any ApplicationSurfaceRuntime)?
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -2753,6 +2801,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     var processTitle: String
+    var processTitleSource: (panelId: UUID, panelType: PanelType)?
 
     nonisolated static func resolveCloseConfirmation(
         shellActivityState: PanelShellActivityState?,
@@ -3185,12 +3234,14 @@ final class Workspace: Identifiable, ObservableObject {
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
-        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        applicationSurfaceRuntime: (any ApplicationSurfaceRuntime)? = nil
     ) {
         self.id = id ?? UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.applicationSurfaceRuntime = applicationSurfaceRuntime
         self.settings = settings
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
@@ -8513,6 +8564,78 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
+    /// Creates a live native application surface in the specified pane.
+    @discardableResult
+    func newApplicationSurface(
+        inPane paneId: PaneID,
+        windowID: CGWindowID? = nil,
+        processID: pid_t? = nil,
+        title: String? = nil,
+        targetFrameRate: Int = 60,
+        focus: Bool = false,
+        runtime: (any ApplicationSurfaceRuntime)? = nil,
+        runtimeLease: ApplicationSurfaceRuntimeLease? = nil
+    ) -> ApplicationPanel? {
+        if isRemoteTmuxMirror { return nil }
+        guard let runtime = runtime ?? applicationSurfaceRuntime else {
+            return nil
+        }
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        guard let applicationPanel = ApplicationPanel(
+            workspaceId: id,
+            windowID: windowID,
+            processID: processID,
+            title: title,
+            targetFrameRate: targetFrameRate,
+            runtime: runtime,
+            runtimeLease: runtimeLease
+        ) else { return nil }
+        panels[applicationPanel.id] = applicationPanel
+        panelTitles[applicationPanel.id] = applicationPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: applicationPanel.displayTitle,
+            icon: applicationPanel.displayIcon,
+            kind: SurfaceKind.application.rawValue,
+            isDirty: false,
+            isLoading: false,
+            isAudioMuted: false,
+            isAudioPlaying: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: applicationPanel.id)
+            panelTitles.removeValue(forKey: applicationPanel.id)
+            return nil
+        }
+
+        bindSurface(newTabId, toPanelId: applicationPanel.id)
+        configureApplicationPanel(applicationPanel)
+        publishCmuxSurfaceCreated(
+            applicationPanel.id,
+            paneId: paneId,
+            kind: "application",
+            origin: "application_tab",
+            focused: focus
+        )
+
+        if focus {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            focusPanel(applicationPanel.id)
+        } else {
+            applicationPanel.unfocus()
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: applicationPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+        return applicationPanel
+    }
+
     /// Create a new browser surface in the specified pane.
     /// - Parameter focus: nil = focus only if the target pane is already focused (default UI behavior),
     ///                    true = force focus/selection of the new surface,
@@ -9617,6 +9740,10 @@ final class Workspace: Identifiable, ObservableObject {
         return detached
     }
 
+    func acceptsDetachedSurface(_ panel: any Panel) -> Bool {
+        !(isRemoteTmuxMirror && panel is ApplicationPanel)
+    }
+
     @discardableResult
     func attachDetachedSurface(
         _ detached: DetachedSurfaceTransfer,
@@ -9632,6 +9759,15 @@ final class Workspace: Identifiable, ObservableObject {
             "pane=\(paneId.id.uuidString.prefix(5)) index=\(index.map(String.init) ?? "nil") focus=\(focus ? 1 : 0)"
         )
 #endif
+        guard acceptsDetachedSurface(detached.panel) else {
+#if DEBUG
+            cmuxDebugLog(
+                "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                "reason=applicationInRemoteTmuxMirror elapsedMs=\(debugElapsedMs(since: attachStart))"
+            )
+#endif
+            return nil
+        }
         guard bonsplitController.allPaneIds.contains(paneId) else {
 #if DEBUG
             cmuxDebugLog(
@@ -9754,6 +9890,8 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let applicationPanel = detached.panel as? ApplicationPanel {
+            configureApplicationPanel(applicationPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
@@ -9882,6 +10020,23 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         return detached.panelId
+    }
+
+    private func configureApplicationPanel(_ applicationPanel: ApplicationPanel) {
+        applicationPanel.reattach(toWorkspace: id)
+        applicationPanel.setDisplayTitleChangeHandler {
+            [weak self, weak applicationPanel] title in
+            guard let self, let applicationPanel else { return }
+            _ = self.updatePanelTitle(
+                panelId: applicationPanel.id,
+                title: title
+            )
+        }
+        applicationPanel.setHostFocusRequestHandler {
+            [weak self, weak applicationPanel] in
+            guard let self, let applicationPanel else { return }
+            self.focusPanel(applicationPanel.id)
+        }
     }
 
     private func shouldAdoptDetachedWorkspaceRemoteTracking(_ detached: DetachedSurfaceTransfer) -> Bool {

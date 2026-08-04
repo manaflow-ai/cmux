@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import Carbon.HIToolbox
 import CmuxCommandPalette
 import Foundation
 import CmuxTerminal

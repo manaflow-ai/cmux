@@ -9,6 +9,7 @@ final class SignaledSimulatorFrameSurfaceSource:
     private var snapshot: SimulatorFrameSnapshot
     private var publicationHandler: (@Sendable () -> Void)?
     private var availabilityChecks = 0
+    private var copies = 0
 
     init(snapshot: SimulatorFrameSnapshot) {
         self.snapshot = snapshot
@@ -16,6 +17,14 @@ final class SignaledSimulatorFrameSurfaceSource:
 
     var availabilityCheckCount: Int {
         lock.withLock { availabilityChecks }
+    }
+
+    var copyCount: Int {
+        lock.withLock { copies }
+    }
+
+    var hasPublicationHandler: Bool {
+        lock.withLock { publicationHandler != nil }
     }
 
     @discardableResult
@@ -50,6 +59,7 @@ final class SignaledSimulatorFrameSurfaceSource:
 
     func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
         lock.withLock {
+            copies += 1
             guard sequence.map({ snapshot.sequence > $0 }) ?? true else { return nil }
             return snapshot
         }

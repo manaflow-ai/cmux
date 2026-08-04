@@ -1,6 +1,30 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "applicationSurface.error.helperUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux Computer Use helper is unavailable."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useヘルパーを利用できません。"}}}},
+    "applicationSurface.error.invalidResponse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux Computer Use helper returned an invalid response."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useヘルパーから無効な応答が返されました。"}}}},
+    "applicationSurface.error.permissionRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Application panes need Accessibility and Screen Recording access."}},"ja":{"stringUnit":{"state":"translated","value":"アプリケーションペインにはアクセシビリティと画面収録の許可が必要です。"}}}},
+    "applicationSurface.error.resourceLimit": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Application pane capacity is full. Close another application pane and try again."}},"ja":{"stringUnit":{"state":"translated","value":"アプリケーションペインの上限に達しました。別のアプリケーションペインを閉じて、もう一度お試しください。"}}}},
+    "applicationSurface.error.windowUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The selected application window is no longer available."}},"ja":{"stringUnit":{"state":"translated","value":"選択したアプリケーションウインドウは利用できなくなりました。"}}}},
+    "applicationSurface.picker.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No matching application windows"}},"ja":{"stringUnit":{"state":"translated","value":"一致するアプリケーションウインドウがありません"}}}},
+    "applicationSurface.picker.emptyDetail": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open a window in another app, then refresh."}},"ja":{"stringUnit":{"state":"translated","value":"別のアプリでウインドウを開いてから、更新してください。"}}}},
+    "applicationSurface.picker.failed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Application windows could not be loaded."}},"ja":{"stringUnit":{"state":"translated","value":"アプリケーションウインドウを読み込めませんでした。"}}}},
+    "applicationSurface.picker.helperUnavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux could not start the Computer Use helper."}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Useヘルパーを起動できませんでした。"}}}},
+    "applicationSurface.picker.loading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loading application windows…"}},"ja":{"stringUnit":{"state":"translated","value":"アプリケーションウインドウを読み込み中…"}}}},
+    "applicationSurface.picker.permissionTitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Set up application panes"}},"ja":{"stringUnit":{"state":"translated","value":"アプリケーションペインを設定"}}}},
+    "applicationSurface.picker.permissionsIncomplete": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Accessibility and Screen Recording access are both required."}},"ja":{"stringUnit":{"state":"translated","value":"アクセシビリティと画面収録の両方の許可が必要です。"}}}},
+    "applicationSurface.picker.refresh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Refresh"}},"ja":{"stringUnit":{"state":"translated","value":"更新"}}}},
+    "applicationSurface.picker.search": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Search windows"}},"ja":{"stringUnit":{"state":"translated","value":"ウインドウを検索"}}}},
+    "applicationSurface.picker.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose an application window"}},"ja":{"stringUnit":{"state":"translated","value":"アプリケーションウインドウを選択"}}}},
+    "applicationSurface.picker.tryAgain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Try Again"}},"ja":{"stringUnit":{"state":"translated","value":"もう一度試す"}}}},
+    "command.newApplicationPane.subtitle": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Mirror and control a Mac window"}},"ja":{"stringUnit":{"state":"translated","value":"Macのウインドウを表示して操作"}}}},
+    "command.newApplicationPane.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New Application Pane"}},"ja":{"stringUnit":{"state":"translated","value":"新規アプリケーションペイン"}}}},
+    "menu.file.newApplicationPane": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New Application Pane"}},"ja":{"stringUnit":{"state":"translated","value":"新規アプリケーションペイン"}}}},
+    "panel.application.chooseAnother": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Choose Another Window"}},"ja":{"stringUnit":{"state":"translated","value":"別のウインドウを選択"}}}},
+    "panel.application.status.needsAttention": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Needs Attention"}},"ja":{"stringUnit":{"state":"translated","value":"確認が必要"}}}},
+    "panel.application.status.starting": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Starting"}},"ja":{"stringUnit":{"state":"translated","value":"起動中"}}}},
+    "panel.application.status.streaming": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Live"}},"ja":{"stringUnit":{"state":"translated","value":"ライブ"}}}},
+    "panel.application.status.suspended": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Paused"}},"ja":{"stringUnit":{"state":"translated","value":"一時停止"}}}},
     "computerUse.cursorOverlay.accessibilityLabel": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Computer-use cursor"}},"ja":{"stringUnit":{"state":"translated","value":"コンピュータ操作カーソル"}}}},
     "computerUse.menu.backgroundStatus": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux Computer Use — Running in Background"}},"ja":{"stringUnit":{"state":"translated","value":"cmux Computer Use — バックグラウンドで実行中"}}}},
     "computerUse.menu.continueInBackground": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue in Background"}},"ja":{"stringUnit":{"state":"translated","value":"バックグラウンドで続行"}}}},
@@ -136574,6 +136598,414 @@
         }
       }
     },
+    "cli.applicationSurface.error.invalidFrameRate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--frame-rate must be between 1 and 120"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--frame-rate は1から120の間で指定してください"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.error.invalidProcessId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--process-id must be a positive integer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--process-id は正の整数で指定してください"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.error.invalidWindowId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--native-window-id must be a positive integer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--native-window-id は正の整数で指定してください"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.error.missingTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application surfaces require --native-window-id and --process-id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションサーフェスには --native-window-id と --process-id が必要です"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.help.frameRate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application capture frame rate (default: 60)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションキャプチャのフレームレート（デフォルト: 60）"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.help.processId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Process receiving application-surface input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションサーフェスの入力を受け取るプロセス"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.help.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application surface title"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションサーフェスのタイトル"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.help.windowId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native window captured by application surfaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションサーフェスでキャプチャするネイティブウィンドウ"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.list.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No application windows found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションウィンドウが見つかりません"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.list.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list-application-windows: unexpected argument '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "list-application-windows: 予期しない引数 '%@'"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.list.help.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "List capturable native application windows without connecting to CMUX."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CMUX に接続せずにキャプチャ可能なネイティブアプリケーションウィンドウを一覧表示します。"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.list.help.jsonOutput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON output:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON 出力:"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.list.help.textOutput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text output columns:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト出力の列:"
+          }
+        }
+      }
+    },
+    "cli.applicationSurface.list.permissionWarning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording access is off, so window titles may fall back to application names. Allow Screen Recording for the terminal running this command, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面収録へのアクセスがオフのため、ウィンドウのタイトルがアプリ名に置き換わる場合があります。このコマンドを実行しているターミナルに画面収録を許可してから、再試行してください。"
+          }
+        }
+      }
+    },
+    "commandPalette.kind.application": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーション"
+          }
+        }
+      }
+    },
+    "menu.history.recentlyClosed.panel.application": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーション"
+          }
+        }
+      }
+    },
+    "panel.application.defaultTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーション"
+          }
+        }
+      }
+    },
+    "panel.application.captureFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application capture failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションのキャプチャに失敗しました"
+          }
+        }
+      }
+    },
+    "panel.application.captureFailed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not capture this window. Try again or choose another window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxでこのウインドウをキャプチャできませんでした。もう一度試すか、別のウインドウを選択してください。"
+          }
+        }
+      }
+    },
+    "panel.application.permissionRequired.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Accessibility and Screen Recording for cmux Computer Use."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Computer Useにアクセシビリティと画面収録を許可してください。"
+          }
+        }
+      }
+    },
+    "panel.application.permissionRequired.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissions required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限が必要です"
+          }
+        }
+      }
+    },
+    "panel.application.permissionRequired.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up Permissions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限を設定"
+          }
+        }
+      }
+    },
+    "panel.application.windowUnavailable.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The application window is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションウィンドウは利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "panel.application.windowUnavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application window unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションウィンドウを利用できません"
+          }
+        }
+      }
+    },
     "panel.cloudVM.loading.title": {
       "extractionState": "manual",
       "localizations": {
@@ -229414,6 +229846,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "分割して移動すると移動元ペインが空になります"
+          }
+        }
+      }
+    },
+    "socket.application.allowAllUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application control is unavailable with the current socket security settings. Choose a more restrictive access option in Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のソケットセキュリティ設定ではアプリケーションを操作できません。設定で、より制限の厳しいアクセスオプションを選択してください。"
+          }
+        }
+      }
+    },
+    "socket.application.inputUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application input is unavailable. Set up Accessibility for cmux Computer Use, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーション入力を利用できません。cmux Computer Useのアクセシビリティを設定してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "socket.application.invalidFrameRate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "frame_rate must be between 1 and 120."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "frame_rate は1から120までの値にしてください。"
+          }
+        }
+      }
+    },
+    "socket.application.invalidProcessID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "process_id must be a positive supported application process ID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "process_id には、対応する正のアプリケーションプロセスIDを指定してください。"
+          }
+        }
+      }
+    },
+    "socket.application.invalidWindowID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id_native must be a positive supported native window ID."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "window_id_native には、対応する正のネイティブウインドウIDを指定してください。"
+          }
+        }
+      }
+    },
+    "socket.application.splitUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application surfaces are only supported by surface.create."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリケーションサーフェスは surface.create でのみ作成できます。"
+          }
+        }
+      }
+    },
+    "socket.pane.resize.invalidParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid pane resize parameters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのサイズ変更パラメータが無効です"
+          }
+        }
+      }
+    },
+    "socket.pane.resize.localMetricsUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane resize metrics are not ready; wait for the pane to finish loading and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのサイズ変更メトリクスの準備ができていません。ペインの読み込みが完了してからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "socket.pane.resize.remoteUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote tmux pane is not ready to resize; wait for it to become available and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート tmux ペインのサイズを変更する準備ができていません。利用可能になってからもう一度お試しください。"
           }
         }
       }

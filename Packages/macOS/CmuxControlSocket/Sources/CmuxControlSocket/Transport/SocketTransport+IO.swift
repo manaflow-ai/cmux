@@ -34,6 +34,101 @@ extension SocketTransport {
         }
     }
 
+    /// Writes all bytes without letting partial progress extend one absolute
+    /// command deadline.
+    ///
+    /// The descriptor is nonblocking only for this synchronous call and its exact
+    /// prior flags are restored before returning. Polling in short slices lets
+    /// cancellation interrupt a peer that drains its receive buffer too slowly
+    /// to reach the deadline in one syscall.
+    func writeAll(
+        _ data: Data,
+        to socket: Int32,
+        deadline: TimeInterval,
+        isInterrupted: () -> Bool,
+        setStatusFlags: (Int32, Int32) -> Int32 = {
+            Darwin.fcntl($0, F_SETFL, $1)
+        }
+    ) -> SocketTransportWriteOutcome {
+        let originalFlags = Darwin.fcntl(socket, F_GETFL, 0)
+        guard
+            originalFlags >= 0,
+            setStatusFlags(
+                socket,
+                originalFlags | O_NONBLOCK
+            ) == 0
+        else {
+            return .failed
+        }
+        let writeSucceeded = data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return true }
+            var offset = 0
+
+            while offset < rawBuffer.count {
+                guard !isInterrupted() else { return false }
+                let remaining = deadline - ProcessInfo.processInfo.systemUptime
+                guard remaining > 0 else { return false }
+                let written = Darwin.write(
+                    socket,
+                    baseAddress.advanced(by: offset),
+                    rawBuffer.count - offset
+                )
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written < 0, errno == EINTR {
+                    continue
+                }
+                guard
+                    written < 0,
+                    errno == EAGAIN || errno == EWOULDBLOCK
+                else {
+                    return false
+                }
+
+                let remainingMilliseconds = Int32(min(
+                    ceil(remaining * 1_000),
+                    Double(Int32.max)
+                ))
+                var descriptor = pollfd(
+                    fd: socket,
+                    events: Int16(POLLOUT | POLLERR | POLLHUP),
+                    revents: 0
+                )
+                let pollResult = Darwin.poll(
+                    &descriptor,
+                    1,
+                    min(remainingMilliseconds, 50)
+                )
+                if pollResult < 0, errno == EINTR {
+                    continue
+                }
+                if pollResult == 0 {
+                    continue
+                }
+                guard
+                    pollResult > 0,
+                    descriptor.revents & Int16(POLLERR | POLLHUP | POLLNVAL)
+                        == 0,
+                    descriptor.revents & Int16(POLLOUT) != 0
+                else {
+                    return false
+                }
+            }
+
+            return true
+        }
+        let restoredFlags = setStatusFlags(
+            socket,
+            originalFlags
+        )
+        return SocketTransportWriteOutcome(
+            didWriteAllBytes: writeSucceeded,
+            socketIsReusable: writeSucceeded && restoredFlags == 0
+        )
+    }
+
     /// Connects to the listener at `socketPath`, sends one line-terminated
     /// command, and returns the first response line (or nil on any failure or
     /// timeout).
@@ -80,38 +175,16 @@ extension SocketTransport {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
-        _ = configureCloseOnExec(fd)
-        configureSocketTimeouts(fd, timeout: timeout)
-
-        _ = configureNoSigPipe(fd)
-
-        var addr = sockaddr_un()
-        memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
-        addr.sun_family = sa_family_t(AF_UNIX)
-
-        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
-        let pathBytes = Array(socketPath.utf8CString)
-        guard pathBytes.count <= maxLen else { return nil }
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
-            memset(raw, 0, maxLen)
-            for index in 0..<pathBytes.count {
-                raw[index] = pathBytes[index]
-            }
+        guard
+            configureUnixClientSocket(
+                fd,
+                timeout: timeout,
+                nonBlocking: false
+            ),
+            connectUnixSocket(fd, to: socketPath) == 0
+        else {
+            return nil
         }
-
-        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-        let addrLen = socklen_t(pathOffset + pathBytes.count)
-#if os(macOS)
-        addr.sun_len = UInt8(min(Int(addrLen), 255))
-#endif
-
-        let connectResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                connect(fd, sockaddrPtr, addrLen)
-            }
-        }
-        guard connectResult == 0 else { return nil }
         let serverProcessID = peerProcessID(of: fd)
         guard validatingPeer(serverProcessID) else { return nil }
 

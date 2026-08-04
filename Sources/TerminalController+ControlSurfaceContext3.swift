@@ -243,6 +243,30 @@ extension TerminalController {
         return .surface(focused)
     }
 
+    private func resolveSendKeySurface(
+        in ws: Workspace,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        paneID: UUID?
+    ) -> SendSurfaceTarget {
+        if hasSurfaceIDParam {
+            guard let surfaceId = surfaceID else {
+                return .unresolved(.surfaceNotFoundForID)
+            }
+            return .surface(surfaceId)
+        }
+        guard
+            let focused = ws.controlDefaultSurfaceTarget(
+                paneID: paneID
+            )?.surfaceID
+        else {
+            return .unresolved(.noFocusedSurface)
+        }
+        return .surface(focused)
+    }
+
+    /// Sends text only to terminal targets. Application surfaces intentionally
+    /// return `.surfaceNotTerminal` and accept authorized named-key events only.
     func controlSurfaceSendText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
@@ -341,7 +365,8 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        key: String
+        key: String,
+        requestOrigin: ControlRequestOrigin
     ) -> ControlSurfaceSendResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -388,7 +413,7 @@ extension TerminalController {
             return .workspaceNotFound
         }
         let requestedSurfaceID: UUID
-        switch resolveSendSurface(
+        switch resolveSendKeySurface(
             in: ws,
             surfaceID: surfaceID,
             hasSurfaceIDParam: hasSurfaceIDParam,
@@ -396,6 +421,35 @@ extension TerminalController {
         ) {
         case .unresolved(let resolution): return resolution
         case .surface(let id): requestedSurfaceID = id
+        }
+        if let target = ws.controlSurfaceTarget(for: requestedSurfaceID),
+           let applicationPanel = target.panel as? ApplicationPanel {
+            guard applicationSurfaceControlIsAuthorized(requestOrigin) else {
+                return .applicationInputUnavailable(
+                    target.surfaceID,
+                    message: Self.applicationSurfaceSocketControlUnavailableMessage
+                )
+            }
+            let unavailableMessage = String(
+                localized: "socket.application.inputUnavailable",
+                defaultValue: "Application input is unavailable. Set up Accessibility for cmux Computer Use, then retry."
+            )
+            switch applicationPanel.sendNamedKey(key) {
+            case .queued:
+                break
+            case .unknownKey:
+                return .unknownKey
+            case .inputQueueFull:
+                return .inputQueueFull(target.surfaceID)
+            case .surfaceUnavailable:
+                return .applicationInputUnavailable(target.surfaceID, message: unavailableMessage)
+            }
+            return .sent(
+                windowID: v2ResolveWindowId(tabManager: tabManager),
+                workspaceID: ws.id,
+                surfaceID: target.surfaceID,
+                queued: true
+            )
         }
         guard let target = ws.controlTerminalTarget(for: requestedSurfaceID) else {
             return .surfaceNotTerminal(requestedSurfaceID)
