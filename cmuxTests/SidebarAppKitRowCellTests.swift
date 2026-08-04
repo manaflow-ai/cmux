@@ -278,6 +278,8 @@ struct SidebarAppKitRowCellTests {
 
     private struct BrightInkMetrics {
         let bounds: NSRect
+        let centroid: NSPoint
+        let luminanceWeightedCentroid: NSPoint
         let pixelCount: Int
     }
 
@@ -317,6 +319,11 @@ struct SidebarAppKitRowCellTests {
         var maximumX = -1
         var maximumY = -1
         var brightPixelCount = 0
+        var centroidX: CGFloat = 0
+        var centroidY: CGFloat = 0
+        var weightedCentroidX: CGFloat = 0
+        var weightedCentroidY: CGFloat = 0
+        var totalWeight: CGFloat = 0
 
         for x in 0..<bitmap.pixelsWide {
             for y in 0..<bitmap.pixelsHigh {
@@ -330,16 +337,38 @@ struct SidebarAppKitRowCellTests {
                 maximumX = max(maximumX, x)
                 maximumY = max(maximumY, y)
                 brightPixelCount += 1
+                let viewX = bounds.minX + (CGFloat(x) + 0.5) / scaleX
+                let viewY = bounds.minY + (CGFloat(y) + 0.5) / scaleY
+                centroidX += viewX
+                centroidY += viewY
+                let weight = (
+                    0.2126 * color.redComponent
+                    + 0.7152 * color.greenComponent
+                    + 0.0722 * color.blueComponent
+                ) * color.alphaComponent
+                weightedCentroidX += viewX * weight
+                weightedCentroidY += viewY * weight
+                totalWeight += weight
             }
         }
 
         try #require(maximumX >= minimumX && maximumY >= minimumY)
+        try #require(brightPixelCount > 0)
+        try #require(totalWeight > 0)
         return BrightInkMetrics(
             bounds: NSRect(
-                x: CGFloat(minimumX) / scaleX,
-                y: CGFloat(minimumY) / scaleY,
+                x: bounds.minX + CGFloat(minimumX) / scaleX,
+                y: bounds.minY + CGFloat(minimumY) / scaleY,
                 width: CGFloat(maximumX - minimumX + 1) / scaleX,
                 height: CGFloat(maximumY - minimumY + 1) / scaleY
+            ),
+            centroid: NSPoint(
+                x: centroidX / CGFloat(brightPixelCount),
+                y: centroidY / CGFloat(brightPixelCount)
+            ),
+            luminanceWeightedCentroid: NSPoint(
+                x: weightedCentroidX / totalWeight,
+                y: weightedCentroidY / totalWeight
             ),
             pixelCount: brightPixelCount
         )
@@ -556,7 +585,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func unreadBadgesCenterNarrowSingleDigitAtRetinaScale() throws {
+    func unreadBadgesKeepNarrowSingleDigitVerticallyCenteredAtRetinaScale() throws {
         let workspace = Self.configuredCell(
             model: Self.makeModel(canClose: false, unreadCount: 1)
         )
@@ -581,8 +610,41 @@ struct SidebarAppKitRowCellTests {
 
         for badge in [workspaceBadge, groupBadge] {
             let ink = try Self.brightInkMetrics(in: badge, renderingScale: 2)
-            #expect(abs(ink.bounds.midX - badge.bounds.midX) < 0.001)
             #expect(abs(ink.bounds.midY - badge.bounds.midY) < 0.001)
+        }
+    }
+
+    @Test
+    func unreadBadgesOpticallyCenterSingleDigitBrightInkAtRetinaScale() throws {
+        let workspace = Self.configuredCell(
+            model: Self.makeModel(canClose: false, unreadCount: 1)
+        )
+        workspace.frame = NSRect(x: 0, y: 0, width: 320, height: 44)
+        workspace.layoutSubtreeIfNeeded()
+        let workspaceBadge = try #require(
+            Self.descendants(of: workspace)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        let group = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 32)
+        )
+        group.configurePresentation(model: Self.makeGroupModel(name: "Core", unreadCount: 1))
+        group.layoutSubtreeIfNeeded()
+        let groupBadge = try #require(
+            Self.descendants(of: group)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        for (label, badge) in [("workspace", workspaceBadge), ("group", groupBadge)] {
+            let ink = try Self.brightInkMetrics(in: badge, renderingScale: 2)
+            let opticalDrift = ink.luminanceWeightedCentroid.x - badge.bounds.midX
+            #expect(
+                abs(opticalDrift) <= 0.25,
+                "\(label) unread badge bright-ink centroid drifted \(opticalDrift) pt"
+            )
         }
     }
 
