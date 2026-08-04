@@ -2938,18 +2938,24 @@ import Testing
     ///
     /// A themes command posts a distributed notification back to the app-hosted
     /// test process before it exits. Blocking the host thread in `waitUntilExit`
-    /// makes that parent/child handshake deadlock.
+    /// makes that parent/child handshake deadlock. The GCD hop is intentional even
+    /// with `@concurrent`: the POSIX runner performs blocking waits that must not
+    /// occupy Swift's cooperative executor.
     @concurrent
     private func runProcessOffHostThread(
         executablePath: String,
         arguments: [String],
         environment: [String: String]
     ) async -> ProcessRunResult {
-        runProcess(
-            executablePath: executablePath,
-            arguments: arguments,
-            environment: environment
-        )
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: self.runProcess(
+                    executablePath: executablePath,
+                    arguments: arguments,
+                    environment: environment
+                ))
+            }
+        }
     }
 
     /// Runs a child to completion in its own process group, capturing stdout and stderr separately.
