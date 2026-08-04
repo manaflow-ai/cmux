@@ -7329,7 +7329,14 @@ final class Workspace: Identifiable, ObservableObject {
                     .representedRequestTokens
                 ?? []
             )
-            guard let sourceSurface = surface.surface else {
+            // `liveSurfaceForGhosttyAccess` rather than `surface`: a non-nil wrapper pointer is
+            // not proof the native surface is alive, and reading through a freed one gets the
+            // process SIGKILLed for lock corruption rather than failing recoverably. It
+            // quarantines a pointer the registry no longer owns, so a stale candidate is skipped
+            // here exactly like a torn-down one.
+            guard let sourceSurface = surface.liveSurfaceForGhosttyAccess(
+                reason: "inheritedTerminalConfig"
+            ) else {
                 if let inheritedFontSizeLineage {
                     var config = CmuxSurfaceConfigTemplate()
                     config.fontSizeLineage = inheritedFontSizeLineage

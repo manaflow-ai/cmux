@@ -1409,7 +1409,16 @@
     "changelog": {
       "title": "Dziennik zmian",
       "metaDescription": "Notatki wydań i historia wersji cmux. Nowe funkcje, poprawki błędów i zmiany dla natywnego terminala macOS.",
-      "metaTitle": "Historia zmian"
+      "metaTitle": "Historia zmian",
+      "versionTitle": "cmux {version} · Historia zmian",
+      "releaseNavLabel": "Wydania w pobliżu cmux {version}",
+      "sections": {
+        "added": "Dodano",
+        "changed": "Zmieniono",
+        "fixed": "Naprawiono",
+        "removed": "Usunięto",
+        "contributors": "Współtwórcy"
+      }
     },
     "navItems": {
       "gettingStarted": "Szybki start",
