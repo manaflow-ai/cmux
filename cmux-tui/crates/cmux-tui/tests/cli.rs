@@ -260,6 +260,266 @@ fn explicit_socket_keeps_state_in_platform_root() {
 }
 
 #[test]
+fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
+    let dir = unique_temp_dir("newer-workspace-schema-recovery");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("future session.sock");
+    let state = dir.join("state");
+    let home = dir.join("home");
+    fs::create_dir_all(&home).unwrap();
+    let session = "schema-{found}";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = fs::read_dir(&state)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+        .find(|path| path.is_file())
+        .expect("workspace registry database");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    let supported: i64 = connection
+        .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .unwrap()
+        .parse()
+        .unwrap();
+    let newer = supported + 1;
+    let registry_id: String = connection
+        .query_row("SELECT value FROM meta WHERE key = 'registry_id'", [], |row| row.get(0))
+        .unwrap();
+    connection
+        .execute("UPDATE meta SET value = ?1 WHERE key = 'schema_version'", [newer.to_string()])
+        .unwrap();
+    drop(connection);
+
+    fn output_with_deadline(command: &mut Command) -> Output {
+        command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = command.spawn().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        let stdout = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stdout.read_to_end(&mut bytes).unwrap();
+            bytes
+        });
+        let mut stderr = child.stderr.take().unwrap();
+        let stderr = std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            stderr.read_to_end(&mut bytes).unwrap();
+            bytes
+        });
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let (status, timed_out) = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break (status, false);
+            }
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                break (child.wait().unwrap(), true);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let output =
+            Output { status, stdout: stdout.join().unwrap(), stderr: stderr.join().unwrap() };
+        if timed_out {
+            panic!(
+                "schema recovery command did not exit before deadline:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        output
+    }
+
+    #[cfg(unix)]
+    fn accept_with_deadline(listener: &UnixListener) -> std::os::unix::net::UnixStream {
+        listener.set_nonblocking(true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => return stream,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        && Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("schema recovery listener did not accept: {error}"),
+            }
+        }
+    }
+
+    let launch = |locale: &str| {
+        let mut command = Command::new(bin());
+        command
+            .args(["--headless", "--session", session, "--socket"])
+            .arg(&socket)
+            .arg("--state")
+            .arg(&state)
+            .env("HOME", &home)
+            .env("CFFIXED_USER_HOME", &home)
+            .env("XDG_CONFIG_HOME", home.join(".config"))
+            .env("CMUX_TUI_CONFIG", home.join("cmux.json"))
+            .env("LC_ALL", locale)
+            .env("LC_MESSAGES", locale)
+            .env("LANG", locale);
+        output_with_deadline(&mut command)
+    };
+
+    let english = launch("C");
+    assert!(!english.status.success());
+    let english = String::from_utf8(english.stderr).unwrap();
+    assert!(english.contains(&format!("session \"{session}\"")), "{english}");
+    assert!(!english.contains("workspace schema"), "{english}");
+    assert!(!english.contains("supports through"), "{english}");
+    assert!(english.contains(&format!("session socket: {}", socket.display())), "{english}");
+    assert!(!english.contains("state database:"), "{english}");
+    assert!(!english.contains(&database.display().to_string()), "{english}");
+    assert!(
+        english.contains("no server is listening on this socket; nothing needs to be stopped"),
+        "{english}"
+    );
+    assert!(!english.contains("session current shutdown --force"), "{english}");
+    assert!(english.contains("saved state still requires a newer cmux"), "{english}");
+    assert!(english.contains(&format!("--session '{session}-separate'")), "{english}");
+
+    #[cfg(unix)]
+    {
+        let listener = UnixListener::bind(&socket).unwrap();
+        let expected_session = session.to_string();
+        let expected_registry_id = registry_id.clone();
+        let responder = std::thread::spawn(move || {
+            let mut stream = accept_with_deadline(&listener);
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(request["cmd"], "identify");
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": request["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "session": expected_session,
+                        "registry_id": expected_registry_id,
+                        "pid": 4242,
+                        "generation": "schema-generation",
+                        "capabilities": ["daemon-handoff-force-v1"],
+                    },
+                })
+            )
+            .unwrap();
+        });
+        let live_server = launch("C");
+        responder.join().unwrap();
+        assert!(!live_server.status.success());
+        let live_server = String::from_utf8(live_server.stderr).unwrap();
+        assert!(
+            live_server.contains(&format!(
+                "cmux --socket '{}' raw command --request-json '{{\"cmd\":\"shutdown-daemon\",\"force\":true,\"generation\":\"schema-generation\",\"id\":1,\"pid\":4242}}'",
+                socket.display()
+            )),
+            "{live_server}"
+        );
+        assert!(
+            !live_server
+                .contains("no server is listening on this socket; nothing needs to be stopped"),
+            "{live_server}"
+        );
+
+        fs::remove_file(&socket).unwrap();
+        let listener = UnixListener::bind(&socket).unwrap();
+        let expected_session = session.to_string();
+        let expected_registry_id = registry_id;
+        let responder = std::thread::spawn(move || {
+            let mut stream = accept_with_deadline(&listener);
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": request["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "session": expected_session,
+                        "registry_id": expected_registry_id,
+                        "pid": 4242,
+                        "generation": "schema-generation",
+                        "capabilities": [],
+                    },
+                })
+            )
+            .unwrap();
+        });
+        let legacy_server = launch("C");
+        responder.join().unwrap();
+        assert!(!legacy_server.status.success());
+        let legacy_server = String::from_utf8(legacy_server.stderr).unwrap();
+        assert!(
+            legacy_server.contains("this server cannot accept a safe forced shutdown command"),
+            "{legacy_server}"
+        );
+        assert!(!legacy_server.contains("shutdown-daemon"), "{legacy_server}");
+
+        fs::remove_file(&socket).unwrap();
+        let listener = UnixListener::bind(&socket).unwrap();
+        let expected_session = session.to_string();
+        let responder = std::thread::spawn(move || {
+            let mut stream = accept_with_deadline(&listener);
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            writeln!(
+                stream,
+                "{}",
+                serde_json::json!({
+                    "id": request["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "session": expected_session,
+                        "registry_id": "another-registry",
+                    },
+                })
+            )
+            .unwrap();
+        });
+        let other_server = launch("C");
+        responder.join().unwrap();
+        assert!(!other_server.status.success());
+        let other_server = String::from_utf8(other_server.stderr).unwrap();
+        assert!(
+            other_server.contains(
+                "this socket belongs to a different cmux session; no shutdown command is shown"
+            ),
+            "{other_server}"
+        );
+        assert!(!other_server.contains("session current shutdown --force"), "{other_server}");
+
+        fs::remove_file(&socket).unwrap();
+    }
+
+    let japanese = launch("ja_JP.UTF-8");
+    assert!(!japanese.status.success());
+    let japanese = String::from_utf8(japanese.stderr).unwrap();
+    assert!(japanese.contains("セッションソケット:"), "{japanese}");
+    assert!(!japanese.contains("状態データベース:"), "{japanese}");
+    assert!(!japanese.contains(&database.display().to_string()), "{japanese}");
+    assert!(
+        japanese.contains("このソケットを待ち受けているサーバーはありません。停止は不要です"),
+        "{japanese}"
+    );
+    assert!(!japanese.contains("session current shutdown --force"), "{japanese}");
+    assert!(japanese.contains("保存状態には新しい cmux が必要です"), "{japanese}");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
     let dir = unique_temp_dir("durable-restart");
     fs::create_dir_all(&dir).unwrap();
@@ -362,6 +622,82 @@ fn machine_agent_argument_failures_are_stable_and_localized() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("--cloud-port の値が無効です: invalid"));
     assert!(!stderr.contains("machine-agent を開始または続行できませんでした"));
+}
+
+#[cfg(unix)]
+#[test]
+fn known_daemon_human_output_uses_selected_locale() {
+    let dir = unique_temp_dir("known-daemon-locale");
+    let client = dir.join("client");
+    fs::create_dir_all(&client).unwrap();
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(&client, fs::Permissions::from_mode(0o700)).unwrap();
+    let state = serde_json::json!({
+        "version": 1,
+        "daemons": {
+            "enrolled-fingerprint": {
+                "fingerprint": "enrolled-fingerprint",
+                "name": "enrolled-host",
+                "public_key": "unused",
+                "route_hints": ["ssh://enrolled.example"],
+                "auth": "enrolled",
+                "first_seen_at_unix": 1,
+                "last_used_at_unix": 2
+            },
+            "carrier-fingerprint": {
+                "fingerprint": "carrier-fingerprint",
+                "name": "carrier-host",
+                "public_key": "unused",
+                "route_hints": ["ssh://carrier.example"],
+                "auth": "carrier",
+                "first_seen_at_unix": 1,
+                "last_used_at_unix": 2
+            }
+        }
+    });
+    let known = client.join("known-daemons.json");
+    fs::write(&known, serde_json::to_vec(&state).unwrap()).unwrap();
+    fs::set_permissions(&known, fs::Permissions::from_mode(0o600)).unwrap();
+
+    let localized = |arguments: &[&str]| {
+        Command::new(bin())
+            .args(arguments)
+            .arg("--state-dir")
+            .arg(&dir)
+            .env("LC_ALL", "ja_JP.UTF-8")
+            .env("LC_MESSAGES", "ja_JP.UTF-8")
+            .env("LANG", "ja_JP.UTF-8")
+            .output()
+            .unwrap()
+    };
+
+    let list = localized(&["known-daemons"]);
+    assert_success(&list);
+    let list = String::from_utf8(list.stdout).unwrap();
+    assert!(list.contains("\t登録済み\n"), "{list}");
+    assert!(list.contains("\t信頼済み搬送路\n"), "{list}");
+    assert!(!list.contains("\tenrolled\n"), "{list}");
+    assert!(!list.contains("\tcarrier\n"), "{list}");
+
+    let forget = localized(&["known-daemons", "forget", "enrolled-fingerprint"]);
+    assert_success(&forget);
+    let forget = String::from_utf8(forget.stdout).unwrap();
+    assert_eq!(forget, "デーモン enrolled-fingerprint を削除しました。\n");
+
+    let empty_dir = unique_temp_dir("known-daemon-empty-locale");
+    let empty = Command::new(bin())
+        .args(["known-daemons", "--state-dir"])
+        .arg(&empty_dir)
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .env("LC_MESSAGES", "ja_JP.UTF-8")
+        .env("LANG", "ja_JP.UTF-8")
+        .output()
+        .unwrap();
+    assert_success(&empty);
+    assert_eq!(String::from_utf8(empty.stdout).unwrap(), "登録済みのデーモンはありません。\n");
+
+    fs::remove_dir_all(dir).unwrap();
+    fs::remove_dir_all(empty_dir).unwrap();
 }
 
 #[test]

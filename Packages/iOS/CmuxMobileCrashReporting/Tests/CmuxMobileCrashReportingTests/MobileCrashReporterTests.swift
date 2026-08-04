@@ -50,6 +50,24 @@ private struct FixedConsent: AnalyticsConsentProviding {
         #expect(capturedOptions?.shutdownTimeInterval == 0)
     }
 
+    @Test func localePreparationPrecedesSentryStartup() {
+        var sequence: [String] = []
+
+        MobileCrashReporter().startIfEnabled(
+            consent: FixedConsent(isTelemetryEnabled: true),
+            arguments: ["cmux"],
+            environment: [:],
+            revocationWatcher: MobileCrashReporter.RevocationWatcher(),
+            prepareLocale: { sequence.append("locale") },
+            start: { _ in sequence.append("sentry") },
+            close: {},
+            purgeCache: {},
+            crash: {}
+        )
+
+        #expect(sequence == ["locale", "sentry"])
+    }
+
     @Test func optionsFactoryMatchesMobileContract() {
         let options = MobileCrashReporter().makeOptions()
 
