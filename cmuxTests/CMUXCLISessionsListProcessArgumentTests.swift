@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -18,24 +19,57 @@ extension CMUXCLIErrorOutputRegressionTests {
         try "#!/bin/sh\nsleep 30\n".write(to: sleeper, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sleeper.path)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [sleeper.path, "", "resume"]
-        try process.run()
+        // Keep the long-lived fixture out of Foundation.Process. This test starts a
+        // second Process for the CLI while the fixture is alive; on app-hosted tests,
+        // Foundation's child-reaping machinery can delay that second Process's exit
+        // notification until its timeout even though the CLI has already exited 0.
+        let processID = try spawnProcess(
+            executablePath: "/bin/sh",
+            arguments: ["/bin/sh", sleeper.path, "", "resume"]
+        )
         defer {
-            process.terminate()
-            process.waitUntilExit()
+            kill(processID, SIGTERM)
+            var status: Int32 = 0
+            while waitpid(processID, &status, 0) < 0, errno == EINTR {}
         }
 
         let session = try sessionsListDiagnosticSession(
             launcher: "codex",
             executablePath: "/bin/sh",
             arguments: ["/bin/sh"],
-            pid: Int(process.processIdentifier)
+            pid: Int(processID)
         )
         let arguments = try #require(session["stored_pid_arguments"] as? [String])
 
         #expect(Array(arguments.suffix(3)) == [sleeper.path, "", "resume"])
+    }
+
+    private func spawnProcess(executablePath: String, arguments: [String]) throws -> pid_t {
+        var processID: pid_t = 0
+        var argumentPointers = arguments.map { strdup($0) }
+        argumentPointers.append(nil)
+        defer {
+            for pointer in argumentPointers where pointer != nil {
+                free(pointer)
+            }
+        }
+
+        let spawnStatus = executablePath.withCString { executablePointer in
+            argumentPointers.withUnsafeMutableBufferPointer { buffer in
+                posix_spawn(
+                    &processID,
+                    executablePointer,
+                    nil,
+                    nil,
+                    buffer.baseAddress,
+                    environ
+                )
+            }
+        }
+        guard spawnStatus == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(spawnStatus))
+        }
+        return processID
     }
 
     @Test func testSessionsListForkStartupInputCountsAsciiSafeNonASCIIQuoting() throws {

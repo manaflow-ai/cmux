@@ -9,8 +9,8 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite(.serialized) struct CMUXCLIErrorOutputRegressionTests {
-    struct ProcessRunResult {
+@Suite(.serialized) struct CMUXCLIErrorOutputRegressionTests: Sendable {
+    struct ProcessRunResult: @unchecked Sendable {
         let status: Int32
         let stdout: String
         /// Captured on its own pipe, not merged into `stdout`.
@@ -86,12 +86,28 @@ import Testing
         let cliPath = try bundledCLIPath()
         let home = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
+        let binURL = home.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
+        let launchMarker = home.appendingPathComponent("external-agent-launched", isDirectory: false)
+        for executableName in ["claude", "codex"] {
+            let executableURL = binURL.appendingPathComponent(executableName, isDirectory: false)
+            try """
+            #!/bin/sh
+            : > "$CMUX_TEST_AGENT_LAUNCH_MARKER"
+            exit 99
+            """.write(to: executableURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: executableURL.path
+            )
+        }
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["PATH"] = "/usr/bin:/bin"
+        environment["CMUX_TEST_AGENT_LAUNCH_MARKER"] = launchMarker.path
+        environment["PATH"] = "\(binURL.path):/usr/bin:/bin"
         environment["HOME"] = home.path
         environment["CFFIXED_USER_HOME"] = home.path
         // The CLI resolves its socket before it dispatches the command, so even a
@@ -115,6 +131,7 @@ import Testing
             // that on stderr, so this has to read both streams. On one shared pipe it
             // used to cover either by accident.
             XCTAssertFalse(result.combinedOutput.contains("Failed to launch"), result.diagnostics)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: launchMarker.path), result.diagnostics)
         }
     }
 
@@ -198,6 +215,8 @@ import Testing
 
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
         let cliPath = try bundledCLIPath()
+        let workspaceID = UUID().uuidString.lowercased()
+        let surfaceID = UUID().uuidString.lowercased()
         let socketPath = "/tmp/cmux-ios-routing-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(
             path: socketPath,
@@ -210,8 +229,8 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_WORKSPACE_ID"] = "workspace:caller"
-        environment["CMUX_SURFACE_ID"] = "surface:terminal"
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
 
         let result = runProcess(
             executablePath: cliPath,
@@ -229,7 +248,7 @@ import Testing
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(object["method"] as? String == "simulator.context")
         let params = try #require(object["params"] as? [String: Any])
-        #expect(params["workspace_id"] as? String == "workspace:caller")
+        #expect(params["workspace_id"] as? String == workspaceID)
         #expect(params["pane_id"] == nil)
         #expect(params["surface_id"] == nil)
     }
@@ -379,8 +398,12 @@ import Testing
             ),
             result.diagnostics
         )
-        XCTAssertFalse(result.combinedOutput.contains(executableName), result.diagnostics)
-        XCTAssertFalse(result.combinedOutput.contains(root.path), result.diagnostics)
+        let userFacingErrors = result.stderr
+            .components(separatedBy: .newlines)
+            .filter { $0.hasPrefix("Error: ") }
+        XCTAssertEqual(userFacingErrors.count, 1, result.diagnostics)
+        XCTAssertFalse(userFacingErrors.joined().contains(executableName), result.diagnostics)
+        XCTAssertFalse(userFacingErrors.joined().contains(root.path), result.diagnostics)
         XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
     }
 
@@ -527,9 +550,11 @@ import Testing
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
         XCTAssertEqual(result.status, 0, result.diagnostics)
-        XCTAssertTrue(result.stdout.contains("pwd=\(root.path)\n"), result.diagnostics)
-        XCTAssertTrue(result.stdout.contains("arg=\(root.path)\n"), result.diagnostics)
-        XCTAssertFalse(result.stdout.contains(missingDirectory.path), result.diagnostics)
+        let resolvedRoot = root.resolvingSymlinksInPath().path
+        let resolvedMissingDirectory = missingDirectory.resolvingSymlinksInPath().path
+        XCTAssertTrue(result.stdout.contains("pwd=\(resolvedRoot)\n"), result.diagnostics)
+        XCTAssertTrue(result.stdout.contains("arg=\(resolvedRoot)\n"), result.diagnostics)
+        XCTAssertFalse(result.stdout.contains(resolvedMissingDirectory), result.diagnostics)
     }
 
     @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
@@ -750,9 +775,15 @@ import Testing
             ],
         ])
         let socketPath = "/tmp/cmux-restore-startup-\(UUID().uuidString.prefix(8)).sock"
-        unlink(socketPath)
+        var startupSocketFD = try bindUnavailableUnixSocket(at: socketPath)
         var responder: UnixSocketResponder?
-        defer { responder?.stop() }
+        defer {
+            if startupSocketFD >= 0 {
+                close(startupSocketFD)
+            }
+            responder?.stop()
+            unlink(socketPath)
+        }
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
@@ -772,6 +803,9 @@ import Testing
             timeout: 5,
             afterLaunch: {
                 usleep(100_000)
+                close(startupSocketFD)
+                startupSocketFD = -1
+                unlink(socketPath)
                 responder = try? UnixSocketResponder(path: socketPath, response: response)
             }
         )
@@ -1832,7 +1866,8 @@ import Testing
         XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
     }
 
-    @Test func testThemesSetReloadsRunningAppAfterEveryThemeWrite() throws {
+    @MainActor
+    @Test func testThemesSetReloadsRunningAppAfterEveryThemeWrite() async throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1858,28 +1893,10 @@ import Testing
         // socket file name has no channel prefix to derive one from.
         let bundleIdentifier = "com.cmuxterm.app.debug.issue-4355-test."
             + UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
-        let reloadExpectation = expectation(description: "cmux themes set posts final reload notifications")
-        reloadExpectation.expectedFulfillmentCount = 3
         let notificationQueue = OperationQueue()
         notificationQueue.maxConcurrentOperationCount = 1
         let notificationLock = NSLock()
         var observedReloads: [(bundleIdentifier: String?, phase: String?)] = []
-        let observer = DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name("com.cmuxterm.themes.reload-config"),
-            object: nil,
-            queue: notificationQueue
-        ) { notification in
-            let observedBundleIdentifier = notification.userInfo?["bundleIdentifier"] as? String
-            guard observedBundleIdentifier == bundleIdentifier else { return }
-            let observedPhase = notification.userInfo?["phase"] as? String
-            notificationLock.lock()
-            observedReloads.append((bundleIdentifier: observedBundleIdentifier, phase: observedPhase))
-            notificationLock.unlock()
-            reloadExpectation.fulfill()
-        }
-        defer {
-            DistributedNotificationCenter.default().removeObserver(observer)
-        }
 
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
@@ -1899,18 +1916,37 @@ import Testing
             .appendingPathComponent("config.ghostty", isDirectory: false)
 
         var observedThemeValues: [String] = []
-        for themeName in ["Theme A", "Theme B", "Theme C"] {
-            let result = runProcess(
-                executablePath: cliPath,
-                arguments: ["themes", "set", themeName],
-                environment: environment
-            )
+        try await confirmation(
+            "cmux themes set posts final reload notifications",
+            expectedCount: 3
+        ) { reloadConfirmed in
+            let observer = DistributedNotificationCenter.default().addObserver(
+                forName: Notification.Name("com.cmuxterm.themes.reload-config"),
+                object: nil,
+                queue: notificationQueue
+            ) { notification in
+                let observedBundleIdentifier = notification.userInfo?["bundleIdentifier"] as? String
+                guard observedBundleIdentifier == bundleIdentifier else { return }
+                let observedPhase = notification.userInfo?["phase"] as? String
+                notificationLock.lock()
+                observedReloads.append((bundleIdentifier: observedBundleIdentifier, phase: observedPhase))
+                notificationLock.unlock()
+                reloadConfirmed()
+            }
+            defer { DistributedNotificationCenter.default().removeObserver(observer) }
 
-            XCTAssertFalse(result.timedOut, result.diagnostics)
-            XCTAssertEqual(result.status, 0, result.diagnostics)
-            observedThemeValues.append(try managedThemeValue(in: configURL))
+            for themeName in ["Theme A", "Theme B", "Theme C"] {
+                let result = await runProcessOffHostThread(
+                    executablePath: cliPath,
+                    arguments: ["themes", "set", themeName],
+                    environment: environment
+                )
+
+                XCTAssertFalse(result.timedOut, result.diagnostics)
+                XCTAssertEqual(result.status, 0, result.diagnostics)
+                observedThemeValues.append(try managedThemeValue(in: configURL))
+            }
         }
-        wait(for: [reloadExpectation], timeout: 5)
 
         XCTAssertEqual(observedThemeValues, [
             "light:Theme A,dark:Theme A",
@@ -2681,6 +2717,50 @@ import Testing
         return directory.appendingPathComponent("cmux.sock", isDirectory: false)
     }
 
+    /// Creates a Unix-domain socket node without listening on it.
+    ///
+    /// Connecting to this state fails with `ECONNREFUSED`, which is the startup
+    /// race `SocketClient` retries. An absent path fails with `ENOENT` and is
+    /// deliberately not retried because it normally means cmux is not running.
+    private func bindUnavailableUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < capacity else {
+            close(descriptor)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
+        }
+        path.withCString { source in
+            withUnsafeMutablePointer(to: &address.sun_path) { tuplePointer in
+                let destination = UnsafeMutableRawPointer(tuplePointer)
+                    .assumingMemoryBound(to: CChar.self)
+                strncpy(destination, source, capacity - 1)
+            }
+        }
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                Darwin.bind(
+                    descriptor,
+                    socketPointer,
+                    socklen_t(MemoryLayout<sockaddr_un>.size)
+                )
+            }
+        }
+        guard bindResult == 0 else {
+            let savedErrno = errno
+            close(descriptor)
+            unlink(path)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(savedErrno))
+        }
+        return descriptor
+    }
+
     /// Points the stable last-socket-path marker inside `home` at a path of the test's own.
     ///
     /// `CFFIXED_USER_HOME` moves the socket directory but not socket discovery: the CLI
@@ -2821,6 +2901,27 @@ import Testing
         process.environment = environment
         process.currentDirectoryURL = currentDirectoryURL
         return runToCompletion(process, timeout: timeout, afterLaunch: afterLaunch)
+    }
+
+    /// Runs a CLI child away from the app host's main thread.
+    ///
+    /// A themes command posts a distributed notification back to the app-hosted
+    /// test process before it exits. Blocking the host thread in `waitUntilExit`
+    /// makes that parent/child handshake deadlock.
+    private func runProcessOffHostThread(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String]
+    ) async -> ProcessRunResult {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: self.runProcess(
+                    executablePath: executablePath,
+                    arguments: arguments,
+                    environment: environment
+                ))
+            }
+        }
     }
 
     /// Runs `process` to completion, capturing stdout and stderr on separate pipes.
