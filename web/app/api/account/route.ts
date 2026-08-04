@@ -57,7 +57,10 @@ import {
   assertNoAccountDeletionUserMutationInProgress,
   isBlockingAccountDeletionTombstone,
 } from "../../../services/account/deletionLock";
-import { unauthorized } from "../../../services/vms/auth";
+import {
+  unauthorized,
+  withSubrouterAuthorizationDeadline,
+} from "../../../services/vms/auth";
 import {
   VmAccountDeletionIdentityRevocationError,
   isVmAccountDeletionIdentityRevocationError,
@@ -136,7 +139,19 @@ type AccountDeletionTombstoneStart =
   | { readonly kind: "cleanupIncomplete" };
 
 export async function DELETE(request: Request): Promise<Response> {
-  const stackSession = await currentDeletableStackUser(request);
+  let stackSession: DeletableStackSession | null;
+  try {
+    stackSession = await currentDeletableStackUser(request);
+  } catch (error) {
+    console.error("account.delete.stack_auth_unavailable", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    return jsonResponse({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    }, 503);
+  }
   if (!stackSession) return unauthorized();
 
   const { user: stackUser, accessToken } = stackSession;
@@ -413,15 +428,19 @@ async function currentDeletableStackUser(request: Request): Promise<DeletableSta
 
   const tokenStore = { accessToken, refreshToken };
   const app = getStackServerApp();
-  const user = await app.getUser({ tokenStore });
-  const candidate = user as Partial<DeletableStackUser>;
-  if (!user || typeof candidate.delete !== "function" || typeof candidate.update !== "function") return null;
-  const authoritativeTokens = await app.getAuthJson({ tokenStore });
-  if (!authoritativeTokens?.accessToken) return null;
-  return {
-    user: user as DeletableStackUser,
-    accessToken: authoritativeTokens.accessToken,
-  };
+  return await withSubrouterAuthorizationDeadline(async () => {
+    const user = await app.getUser({ tokenStore });
+    const candidate = user as Partial<DeletableStackUser>;
+    if (!user || typeof candidate.delete !== "function" || typeof candidate.update !== "function") {
+      return null;
+    }
+    const authoritativeTokens = await app.getAuthJson({ tokenStore });
+    if (!authoritativeTokens?.accessToken) return null;
+    return {
+      user: user as DeletableStackUser,
+      accessToken: authoritativeTokens.accessToken,
+    };
+  });
 }
 
 async function markAccountDeletionTombstonePending(userId: string): Promise<AccountDeletionTombstoneStart> {
