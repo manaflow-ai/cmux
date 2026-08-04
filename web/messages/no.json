@@ -867,6 +867,8 @@
       "concepts": "Konsepter",
       "anchorTitle": "Ankerarbeidsområde",
       "anchorDesc": "Hver gruppe eies av nøyaktig ett arbeidsområde kalt ankeret. Gruppeoverskriften i sidefeltet er ankerets representasjon — det finnes ingen egen rad for det. Å klikke på navneområdet i overskriften gir fokus til ankerets paneler; å klikke på vinkelpilen veksler sammenlegging.",
+      "anchorNew": "En gruppes anker er alltid et helt nytt arbeidsområde når gruppen opprettes. Verken gruppering av et utvalg eller oppretting av en gruppe gjør et av de eksisterende arbeidsområdene dine til anker. (Hvis ankeret lukkes senere, blir gruppens første gjenværende medlem forfremmet; se nedenfor.) Ankerets arbeidskatalog arves fra det første valgte arbeidsområdet når et utvalg grupperes, eller fra det aktive arbeidsområdet ved oppretting via CLI uten --cwd.",
+      "anchorClose": "Når ankerarbeidsområdet lukkes, lukkes bare dette arbeidsområdet, og gruppens første gjenværende medlem (det første som fortsatt finnes i grupperekkefølgen) blir det nye ankeret. Dermed forblir gruppen og de andre medlemmene intakte (det forfremmede medlemmet viser deretter gruppenavnet som overskrift). Når ankeret er gruppens eneste arbeidsområde, fjernes gruppen. Bruk Oppløs arbeidsområder for å gjøre en gruppe om til ugrupperte arbeidsområder; bruk Slett gruppe for å lukke alle arbeidsområdene i en gruppe.",
       "identityTitle": "Gruppeidentitet",
       "identityDesc": "En gruppe har et navn, et ikon (et SF Symbol, standard folder.fill) og en valgfri tilpasset farge. Disse er uavhengige av ankerarbeidsområdets egne tilpasninger. Ankerets farge og ikon hentes fra gruppen ved opprettelse, men de kan avvike etterpå.",
       "pinningTitle": "Festing",
@@ -957,7 +959,6 @@
         "terminal": {
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalinnhold og den innebygde agentchatten. Angi false for å bruke hele rutens bredde.",
           "sessionContentAlignment": "Vannrett plassering av terminalinnhold og den innebygde agentchatten når sessionContentMaxWidth er aktivert.",
-          "autoRetryAgentSessions": "Gjenopptar automatisk en administrert agentøkt når den aktive kommandoen avsluttes med en feilkode som ikke er null og ikke skyldes et signal. Antall forsøk er begrenset og bruker eksponentiell ventetid; normal fullføring og eksplisitt avslutning fra brukeren forsøkes aldri på nytt.",
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
           "scrollSpeed": "Multiplikator brukt på rulleverdier fra musehjul og styreflate i terminalen. Høyere verdier ruller raskere, lavere verdier saktere.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
@@ -3522,7 +3523,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere."
+    "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
+    "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
+    "signedOutSignIn": "Logg inn"
   },
   "platforms": {
     "macos": "macOS",
@@ -3599,6 +3602,37 @@
       "primaryCta": "Last ned .deb",
       "requirements": "Debian eller Ubuntu · x64",
       "installBody": "Last ned Debian-pakken og installer den med pakkebehandleren. Velg den portable ZIP-filen for installasjon per bruker og oppdateringer i appen."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Velkommen til cmux Pro 🎉",
+      "fallbackName": "der",
+      "greeting": "Hei {name},",
+      "thanks": "Takk for at du ble med i cmux Pro! Vi jobber fortsatt med hele Pro-opplevelsen, og skytilgang er på vei.",
+      "cloudStatus": "Når skytilgangen lanseres, legger vi til brukskreditter på kontoen din basert på hvor mange måneder du har abonnert.",
+      "currentBenefit": "I mellomtiden får du tidlig tilgang til cmux på iOS som Pro-fordel. Registrer deg via lenken nedenfor, så sender Apple TestFlight-invitasjonen når registreringen er fullført.",
+      "testflightLink": "Registrer deg for TestFlight: {url}",
+      "testflightLinkLabel": "Registrer deg for TestFlight",
+      "signoff": "Hyggelig å ha deg med!\ncmux-teamet"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro er aktiv",
+    "title": "Velkommen til cmux Pro",
+    "body": "Pro-funksjonene er fortsatt under utvikling. Skytilgang kommer snart, med brukskreditter som opptjenes for hver måned du abonnerer. Akkurat nå inkluderer Pro tilgang til cmux på iOS via TestFlight.",
+    "done": "Gå til kontrollpanelet",
+    "steps": {
+      "iosApp": {
+        "title": "cmux for iOS",
+        "body": "Bruk cmux på telefonen din.",
+        "action": "Bli med i iOS-betaen"
+      },
+      "billing": {
+        "title": "Administrer abonnementet",
+        "body": "Se abonnementet, fakturaene og alternativene for oppsigelse.",
+        "action": "Administrer abonnement"
+      }
     }
   }
 }

@@ -3999,6 +3999,156 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         return surface
     }
 
+    func testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles() throws {
+#if DEBUG
+        guard ProcessInfo.processInfo.environment["CMUX_RENDERER_MEMORY_REGRESSION"] == "1" else {
+            throw XCTSkip("Runs in the isolated renderer-memory CI invocation")
+        }
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_280, height: 800),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let surfaces = (0..<5).map { _ in makeTrackedTerminalSurface() }
+        var didTeardown = false
+        defer {
+            for surface in surfaces {
+                surface.hostedView.removeFromSuperview()
+                if !didTeardown {
+                    surface.teardownSurface()
+                }
+            }
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected a content view for the renderer memory workload")
+            return
+        }
+        for surface in surfaces {
+            let hostedView = surface.hostedView
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+            hostedView.setVisibleInUI(true)
+        }
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            waitUntil(timeout: 8, description: "five real Ghostty renderers to become presented") {
+                surfaces.allSatisfy { $0.surface != nil && $0.isRendererPresented }
+            }
+        )
+
+        let sampler = TaskVMInfoMemoryPressureFootprintSampler()
+        let sampleNoiseAllowance: UInt64 = 8 * 1_024 * 1_024
+
+        func settledFootprint(_ description: String) throws -> UInt64 {
+            let deadline = ProcessInfo.processInfo.systemUptime + 4
+            var recent: [UInt64] = []
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                autoreleasepool {
+                    window.displayIfNeeded()
+                    contentView.layoutSubtreeIfNeeded()
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+                guard let footprint = sampler.physicalFootprintBytes() else {
+                    continue
+                }
+                recent.append(footprint)
+                if recent.count > 7 {
+                    recent.removeFirst()
+                }
+                if recent.count == 7,
+                   let minimum = recent.min(),
+                   let maximum = recent.max(),
+                   maximum - minimum <= sampleNoiseAllowance {
+                    return recent.sorted()[recent.count / 2]
+                }
+            }
+            guard !recent.isEmpty else {
+                throw XCTSkip("task_vm_info did not provide a physical footprint for \(description)")
+            }
+            let minimum = recent.min() ?? 0
+            let maximum = recent.max() ?? 0
+            XCTAssertLessThanOrEqual(
+                maximum - minimum,
+                sampleNoiseAllowance,
+                "Physical footprint did not settle for \(description)"
+            )
+            return recent.sorted()[recent.count / 2]
+        }
+
+        let hiddenSurfaces = Array(surfaces.dropFirst())
+        for surface in hiddenSurfaces {
+            surface.hostedView.setVisibleInUI(false)
+            XCTAssertTrue(surface.releaseRenderer(), "Initial target-scale eviction must release each hidden renderer")
+        }
+        XCTAssertTrue(hiddenSurfaces.allSatisfy { !$0.isRendererRealized })
+        var oneRendererBaseline = try settledFootprint("one-renderer baseline")
+
+        for cycle in 1...3 {
+            for surface in hiddenSurfaces {
+                surface.hostedView.setVisibleInUI(true)
+            }
+            XCTAssertTrue(
+                waitUntil(timeout: 8, description: "cycle \(cycle) renderer restoration") {
+                    hiddenSurfaces.allSatisfy(\.isRendererPresented)
+                }
+            )
+            let fiveRendererPeak = try settledFootprint("cycle \(cycle) five-renderer peak")
+            guard fiveRendererPeak > oneRendererBaseline + sampleNoiseAllowance else {
+                XCTFail("The workload must distinguish five realized renderers from the one-renderer target")
+                return
+            }
+
+            for surface in hiddenSurfaces {
+                surface.hostedView.setVisibleInUI(false)
+                XCTAssertTrue(surface.releaseRenderer(), "Cycle \(cycle) must evict every hidden renderer")
+            }
+            XCTAssertTrue(
+                hiddenSurfaces.allSatisfy { !$0.isRendererRealized },
+                "Cycle \(cycle) must leave only the visible tab's renderer realized"
+            )
+
+            let targetFootprint = try settledFootprint("cycle \(cycle) one-renderer target")
+            let realizedDelta = fiveRendererPeak - oneRendererBaseline
+            let retainedDelta = targetFootprint > oneRendererBaseline
+                ? targetFootprint - oneRendererBaseline
+                : 0
+            let normalizedRetainedDelta = retainedDelta > sampleNoiseAllowance
+                ? retainedDelta - sampleNoiseAllowance
+                : 0
+            let normalizedRetainedRatio = Double(normalizedRetainedDelta) / Double(realizedDelta)
+            print(
+                "renderer-memory cycle=\(cycle) one=\(oneRendererBaseline) " +
+                "five=\(fiveRendererPeak) target=\(targetFootprint) " +
+                "retained_ratio=\(normalizedRetainedRatio)"
+            )
+            XCTAssertLessThanOrEqual(
+                normalizedRetainedRatio,
+                0.45,
+                "Cycle \(cycle) retained too much of the four-renderer memory delta after eviction"
+            )
+            oneRendererBaseline = targetFootprint
+        }
+
+        for surface in surfaces {
+            surface.hostedView.removeFromSuperview()
+            surface.teardownSurface()
+        }
+        didTeardown = true
+        XCTAssertTrue(surfaces.allSatisfy { $0.surface == nil && !$0.isRendererRealized })
+#else
+        throw XCTSkip("Debug-only real-renderer memory regression")
+#endif
+    }
+
     private func findEditableTextField(in view: NSView) -> NSTextField? {
         if let field = view as? NSTextField, field.isEditable {
             return field

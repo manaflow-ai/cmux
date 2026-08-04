@@ -1,6 +1,8 @@
 import AppKit
 import CmuxBrowser
 import CmuxCore
+import CmuxPanes
+import WebKit
 
 extension Workspace {
     func browserPanelIncludingDock(for panelId: UUID) -> BrowserPanel? {
@@ -50,7 +52,8 @@ extension Workspace {
             preferredProfileID: panel.profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
             bypassRemoteProxy: panel.bypassesRemoteWorkspaceProxyForTabDuplication,
-            localFileReadAccessPolicy: panel.localFileReadAccessPolicy
+            localFileReadAccessPolicy: panel.localFileReadAccessPolicy,
+            websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
         ) != nil
     }
 
@@ -68,7 +71,8 @@ extension Workspace {
                 preferredProfileID: panel.profileID,
                 bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
                 bypassRemoteProxy: panel.bypassesRemoteWorkspaceProxyForTabDuplication,
-                localFileReadAccessPolicy: panel.localFileReadAccessPolicy
+                localFileReadAccessPolicy: panel.localFileReadAccessPolicy,
+                websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
             ) != nil
         }
         guard let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager,
@@ -105,7 +109,8 @@ extension DockSplitStore {
         bypassInsecureHTTPHostOnce: String? = nil,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool? = nil,
-        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
         let resolvedBypassRemoteProxy = bypassRemoteProxy ?? settings.bypassRemoteProxy
@@ -122,9 +127,19 @@ extension DockSplitStore {
             remoteWebsiteDataStoreIdentifier: settings.isRemoteWorkspace && !resolvedBypassRemoteProxy
                 ? settings.remoteWebsiteDataStoreIdentifier
                 : nil,
-            localFileReadAccessPolicy: localFileReadAccessPolicy
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
+            websiteDataStore: websiteDataStore
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
+        configureBrowserPanel(panel)
+        return panel
+    }
+
+    /// Rebinds host-owned actions whenever a live browser enters this Dock.
+    /// A transferred panel may still carry closures owned by its old Workspace
+    /// or Dock, so configuration is intentionally safe to repeat.
+    func configureBrowserPanel(_ panel: BrowserPanel) {
+        AppDelegate.shared?.auth?.browserAppSession.register(panel)
         panel.webViewDidRequestClose = { [weak self, weak panel] in
             guard let self, let panel else { return }
             guard self.browserPanel(for: panel.id) === panel else { return }
@@ -136,7 +151,160 @@ extension DockSplitStore {
 #endif
             _ = self.closePanel(panel.id, force: true)
         }
-        return panel
+        panel.openAppLinkInBrowserSplit = { [weak self, weak panel] url in
+            guard let self, let panel else { return false }
+            return self.openAppLinkInBrowserSplit(url, from: panel)
+        }
+    }
+
+    private func openAppLinkInBrowserSplit(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard isBrowserAvailable(), currentBrowserPanel(sourcePanel) else {
+            return false
+        }
+
+        return appLinkHandoffCoordinator.start(
+            sourcePanelID: sourcePanel.id,
+            destinationURL: destinationURL,
+            isCurrent: { [weak self, weak sourcePanel] in
+                guard let self, let sourcePanel else { return false }
+                return self.currentBrowserPanel(sourcePanel)
+            },
+            openNavigation: { [weak self, weak sourcePanel] navigation in
+                guard let self, let sourcePanel else { return false }
+                return self.openAppLinkNavigation(
+                    navigation,
+                    from: sourcePanel
+                )
+            },
+            openRecovery: { [weak self, weak sourcePanel] in
+                guard let self, let sourcePanel else { return false }
+                return self.recoverAppLinkNavigation(
+                    destinationURL,
+                    from: sourcePanel
+                )
+            }
+        )
+    }
+
+    private func openAppLinkNavigation(
+        _ navigation: BrowserAppSessionNavigation,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        guard currentBrowserPanel(sourcePanel),
+              let sourcePane = paneId(forPanelId: sourcePanel.id) else {
+            return false
+        }
+        return appLinkPlacementPolicy.openNavigation(
+            navigation,
+            openInPreferredPane: { request, websiteDataStore in
+                guard let targetPane = BrowserRightSidePaneResolver()
+                    .preferredPane(
+                        from: sourcePane,
+                        in: self.bonsplitController
+                    ) else {
+                    return false
+                }
+                return self.newSurface(
+                    kind: .browser,
+                    inPane: targetPane,
+                    initialRequest: request,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openHorizontalSplit: { request, websiteDataStore in
+                self.newSplit(
+                    kind: .browser,
+                    orientation: .horizontal,
+                    insertFirst: false,
+                    sourcePanelId: sourcePanel.id,
+                    initialRequest: request,
+                    preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
+                    websiteDataStore: websiteDataStore,
+                    focus: true
+                ) != nil
+            },
+            openInSourcePane: { request, websiteDataStore in
+                self.newSurface(
+                    kind: .browser,
+                    inPane: sourcePane,
+                    initialRequest: request,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            isBrowserAvailable: { self.isBrowserAvailable() }
+        )
+    }
+
+    private func currentBrowserPanel(_ sourcePanel: BrowserPanel) -> Bool {
+        browserPanel(for: sourcePanel.id) === sourcePanel
+    }
+
+    private func recoverAppLinkNavigation(
+        _ destinationURL: URL,
+        from sourcePanel: BrowserPanel
+    ) -> Bool {
+        let sourcePane = currentBrowserPanel(sourcePanel)
+            ? paneId(forPanelId: sourcePanel.id)
+            : nil
+        return appLinkPlacementPolicy.recover(
+            destinationURL,
+            openInPreferredPane: { url, websiteDataStore in
+                guard let sourcePane,
+                      let targetPane = BrowserRightSidePaneResolver()
+                    .preferredPane(
+                        from: sourcePane,
+                        in: self.bonsplitController
+                    ) else {
+                    return false
+                }
+                return self.newSurface(
+                    kind: .browser,
+                    inPane: targetPane,
+                    url: url,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            openHorizontalSplit: { url, websiteDataStore in
+                guard sourcePane != nil else { return false }
+                return self.newSplit(
+                    kind: .browser,
+                    orientation: .horizontal,
+                    insertFirst: false,
+                    sourcePanelId: sourcePanel.id,
+                    url: url,
+                    preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
+                    websiteDataStore: websiteDataStore,
+                    focus: true
+                ) != nil
+            },
+            openInSourcePane: { url, websiteDataStore in
+                guard let sourcePane else { return false }
+                return self.newSurface(
+                    kind: .browser,
+                    inPane: sourcePane,
+                    url: url,
+                    focus: true,
+                    preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
+                    websiteDataStore: websiteDataStore
+                ) != nil
+            },
+            isBrowserAvailable: { self.isBrowserAvailable() }
+        )
     }
 
     @discardableResult

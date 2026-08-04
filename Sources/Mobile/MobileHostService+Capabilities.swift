@@ -1,7 +1,9 @@
+import CMUXMobileCore
 import Foundation
 
 extension MobileHostService {
     nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
+    nonisolated static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
 
     /// The single source of truth for the capabilities advertised to mobile
@@ -34,6 +36,9 @@ extension MobileHostService {
         includingWorkspaceChanges: Bool
     ) -> [String] {
         var capabilities = [
+            MobileBrowserStreamCapability.identifier,
+            MobileBrowserStreamCapability.viewportIdentifier,
+            MobileBrowserStreamCapability.dialogIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -48,6 +53,7 @@ extension MobileHostService {
             // the phone owns a deep local scrollback and scrolls it locally.
             "terminal.render_grid.screen_anchor.v1",
             "terminal.replay.v1",
+            Self.terminalInputOrderedCapability,
             "terminal.viewport.v1",
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
@@ -60,7 +66,15 @@ extension MobileHostService {
             "workspace.group_actions.v1",
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
+            // Mac-scoped workspace mutations (move, group actions/create,
+            // create-in-group) are authorized by the signed-in Stack account;
+            // an attach ticket only narrows scope while current. iOS keeps the
+            // drag-and-drop and group-create affordances enabled after ticket
+            // expiry only against hosts that advertise this.
+            "workspace.mutations.account_auth.v1",
             "workspace.task_create.v1",
+            "task.attachments.v1",
+            "task.models.v1",
             "workspace.directory_browse.v1",
             "workspace.directory_search.v1",
             "workspace.directory_search.v2",

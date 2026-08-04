@@ -121,6 +121,9 @@ jobs:
         with:
           python-version: "3.9"
 
+      - name: Install workflow guard Python dependencies
+        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
+
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
 
@@ -163,11 +166,17 @@ jobs:
       - name: Validate external TestFlight group assignment helper
         run: python3 tests/test_ios_testflight_external_distribution.py
 
+      - name: Validate Pro TestFlight distribution workflow
+        run: python3 tests/test_ios_testflight_pro_distribution.py
+
       - name: Validate iOS App Store lane identity
         run: python3 tests/test_ios_appstore_lane_identity.py
 
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
+
+      - name: Validate selected iOS test execution guard
+        run: python3 tests/test_ios_selected_test_execution.py
 
       - name: Validate cmuxTests sharding
         run: |
@@ -179,6 +188,12 @@ jobs:
 
       - name: Validate Zig install without sudo
         run: ./tests/test_install_zig_ci_no_sudo.sh
+
+      - name: Initialize Ghostty for Zig version guard
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Validate Ghostty Zig version synchronization
+        run: ./tests/test_ghostty_zig_version_sync.sh
 
       - name: Validate virtual display lock
         run: ./tests/test_ci_virtual_display_lock.sh
@@ -231,6 +246,11 @@ jobs:
       - name: Validate pbxproj test-wiring lint
         run: ./tests/test_ci_pbxproj_test_wiring.sh
 
+      - name: Validate stored DispatchWorkItem ownership
+        run: |
+          python3 tests/test_lint_stored_dispatch_work_items.py
+          python3 scripts/lint-stored-dispatch-work-items.py
+
       - name: Validate pbxproj objectVersion pin and normalization
         run: ./scripts/check-pbxproj.sh
 
@@ -238,7 +258,9 @@ jobs:
         run: python3 scripts/check-workspace-package-groups.py --check
 
       - name: Validate SwiftPM lockfile policy
-        run: python3 scripts/check-package-resolved-policy.py
+        run: |
+          python3 tests/test_check_package_resolved_policy.py
+          python3 scripts/check-package-resolved-policy.py
 
       - name: Validate bash shell integration job control
         run: python3 tests/test_bash_integration_no_done_notifications.py
@@ -493,7 +515,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
+          key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
@@ -623,6 +645,26 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserViewportRuntimeTests \
+            test
+
+      - name: Run five-tab renderer memory regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Use a dedicated app-host process so task_vm_info deltas only compare
+          # one versus five real Ghostty renderers in this workload. The focused
+          # invocation also makes footprint assertion failures non-tolerant.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          CMUX_RENDERER_MEMORY_REGRESSION=1 \
+            scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttySurfaceOverlayTests/testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles \
             test
 
       - name: Run notification routing regressions
@@ -1008,16 +1050,25 @@ jobs:
           python3 tests/test_codex_wrapper_resume_hooks.py
           python3 tests/test_claude_wrapper_hooks.py
           python3 tests/test_claude_wrapper_mutual_shim_loop.py
+          python3 tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py
           python3 tests/test_claude_wrapper_user_binary_resolution.py
+          python3 tests/test_claude_teams_test_utils.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_codex_teams_informational.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_env.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_existing_shim.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_main_vertical.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_moved_surface.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_tmux_sequence.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_trust_optin.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_issue_8743_path_directory_shadowing.py
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
           python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
+          python3 tests/test_issue_9356_bash_shim_noclobber.py
           python3 tests/test_issue_8953_zsh_prompt_wrap_guard.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
@@ -1202,7 +1253,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
+          key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Validate cached GhosttyKit.xcframework
         id: validate-ghosttykit-package-tests
@@ -1514,7 +1565,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
+          key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit-lag.outputs.cache-hit != 'true'
@@ -1835,7 +1886,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
+          key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit-release.outputs.cache-hit != 'true'

@@ -33,6 +33,7 @@ def run_wrapper(
     argv: list[str],
     hooks_disabled: bool = False,
     restore_token: str | None = None,
+    inject_args_available: bool = True,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -66,6 +67,8 @@ done
   printf 'CMUX_AGENT_LAUNCH_KIND=%s\\n' "${CMUX_AGENT_LAUNCH_KIND-__UNSET__}"
   printf 'CMUX_AGENT_RESUME_LAUNCH=%s\\n' "${CMUX_AGENT_RESUME_LAUNCH-__UNSET__}"
   printf 'CMUX_AGENT_RESTORE_LAUNCH=%s\\n' "${CMUX_AGENT_RESTORE_LAUNCH-__UNSET__}"
+  printf 'CMUX_WORKSPACE_ID=%s\\n' "${CMUX_WORKSPACE_ID-__UNSET__}"
+  printf 'CMUX_SURFACE_ID=%s\\n' "${CMUX_SURFACE_ID-__UNSET__}"
 } > "$FAKE_REAL_ENV_LOG"
 """,
         )
@@ -84,6 +87,7 @@ if [[ "${1:-}" == "ping" ]]; then
   exit
 fi
 if [[ "${1:-}" == "hooks" && "${2:-}" == "codex" && "${3:-}" == "inject-args" ]]; then
+  [[ "${FAKE_INJECT_ARGS_AVAILABLE:-1}" == "1" ]] || exit 1
   printf '%s\\0' \
     '--enable' \
     'hooks' \
@@ -118,6 +122,7 @@ exit 1
         env["FAKE_REAL_ENV_LOG"] = str(real_env_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_SOCKET_STATE"] = socket_state
+        env["FAKE_INJECT_ARGS_AVAILABLE"] = "1" if inject_args_available else "0"
         if hooks_disabled:
             env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
         else:
@@ -149,13 +154,19 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
-def assert_resume_is_instrumented(socket_state: str, failures: list[str]) -> None:
+def assert_session_entrypoint_is_instrumented(
+    *,
+    socket_state: str,
+    argv: list[str],
+    label: str,
+    failures: list[str],
+    restore_token: str | None = None,
+) -> None:
     code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
         socket_state=socket_state,
-        argv=["resume", SESSION_ID],
-        restore_token=f"codex:{SESSION_ID}",
+        argv=argv,
+        restore_token=restore_token,
     )
-    label = f"resume/{socket_state}"
     expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
     expect(real_argv[:3] == ["--enable", "hooks", "--dangerously-bypass-hook-trust"],
            f"{label}: missing injected hook prefix: {real_argv}", failures)
@@ -163,56 +174,56 @@ def assert_resume_is_instrumented(socket_state: str, failures: list[str]) -> Non
            f"{label}: missing SessionStart hook: {real_argv}", failures)
     expect(any(arg.startswith("hooks.Stop=") for arg in real_argv),
            f"{label}: missing Stop hook: {real_argv}", failures)
-    expect(real_argv[-2:] == ["resume", SESSION_ID],
-           f"{label}: resume argv was not preserved: {real_argv}", failures)
+    expect(real_argv[-len(argv):] == argv if argv else len(real_argv) == 7,
+           f"{label}: original argv was not preserved: {real_argv}", failures)
     expect(any("hooks codex inject-args" in line for line in cmux_log),
            f"{label}: wrapper never requested local hook args: {cmux_log}", failures)
     expect(not any("ping" in line for line in cmux_log),
            f"{label}: transient socket health must not decide session instrumentation: {cmux_log}", failures)
+    expect(not any("hooks codex session-start" in line for line in cmux_log),
+           f"{label}: wrapper must not synthesize SessionStart from argv: {cmux_log}", failures)
     expect(observed_env.get("CMUX_CODEX_PID") not in {None, "", "__UNSET__"},
            f"{label}: missing Codex process identity: {observed_env}", failures)
     expect(observed_env.get("CMUX_AGENT_LAUNCH_KIND") == "codex",
            f"{label}: missing launch kind: {observed_env}", failures)
-    expect(observed_env.get("CMUX_AGENT_RESUME_LAUNCH") == "1",
-           f"{label}: missing resume diagnostic marker: {observed_env}", failures)
+    expect(observed_env.get("CMUX_AGENT_RESUME_LAUNCH") == "__UNSET__",
+           f"{label}: argv-derived resume marker leaked to Codex: {observed_env}", failures)
     expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
            f"{label}: app restore marker leaked to Codex: {observed_env}", failures)
+    expect(observed_env.get("CMUX_WORKSPACE_ID") == "22222222-2222-2222-2222-222222222222",
+           f"{label}: workspace binding was stripped: {observed_env}", failures)
+    expect(observed_env.get("CMUX_SURFACE_ID") == "11111111-1111-1111-1111-111111111111",
+           f"{label}: surface binding was stripped: {observed_env}", failures)
 
 
-def test_resume_hook_injection_survives_transient_startup_outages(failures: list[str]) -> None:
-    # Repeat both startup failure shapes to guard against a statistical regression
-    # where any single launch silently loses its hooks for the full agent lifetime.
-    for _ in range(12):
-        assert_resume_is_instrumented("missing", failures)
-        assert_resume_is_instrumented("stale", failures)
+def test_every_resume_route_is_instrumented(failures: list[str]) -> None:
+    entrypoints = (
+        ("explicit-id", ["resume", SESSION_ID], f"codex:{SESSION_ID}"),
+        ("last", ["resume", "--last"], f"codex:{SESSION_ID}"),
+        ("picker", ["resume"], None),
+        # An in-TUI resume inherits the hooks installed by the bare interactive
+        # launch; the wrapper never sees the later picker action.
+        ("in-tui", [], None),
+    )
+    for socket_state in ("missing", "stale", "live"):
+        for route, argv, restore_token in entrypoints:
+            assert_session_entrypoint_is_instrumented(
+                socket_state=socket_state,
+                argv=argv,
+                label=f"{route}/{socket_state}",
+                failures=failures,
+                restore_token=restore_token,
+            )
 
 
 def test_direct_fork_is_instrumented(failures: list[str]) -> None:
-    code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
-        socket_state="live",
-        argv=["fork", SESSION_ID],
-    )
-    expect(code == 0, f"fork/live: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv[:3] == ["--enable", "hooks", "--dangerously-bypass-hook-trust"],
-           f"fork/live: missing injected hook prefix: {real_argv}", failures)
-    expect(any(arg.startswith("hooks.SessionStart=") for arg in real_argv),
-           f"fork/live: missing SessionStart hook: {real_argv}", failures)
-    expect(any(arg.startswith("hooks.Stop=") for arg in real_argv),
-           f"fork/live: missing Stop hook: {real_argv}", failures)
-    expect(real_argv[-2:] == ["fork", SESSION_ID],
-           f"fork/live: fork argv was not preserved: {real_argv}", failures)
-    expect(any("ping" in line for line in cmux_log),
-           f"fork/live: wrapper never verified cmux ownership: {cmux_log}", failures)
-    expect(any("hooks codex inject-args" in line for line in cmux_log),
-           f"fork/live: wrapper never requested local hook args: {cmux_log}", failures)
-    expect(observed_env.get("CMUX_CODEX_PID") not in {None, "", "__UNSET__"},
-           f"fork/live: missing Codex process identity: {observed_env}", failures)
-    expect(observed_env.get("CMUX_AGENT_LAUNCH_KIND") == "codex",
-           f"fork/live: missing launch kind: {observed_env}", failures)
-    expect(observed_env.get("CMUX_AGENT_RESUME_LAUNCH") == "__UNSET__",
-           f"fork/live: fork was mislabeled as a resume: {observed_env}", failures)
-    expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
-           f"fork/live: app restore marker leaked to Codex: {observed_env}", failures)
+    for socket_state in ("stale", "live"):
+        assert_session_entrypoint_is_instrumented(
+            socket_state=socket_state,
+            argv=["fork", SESSION_ID],
+            label=f"fork/{socket_state}",
+            failures=failures,
+        )
 
 
 def test_explicit_disable_still_bypasses_hooks(failures: list[str]) -> None:
@@ -226,68 +237,48 @@ def test_explicit_disable_still_bypasses_hooks(failures: list[str]) -> None:
     expect(cmux_log == [], f"disabled: expected no cmux calls, got {cmux_log}", failures)
 
 
-def test_stale_socket_fresh_launch_preserves_native_behavior(failures: list[str]) -> None:
-    code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
+def test_stale_socket_fresh_launch_is_instrumented(failures: list[str]) -> None:
+    assert_session_entrypoint_is_instrumented(
         socket_state="stale",
         argv=["hello"],
+        label="fresh/stale",
+        failures=failures,
     )
-    expect(code == 0, f"fresh/stale: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["hello"], f"fresh/stale: expected passthrough, got {real_argv}", failures)
-    expect(any("ping" in line for line in cmux_log),
-           f"fresh/stale: expected bounded ownership probe, got {cmux_log}", failures)
-    expect(observed_env.get("CMUX_CODEX_HOOK_CMUX_BIN") == "__UNSET__",
-           f"fresh/stale: cmux hooks should remain disabled: {observed_env}", failures)
-    expect(observed_env.get("CMUX_AGENT_RESUME_LAUNCH") == "__UNSET__",
-           f"fresh/stale: resume marker leaked into ordinary launch: {observed_env}", failures)
 
 
-def test_unmarked_stale_socket_resume_preserves_native_behavior(failures: list[str]) -> None:
-    code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
-        socket_state="stale",
-        argv=["resume", SESSION_ID],
-    )
-    expect(code == 0, f"manual resume/stale: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["resume", SESSION_ID],
-           f"manual resume/stale: expected passthrough, got {real_argv}", failures)
-    expect(any("ping" in line for line in cmux_log),
-           f"manual resume/stale: expected bounded ownership probe, got {cmux_log}", failures)
-    expect(observed_env.get("CMUX_CODEX_HOOK_CMUX_BIN") == "__UNSET__",
-           f"manual resume/stale: cmux hooks should remain disabled: {observed_env}", failures)
-
-
-def test_restore_marker_without_explicit_id_still_requires_live_socket(failures: list[str]) -> None:
-    code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
-        socket_state="stale",
-        argv=["resume", "--last"],
-        restore_token=f"codex:{SESSION_ID}",
-    )
-    expect(code == 0, f"marker without id: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["resume", "--last"],
-           f"marker without id: expected passthrough, got {real_argv}", failures)
-    expect(any("ping" in line for line in cmux_log),
-           f"marker without id: expected bounded ownership probe, got {cmux_log}", failures)
-    expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
-           f"marker without id: app restore marker leaked to Codex: {observed_env}", failures)
-
-
-def test_mismatched_restore_tokens_still_require_live_socket(failures: list[str]) -> None:
+def test_restore_tokens_do_not_gate_instrumentation(failures: list[str]) -> None:
     for token in (
         f"claude:{SESSION_ID}",
         "codex:aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
         "1",
     ):
-        code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
+        assert_session_entrypoint_is_instrumented(
             socket_state="stale",
             argv=["resume", SESSION_ID],
+            label=f"restore-token-{token}/stale",
+            failures=failures,
             restore_token=token,
         )
-        expect(code == 0, f"mismatched marker {token}: wrapper exited {code}: {stderr}", failures)
-        expect(real_argv == ["resume", SESSION_ID],
-               f"mismatched marker {token}: expected passthrough, got {real_argv}", failures)
-        expect(any("ping" in line for line in cmux_log),
-               f"mismatched marker {token}: expected ownership probe, got {cmux_log}", failures)
-        expect(observed_env.get("CMUX_AGENT_RESTORE_LAUNCH") == "__UNSET__",
-               f"mismatched marker {token}: marker leaked to Codex: {observed_env}", failures)
+
+
+def test_injection_failure_preserves_cmux_context(failures: list[str]) -> None:
+    code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
+        socket_state="missing",
+        argv=["resume"],
+        inject_args_available=False,
+    )
+    expect(code == 0, f"inject-failure: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["resume"], f"inject-failure: original argv changed: {real_argv}", failures)
+    expect(any("hooks codex inject-args" in line for line in cmux_log),
+           f"inject-failure: injection was never attempted: {cmux_log}", failures)
+    expect(observed_env.get("CMUX_SURFACE_ID") == "11111111-1111-1111-1111-111111111111",
+           f"inject-failure: surface binding was stripped: {observed_env}", failures)
+    expect(observed_env.get("CMUX_WORKSPACE_ID") == "22222222-2222-2222-2222-222222222222",
+           f"inject-failure: workspace binding was stripped: {observed_env}", failures)
+    expect(observed_env.get("CMUX_CODEX_PID") not in {None, "", "__UNSET__"},
+           f"inject-failure: missing Codex process identity: {observed_env}", failures)
+    expect(observed_env.get("CMUX_AGENT_LAUNCH_KIND") == "codex",
+           f"inject-failure: missing launch kind: {observed_env}", failures)
 
 
 def test_non_session_command_still_bypasses_hooks(failures: list[str]) -> None:
@@ -302,13 +293,12 @@ def test_non_session_command_still_bypasses_hooks(failures: list[str]) -> None:
 
 def main() -> int:
     failures: list[str] = []
-    test_resume_hook_injection_survives_transient_startup_outages(failures)
+    test_every_resume_route_is_instrumented(failures)
     test_direct_fork_is_instrumented(failures)
     test_explicit_disable_still_bypasses_hooks(failures)
-    test_stale_socket_fresh_launch_preserves_native_behavior(failures)
-    test_unmarked_stale_socket_resume_preserves_native_behavior(failures)
-    test_restore_marker_without_explicit_id_still_requires_live_socket(failures)
-    test_mismatched_restore_tokens_still_require_live_socket(failures)
+    test_stale_socket_fresh_launch_is_instrumented(failures)
+    test_restore_tokens_do_not_gate_instrumentation(failures)
+    test_injection_failure_preserves_cmux_context(failures)
     test_non_session_command_still_bypasses_hooks(failures)
     if failures:
         print("FAIL: Codex session-entrypoint wrapper reliability checks failed")

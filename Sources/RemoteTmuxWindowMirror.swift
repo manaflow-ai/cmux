@@ -46,6 +46,10 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored private let controlPaneID: (Int) -> PaneID?
     @ObservationIgnored private let onControlSurfaceChanged: ((Int, UUID?) -> Void)?
     @ObservationIgnored private let onPaneSurfaceProgress: ((Int) -> Void)?
+    @ObservationIgnored var onTerminalPanelAdded:
+        ((TerminalPanel) -> Void)?
+    @ObservationIgnored var onTerminalPanelRemoved:
+        ((TerminalPanel) -> Void)?
 
     /// The window's BASE pane layout (tmux's full tree even while a pane is
     /// zoomed). Drives panel lifecycle and the sizing structure fold.
@@ -364,6 +368,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             panelsByPaneId[paneId] = panel
             onControlSurfaceChanged?(paneId, panel.id)
             configurePanePanel(panel, paneId: paneId, needsSeed: true)
+            onTerminalPanelAdded?(panel)
         }
         for (paneId, panel) in panelsByPaneId where !livePaneIds.contains(paneId) {
             // Use the full panel close (detaches the portal from the registry
@@ -377,6 +382,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             connection?.unsubscribePaneReflow(paneId: paneId)
             connection?.unsubscribePaneHeader(paneId: paneId)
             panelsByPaneId[paneId] = nil
+            onTerminalPanelRemoved?(panel)
             cwdByPaneId[paneId] = nil
             cancelPendingCreatedPaneFocus(candidatePaneID: paneId)
             if pendingControlPaneFocusRequest?.paneID == paneId {
@@ -565,13 +571,17 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             activeConnection?.unsubscribePaneReflow(paneId: paneId)
             activeConnection?.unsubscribePaneHeader(paneId: paneId)
         }
-        for (paneId, panel) in panelsByPaneId {
+        let removedPanels = Array(panelsByPaneId)
+        for (paneId, panel) in removedPanels {
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
             onControlSurfaceChanged?(paneId, nil)
             panel.close()
         }
         panelsByPaneId.removeAll()
+        for (_, panel) in removedPanels {
+            onTerminalPanelRemoved?(panel)
+        }
         tabIdByPaneId.removeAll()
         paneIdByPaneId.removeAll()
         paneIdByBonsplitPane.removeAll()

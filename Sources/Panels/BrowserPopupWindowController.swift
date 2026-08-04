@@ -433,6 +433,16 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
+           BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url) {
+#if DEBUG
+            cmuxDebugLog(
+                "popup.createWebView kind=blockUntrustedAuthCallback scheme=\(url.scheme ?? "nil")"
+            )
+#endif
+            return nil
+        }
+
+        if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
             browserHandleExternalNavigation(
                 url,
@@ -579,6 +589,10 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
 @MainActor private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
+    private let authCallbackNavigationPolicy = BrowserAuthCallbackNavigationPolicy(
+        trustedSourcePageOrigin: AuthEnvironment.appSessionHandoffOrigin,
+        callbackScheme: AuthEnvironment.callbackScheme
+    )
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
     private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
@@ -657,6 +671,41 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
 
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
+            return
+        }
+
+        let authCallbackDisposition = authCallbackNavigationPolicy.disposition(
+            for: navigationAction,
+            url: url
+        )
+        if authCallbackNavigationPolicy.consume(
+            disposition: authCallbackDisposition,
+            callbackURL: url,
+            sourcePageURL: webView.url,
+            cancelNavigation: { [self] in
+                clearAttemptedRequest(discardPendingBypasses: true)
+                decisionHandler(.cancel)
+            },
+            reportTerminalCancellation: {},
+            deliver: authCallbackNavigationPolicy.deliverAuthCallbackInApp,
+            completion: { [weak self, weak webView] delivered, returnURL in
+                guard let self, let webView else { return }
+#if DEBUG
+                cmuxDebugLog(
+                    "popup.nav kind=deliverNativeAuthCallbackInApp " +
+                    "delivered=\(delivered ? 1 : 0) scheme=\(url.scheme ?? "nil")"
+                )
+#endif
+                BrowserAuthCallbackNavigationPolicy.finishDelivery(
+                    delivered: delivered,
+                    returnURL: returnURL,
+                    in: webView,
+                    prepareReturnRequest: { [weak self] request in
+                        self?.recordAttemptedRequest(request)
+                    }
+                )
+            }
+        ) {
             return
         }
 
@@ -748,7 +797,8 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         }
 
         return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
-            navigationAction,
+            for: navigationAction.request,
+            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
             decisionHandler: decisionHandler,
             startReplacement: { restartRequest in
                 controller.requestNavigation(restartRequest, in: webView)

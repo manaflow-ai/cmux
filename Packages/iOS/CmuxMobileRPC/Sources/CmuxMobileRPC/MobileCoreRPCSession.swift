@@ -6,12 +6,25 @@ actor MobileCoreRPCSession {
     typealias IndependentEventByteStreamFactory = @Sendable () async throws -> CmxIndependentEventByteStream
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
     typealias TransportConnectObserver = @Sendable (MobileRPCTransportConnectEvent) -> Void
+    typealias TearDownRegistrationHook = @Sendable () async -> Void
     enum PendingRequestSettlement {
         case response(Result<Data, MobileShellConnectionError>)
         case cancelled
     }
+    enum PipelinedRequestSettlement {
+        case pending
+        case awaiting(PendingContinuation)
+        case settled(PendingRequestSettlement)
+    }
     typealias PendingContinuation = CheckedContinuation<PendingRequestSettlement, Never>
-    typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
+    typealias ConnectingTask = (
+        id: UUID,
+        lease: MobileRPCConnectAttemptLease?,
+        task: Task<any CmxByteTransport, any Error>,
+        cancellationClose: MobileRPCConnectCancellationClose,
+        waiters: Set<UUID>,
+        completed: Bool
+    )
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
     static let defaultCancelledWriteCompletionGraceNanoseconds: UInt64 = 250_000_000
@@ -54,7 +67,7 @@ actor MobileCoreRPCSession {
     }
 
     let taskTimeout = RPCTaskTimeout()
-    private let connectAttemptKey: String?
+    private let connectAttemptKey: MobileRPCConnectAttemptKey?
     let connectAttemptRegistry: MobileRPCConnectAttemptRegistry
     let abandonedConnectCleanupTimeoutNanoseconds: UInt64
     let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
@@ -64,10 +77,19 @@ actor MobileCoreRPCSession {
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private let diagnosticTransport: DiagnosticTransportKind?
     private let transportConnectObserver: TransportConnectObserver?
+    private let tearDownRegistrationHook: TearDownRegistrationHook?
+    /// Current shell ownership role. Connected transports that support role
+    /// rebinding receive updates without replacing their admitted session.
+    private var transportSessionPurpose: CmxTransportSessionPurpose?
     // The getter is internal so the debug-only release-gate extension can
     // inspect the installed transport. Only this actor's production code can
     // replace it.
     private(set) var transport: (any CmxByteTransport)?
+    /// The global physical-resource lease stays live for the installed
+    /// transport's full lifetime. Teardown transfers it to the exact close
+    /// task, so a hanging installed close consumes the same bounded cleanup
+    /// budget as an abandoned connect.
+    private var installedConnectLease: MobileRPCConnectAttemptLease?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
@@ -77,6 +99,7 @@ actor MobileCoreRPCSession {
     /// negotiation attempt during this control-session generation.
     var independentEventSubscriptionStreamIDs: Set<String> = []
     var pending: [String: PendingContinuation] = [:]
+    var pipelinedPending: [String: PipelinedRequestSettlement] = [:]
     var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
     private var queuedWriteIDs: [String: UUID] = [:]
     private var cancelledQueuedWriteIDs: Set<UUID> = []
@@ -88,15 +111,18 @@ actor MobileCoreRPCSession {
     var writeResolutionWaiterCount: Int { writeResolutionWaiters.count }
     var listeners: [UUID: EventListener] = [:]
     var isTearingDown: Bool = false
+    private var tearDownWaiters: [CheckedContinuation<Void, Never>] = []
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
     private var activeWrite: ActiveWrite?
-    private var transportCloseTask: Task<Void, Never>?
-    private var transportCloseTaskID: UUID?
-    private var pendingTransportCloses: [any CmxByteTransport] = []
+    /// Each installed close has independent lifetime and is also retained by
+    /// the shared registry, so session deallocation cannot strand a queued
+    /// transport or its route lease.
+    private var transportCloseTasks: [UUID: Task<Void, Never>] = [:]
+    var abandonedConnectionCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     init(
-        connectAttemptKey: String? = nil,
+        connectAttemptKey: MobileRPCConnectAttemptKey? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
@@ -106,7 +132,9 @@ actor MobileCoreRPCSession {
         makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil,
         diagnosticTransport: DiagnosticTransportKind? = nil,
-        transportConnectObserver: TransportConnectObserver? = nil
+        transportConnectObserver: TransportConnectObserver? = nil,
+        initialTransportSessionPurpose: CmxTransportSessionPurpose? = nil,
+        tearDownRegistrationHook: TearDownRegistrationHook? = nil
     ) {
         self.connectAttemptKey = connectAttemptKey
         self.connectAttemptRegistry = connectAttemptRegistry
@@ -119,17 +147,52 @@ actor MobileCoreRPCSession {
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
         self.diagnosticTransport = diagnosticTransport
         self.transportConnectObserver = transportConnectObserver
+        self.transportSessionPurpose = initialTransportSessionPurpose
+        self.tearDownRegistrationHook = tearDownRegistrationHook
     }
 
     deinit {
-        connectionTask?.task.cancel()
+        let connecting = connectionTask
+        connecting?.task.cancel()
+        let installedTransport = transport
+        let installedLease = installedConnectLease
+        let registry = connectAttemptRegistry
+        if let connecting {
+            Task.detached {
+                await registry.handOffPhysicalCleanup(
+                    lease: connecting.lease
+                ) {
+                    do {
+                        let candidate = try await connecting.task.value
+                        if let cancellationCloseTask =
+                            await connecting.cancellationClose.task() {
+                            await cancellationCloseTask.value
+                        }
+                        await candidate.close()
+                    } catch {
+                        if let cancellationCloseTask =
+                            await connecting.cancellationClose.task() {
+                            await cancellationCloseTask.value
+                        }
+                    }
+                }
+            }
+        }
+        if installedTransport != nil || installedLease != nil {
+            Task.detached {
+                await registry.handOffPhysicalCleanup(
+                    lease: installedLease
+                ) {
+                    await installedTransport?.close()
+                }
+            }
+        }
         readerTask?.cancel()
         independentEventPreparation?.task.cancel()
         independentEventReader?.task.cancel()
         activeWrite?.task.cancel()
         activeWrite?.cancelledRequestResolutionTask?.cancel()
         writerTask?.cancel()
-        transportCloseTask?.cancel()
         writeQueue?.finish()
     }
 
@@ -145,22 +208,18 @@ actor MobileCoreRPCSession {
 
         let settlement: PendingRequestSettlement = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                guard pending[requestID] == nil, queuedWriteIDs[requestID] == nil else {
+                guard pending[requestID] == nil,
+                      pipelinedPending[requestID] == nil,
+                      queuedWriteIDs[requestID] == nil else {
                     continuation.resume(returning: .response(.failure(.invalidResponse)))
                     return
                 }
                 let queuedWriteID = UUID()
                 pending[requestID] = continuation
-                requestTimeoutTasks[requestID]?.cancel()
-                requestTimeoutTasks[requestID] = Task { [weak self, taskTimeout] in
-                    do {
-                        try await taskTimeout.sleep(nanoseconds: responseTimeoutNanoseconds)
-                    } catch {
-                        return
-                    }
-                    guard let self else { return }
-                    await self.timeoutPendingRequest(requestID: requestID)
-                }
+                armResponseTimeout(
+                    requestID: requestID,
+                    timeoutNanoseconds: responseTimeoutNanoseconds
+                )
                 guard let queue = writeQueue else {
                     requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
                     pending.removeValue(forKey: requestID)
@@ -176,6 +235,74 @@ actor MobileCoreRPCSession {
             }
         }
         return try Self.resolvePendingSettlement(settlement, isCancelled: Task.isCancelled)
+    }
+
+    func beginSend(
+        payload: Data,
+        requestID: String,
+        deadlineUptimeNanoseconds: UInt64
+    ) async throws {
+        // Same demand gate as send(): new work must not queue behind a
+        // cancelled unresolved write, or it hangs until its own deadline
+        // behind a transport its timeout may have to condemn.
+        try await waitForCancelledActiveWriteResolution(
+            deadlineUptimeNanoseconds: deadlineUptimeNanoseconds
+        )
+        _ = try await ensureConnected(
+            timeoutNanoseconds: try taskTimeout.remainingNanoseconds(
+                until: deadlineUptimeNanoseconds
+            )
+        )
+        let frame = try MobileSyncFrameCodec.encodeFrame(payload)
+        let responseTimeoutNanoseconds = try taskTimeout.remainingNanoseconds(
+            until: deadlineUptimeNanoseconds
+        )
+        guard pending[requestID] == nil,
+              pipelinedPending[requestID] == nil,
+              queuedWriteIDs[requestID] == nil else {
+            throw MobileShellConnectionError.invalidResponse
+        }
+        guard let queue = writeQueue else {
+            throw MobileShellConnectionError.connectionClosed
+        }
+        let queuedWriteID = UUID()
+        pipelinedPending[requestID] = .pending
+        armResponseTimeout(
+            requestID: requestID,
+            timeoutNanoseconds: responseTimeoutNanoseconds
+        )
+        queuedWriteIDs[requestID] = queuedWriteID
+        _ = queue.yield(PendingWrite(
+            id: queuedWriteID,
+            requestID: requestID,
+            frame: frame
+        ))
+    }
+
+    func awaitResponse(requestID: String) async throws -> Data {
+        let settlement: PendingRequestSettlement = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                switch pipelinedPending[requestID] {
+                case .pending:
+                    pipelinedPending[requestID] = .awaiting(continuation)
+                case let .settled(settlement):
+                    pipelinedPending.removeValue(forKey: requestID)
+                    continuation.resume(returning: settlement)
+                case .awaiting, nil:
+                    continuation.resume(
+                        returning: .response(.failure(.invalidResponse))
+                    )
+                }
+            }
+        } onCancel: {
+            Task {
+                await self.cancelPendingRequest(requestID: requestID)
+            }
+        }
+        return try Self.resolvePendingSettlement(
+            settlement,
+            isCancelled: Task.isCancelled
+        )
     }
 
     func addEventListener(topics: Set<String>) -> EventSubscription {
@@ -196,11 +323,45 @@ actor MobileCoreRPCSession {
         listeners.removeValue(forKey: id)
     }
 
+    func updateTransportSessionPurpose(
+        _ purpose: CmxTransportSessionPurpose
+    ) async {
+        transportSessionPurpose = purpose
+        guard let updating =
+            transport as? any CmxByteTransportSessionPurposeUpdating else {
+            return
+        }
+        let connectionID = installedConnectionID
+        var appliedPurpose: CmxTransportSessionPurpose?
+        while installedConnectionID == connectionID,
+              transport != nil,
+              let currentPurpose = transportSessionPurpose,
+              currentPurpose != appliedPurpose {
+            await updating.updateSessionPurpose(currentPurpose)
+            appliedPurpose = currentPurpose
+        }
+    }
+
     func tearDown(error: MobileShellConnectionError) async {
-        guard !isTearingDown else { return }
+        if isTearingDown {
+            await withCheckedContinuation {
+                tearDownWaiters.append($0)
+            }
+            return
+        }
         isTearingDown = true
+        defer {
+            isTearingDown = false
+            let waiters = tearDownWaiters
+            tearDownWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
         let pendingSnapshot = pending
         pending.removeAll()
+        let pipelinedSnapshot = pipelinedPending
+        pipelinedPending.removeAll()
         let timeoutSnapshot = requestTimeoutTasks
         requestTimeoutTasks.removeAll()
         queuedWriteIDs.removeAll()
@@ -210,6 +371,22 @@ actor MobileCoreRPCSession {
         }
         for (_, cont) in pendingSnapshot {
             cont.resume(returning: .response(.failure(error)))
+        }
+        for (requestID, settlement) in pipelinedSnapshot {
+            switch settlement {
+            case let .awaiting(continuation):
+                continuation.resume(returning: .response(.failure(error)))
+            case .pending:
+                // Preserve the real teardown failure for a handle nobody has
+                // awaited yet; dropping it would misreport the outcome as a
+                // protocol error (invalidResponse) when response() is called.
+                pipelinedPending[requestID] = .settled(.response(.failure(error)))
+            case .settled:
+                // Keep an already-settled outcome claimable; entries are
+                // bounded by the caller's pipeline window and are removed on
+                // claim or abandon.
+                pipelinedPending[requestID] = settlement
+            }
         }
         let listenerSnapshot = listeners
         listeners.removeAll()
@@ -228,6 +405,8 @@ actor MobileCoreRPCSession {
         connecting?.task.cancel()
         connectionTask = nil
         installedConnectionID = nil
+        let installedLease = installedConnectLease
+        installedConnectLease = nil
         let transportToClose = transport
         transport = nil
         readerTask?.cancel()
@@ -237,11 +416,39 @@ actor MobileCoreRPCSession {
         independentEventReader?.task.cancel()
         independentEventReader = nil
         independentEventSubscriptionStreamIDs.removeAll()
+        await tearDownRegistrationHook?()
         if let transportToClose {
-            enqueueTransportClose(transportToClose)
+            await enqueueTransportClose(
+                transportToClose,
+                lease: installedLease
+            )
+        } else {
+            await connectAttemptRegistry.finishConnect(
+                lease: installedLease
+            )
         }
         if let connecting { await abandonConnectionTask(connecting) }
-        isTearingDown = false
+    }
+
+    /// Wait until every installed transport detached by teardown has completed
+    /// `close()` and every abandoned dial has either closed or transferred its
+    /// late cleanup to the shared route registry. Ordinary reconnects do not
+    /// block on this bounded drain, but a same-peer ownership handoff observes
+    /// it before redialing.
+    func waitForTransportDrain() async {
+        while !transportCloseTasks.isEmpty
+            || !abandonedConnectionCleanupTasks.isEmpty {
+            let installedTransportCloses =
+                Array(transportCloseTasks.values)
+            let abandonedConnectCleanups =
+                Array(abandonedConnectionCleanupTasks.values)
+            for close in installedTransportCloses {
+                await close.value
+            }
+            for cleanup in abandonedConnectCleanups {
+                await cleanup.value
+            }
+        }
     }
 
     // MARK: - private
@@ -255,35 +462,60 @@ actor MobileCoreRPCSession {
             throw MobileShellConnectionError.connectionClosed
         }
         if let transport { return transport }
-        // One active close plus one queued close is the cleanup capacity. A
-        // non-cooperative close can delay one later recovery, but cannot retain
-        // an unbounded chain of transports.
-        guard pendingTransportCloses.isEmpty else {
-            throw MobileShellConnectionError.connectionClosed
+        // A cancellation-ignoring connect or close still owns this client's
+        // production route until cleanup closes it or transfers its late
+        // watcher to the shared route registry. Do not let repeated requests
+        // append more retained cleanup graphs before that bounded handoff.
+        // Direct untracked sessions have no shared route authority and retain
+        // their cooperative-cancellation retry semantics.
+        if connectAttemptKey != nil,
+           !abandonedConnectionCleanupTasks.isEmpty {
+            throw MobileShellConnectionError.routeCleanupBlocked
         }
-
         let waiterID = UUID()
         let connectionID: UUID
         let connectLease: MobileRPCConnectAttemptLease?
         let task: Task<any CmxByteTransport, any Error>
+        let cancellationClose: MobileRPCConnectCancellationClose
         if let existing = connectionTask {
             connectionID = existing.id
             connectLease = existing.lease
             task = existing.task
+            cancellationClose = existing.cancellationClose
             connectionTask?.waiters.insert(waiterID)
         } else {
-            if let connectAttemptKey {
-                guard let lease = await connectAttemptRegistry.beginConnect(key: connectAttemptKey) else {
-                    throw MobileShellConnectionError.requestTimedOut
-                }
+            switch await connectAttemptRegistry.beginConnect(
+                key: connectAttemptKey
+            ) {
+            case .granted(let lease):
                 connectLease = lease
-            } else {
-                connectLease = .untracked
+            case .busy:
+                // A gate refusal is instantaneous and never touched the
+                // network; reporting it as a timeout fabricated sub-30ms
+                // "timedOut" failures that poisoned lastFailureEvent.
+                throw MobileShellConnectionError.connectAttemptGated
+            case .cleanupBlocked:
+                throw MobileShellConnectionError.routeCleanupBlocked
             }
             let connectAttemptID = Int.random(in: 1...Int.max)
             let connectStartedAt = ContinuousClock.now
             let diagnosticTransport = diagnosticTransport
             let transportConnectObserver = transportConnectObserver
+            let initialSessionPurpose = transportSessionPurpose
+            let reportCancelledConnect: @Sendable () -> Void = {
+                if let diagnosticTransport, let transportConnectObserver {
+                    transportConnectObserver(
+                        .failed(
+                            attemptID: connectAttemptID,
+                            transport: diagnosticTransport,
+                            failure: .cancelled,
+                            elapsedMilliseconds: Self.elapsedMilliseconds(
+                                since: connectStartedAt
+                            )
+                        )
+                    )
+                }
+            }
             if let diagnosticTransport, let transportConnectObserver {
                 transportConnectObserver(
                     .attempt(
@@ -295,9 +527,35 @@ actor MobileCoreRPCSession {
             let candidate: any CmxByteTransport
             do {
                 candidate = try makeTransport()
+            } catch let rejected as MobileRPCRejectedTransportDisposal {
+                await connectAttemptRegistry.handOffPhysicalCleanup(
+                    lease: connectLease
+                ) {
+                    await rejected.task.value
+                }
+                if Task.isCancelled {
+                    reportCancelledConnect()
+                    throw CancellationError()
+                }
+                let error = MobileShellConnectionError.connectionClosed
+                if let diagnosticTransport,
+                   let transportConnectObserver {
+                    transportConnectObserver(
+                        .failed(
+                            attemptID: connectAttemptID,
+                            transport: diagnosticTransport,
+                            failure: DiagnosticFailureKind.classify(error),
+                            elapsedMilliseconds: Self.elapsedMilliseconds(
+                                since: connectStartedAt
+                            )
+                        )
+                    )
+                }
+                throw error
             } catch {
-                await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
+                await connectAttemptRegistry.finishConnect(lease: connectLease)
                 if error is CancellationError || Task.isCancelled {
+                    reportCancelledConnect()
                     throw CancellationError()
                 }
                 if let diagnosticTransport, let transportConnectObserver {
@@ -315,44 +573,70 @@ actor MobileCoreRPCSession {
                 throw error
             }
             connectionID = UUID()
+            cancellationClose =
+                MobileRPCConnectCancellationClose()
             task = Task.detached {
                 do {
+                    if let initialSessionPurpose,
+                       let updating =
+                        candidate as? any CmxByteTransportSessionPurposeUpdating {
+                        await updating.updateSessionPurpose(
+                            initialSessionPurpose
+                        )
+                    }
                     try await withTaskCancellationHandler {
                         try await candidate.connect()
                     } onCancel: {
-                        Task {
-                            await candidate.close()
+                        Task.detached {
+                            await cancellationClose.start(candidate)
                         }
+                    }
+                    if Task.isCancelled {
+                        _ = await cancellationClose.task()
+                    } else {
+                        await cancellationClose.finishWithoutClose()
                     }
                     // A cancellation-ignoring transport must still return its
                     // late candidate to the existing abandoned-connect cleanup
                     // path so that path can close it again after completion.
-                    // Suppress the success event without replacing that result
-                    // with `CancellationError`.
-                    if !Task.isCancelled,
-                       let diagnosticTransport,
-                       let transportConnectObserver {
+                    // Report the abandoned attempt as cancelled without
+                    // replacing that result with `CancellationError`.
+                    if Task.isCancelled {
+                        reportCancelledConnect()
+                    } else if let diagnosticTransport,
+                              let transportConnectObserver {
                         transportConnectObserver(
                             .connected(
                                 attemptID: connectAttemptID,
                                 transport: diagnosticTransport,
-                                elapsedMilliseconds: Self.elapsedMilliseconds(
-                                    since: connectStartedAt
-                                )
+                                elapsedMilliseconds:
+                                    Self.elapsedMilliseconds(
+                                        since: connectStartedAt
+                                    )
                             )
                         )
                     }
                     return candidate
                 } catch is CancellationError {
+                    if Task.isCancelled {
+                        _ = await cancellationClose.task()
+                    } else {
+                        await cancellationClose.finishWithoutClose()
+                    }
+                    reportCancelledConnect()
                     throw CancellationError()
                 } catch {
                     // Some transports surface their close error instead of
                     // `CancellationError` after the cancellation handler closes
                     // them. Treat the task's cancellation bit as authoritative
-                    // so an abandoned dial never becomes a false failure event.
+                    // so an abandoned dial reports cancelled, never a false
+                    // transport failure.
                     if Task.isCancelled {
+                        _ = await cancellationClose.task()
+                        reportCancelledConnect()
                         throw CancellationError()
                     }
+                    await cancellationClose.finishWithoutClose()
                     if let diagnosticTransport, let transportConnectObserver {
                         transportConnectObserver(
                             .failed(
@@ -368,7 +652,14 @@ actor MobileCoreRPCSession {
                     throw error
                 }
             }
-            connectionTask = (id: connectionID, lease: connectLease, task: task, waiters: [waiterID], completed: false)
+            connectionTask = (
+                id: connectionID,
+                lease: connectLease,
+                task: task,
+                cancellationClose: cancellationClose,
+                waiters: [waiterID],
+                completed: false
+            )
             Task.detached { [weak self] in
                 _ = await task.result
                 await self?.markConnectingCompleted(id: connectionID)
@@ -395,11 +686,11 @@ actor MobileCoreRPCSession {
             } else if error is CancellationError {
                 if connectionTask?.id == connectionID {
                     connectionTask = nil
-                    await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
+                    await connectAttemptRegistry.finishConnect(lease: connectLease)
                 }
             } else if connectionTask?.id == connectionID {
                 connectionTask = nil
-                await connectAttemptRegistry.clearFinishedConnect(lease: connectLease)
+                await connectAttemptRegistry.finishConnect(lease: connectLease)
             }
             throw error
         }
@@ -417,6 +708,41 @@ actor MobileCoreRPCSession {
         guard connectionTask?.id == connectionID else {
             closeUninstalledConnectedCandidate(candidate, lease: connectLease)
             throw MobileShellConnectionError.connectionClosed
+        }
+
+        if let updating =
+            candidate as? any CmxByteTransportSessionPurposeUpdating {
+            var appliedPurpose: CmxTransportSessionPurpose?
+            while let currentSessionPurpose = transportSessionPurpose,
+                  currentSessionPurpose != appliedPurpose {
+                await updating.updateSessionPurpose(currentSessionPurpose)
+                appliedPurpose = currentSessionPurpose
+                // Another waiter for this same connection may have installed
+                // the shared candidate while this actor was suspended in the
+                // transport update. Reuse that installed generation instead of
+                // treating the candidate as stale and closing the live session.
+                if let installedTransport = transport {
+                    guard installedConnectionID == connectionID else {
+                        closeUninstalledConnectedCandidate(
+                            candidate,
+                            lease: connectLease
+                        )
+                        throw MobileShellConnectionError.connectionClosed
+                    }
+                    if callerCancelled || Task.isCancelled {
+                        throw CancellationError()
+                    }
+                    return installedTransport
+                }
+                guard connectionTask?.id == connectionID,
+                      !isTearingDown else {
+                    closeUninstalledConnectedCandidate(
+                        candidate,
+                        lease: connectLease
+                    )
+                    throw MobileShellConnectionError.connectionClosed
+                }
+            }
         }
 
         if callerCancelled {
@@ -457,8 +783,8 @@ actor MobileCoreRPCSession {
         writeQueue = continuation
         writerTask = nextWriterTask
         transport = candidate
+        installedConnectLease = connectLease
 
-        await connectAttemptRegistry.recordSuccessfulConnect(lease: connectLease)
         guard installedConnectionID == connectionID,
               transport != nil,
               !isTearingDown else {
@@ -480,59 +806,59 @@ actor MobileCoreRPCSession {
     }
 
     private func cancelConnectingWaiter(id connectionID: UUID, waiterID: UUID) async {
-        guard transport == nil, connectionTask?.id == connectionID, let task = connectionTask?.task else {
+        guard transport == nil,
+              let connecting = connectionTask,
+              connecting.id == connectionID else {
             return
         }
         connectionTask?.waiters.remove(waiterID)
         guard connectionTask?.waiters.isEmpty == true else { return }
-        let lease = connectionTask?.lease
-        if connectionTask?.completed == true {
+        if connecting.completed {
             connectionTask = nil
             startAbandonedConnectionCleanup(
-                task: task,
-                lease: lease,
-                tracksRouteGate: true,
+                task: connecting.task,
+                lease: connecting.lease,
+                cancellationClose: connecting.cancellationClose,
                 cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
                 lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
             )
             return
         }
         connectionTask = nil
-        task.cancel()
-        await connectAttemptRegistry.markAbandoned(lease: lease)
+        connecting.task.cancel()
         startAbandonedConnectionCleanup(
-            task: task,
-            lease: lease,
-            tracksRouteGate: true,
+            task: connecting.task,
+            lease: connecting.lease,
+            cancellationClose: connecting.cancellationClose,
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )
     }
     private func timeoutConnectingWaiter(id connectionID: UUID, waiterID: UUID) async {
-        guard transport == nil, connectionTask?.id == connectionID, let task = connectionTask?.task else {
+        guard transport == nil,
+              let connecting = connectionTask,
+              connecting.id == connectionID else {
             return
         }
         connectionTask?.waiters.remove(waiterID)
         guard connectionTask?.waiters.isEmpty == true else { return }
-        let lease = connectionTask?.lease
-        if connectionTask?.completed == true {
+        if connecting.completed {
             connectionTask = nil
             startAbandonedConnectionCleanup(
-                task: task,
-                lease: lease,
-                tracksRouteGate: true,
+                task: connecting.task,
+                lease: connecting.lease,
+                cancellationClose: connecting.cancellationClose,
                 cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
                 lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
             )
             return
         }
         connectionTask = nil
-        task.cancel()
-        await connectAttemptRegistry.markAbandoned(lease: lease)
+        connecting.task.cancel()
         startAbandonedConnectionCleanup(
-            task: task,
-            lease: lease,
-            tracksRouteGate: true,
+            task: connecting.task,
+            lease: connecting.lease,
+            cancellationClose: connecting.cancellationClose,
             cleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds
         )
@@ -545,6 +871,7 @@ actor MobileCoreRPCSession {
                 id: current.id,
                 lease: current.lease,
                 task: current.task,
+                cancellationClose: current.cancellationClose,
                 waiters: current.waiters,
                 completed: true
             )
@@ -647,22 +974,42 @@ actor MobileCoreRPCSession {
     }
 
     private func failPending(requestID: String, error: MobileShellConnectionError) {
-        guard let cont = pending.removeValue(forKey: requestID) else { return }
-        requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
-        cont.resume(returning: .response(.failure(error)))
+        settlePendingRequest(
+            requestID: requestID,
+            settlement: .response(.failure(error))
+        )
     }
-    private func cancelPendingRequest(requestID: String) async {
-        guard let cont = pending.removeValue(forKey: requestID) else { return }
+    func cancelPendingRequest(requestID: String) async {
+        let legacyContinuation = pending.removeValue(forKey: requestID)
+        let pipelinedSettlement = pipelinedPending.removeValue(
+            forKey: requestID
+        )
+        let pipelinedContinuation: PendingContinuation?
+        if case let .awaiting(continuation) = pipelinedSettlement {
+            pipelinedContinuation = continuation
+        } else {
+            pipelinedContinuation = nil
+        }
+        guard legacyContinuation != nil || pipelinedSettlement != nil else {
+            return
+        }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
         startCancelledActiveWriteResolution(requestID: requestID)
-        cont.resume(returning: .cancelled)
+        legacyContinuation?.resume(returning: .cancelled)
+        pipelinedContinuation?.resume(returning: .cancelled)
     }
 
     private func timeoutPendingRequest(requestID: String) async {
-        guard let cont = pending.removeValue(forKey: requestID) else { return }
+        let legacyContinuation = pending.removeValue(forKey: requestID)
+        let pipelinedSettlement = pipelinedPending.removeValue(
+            forKey: requestID
+        )
+        guard legacyContinuation != nil || pipelinedSettlement != nil else {
+            return
+        }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
         var condemnedWriteRequestID = requestID
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
@@ -684,7 +1031,16 @@ actor MobileCoreRPCSession {
         } else {
             .requestTimedOut
         }
-        cont.resume(returning: .response(.failure(error)))
+        let settlement = PendingRequestSettlement.response(.failure(error))
+        legacyContinuation?.resume(returning: settlement)
+        switch pipelinedSettlement {
+        case .pending:
+            pipelinedPending[requestID] = .settled(settlement)
+        case let .awaiting(continuation):
+            continuation.resume(returning: settlement)
+        case .settled, nil:
+            break
+        }
     }
 
     private func shouldSendQueuedWrite(_ write: PendingWrite) -> Bool {
@@ -695,7 +1051,53 @@ actor MobileCoreRPCSession {
             return false
         }
         queuedWriteIDs[write.requestID] = nil
+        let hasPipelinedRequestAwaitingResponse: Bool
+        switch pipelinedPending[write.requestID] {
+        case .pending, .awaiting:
+            hasPipelinedRequestAwaitingResponse = true
+        case .settled, nil:
+            hasPipelinedRequestAwaitingResponse = false
+        }
         return pending[write.requestID] != nil
+            || hasPipelinedRequestAwaitingResponse
+    }
+
+    private func armResponseTimeout(
+        requestID: String,
+        timeoutNanoseconds: UInt64
+    ) {
+        requestTimeoutTasks[requestID]?.cancel()
+        requestTimeoutTasks[requestID] = Task { [weak self, taskTimeout] in
+            do {
+                try await taskTimeout.sleep(nanoseconds: timeoutNanoseconds)
+            } catch {
+                return
+            }
+            guard let self else { return }
+            await self.timeoutPendingRequest(requestID: requestID)
+        }
+    }
+
+    func settlePendingRequest(
+        requestID: String,
+        settlement: PendingRequestSettlement
+    ) {
+        if let continuation = pending.removeValue(forKey: requestID) {
+            requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
+            continuation.resume(returning: settlement)
+            return
+        }
+        switch pipelinedPending[requestID] {
+        case .pending:
+            requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
+            pipelinedPending[requestID] = .settled(settlement)
+        case let .awaiting(continuation):
+            requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
+            pipelinedPending.removeValue(forKey: requestID)
+            continuation.resume(returning: settlement)
+        case .settled, nil:
+            break
+        }
     }
 
     private func clearActiveWrite(connectionID: UUID, requestID: String) {
@@ -889,27 +1291,26 @@ actor MobileCoreRPCSession {
         await tearDown(error: error)
     }
 
-    /// Serializes physical transport cleanup off this actor. Session state is
-    /// already detached, so a hanging close cannot block the replacement dial.
-    private func enqueueTransportClose(_ transport: any CmxByteTransport) {
-        guard transportCloseTask == nil else {
-            pendingTransportCloses.append(transport)
-            return
-        }
+    /// Detaches one installed transport close from session request handling and
+    /// transfers its exact task to the shared physical-resource registry.
+    private func enqueueTransportClose(
+        _ transport: any CmxByteTransport,
+        lease: MobileRPCConnectAttemptLease?
+    ) async {
         let taskID = UUID()
-        transportCloseTaskID = taskID
-        transportCloseTask = Task.detached { [weak self] in
+        let closeTask = Task.detached { [weak self] in
             await transport.close()
             await self?.transportCloseDidFinish(taskID: taskID)
+        }
+        transportCloseTasks[taskID] = closeTask
+        await connectAttemptRegistry.handOffPhysicalCleanup(
+            lease: lease
+        ) {
+            await closeTask.value
         }
     }
 
     private func transportCloseDidFinish(taskID: UUID) {
-        guard transportCloseTaskID == taskID else { return }
-        transportCloseTask = nil
-        transportCloseTaskID = nil
-        guard !pendingTransportCloses.isEmpty else { return }
-        let nextTransport = pendingTransportCloses.removeFirst()
-        enqueueTransportClose(nextTransport)
+        transportCloseTasks[taskID] = nil
     }
 }

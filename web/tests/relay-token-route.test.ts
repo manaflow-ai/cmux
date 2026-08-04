@@ -60,6 +60,7 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
+    credentialSigningRequired: () => false,
     ...overrides,
   };
 }
@@ -162,6 +163,40 @@ describe("POST /api/relay/token", () => {
     expect(body.relays).toBeUndefined();
     expect(body.expiresAt).toBeUndefined();
     expect(body.ttlSeconds).toBeUndefined();
+  });
+
+  test("returns signed policy without private relay credentials in local development", async () => {
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({ signingKey: () => null }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      endpointId: ENDPOINT_ID,
+      policy: "signed.policy.value",
+      preference: {
+        mode: "managed",
+        selectedManagedRelayIds: ["managed-one"],
+        customRelays: [],
+      },
+      preferenceRevision: 3,
+    });
+  });
+
+  test("fails closed without the private relay signer in deployed runtimes", async () => {
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        signingKey: () => null,
+        credentialSigningRequired: () => true,
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "relay_token_not_configured",
+    });
   });
 
   test("preserves distinct URL-token associations without ambiguous legacy fields", async () => {
@@ -323,10 +358,13 @@ describe("POST /api/relay/token", () => {
       }),
     );
     expect(limited.status).toBe(429);
-    // Partitioned per device: a storming endpoint starves only itself, never
-    // the account's other phones, simulators, or tagged builds.
-    expect(key).toBe(`account-a:${ENDPOINT_ID.toLowerCase()}`);
-    expect(limited.headers.get("retry-after")).toBe("600");
+    // Partitioned per device, protocol phase, and minute: a storming endpoint
+    // starves only its duplicate work, never bootstrap, renewal, or another
+    // phone, simulator, or tagged build.
+    expect(key).toBe(
+      `account-a:${ENDPOINT_ID.toLowerCase()}:credential:28333333`,
+    );
+    expect(limited.headers.get("retry-after")).toBe("40");
 
     // Malformed requests are rejected before the limiter and never consume
     // the per-device budget.
@@ -365,6 +403,58 @@ describe("POST /api/relay/token", () => {
       }),
     );
     expect(unavailable.status).toBe(503);
+  });
+
+  test("gives fresh endpoint bootstrap and bound credential renewal separate minute budgets", async () => {
+    let nowSeconds = 1_700_000_000;
+    let endpointBound = false;
+    const consumedPartitions = new Set<string>();
+    const observedPartitions: string[] = [];
+    const protocolDeps = deps({
+      nowSeconds: () => nowSeconds,
+      isEndpointBound: async () => endpointBound,
+      isVercel: () => true,
+      rateLimitRuleId: () => "relay-token",
+      checkRateLimit: async (_id, options) => {
+        const partition = options.rateLimitKey ?? "";
+        observedPartitions.push(partition);
+        const rateLimited = consumedPartitions.has(partition);
+        consumedPartitions.add(partition);
+        return { rateLimited };
+      },
+    });
+
+    const bootstrap = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      protocolDeps,
+    );
+    expect(bootstrap.status).toBe(200);
+    expect((await bootstrap.json() as Record<string, unknown>).relayCredentials)
+      .toBeUndefined();
+
+    endpointBound = true;
+    const credential = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      protocolDeps,
+    );
+    expect(credential.status).toBe(200);
+    expect((await credential.json() as Record<string, unknown>).relayCredentials)
+      .toHaveLength(1);
+
+    const duplicate = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      protocolDeps,
+    );
+    expect(duplicate.status).toBe(429);
+    expect(duplicate.headers.get("retry-after")).toBe("40");
+
+    nowSeconds += 60;
+    const renewal = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      protocolDeps,
+    );
+    expect(renewal.status).toBe(200);
+    expect(new Set(observedPartitions).size).toBe(3);
   });
 
   test("skips rate limiting when no rule is configured", async () => {

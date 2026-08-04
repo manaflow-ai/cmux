@@ -1361,138 +1361,750 @@
         }
       }
     },
-    "agent.autoRetry.log.exhausted": {
+    "account.signIn.browserOpenFailed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent exited with code %lld after %lld retries; automatic retries exhausted."
+            "value": "Couldn’t open your browser. Copy the link and paste it into any browser."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントは %2$lld 回の再試行後にコード %1$lld で終了しました。自動再試行の上限に達しました。"
+            "value": "ブラウザを開けませんでした。リンクをコピーして任意のブラウザに貼り付けてください。"
           }
         }
       }
     },
-    "agent.autoRetry.log.launchFailed": {
+    "account.signIn.browserOpened": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent resume command could not be sent; automatic retries stopped."
+            "value": "Browser opened. Complete sign-in there."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントの再開コマンドを送信できなかったため、自動再試行を停止しました。"
+            "value": "ブラウザを開きました。そこでサインインを完了してください。"
           }
         }
       }
     },
-    "agent.autoRetry.log.scheduled": {
+    "account.signIn.copyFailed": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent exited with code %lld; retrying (attempt %lld/%lld)."
+            "value": "Couldn’t copy the link. Open it in your browser instead."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントはコード %1$lld で終了しました。再試行します（%2$lld/%3$lld 回目）。"
+            "value": "リンクをコピーできませんでした。代わりにブラウザで開いてください。"
           }
         }
       }
     },
-    "agent.autoRetry.notification.exhausted.body.one": {
+    "account.signIn.copyLink": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent could not be resumed after 1 automatic retry."
+            "value": "Copy Sign-In Link"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 回の自動再試行後もエージェントを再開できませんでした。"
+            "value": "サインインリンクをコピー"
           }
         }
       }
     },
-    "agent.autoRetry.notification.exhausted.body.other": {
+    "account.signIn.error.browserUnavailable.recovery": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent could not be resumed after %lld automatic retries."
+            "value": "Open the link in your browser, or copy it and paste it into any browser."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 回の自動再試行後もエージェントを再開できませんでした。"
+            "value": "ブラウザでリンクを開くか、リンクをコピーして任意のブラウザに貼り付けてください。"
           }
         }
       }
     },
-    "agent.autoRetry.notification.exhausted.title": {
+    "account.signIn.error.browserUnavailable.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent retries exhausted"
+            "value": "Couldn’t open sign-in"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントの再試行上限に到達"
+            "value": "サインインを開けませんでした"
           }
         }
       }
     },
-    "agent.autoRetry.status.exhausted": {
+    "account.signIn.error.cancelled.recovery": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent auto-retry exhausted"
+            "value": "No changes were made. Try again when you’re ready, or use the browser link below."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントの自動再試行上限に到達"
+            "value": "変更はありません。準備ができたらもう一度試すか、下のブラウザリンクを使用してください。"
           }
         }
       }
     },
-    "agent.autoRetry.status.retrying": {
+    "account.signIn.error.cancelled.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Retrying agent (attempt %lld/%lld)…"
+            "value": "Sign-in canceled"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントを再試行中（%1$lld/%2$lld 回目）…"
+            "value": "サインインをキャンセルしました"
+          }
+        }
+      }
+    },
+    "account.signIn.error.invalidLink.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again to create a fresh secure link. The old link cannot sign in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試して新しい安全なリンクを作成してください。古いリンクではサインインできません。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.invalidLink.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That sign-in link is no longer valid"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのサインインリンクは無効です"
+          }
+        }
+      }
+    },
+    "account.signIn.error.network.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check your connection, then try again. Your account was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続を確認してから、もう一度試してください。アカウントは変更されていません。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.network.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t reach Stack"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack に接続できません"
+          }
+        }
+      }
+    },
+    "account.signIn.error.offline.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to Wi-Fi or another network, then try again. You can keep this pane open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi または別のネットワークに接続して、もう一度試してください。このペインは開いたままにできます。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.offline.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No internet connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネットに接続されていません"
+          }
+        }
+      }
+    },
+    "account.signIn.error.rejected.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the account details in the browser and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザでアカウント情報を確認して、もう一度試してください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.rejected.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack rejected the sign-in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack がサインインを拒否しました"
+          }
+        }
+      }
+    },
+    "account.signIn.error.server.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again in a moment. Your account and existing cmux workspaces are unchanged."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "しばらくしてからもう一度試してください。アカウントと既存の cmux ワークスペースは変更されていません。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.server.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack is temporarily unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack は一時的に利用できません"
+          }
+        }
+      }
+    },
+    "account.signIn.error.timedOut.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sign-in window did not return to cmux. Reopen the browser link or start a new attempt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインウインドウから cmux に戻りませんでした。ブラウザリンクをもう一度開くか、新しいサインインを開始してください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.timedOut.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in timed out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインがタイムアウトしました"
+          }
+        }
+      }
+    },
+    "account.signIn.error.unauthorized.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm you’re using the intended Stack account, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用する Stack アカウントが正しいことを確認して、もう一度試してください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.unauthorized.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack couldn’t authorize this sign-in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack がこのサインインを承認できませんでした"
+          }
+        }
+      }
+    },
+    "account.signIn.error.unknown.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again. If the sign-in window still fails, copy the link and open it in your browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試してください。サインインウインドウが引き続き失敗する場合は、リンクをコピーしてブラウザで開いてください。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.unknown.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t finish sign-in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを完了できませんでした"
+          }
+        }
+      }
+    },
+    "account.signIn.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux にサインイン"
+          }
+        }
+      }
+    },
+    "account.signIn.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete sign-in in the window that opened. This pane updates automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いたウインドウでサインインを完了してください。このペインは自動的に更新されます。"
+          }
+        }
+      }
+    },
+    "account.signIn.linkCopied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピーしました"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.finishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finishing sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを完了しています…"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.finishing.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is verifying your Stack account. Keep this pane open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が Stack アカウントを確認しています。このペインを開いたままにしてください。"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.opening": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening secure sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全なサインインを開いています…"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.opening.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing a secure Stack sign-in window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が安全な Stack サインインウインドウを準備しています。"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを待機中…"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.waiting.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete sign-in in the window that opened. This pane updates automatically."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いたウインドウでサインインを完了してください。このペインは自動的に更新されます。"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.waitingSlow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still waiting for sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引き続きサインインを待機中…"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.waitingSlow.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sign-in window is taking longer than expected. You can reopen or copy the same secure link without restarting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインウインドウに時間がかかっています。最初からやり直さずに、同じ安全なリンクをもう一度開くかコピーできます。"
+          }
+        }
+      }
+    },
+    "account.signIn.notCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in wasn’t completed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインが完了しませんでした。"
+          }
+        }
+      }
+    },
+    "account.signIn.openInBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Again in Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザでもう一度開く"
+          }
+        }
+      }
+    },
+    "account.signIn.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with your Stack account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack アカウントで続行します。"
+          }
+        }
+      }
+    },
+    "account.signIn.start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        }
+      }
+    },
+    "account.signIn.successBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is connected to your Stack account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が Stack アカウントに接続されました。"
+          }
+        }
+      }
+    },
+    "account.signIn.successTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしました"
+          }
+        }
+      }
+    },
+    "account.signIn.tryAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試す"
+          }
+        }
+      }
+    },
+    "account.signIn.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for sign-in…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインを待機中…"
+          }
+        }
+      }
+    },
+    "account.signIn.workspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
           }
         }
       }
@@ -3208,6 +3820,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "PID は正の整数でなければなりません。"
+          }
+        }
+      }
+    },
+    "agent.deliveryTarget.error.invalidPidResolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution must be corroborated or controlling_tty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pid_resolution は corroborated または controlling_tty でなければなりません。"
           }
         }
       }
@@ -31799,6 +32428,23 @@
         }
       }
     },
+    "browser.screenshot.error.captureInProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another browser screenshot is already in progress."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のブラウザのスクリーンショットを取得中です。"
+          }
+        }
+      }
+    },
     "browser.screenshot.error.emptySnapshot": {
       "extractionState": "manual",
       "localizations": {
@@ -32295,6 +32941,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法將螢幕截圖寫入剪貼簿。"
+          }
+        }
+      }
+    },
+    "browser.screenshot.error.renderedContentMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser screenshot disagreed with rendered text at %1$@; %2$lld text probes were blank after %3$lld attempts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのスクリーンショットが %1$@ の描画済みテキストと一致しません。%3$lld 回試行した後も %2$lld 個のテキストプローブが空白でした。"
           }
         }
       }
@@ -34398,6 +35061,773 @@
         }
       }
     },
+    "cli.closeSurface.error.explicitSurfaceRequiresWorkspaceOrWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب close-surface الخيار --workspace أو --window عند تحديد --surface صراحةً"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface zahtijeva --workspace ili --window uz eksplicitni --surface"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface kræver --workspace eller --window med eksplicit --surface"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface erfordert --workspace oder --window mit explizitem --surface"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface requires --workspace or --window with explicit --surface"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface requiere --workspace o --window con --surface explícito"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface requiert --workspace ou --window avec --surface explicite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface richiede --workspace o --window con --surface esplicito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明示的に --surface を指定する場合、close-surface には --workspace または --window が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface ត្រូវការ --workspace ឬ --window ជាមួយ --surface ដែលបានបញ្ជាក់ច្បាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명시적 --surface에는 close-surface에 --workspace 또는 --window가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface krever --workspace eller --window med eksplisitt --surface"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface wymaga --workspace albo --window przy jawnym --surface"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface requer --workspace ou --window com --surface explícito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface требует --workspace или --window при явном --surface"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface ต้องใช้ --workspace หรือ --window เมื่อระบุ --surface อย่างชัดเจน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık --surface ile close-surface için --workspace veya --window gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface потребує --workspace або --window з явним --surface"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显式指定 --surface 时，close-surface 需要 --workspace 或 --window"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明確指定 --surface 時，close-surface 需要 --workspace 或 --window"
+          }
+        }
+      }
+    },
+    "cli.surface.error.handleBlank": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف السطح فارغ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ručka površine je prazna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overfladehåndtaget er tomt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberflächen-Handle ist leer"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface handle is blank"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El identificador de superficie está vacío"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’identifiant de surface est vide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'handle della superficie è vuoto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスハンドルが空です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ហែនឌែលផ្ទៃទទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스 핸들이 비어 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflatehåndtaket er tomt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uchwyt powierzchni jest pusty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O identificador da superfície está vazio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дескриптор поверхности пуст"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แฮนเดิลพื้นผิวว่างเปล่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey tanıtıcısı boş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дескриптор поверхні порожній"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表面句柄为空"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表面控制代碼為空"
+          }
+        }
+      }
+    },
+    "cli.surface.error.indexNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على فهرس السطح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indeks površine nije pronađen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overfladeindeks blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberflächenindex nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface index not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró el índice de superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Index de surface introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indice superficie non trovato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスインデックスが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញលិបិក្រមផ្ទៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스 인덱스를 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflateindeks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono indeksu powierzchni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Índice de superfície não encontrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Индекс поверхности не найден"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบดัชนีพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey dizini bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Індекс поверхні не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面索引"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面索引"
+          }
+        }
+      }
+    },
+    "cli.surface.error.invalidHandle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف سطح غير صالح: %@ (المتوقع UUID أو مرجع مثل surface:1 أو فهرس)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevažeća ručka površine: %@ (očekuje se UUID, referenca poput surface:1 ili indeks)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldigt overfladehåndtag: %@ (forventede UUID, reference som surface:1 eller indeks)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiges Oberflächen-Handle: %@ (UUID, Referenz wie surface:1 oder Index erwartet)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid surface handle: %@ (expected UUID, ref like surface:1, or index)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identificador de superficie no válido: %@ (se esperaba UUID, referencia como surface:1 o índice)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identifiant de surface invalide: %@ (UUID, référence comme surface:1 ou index attendu)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handle superficie non valido: %@ (previsto UUID, riferimento come surface:1 o indice)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効なサーフェスハンドル: %@ (UUID、surface:1 のような参照、またはインデックスを指定してください)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ហែនឌែលផ្ទៃមិនត្រឹមត្រូវ: %@ (រំពឹង UUID សេចក្តីយោងដូចជា surface:1 ឬលិបិក្រម)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 서피스 핸들: %@ (UUID, surface:1 같은 참조 또는 인덱스 필요)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig overflatehåndtak: %@ (forventet UUID, referanse som surface:1 eller indeks)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowy uchwyt powierzchni: %@ (oczekiwano UUID, odwołania jak surface:1 albo indeksu)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identificador de superfície inválido: %@ (esperado UUID, referência como surface:1 ou índice)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимый дескриптор поверхности: %@ (ожидается UUID, ссылка вида surface:1 или индекс)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แฮนเดิลพื้นผิวไม่ถูกต้อง: %@ (ต้องเป็น UUID การอ้างอิงเช่น surface:1 หรือดัชนี)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz yüzey tanıtıcısı: %@ (UUID, surface:1 gibi başvuru veya dizin beklenir)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недійсний дескриптор поверхні: %@ (очікується UUID, посилання на кшталт surface:1 або індекс)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无效的表面句柄: %@ (应为 UUID、类似 surface:1 的引用或索引)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無效的表面控制代碼: %@ (預期 UUID、類似 surface:1 的參照或索引)"
+          }
+        }
+      }
+    },
+    "cli.surface.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على السطح: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina nije pronađena: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflade blev ikke fundet: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberfläche nicht gefunden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la superficie: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface introuvable: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie non trovata: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញផ្ទៃ: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스를 찾을 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflate: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono powierzchni: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície não encontrada: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность не найдена: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบพื้นผิว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey bulunamadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхню не знайдено: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面: %@"
+          }
+        }
+      }
+    },
+    "cli.surface.error.refNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على مرجع السطح: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Referenca površine nije pronađena: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overfladereference blev ikke fundet: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberflächenreferenz nicht gefunden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface ref not found: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la referencia de superficie: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Référence de surface introuvable: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riferimento superficie non trovato: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス参照が見つかりません: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញសេចក្តីយោងផ្ទៃ: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스 참조를 찾을 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflatereferanse: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono odwołania do powierzchni: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Referência de superfície não encontrada: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка на поверхность не найдена: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบการอ้างอิงพื้นผิว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey referansı bulunamadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання на поверхню не знайдено: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面引用: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面參照: %@"
+          }
+        }
+      }
+    },
+    "cli.surfaceResume.set.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume set: unknown flag '%1$@'. Known flags: %2$@. Use -- <argv...> for command arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume set: 不明なフラグ '%1$@'。利用可能なフラグ: %2$@。コマンド引数には -- <argv...> を使用してください。"
+          }
+        }
+      }
+    },
     "cli.claude-hook.notification.title": {
       "extractionState": "manual",
       "localizations": {
@@ -34452,6 +35882,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Використання: cmux claude-teams [аргументи-claude...]\n\nЗапуск Claude Code з увімкненими командами агентів.\n\nЦя команда:\n  - типово вмикає режим teammate для Claude\n  - забезпечує підтримку cmux для сеансу\n  - встановлює CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1\n  - додає приватну tmux-прокладку на початок PATH\n  - передає всі інші аргументи до claude\n\nTmux-прокладка перетворює підтримувані команди tmux вікон/панелей на операції\nробочих просторів і розділів cmux у поточному сеансі cmux.\n\nПриклади:\n  cmux claude-teams\n  cmux claude-teams --continue\n  cmux claude-teams --model sonnet"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.depthExceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher skipped a Codex subagent: depth %1$lld exceeds the automatic pane limit %2$lld."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは Codex サブエージェントをスキップしました: 深さ %1$lld がペイン自動作成の上限 %2$lld を超えています。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.paneCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not create a pane for a resumed Codex subagent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは再開された Codex サブエージェント用のペインを作成できませんでした。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.paneCreationFailedWithCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not create a pane for a resumed Codex subagent (error code: %@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは再開された Codex サブエージェント用のペインを作成できませんでした（エラーコード: %@）。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.readinessFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher could not attach a Codex subagent because its resumed thread was not ready."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは、再開されたスレッドの準備ができていないため Codex サブエージェントをアタッチできませんでした。"
+          }
+        }
+      }
+    },
+    "cli.codexTeams.watcher.subagent.statusNotAttachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams watcher skipped a Codex subagent: thread status %@ is not attachable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux codex-teams ウォッチャーは Codex サブエージェントをスキップしました: スレッドの状態 %@ はアタッチ可能ではありません。"
           }
         }
       }
@@ -34845,6 +36360,98 @@
         }
       }
     },
+    "cli.events.error.invalidTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout must be greater than 0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout は0より大きい値である必要があります"
+          }
+        }
+      }
+    },
+    "cli.events.error.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for a matching event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するイベントを待機中にタイムアウトしました"
+          }
+        }
+      }
+    },
+    "cli.events.help.snapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Print the subscription snapshot and exit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読スナップショットを表示して終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 스냅샷을 출력하고 종료"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вивести знімок підписки та завершити роботу"
+          }
+        }
+      }
+    },
+    "cli.events.help.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit unsuccessfully if no matching event arrives before the deadline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限までに一致するイベントが届かない場合はエラーで終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제한 시간 전에 일치하는 이벤트가 도착하지 않으면 오류로 종료"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершити з помилкою, якщо відповідна подія не надійде до кінцевого терміну"
+          }
+        }
+      }
+    },
     "cli.forwarding.error.allocateArguments": {
       "extractionState": "manual",
       "localizations": {
@@ -35232,6 +36839,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "ios <subcommand> [args] [--surface <id|ref|index>]"
+          }
+        }
+      }
+    },
+    "cli.help.irohDiag": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux iroh-diag\n\nاطبع تقرير اتصال Iroh للمضيف كمخطط زمني بلغة واضحة،\nوهي البيانات نفسها الموجودة في الإعدادات > الشبكات > تقرير الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux iroh-diag\n\nIspiši izvještaj o Iroh vezi domaćina kao vremensku liniju razumljivim jezikom,\niste podatke kao Postavke > Mreža > Izvještaj o vezi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux iroh-diag\n\nUdskriv værtens Iroh-forbindelsesrapport som en tidslinje i almindeligt sprog,\nde samme data som Indstillinger > Netværk > Forbindelsesrapport."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux iroh-diag\n\nGibt den Iroh-Verbindungsbericht des Hosts als verständliche Zeitleiste aus,\ndieselben Daten wie Einstellungen > Netzwerk > Verbindungsbericht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux iroh-diag\n\nPrint the host's Iroh Connection Report as a plain-language timeline,\nthe same data as Settings > Networking > Connection Report."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux iroh-diag\n\nMuestra el informe de conexión Iroh del host como una cronología en lenguaje sencillo,\nlos mismos datos que Ajustes > Red > Informe de conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux iroh-diag\n\nAffiche le rapport de connexion Iroh de l’hôte sous forme de chronologie en langage clair,\nles mêmes données que Réglages > Réseau > Rapport de connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux iroh-diag\n\nStampa il rapporto di connessione Iroh dell’host come cronologia in linguaggio semplice,\ngli stessi dati di Impostazioni > Rete > Rapporto di connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux iroh-diag\n\nホストのIroh接続レポートを読みやすいタイムラインとして出力します。\n設定 > ネットワーク > 接続レポートと同じデータです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux iroh-diag\n\nបង្ហាញរបាយការណ៍ការតភ្ជាប់ Iroh របស់ម៉ាស៊ីនជាបន្ទាត់ពេលវេលាដែលងាយយល់\nជាទិន្នន័យដូចគ្នានឹង ការកំណត់ > បណ្តាញ > របាយការណ៍ការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux iroh-diag\n\n호스트의 Iroh 연결 보고서를 이해하기 쉬운 타임라인으로 출력합니다.\n설정 > 네트워킹 > 연결 보고서와 동일한 데이터입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux iroh-diag\n\nSkriv ut vertens Iroh-tilkoblingsrapport som en tidslinje i klart språk,\nde samme dataene som Innstillinger > Nettverk > Tilkoblingsrapport."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux iroh-diag\n\nWyświetla raport połączenia Iroh hosta jako oś czasu napisaną prostym językiem,\nte same dane co Ustawienia > Sieć > Raport połączenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux iroh-diag\n\nExibe o relatório de conexão Iroh do host como uma linha do tempo em linguagem simples,\nos mesmos dados de Ajustes > Rede > Relatório de conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux iroh-diag\n\nВыводит отчет о подключении Iroh хоста в виде понятной временной шкалы,\nте же данные, что в Настройки > Сеть > Отчет о подключении."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux iroh-diag\n\nแสดงรายงานการเชื่อมต่อ Iroh ของโฮสต์เป็นไทม์ไลน์ที่อ่านเข้าใจง่าย\nเป็นข้อมูลเดียวกับ การตั้งค่า > เครือข่าย > รายงานการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux iroh-diag\n\nAna bilgisayarın Iroh Bağlantı Raporunu anlaşılır bir zaman çizelgesi olarak yazdırır,\nAyarlar > Ağ > Bağlantı Raporu ile aynı verileri içerir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux iroh-diag\n\nВиводить звіт про підключення Iroh хоста як зрозумілу часову шкалу,\nті самі дані, що в Налаштування > Мережа > Звіт про підключення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux iroh-diag\n\n以易读的时间线形式输出主机的 Iroh 连接报告，\n数据与“设置 > 网络 > 连接报告”相同。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux iroh-diag\n\n以易讀的時間軸形式輸出主機的 Iroh 連線報告，\n資料與「設定 > 網路 > 連線報告」相同。"
           }
         }
       }
@@ -46918,6 +48650,174 @@
         }
       }
     },
+    "cli.restore.error.checkpointMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このコマンドは現在のセッションと一致しません。現在の状態を使用するには 'cmux restore --surface' を実行してください。" } }
+      }
+    },
+    "cli.restore.error.compatibilityShellFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved process could not be started. Retry the visible restore command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存されたプロセスを開始できませんでした。表示されている復元コマンドを再実行してください。" } }
+      }
+    },
+    "cli.restore.error.currentSurfaceUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the current cmux surface could not be identified. Retry from this terminal or pass --surface <id|ref>." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 現在の cmux サーフェスを特定できませんでした。このターミナルから再試行するか、--surface <id|ref> を指定してください。" } }
+      }
+    },
+    "cli.restore.error.executableNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved agent command is unavailable. Make sure the agent is installed, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存されたエージェントコマンドを利用できません。エージェントがインストールされていることを確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.execveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved process could not be started. Retry the visible restore command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存されたプロセスを開始できませんでした。表示されている復元コマンドを再実行してください。" } }
+      }
+    },
+    "cli.restore.error.incompleteData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.restore.error.kindMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このコマンドは現在のセッションと一致しません。現在の状態を使用するには 'cmux restore --surface' を実行してください。" } }
+      }
+    },
+    "cli.restore.error.malformedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.restore.error.malformedRecord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.restore.error.noRecord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session has nothing to restore. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションには復元できるものがありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupConfigurationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup could not start. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を開始できませんでした。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupExited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup failed. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定に失敗しました。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupSignaled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup failed. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定に失敗しました。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupStartFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup could not start. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を開始できませんでした。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup took too long. Check the provider connection, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定に時間がかかりすぎました。プロバイダー接続を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup is unavailable. Check the agent's provider settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を利用できません。エージェントのプロバイダー設定を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.providerSetupWaitFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: provider setup could not complete. Retry the visible restore command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: プロバイダー設定を完了できませんでした。表示されている復元コマンドを再実行してください。" } }
+      }
+    },
+    "cli.restore.error.socketNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: cmux is still opening. Retry the visible restore command in a moment." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: cmux はまだ起動中です。しばらくしてから、表示されている復元コマンドを再実行してください。" } }
+      }
+    },
+    "cli.restore.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the requested surface was not found. Check the surface reference, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 指定されたサーフェスが見つかりません。サーフェスの参照を確認してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.error.unsupportedMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: this session's saved restore data is not compatible. Start the agent again in this terminal." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: このセッションの保存済み復元データには互換性がありません。このターミナルでエージェントをもう一度起動してください。" } }
+      }
+    },
+    "cli.restore.error.workingDirectoryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: the saved working directory is inaccessible. Restore access to it, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存された作業ディレクトリにアクセスできません。アクセスを復元してから、再試行してください。" } }
+      }
+    },
+    "cli.restore.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore <kind> <checkpoint-id>\n       cmux restore --surface [id|ref]\n\nReplace this CLI process with the persisted surface process. New\nrecords preserve argv, environment, and cwd as structured values;\ncommand-only records from older builds use a compatibility shell.\nWith no id or ref, --surface uses the calling cmux surface." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore <kind> <checkpoint-id>\n        cmux restore --surface [id|ref]\n\nこの CLI プロセスを保存されたサーフェスプロセスで置き換えます。新しい\nレコードでは argv、環境、cwd が構造化された値として保持されます。\n旧ビルドのコマンドのみのレコードでは互換シェルを使用します。\nid または ref を省略すると、--surface は呼び出し元の cmux サーフェスを使用します。" } }
+      }
+    },
+    "cli.restore.usage.positional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore <kind> <checkpoint-id>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore <kind> <checkpoint-id>" } }
+      }
+    },
+    "cli.restore.usage.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore --surface [id|ref]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore --surface [id|ref]" } }
+      }
+    },
     "cli.rightSidebar.error.invalidWindow": {
       "extractionState": "manual",
       "localizations": {
@@ -50338,6 +52238,131 @@
         }
       }
     },
+    "cli.ssh.restore.lifecycleUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] توقف استعادة SSH لأن cmux لم يتمكن من تسجيل دورة حياة الاتصال. أعد فتح مساحة العمل البعيدة لإعادة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Vraćanje SSH-a je zaustavljeno jer cmux nije mogao registrirati životni ciklus veze. Ponovo otvorite udaljeni radni prostor za ponovno povezivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH-gendannelse blev stoppet, fordi cmux ikke kunne registrere forbindelsens livscyklus. Åbn fjernarbejdsområdet igen for at oprette forbindelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Die SSH-Wiederherstellung wurde beendet, weil cmux den Verbindungslebenszyklus nicht registrieren konnte. Öffnen Sie den Remote-Arbeitsbereich erneut, um die Verbindung wiederherzustellen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH restore stopped because cmux could not register the connection lifecycle. Reopen this remote workspace to reconnect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La restauración de SSH se detuvo porque cmux no pudo registrar el ciclo de vida de la conexión. Vuelva a abrir este espacio de trabajo remoto para reconectarse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La restauration SSH s’est arrêtée, car cmux n’a pas pu enregistrer le cycle de vie de la connexion. Rouvrez cet espace de travail distant pour vous reconnecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Il ripristino SSH è stato interrotto perché cmux non ha potuto registrare il ciclo di vita della connessione. Riapri questo spazio di lavoro remoto per riconnetterti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux が接続ライフサイクルを登録できなかったため、SSH の復元を停止しました。再接続するには、このリモートワークスペースを開き直してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ការស្តារ SSH បានបញ្ឈប់ ព្រោះ cmux មិនអាចចុះឈ្មោះវដ្តជីវិតនៃការតភ្ជាប់បាន។ សូមបើកកន្លែងធ្វើការពីចម្ងាយនេះឡើងវិញ ដើម្បីភ្ជាប់ឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux가 연결 수명 주기를 등록하지 못해 SSH 복원이 중지되었습니다. 다시 연결하려면 이 원격 작업 공간을 다시 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH-gjenopprettingen stoppet fordi cmux ikke kunne registrere tilkoblingens livssyklus. Åpne det eksterne arbeidsområdet på nytt for å koble til igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Przywracanie SSH zostało zatrzymane, ponieważ cmux nie mógł zarejestrować cyklu życia połączenia. Otwórz ponownie ten zdalny obszar roboczy, aby się połączyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] A restauração do SSH foi interrompida porque o cmux não conseguiu registrar o ciclo de vida da conexão. Reabra este workspace remoto para se reconectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Восстановление SSH остановлено, потому что cmux не смог зарегистрировать жизненный цикл подключения. Повторно откройте удалённое рабочее пространство, чтобы подключиться."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] การกู้คืน SSH หยุดลงเนื่องจาก cmux ไม่สามารถลงทะเบียนวงจรชีวิตการเชื่อมต่อได้ เปิดพื้นที่ทำงานระยะไกลนี้อีกครั้งเพื่อเชื่อมต่อใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux bağlantı yaşam döngüsünü kaydedemediği için SSH geri yüklemesi durduruldu. Yeniden bağlanmak için bu uzak çalışma alanını yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Відновлення SSH зупинено, оскільки cmux не зміг зареєструвати життєвий цикл підключення. Повторно відкрийте віддалений робочий простір, щоб підключитися."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 无法注册连接生命周期，因此已停止恢复 SSH。请重新打开此远程工作区以重新连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] cmux 無法註冊連線生命週期，因此已停止復原 SSH。請重新開啟此遠端工作區以重新連線。"
+          }
+        }
+      }
+    },
     "cli.ssh.transport.invalid": {
       "extractionState": "manual",
       "localizations": {
@@ -50463,6 +52488,74 @@
         }
       }
     },
+    "cli.sshPtyAttach.bridgeClosedReattaching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジが閉じました。再接続しています（試行 %s/%s）。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.bridgeClosedWithoutProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-pty-attach: bridge closed without receiving new output while the remote PTY session is still running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-pty-attach: 新しい出力を受信しないままブリッジが閉じましたが、リモート PTY セッションは引き続き実行中です"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.noProgressRetryLimitReached.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge made no progress after %s attempt; stopping retries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジは %s 回試行しても進行しなかったため、再試行を停止します。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.noProgressRetryLimitReached.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] remote PTY bridge made no progress after %s attempts; stopping retries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモート PTY ブリッジは %s 回試行しても進行しなかったため、再試行を停止します。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.remoteSessionLostRespawn": {
       "extractionState": "manual",
       "localizations": {
@@ -50476,6 +52569,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
+          }
+        }
+      }
+    },
+    "cli.tmux-compat.error.downstreamTmuxMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tmux shim: no downstream tmux executable found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tmux シム: 後続の tmux 実行ファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "cli.tmux-compat.error.managedTerminalRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ must be launched from a cmux-managed terminal surface. Open a terminal surface in cmux and run this command there."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は cmux が管理するターミナルサーフェスから起動する必要があります。cmux でターミナルサーフェスを開き、そこでこのコマンドを実行してください。"
           }
         }
       }
@@ -51700,6 +53827,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@: не вдалося прочитати --env-file '%@': %@"
+          }
+        }
+      }
+    },
+    "cli.workspaceAction.tailscalePairingUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale Pairing is unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleペアリングは利用できません"
           }
         }
       }
@@ -59343,7 +61487,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile"
+            "value": "Tailscale"
           }
         },
         "es": {
@@ -59367,7 +61511,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "モバイル"
+            "value": "Tailscale"
           }
         },
         "km": {
@@ -59468,7 +61612,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect iPhone/iPad"
+            "value": "Open Tailscale Pairing"
           }
         },
         "es": {
@@ -59492,7 +61636,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone/iPadを接続"
+            "value": "Tailscaleペアリングを開く"
           }
         },
         "km": {
@@ -69848,6 +71992,244 @@
         }
       }
     },
+    "commandPalette.rename.workspaceGroupConfirmHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط Enter لتطبيق اسم المجموعة، أو Escape للإلغاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pritisnite Enter za primjenu naziva grupe, ili Escape za otkazivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk Enter for at anvende dette gruppenavn, eller Escape for at annullere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drücken Sie die Eingabetaste, um den Gruppennamen zu übernehmen, oder Escape zum Abbrechen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press Enter to apply this group name, or Escape to cancel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsa Intro para aplicar este nombre de grupo, o Escape para cancelar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez sur Entrée pour appliquer ce nom de groupe, ou sur Échap pour annuler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi Invio per applicare il nome del gruppo, oppure Esc per annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enterキーでグループ名を適用、Escapeキーでキャンセルします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter를 눌러 그룹 이름을 적용하거나, Escape를 눌러 취소하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trykk Enter for å bruke dette gruppenavnet, eller Escape for å avbryte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naciśnij Enter, aby zastosować nazwę grupy, lub Escape, aby anulować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressione Enter para aplicar este nome de grupo ou Escape para cancelar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите Enter, чтобы применить имя группы, или Escape для отмены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กด Enter เพื่อใช้ชื่อกลุ่มนี้ หรือ Escape เพื่อยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu grup adını uygulamak için Enter tuşuna basın veya iptal etmek için Escape tuşuna basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натисніть Enter, щоб застосувати назву групи, або Escape для скасування."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 Enter 应用此分组名称，或按 Escape 取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 Enter 套用此群組名稱，或按 Escape 取消。"
+          }
+        }
+      }
+    },
+    "commandPalette.rename.workspaceGroupInputHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل اسم المجموعة. اضغط Enter لإعادة التسمية، Escape للإلغاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unesite naziv grupe. Pritisnite Enter za preimenovanje, Escape za otkazivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indtast et gruppenavn. Tryk Enter for at omdøbe, Escape for at annullere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geben Sie einen Gruppennamen ein. Eingabetaste zum Umbenennen, Escape zum Abbrechen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a group name. Press Enter to rename, Escape to cancel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce un nombre de grupo. Pulsa Intro para renombrar, Escape para cancelar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un nom de groupe. Appuyez sur Entrée pour renommer, Échap pour annuler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci un nome per il gruppo. Premi Invio per rinominare, Esc per annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名を入力してください。Enterで名称変更、Escapeでキャンセルします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 이름을 입력하세요. Enter로 이름 변경, Escape로 취소."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv inn et gruppenavn. Trykk Enter for å gi nytt navn, Escape for å avbryte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wprowadź nazwę grupy. Naciśnij Enter, aby zmienić nazwę, Escape, aby anulować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insira um nome para o grupo. Pressione Enter para renomear, Escape para cancelar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите имя группы. Нажмите Enter для переименования, Escape для отмены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้อนชื่อกลุ่ม กด Enter เพื่อเปลี่ยนชื่อ, Escape เพื่อยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir grup adı girin. Yeniden adlandırmak için Enter, iptal etmek için Escape tuşuna basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть назву групи. Enter — перейменувати, Escape — скасувати."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入分组名称。按 Enter 重命名，按 Escape 取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入群組名稱。按 Enter 重新命名，按 Escape 取消。"
+          }
+        }
+      }
+    },
     "commandPalette.rename.workspaceInputHint": {
       "extractionState": "manual",
       "localizations": {
@@ -78193,6 +80575,35 @@
         }
       }
     },
+    "debug.devBuildBanner.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls the red debug-build label below the sidebar footer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのフッター下にある赤い開発ビルドラベルの表示を切り替えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 하단 아래의 빨간색 개발 빌드 라벨 표시를 전환합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Керує показом червоної позначки збірки для розробки під нижньою частиною бічної панелі."
+          }
+        }
+      }
+    },
     "debug.devBuildBanner.show": {
       "extractionState": "manual",
       "localizations": {
@@ -79080,6 +81491,23 @@
         }
       }
     },
+    "debug.menu.sidebarFooterIconBalance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Footer Icon Balance Lab…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フッターアイコンバランスラボ…"
+          }
+        }
+      }
+    },
     "debug.menu.splitButtonLayoutDebug": {
       "extractionState": "manual",
       "localizations": {
@@ -79246,6 +81674,397 @@
           "stringUnit": {
             "state": "translated",
             "value": "Titlebar Layout Debug..."
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tune each icon live, compare sharp and squint previews, then use the cards to explore Help weights."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各アイコンをライブ調整し、鮮明表示とスクイント表示を比較してから、カードでヘルプのウェイトを確認します。"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.helpIcon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘルプアイコン"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.helpSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘルプ"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.hoverIntensity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover intensity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバーの強さ"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.hoverPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバープレビュー"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.iconSizes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon sizes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンサイズ"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.mobileSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.opticalBalance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optical balance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視覚的バランス"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.profileDisplay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile display"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィール表示"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.profileDisplay.icon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコン"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.profileDisplay.picture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.profileIcon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile icon"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィールアイコン"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.profileSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィール"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.referenceNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cell guides show geometric alignment; the squint preview compares optical weight."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セルガイドは幾何学的な整列を示し、スクイント表示は視覚的なウェイトを比較します。"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Selection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択をリセット"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.sharpPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharp"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鮮明"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.showCellGuides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show 22 pt cell guides"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "22 ptセルガイドを表示"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.squintPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Squint"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクイント"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.squintRadius": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Squint radius"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクイント半径"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Footer Icon Balance Lab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フッターアイコンバランスラボ"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.weight.medium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミディアム"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.weight.regular": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regular"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レギュラー"
+          }
+        }
+      }
+    },
+    "debug.sidebarFooterIconBalance.weight.semibold": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semibold"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セミボールド"
           }
         }
       }
@@ -107932,13 +110751,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the iPhone button that opens the Mobile Connect pairing window."
+            "value": "Shows the Tailscale Pairing button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connectのペアリングウィンドウを開くiPhoneボタンを表示します。"
+            "value": "サイドバーのフッターにTailscaleペアリングボタンを表示します。"
           }
         }
       }
@@ -107949,13 +110768,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connect button"
+            "value": "Tailscale Pairing button"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connectボタン"
+            "value": "Tailscaleペアリングボタン"
           }
         }
       }
@@ -108113,6 +110932,40 @@
         }
       }
     },
+    "featureFlags.sidebarAccount.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the profile and sign-in control in the sidebar footer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのフッターにプロフィールとサインインのコントロールを表示します。"
+          }
+        }
+      }
+    },
+    "featureFlags.sidebarAccount.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar account button"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのアカウントボタン"
+          }
+        }
+      }
+    },
     "featureFlags.sidebarWorkspaceAgentSpinner.description": {
       "extractionState": "manual",
       "localizations": {
@@ -108194,6 +111047,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "既定値"
+          }
+        }
+      }
+    },
+    "featureFlags.source.local": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Локально"
           }
         }
       }
@@ -131990,6 +134872,23 @@
         }
       }
     },
+    "mobile.pairing.codeMode.tailscaleDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale pairing code. Keep Tailscale connected on both devices. Both devices must be connected to the same Tailscale network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale ペアリングコードです。両方のデバイスで Tailscale の接続を維持してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
+          }
+        }
+      }
+    },
     "mobile.workspaceChanges.error.invalidContentRequest": {
       "extractionState": "manual",
       "localizations": {
@@ -132506,13 +135405,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac and iPhone both need Tailscale to connect over the internet."
+            "value": "Tailscale must be installed and connected on both this Mac and your iPhone. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターネット経由で接続するには、Mac と iPhone の両方に Tailscale が必要です。"
+            "value": "この Mac と iPhone の両方に Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -132523,13 +135422,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not detected. Install Tailscale on this Mac and your iPhone, signed in to the same account."
+            "value": "Tailscale is not connected on this Mac. Install it on both devices and connect both to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検出されませんでした。この Mac と iPhone の両方に、同じアカウントで Tailscale をインストールしてください。"
+            "value": "この Mac で Tailscale が接続されていません。両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。"
           }
         }
       }
@@ -132540,13 +135439,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reachable over Tailscale."
+            "value": "Tailscale is connected on this Mac. It must also be installed and connected on your iPhone. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 経由で接続できます。"
+            "value": "この Mac は Tailscale に接続済みです。iPhone にも Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -133017,13 +135916,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap Add device, then Scan QR Code, and point the camera at the code above."
+            "value": "On your iPhone, choose Tailscale, tap Scan QR Code, then scan the code above."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「デバイスを追加」→「QR コードをスキャン」をタップし、上のコードにカメラを向けます。"
+            "value": "接続方法として Tailscale を選び、「QR コードをスキャン」をタップして上のコードにカメラを向けます。"
           }
         }
       }
@@ -133068,13 +135967,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair your iPhone"
+            "value": "Pair your iPhone with Tailscale"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリング"
+            "value": "TailscaleでiPhoneをペアリング"
           }
         }
       }
@@ -133085,13 +135984,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhones signed in to the same cmux account connect automatically. Scan this code with the cmux app if this Mac doesn't appear on its own."
+            "value": "iPhones on your cmux account connect automatically. Use this code only for Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。この Mac が自動的に表示されない場合は、cmux アプリでこのコードをスキャンしてください。"
+            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。iPhone の接続方法で Tailscale を選択した場合は、このコードを使用してください。"
           }
         }
       }
@@ -133102,13 +136001,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair iPhone"
+            "value": "Tailscale Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリング"
+            "value": "Tailscaleペアリング"
           }
         }
       }
@@ -139907,6 +142806,57 @@
         }
       }
     },
+    "remoteSession.controlMaster.ownershipUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH connection is busy in another cmux process."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の cmux プロセスが SSH 接続を使用しています。"
+          }
+        }
+      }
+    },
+    "remoteSession.reverseRelay.portUnavailableRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote SSH relay port unavailable; retrying in 2 seconds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート SSH リレーポートを利用できません。2秒後に再試行します"
+          }
+        }
+      }
+    },
+    "remoteSession.reverseRelay.unavailableRetrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote SSH relay unavailable; retrying in 2 seconds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート SSH リレーを利用できません。2秒後に再試行します"
+          }
+        }
+      }
+    },
     "remoteTmux.error.commandFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -143833,13 +146783,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $240/year."
+            "value": "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $288/year."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$30、または年額$240。"
+            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$30、または年額$288。"
           }
         }
       }
@@ -169524,6 +172474,23 @@
         }
       }
     },
+    "settings.config.status.reloadBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload queued; too many requests are pending to confirm completion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込みをキューに追加しましたが、保留中のリクエストが多すぎるため完了を確認できません。"
+          }
+        }
+      }
+    },
     "settings.config.status.reloaded": {
       "extractionState": "manual",
       "localizations": {
@@ -171615,13 +174582,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair a Device"
+            "value": "Tailscale Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスをペアリング"
+            "value": "Tailscaleペアリング"
           }
         }
       }
@@ -171632,13 +174599,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair…"
+            "value": "Show Tailscale QR…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング…"
+            "value": "Tailscale QRを表示…"
           }
         }
       }
@@ -171649,13 +174616,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
+            "value": "Devices signed in to the same account connect automatically. Use this QR only to pair through Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。手動でペアリングするには QR コードを表示します。"
+            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。このQRはTailscale経由のペアリングにのみ使用します。"
           }
         }
       }
@@ -172642,6 +175609,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "プロトコルエラー"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.routeGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تعليق محاولة الاتصال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokušaj povezivanja je zadržan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsesforsøg sat på pause"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindungsversuch angehalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Attempt Held"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intento de conexión en pausa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentative de connexion suspendue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentativo di connessione sospeso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続試行が一時的に保留されました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានផ្អាកការព្យាយាមតភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 시도 보류됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilkoblingsforsøk satt på vent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próba połączenia wstrzymana"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentativa de conexão pausada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попытка подключения приостановлена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระงับความพยายามเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlantı denemesi bekletildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спробу підключення призупинено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接尝试已暂停"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線嘗試已暫停"
           }
         }
       }
@@ -188506,23 +191598,6 @@
         }
       }
     },
-    "settings.search.alias.setting.terminal.agent-auto-retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.autoRetryAgentSessions auto retry resume error failure transport api rate limit overloaded agents claude codex"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.autoRetryAgentSessions 自動 再試行 再開 エラー 失敗 通信 API レート制限 過負荷 エージェント claude codex"
-          }
-        }
-      }
-    },
     "settings.search.alias.setting.terminal.copy-on-select": {
       "extractionState": "manual",
       "localizations": {
@@ -194174,57 +197249,6 @@
         }
       }
     },
-    "settings.terminal.agentAutoRetry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retry Failed Agent Sessions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "失敗したエージェントセッションを再試行"
-          }
-        }
-      }
-    },
-    "settings.terminal.agentAutoRetry.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Errored agent sessions stay stopped until you resume them manually."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エラーで停止したエージェントセッションは、手動で再開するまで停止したままになります。"
-          }
-        }
-      }
-    },
-    "settings.terminal.agentAutoRetry.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eligible managed agent sessions that fail during active work resume automatically with bounded backoff; normal and intentional exits are not retried."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作業中に失敗した再試行対象となる管理エージェントセッションのみを、回数制限付きバックオフで自動的に再開します。正常終了や意図的な終了は再試行しません。"
-          }
-        }
-      }
-    },
     "settings.terminal.agentAutoResume": {
       "extractionState": "manual",
       "localizations": {
@@ -194367,13 +197391,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent terminals stay live until you close them or quit cmux."
+            "value": "Scheduled hibernation is off. During critical memory pressure, cmux may still hibernate safe idle background agents."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェント端末は、閉じるか cmux を終了するまでライブのままです。"
+            "value": "通常の休止はオフです。メモリ負荷が危険な状態では、安全なアイドル中のバックグラウンドエージェントを cmux が休止する場合があります。"
           }
         }
       }
@@ -201973,6 +204997,57 @@
         }
       }
     },
+    "shortcut.decreaseWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrease Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズを小さくする"
+          }
+        }
+      }
+    },
+    "shortcut.increaseWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズを大きくする"
+          }
+        }
+      }
+    },
+    "shortcut.resetWorkspaceTerminalFontSize.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Font Size for Workspace Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース内のターミナルのフォントサイズをリセット"
+          }
+        }
+      }
+    },
     "shortcut.equalizeSplits.label": {
       "extractionState": "manual",
       "localizations": {
@@ -202699,6 +205774,125 @@
         }
       }
     },
+    "shortcut.focusNextPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز على اللوحة التالية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusiraj sljedeći panel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser næste panel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächsten Bereich fokussieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Next Pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfocar panel siguiente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer le panneau suivant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta focus pannello successivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のペインにフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 패널로 포커스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser neste panel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus na następny panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focar Próximo Painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на следующую панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟกัสบานหน้าต่างถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki Bölmeye Odaklan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на наступну панель"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦下一个面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦下一個面板"
+          }
+        }
+      }
+    },
     "shortcut.focusPaneDown.label": {
       "extractionState": "manual",
       "localizations": {
@@ -203171,6 +206365,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "聚焦上方面板"
+          }
+        }
+      }
+    },
+    "shortcut.focusPreviousPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز على اللوحة السابقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusiraj prethodni panel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser forrige panel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorherigen Bereich fokussieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Previous Pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfocar panel anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer le panneau précédent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta focus pannello precedente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のペインにフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 패널로 포커스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser forrige panel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus na poprzedni panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focar Painel Anterior"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на предыдущую панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟกัสบานหน้าต่างก่อนหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki Bölmeye Odaklan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на попередню панель"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦上一个面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦上一個面板"
           }
         }
       }
@@ -226833,6 +230146,131 @@
         }
       }
     },
+    "socket.pane.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على السطح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina nije pronađena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflade blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberfläche nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie non trovata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញផ្ទៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스를 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflate"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono powierzchni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície não encontrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность не найдена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхню не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面"
+          }
+        }
+      }
+    },
     "socket.pane.resize.invalidParameters": {
       "extractionState": "manual",
       "localizations": {
@@ -227139,6 +230577,148 @@
         }
       }
     },
+    "socket.surface.resume.launchCommandMustBeValid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launch_command.arguments must be a non-empty array of strings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launch_command.arguments は空でない文字列の配列である必要があります"
+          }
+        }
+      }
+    },
+    "socket.surface.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على السطح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina nije pronađena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflade blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberfläche nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie non trovata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញផ្ទៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스를 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflate"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono powierzchni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície não encontrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность не найдена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхню не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面"
+          }
+        }
+      }
+    },
     "socket.surfaceSplitOff.error.appDelegateUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -227339,6 +230919,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "分割して移動すると移動元ペインが空になります"
+          }
+        }
+      }
+    },
+    "socket.tabAction.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على السطح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina nije pronađena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflade blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberfläche nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie non trovata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញផ្ទៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스를 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflate"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono powierzchni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície não encontrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность не найдена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхню не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面"
+          }
+        }
+      }
+    },
+    "socket.tabAction.error.tabNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica nije pronađena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fane blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onglet introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda non trovata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭을 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aba não encontrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладка не найдена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладку не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到分頁"
           }
         }
       }
@@ -232089,6 +235919,23 @@
         }
       }
     },
+    "surfaceResumeApproval.proposal.applyToPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply to all commands starting with “%@” in this folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダで「%@」から始まるすべてのコマンドに適用"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.proposal.ask": {
       "extractionState": "manual",
       "localizations": {
@@ -232174,6 +236021,23 @@
         }
       }
     },
+    "surfaceResumeApproval.runPrompt.dontAskAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t ask again for this command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコマンドについて今後確認しない"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.runPrompt.message": {
       "extractionState": "manual",
       "localizations": {
@@ -232208,6 +236072,23 @@
         }
       }
     },
+    "surfaceResumeApproval.runPrompt.runAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて実行"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.runPrompt.skip": {
       "extractionState": "manual",
       "localizations": {
@@ -232221,6 +236102,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "スキップ"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.skipAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてスキップ"
           }
         }
       }
@@ -234622,6 +238520,40 @@
         }
       }
     },
+    "terminal.agentHibernation.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent shutdown needs attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの終了を確認してください"
+          }
+        }
+      }
+    },
+    "terminal.agentHibernation.finishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finishing agent shutdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントを終了しています"
+          }
+        }
+      }
+    },
     "terminal.agentHibernation.lastActivity": {
       "extractionState": "manual",
       "localizations": {
@@ -234652,6 +238584,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再開"
+          }
+        }
+      }
+    },
+    "terminal.agentHibernation.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry shutdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了を再試行"
           }
         }
       }
@@ -257926,6 +261875,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "プロトコルエラー"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.routeGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Attempt Held"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続試行が一時的に保留されました"
           }
         }
       }

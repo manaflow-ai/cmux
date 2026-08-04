@@ -89,12 +89,7 @@ final class HostSettingsActions: SettingsHostActions {
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
-        AgentSessionAutoRetrySettings().notifyDidChange()
         AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
-    }
-
-    func agentSessionAutoRetrySettingDidChange() {
-        AgentSessionAutoRetrySettings().notifyDidChange()
     }
 
     func notifyShortcutSettingsDidChange() {
@@ -102,8 +97,8 @@ final class HostSettingsActions: SettingsHostActions {
         // contents changed; posting again here double-notified every
         // listener. Only post when the reload saw no change, so callers
         // still get exactly one notification either way.
-        if !KeyboardShortcutSettings.settingsFileStore.reload() {
-            KeyboardShortcutSettings.notifySettingsFileDidChange()
+        if !KeyboardShortcutSettings.settingsFileStore.reload(notificationSourceURL: configFileURL) {
+            KeyboardShortcutSettings.notifySettingsFileDidChange(sourceURL: configFileURL)
         }
     }
 
@@ -257,7 +252,11 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openMobilePairingWindow() {
-        MobilePairingWindowController.shared.show()
+        _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+            enforceFeatureFlag: false,
+            bringWindowForward: true,
+            debugSource: "settings.mobileConnect"
+        )
     }
 
     private func existingConfigWindow() -> NSWindow? {

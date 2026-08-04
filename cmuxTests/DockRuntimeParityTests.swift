@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxControlSocket
+import CmuxNotifications
 import CmuxTerminal
 import Foundation
 import Testing
@@ -22,12 +23,15 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
     var isDirty = false
 
     private(set) var flashReasons: [WorkspaceAttentionFlashReason] = []
+    private(set) var closeCount = 0
 
     init(title: String) {
         displayTitle = title
     }
 
-    func close() {}
+    func close() {
+        closeCount += 1
+    }
     func focus() {}
     func unfocus() {}
 
@@ -60,6 +64,30 @@ private extension DockSplitStore {
 @Suite("Dock runtime parity", .serialized)
 struct DockRuntimeParityTests {
     private static let socketWorker = DispatchQueue(label: "DockRuntimeParityTests.socketWorker")
+
+    @Test("Reconciling a stale tab alias preserves the live panel owner")
+    func reconcilingStaleTabAliasPreservesLivePanelOwner() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = DockRuntimeParityPanel(title: "Shared panel")
+        let paneID = try dock.seedRuntimeParityPanel(panel)
+        let liveTabID = try #require(dock.surfaceId(forPanelId: panel.id))
+        let staleAliasID = try #require(
+            dock.bonsplitController.createTab(
+                title: "Stale alias",
+                icon: panel.displayIcon,
+                kind: panel.panelType.rawValue,
+                isDirty: false,
+                inPane: paneID
+            )
+        )
+        dock.surfaceIdToPanelId[staleAliasID] = panel.id
+
+        #expect(dock.bonsplitController.closeTab(staleAliasID))
+
+        #expect(dock.panel(for: liveTabID) === panel)
+        #expect(dock.surfaceIdToPanelId[staleAliasID] == nil)
+        #expect(panel.closeCount == 0)
+    }
 
     private func socketEnvelope(
         method: String,
@@ -219,6 +247,66 @@ struct DockRuntimeParityTests {
             ]
             #expect(workspacePanel.flashReasons == expected)
             #expect(globalPanel.flashReasons == expected)
+        }
+    }
+
+    @Test("Focusing a window Dock panel dismisses its unread notification")
+    func focusingWindowDockPanelDismissesUnreadNotification() async throws {
+        try await withAppContext { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = notificationStore
+            defer {
+                notificationStore.replaceNotificationsForTesting([])
+                appDelegate.notificationStore = previousNotificationStore
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let panel = DockRuntimeParityPanel(title: "Window Dock")
+            try dock.seedRuntimeParityPanel(panel)
+            let unreadProjection = DockUnreadPanelProjection(
+                source: notificationStore.sidebarUnread,
+                workspaceID: dock.workspaceId,
+                panelIDs: [panel.id],
+                isActive: true
+            )
+            notificationStore.replaceNotificationsForTesting([
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: dock.workspaceId,
+                    surfaceId: panel.id,
+                    title: "Dock",
+                    subtitle: "",
+                    body: "Unread",
+                    createdAt: .now,
+                    isRead: false
+                ),
+            ])
+
+            #expect(notificationStore.hasUnreadNotification(
+                forTabId: dock.workspaceId,
+                surfaceId: panel.id
+            ))
+            #expect(unreadProjection.unreadPanelIDs == [panel.id])
+            #expect(TerminalNotificationStore.dockBadgeLabel(
+                unreadCount: notificationStore.unreadCount,
+                isEnabled: true
+            ) == "1")
+
+            dock.focusPanelFromDockInteraction(panel.id, window: nil)
+
+            #expect(!notificationStore.hasUnreadNotification(
+                forTabId: dock.workspaceId,
+                surfaceId: panel.id
+            ))
+            #expect(unreadProjection.unreadPanelIDs.isEmpty)
+            #expect(notificationStore.unreadCount == 0)
+            #expect(TerminalNotificationStore.dockBadgeLabel(
+                unreadCount: notificationStore.unreadCount,
+                isEnabled: true
+            ) == nil)
+            #expect(panel.flashReasons == [.notificationDismiss])
         }
     }
 

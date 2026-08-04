@@ -31,7 +31,7 @@ class PiCmuxCommandDispatcher {
   // CLI owns a four-second end-to-end deadline. Observe that outcome before the
   // extension classifies a terminal delivery as failed.
   private static readonly feedDrainDeadlineMs = 4500;
-  private controlQueue: Promise<void> = Promise.resolve();
+  private controlQueues = new Map<string | null, Promise<void>>();
   private pendingFeedCommands = new Map<string, PiFeedCommand>();
   private pendingFeedKeysBySession = new Map<string | null, string[]>();
   private priorityFeedCommands = new Map<string | null, PiFeedCommand[]>();
@@ -56,8 +56,16 @@ class PiCmuxCommandDispatcher {
     input: string | undefined,
     context: PiExtensionContextSnapshot,
   ): Promise<CommandResult> {
-    const scheduled = this.controlQueue.then(() => this.execute(args, cwd, input, context));
-    this.controlQueue = scheduled.then(() => undefined, () => undefined);
+    const sessionId = context.sessionId;
+    const previous = this.controlQueues.get(sessionId) || Promise.resolve();
+    const scheduled = previous.then(() => this.execute(args, cwd, input, context));
+    let tail: Promise<void>;
+    tail = scheduled
+      .then(() => undefined, () => undefined)
+      .finally(() => {
+        if (this.controlQueues.get(sessionId) === tail) this.controlQueues.delete(sessionId);
+      });
+    this.controlQueues.set(sessionId, tail);
     return scheduled;
   }
   enqueueFeed(key: string, command: PiFeedCommand): void {
