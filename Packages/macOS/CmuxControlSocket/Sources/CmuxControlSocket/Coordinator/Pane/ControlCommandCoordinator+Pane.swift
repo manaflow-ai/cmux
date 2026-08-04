@@ -305,11 +305,19 @@ extension ControlCommandCoordinator {
         guard context?.controlPaneRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
+        let profileKeys = ["profile", "profile_id", "profile_name"]
 
         let inputs = ControlPaneCreateInputs(
             directionRaw: string(params, "direction"),
             typeRaw: string(params, "type"),
             urlRaw: string(params, "url"),
+            profileRaw: string(params, "profile")
+                ?? string(params, "profile_id")
+                ?? string(params, "profile_name"),
+            hasInvalidProfileParam: profileKeys.contains {
+                hasNonNull(params, $0) && string(params, $0) == nil
+            },
+            hasMultipleProfileParams: profileKeys.filter { hasNonNull(params, $0) }.count > 1,
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
@@ -376,6 +384,21 @@ extension ControlCommandCoordinator {
                 "placement_strategy": .string("external_browser_disabled"),
                 "url": .string(url),
             ]))
+        case .invalidBrowserProfile(let selector, let message, let candidates):
+            var data: [String: JSONValue] = ["profile": .string(selector)]
+            if !candidates.isEmpty {
+                data["candidates"] = .array(candidates.map { candidate in
+                    .object([
+                        "id": .string(candidate.id.uuidString),
+                        "name": .string(candidate.displayName),
+                    ])
+                })
+            }
+            return .err(
+                code: "invalid_params",
+                message: message,
+                data: .object(data)
+            )
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .noSourceSurface:
@@ -480,15 +503,19 @@ extension ControlCommandCoordinator {
     /// `pane.break` — detach a surface into a new workspace.
     func paneBreak(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
-        guard context?.controlPaneRoutingResolvesTabManager(routing: routing) ?? false else {
+        guard let context, context.controlPaneRoutingResolvesTabManager(routing: routing) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        let resolution = context?.controlPaneBreak(
+        let surfaceID = uuid(params, "surface_id")
+        if params["surface_id"] != nil, surfaceID == nil {
+            return .err(code: "not_found", message: context.controlPaneSurfaceNotFoundMessage(), data: nil)
+        }
+        let resolution = context.controlPaneBreak(
             routing: routing,
             paneID: uuid(params, "pane_id"),
-            surfaceID: uuid(params, "surface_id"),
+            surfaceID: surfaceID,
             requestedFocus: bool(params, "focus") ?? false
-        ) ?? .tabManagerUnavailable
+        )
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -497,7 +524,7 @@ extension ControlCommandCoordinator {
         case .noSourceSurface:
             return .err(code: "not_found", message: "No source surface to break", data: nil)
         case .surfaceNotFound(let id):
-            return .err(code: "not_found", message: "Surface not found", data: .object(["surface_id": .string(id.uuidString)]))
+            return .err(code: "not_found", message: context.controlPaneSurfaceNotFoundMessage(), data: .object(["surface_id": .string(id.uuidString)]))
         case .detachFailed:
             return .err(code: "internal_error", message: "Failed to detach source surface", data: nil)
         case .createWorkspaceFailed:
@@ -532,17 +559,21 @@ extension ControlCommandCoordinator {
         guard let targetPaneID = uuid(params, "target_pane_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid target_pane_id", data: nil)
         }
+        guard let context else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let surfaceID = uuid(params, "surface_id")
+        if params["surface_id"] != nil, surfaceID == nil {
+            return .err(code: "not_found", message: context.controlPaneSurfaceNotFoundMessage(), data: nil)
+        }
         let hasFocusParam = bool(params, "focus") != nil
-        let resolution = context?.controlPaneJoin(
+        let resolution = context.controlPaneJoin(
             targetPaneID: targetPaneID,
-            surfaceID: uuid(params, "surface_id"),
+            surfaceID: surfaceID,
             sourcePaneID: uuid(params, "pane_id"),
             hasFocusParam: hasFocusParam,
             focus: bool(params, "focus") ?? false
         )
-        guard let resolution else {
-            return .err(code: "invalid_params", message: "Missing surface_id (or pane_id with selected surface)", data: nil)
-        }
         switch resolution {
         case .sourceSurfaceUnresolved(let sourcePaneID):
             return .err(

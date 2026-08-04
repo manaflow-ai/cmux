@@ -722,6 +722,9 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  XCODEBUILD_ARGS+=(-xcconfig "$SCRIPT_DIR/../config/IrohRelayPolicyProduction.xcconfig")
+fi
 # Scope the sidebar ExtensionKit point per build tag so concurrent dev builds (and
 # their tagged sample extensions) don't share one point. The host bundle declares
 # the point under Contents/Extensions, and Info.plist carries the same identifier.
