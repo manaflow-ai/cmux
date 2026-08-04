@@ -1558,6 +1558,7 @@ struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
+    var purpose: BrowserPanelPurpose? = nil
     var profileID: UUID?
     var shouldRenderWebView: Bool
     var pageZoom: Double
@@ -1577,19 +1578,21 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
 
     init(
         urlString: String?,
+        purpose: BrowserPanelPurpose? = nil,
         profileID: UUID?,
         shouldRenderWebView: Bool,
         pageZoom: Double,
         developerToolsVisible: Bool,
         isMuted: Bool = false,
         omnibarVisible: Bool? = nil,
-        backHistoryURLStrings: [String]?,
-        forwardHistoryURLStrings: [String]?,
+        backHistoryURLStrings: [String]? = nil,
+        forwardHistoryURLStrings: [String]? = nil,
         transparentBackground: Bool? = nil,
         diffViewerToken: String? = nil,
         diffViewerRequestPath: String? = nil
     ) {
         self.urlString = urlString
+        self.purpose = purpose
         self.profileID = profileID
         self.shouldRenderWebView = shouldRenderWebView
         self.pageZoom = pageZoom
@@ -1605,6 +1608,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case urlString
+        case purpose
         case profileID
         case shouldRenderWebView
         case pageZoom
@@ -1621,6 +1625,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
+        purpose = try container.decodeIfPresent(BrowserPanelPurpose.self, forKey: .purpose)
         profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
         shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
         pageZoom = try container.decode(Double.self, forKey: .pageZoom)

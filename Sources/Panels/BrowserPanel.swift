@@ -988,6 +988,7 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
     "about",
     "applewebdata",
     "blob",
+    "cmux-code",
     "cmux-diff-viewer",
     "data",
     "file",
@@ -2718,6 +2719,7 @@ final class BrowserPanel: Panel, ObservableObject {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
+    let purpose: BrowserPanelPurpose
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -3109,6 +3111,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var playingMediaFrameIDs: Set<String> = []
     private var audibleMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
+    var codeSurfaceMessageHandler: CodeSurfaceMessageHandler?
+    private var codePrewarmedClaimedAt: TimeInterval?
 
     private func setMediaActivity(
         isPlayingAudio: Bool? = nil,
@@ -3190,6 +3194,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var browserThemeMode: BrowserThemeMode
 
     var displayTitle: String {
+        if purpose == .code {
+            return String(localized: "workspace.code.defaultTitle", defaultValue: "Code")
+        }
         if !pageTitle.isEmpty {
             return pageTitle
         }
@@ -3589,7 +3596,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var displayIcon: String? {
-        "globe"
+        purpose == .code ? "chevron.left.forwardslash.chevron.right" : "globe"
     }
 
     var isDirty: Bool {
@@ -3634,6 +3641,15 @@ final class BrowserPanel: Panel, ObservableObject {
                 CmuxDiffViewerURLSchemeHandler.shared,
                 forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme
             )
+        }
+        if configuration.urlSchemeHandler(forURLScheme: CodeStaticURLSchemeHandler.scheme) == nil {
+            configuration.setURLSchemeHandler(
+                CodeStaticURLSchemeHandler.shared,
+                forURLScheme: CodeStaticURLSchemeHandler.scheme
+            )
+        }
+        if let codeBootstrap = CodeStaticBootstrap.currentUserScript() {
+            configuration.userContentController.addUserScript(codeBootstrap)
         }
         // Review-comment persistence + TextBox attach for diff viewer pages.
         // The handler itself rejects every frame that is not a registered diff
@@ -3733,6 +3749,10 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             self.scheduleBrowserViewportHostRestoration(reason: "webViewHierarchyChanged")
         }
+        webView.onBrowserPortalPresentationSettled = { [weak self, weak webView] in
+            guard let self, let webView, self.webView === webView else { return }
+            self.noteCodeSurfaceVisible(in: webView)
+        }
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
@@ -3780,6 +3800,7 @@ final class BrowserPanel: Panel, ObservableObject {
         designModeController.install(on: webView)
         setupSSLTrustBypassMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
+        setupCodeSurfaceMessageHandler(for: webView)
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
         mobileBrowserWebViewDidBind()
@@ -3798,6 +3819,67 @@ final class BrowserPanel: Panel, ObservableObject {
         let userContentController = webView.configuration.userContentController
         userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
         userContentController.add(handler, name: BrowserSSLTrustBypassMessageHandler.name)
+    }
+
+    private func setupCodeSurfaceMessageHandler(for webView: WKWebView) {
+        guard purpose == .code, let webView = webView as? CmuxWebView else { return }
+        if let handler = webView.codeSurfaceMessageHandler {
+            handler.adopt(panel: self, webView: webView)
+            codeSurfaceMessageHandler = handler
+            return
+        }
+        codeSurfaceMessageHandler = CodeSurfaceMessageHandler.install(
+            on: webView,
+            surfaceID: id,
+            workingDirectory: AppDelegate.shared?.workspaceFor(tabId: workspaceId)?.currentDirectory,
+            panel: self
+        )
+    }
+
+    private func noteCodeSurfaceVisible(in webView: WKWebView) {
+        guard purpose == .code,
+              self.webView === webView,
+              CodeStaticURLSchemeHandler.isTrustedURL(webView.url) else {
+            return
+        }
+#if DEBUG
+        if let claimedAt = codePrewarmedClaimedAt {
+            let elapsedMilliseconds = Int(
+                (ProcessInfo.processInfo.systemUptime - claimedAt) * 1_000
+            )
+            cmuxDebugLog("code.firstFrame.visible elapsedMs=\(elapsedMilliseconds)")
+            codePrewarmedClaimedAt = nil
+        }
+#endif
+    }
+
+    func renderCodeSidecarLaunchError() {
+        let title = Self.htmlEscaped(
+            String(localized: "code.sidecar.error.title", defaultValue: "Code could not open")
+        )
+        let message = Self.htmlEscaped(
+            String(localized: "code.sidecar.error.message", defaultValue: "The local service did not start. Try again.")
+        )
+        let retry = Self.htmlEscaped(
+            String(localized: "code.sidecar.error.retry", defaultValue: "Try Again")
+        )
+        let html = """
+        <!doctype html>
+        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <style>
+        :root{color-scheme:light dark;font-size:14px}html,body{background:transparent}body{align-items:center;color:var(--cmux-ghostty-foreground,light-dark(#262626,#f5f5f5));display:flex;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;height:100vh;justify-content:center;margin:0}.card{max-width:320px;padding:24px;text-align:center}h1{font-size:1rem;margin:0 0 7px}p{color:color-mix(in srgb,currentColor 62%,transparent);font-size:.875rem;line-height:1.45;margin:0 0 16px}button{background:var(--cmux-ghostty-primary,#6073cc);border:0;border-radius:7px;color:var(--cmux-ghostty-primary-foreground,white);font:inherit;padding:6px 12px}
+        </style></head><body><main class="card"><h1>\(title)</h1><p>\(message)</p><button onclick="window.location.replace('cmux-code://app/index.html')">\(retry)</button></main></body></html>
+        """
+        webView.loadHTMLString(html, baseURL: CodeStaticURLSchemeHandler.launcherURL)
+    }
+
+    private static func htmlEscaped(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -3852,6 +3934,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.resetMediaPlaybackTracking()
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
+                if self.purpose == .code {
+                    self.applyCurrentCodeWebTheme(to: webView)
+                }
                 if self.shouldTreatCommitAsDiscardedRestoreCommit(from: webView) {
                     self.noteDiscardedWebViewRestoreNavigationCommitted()
                 }
@@ -3865,10 +3950,18 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.applyMuteState(to: webView, reason: "navigationFinish")
                 if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
                     self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
-                    boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                    if self.purpose == .standard {
+                        boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                    }
                     self.refreshFavicon(from: webView)
                 }
                 self.applyCurrentAppWebTheme(to: webView)
+                if self.purpose == .code, self.isWebViewVisibleInUI {
+                    BrowserWindowPortalRegistry.refresh(
+                        webView: webView,
+                        reason: "codeDocumentReady"
+                    )
+                }
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -4096,6 +4189,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     init(
         workspaceId: UUID,
+        purpose: BrowserPanelPurpose = .standard,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
@@ -4114,6 +4208,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
+        self.purpose = purpose
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)
         self.workspaceId = workspaceId
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
@@ -4125,7 +4220,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
-        self.usesTransparentBackground = transparentBackground
+        self.usesTransparentBackground = purpose == .code || transparentBackground
         let websiteDataStore = explicitWebsiteDataStore ?? (
             isRemoteWorkspace
                 ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
@@ -4144,6 +4239,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
         if let prewarmed = Self.claimedPrewarmedWebView(
+            purpose: purpose,
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -4161,6 +4257,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
+        if adoptedPrewarmedWebView {
+            self.codePrewarmedClaimedAt = ProcessInfo.processInfo.systemUptime
+        }
         mobileBrowserDialogBroker.onPresented = { [weak self] dialog in
             guard let self, !self.mobileBrowserStreamSignalHandlers.isEmpty else { return }
             self.publishMobileBrowserStreamSignal(.dialog(dialog))
@@ -4370,6 +4469,16 @@ final class BrowserPanel: Panel, ObservableObject {
         self.uiDelegate = browserUIDelegate
 
         bindWebView(webView)
+        if purpose == .code,
+           ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            DispatchQueue.main.async {
+                CodeWebViewWarmer.shared.prewarm(
+                    profileID: resolvedProfileID,
+                    websiteDataStore: websiteDataStore,
+                    workingDirectory: AppDelegate.shared?.workspaceFor(tabId: workspaceId)?.currentDirectory
+                )
+            }
+        }
         installDetachedDeveloperToolsWindowCloseObserver()
         installHiddenWebViewDiscardPolicyObserver()
         applyBrowserThemeModeIfNeeded()
@@ -4408,8 +4517,8 @@ final class BrowserPanel: Panel, ObservableObject {
             if adoptedPrewarmedWebView {
                 // Already navigated while hidden; record for recovery paths.
                 navigationDelegate?.recordAttemptedRequest(URLRequest(url: url), displayURL: url)
-                // The pool only vends finished loads; seed the committed flag so
-                // blank-shell healing never reloads the adopted page on reveal.
+                // The Code pool only vends connected, rendered clients; seed
+                // the committed flag so recovery never reloads one on reveal.
                 hasCommittedDocumentSinceWebViewReplacement = true
                 refreshBackgroundAppearance()
             } else {
@@ -4977,6 +5086,20 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
+        if purpose == .code, let launcherURL = CodeSidecarService.launcherURL() {
+            hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
+            setMuted(snapshot.isMuted)
+            setOmnibarVisible(false)
+            currentURL = launcherURL
+            guard snapshot.shouldRenderWebView else {
+                shouldRenderWebView = false
+                refreshNavigationAvailability()
+                return
+            }
+            deferRestoredWebViewLoadUntilVisible(url: launcherURL, reason: "session_restore.code")
+            return
+        }
+
         // Diff viewer surfaces re-register their token from the on-disk manifest
         // and navigate via the app-owned custom scheme, so they restore even
         // though the local HTTP server that originally served them is gone.
@@ -5029,6 +5152,9 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshWebViewLifecycleState()
     }
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
+        if purpose == .code {
+            return hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView ?? shouldRenderWebView
+        }
         // Diff viewer URLs are "temporary" so `preferredURLStringForSessionSnapshot()`
         // is nil, but they are restorable via their token, so honor their render
         // intent too (otherwise a restored diff surface never navigates).
@@ -5048,6 +5174,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 || websiteDataStore.identifier != nil else {
             return false
         }
+        if purpose == .code { return true }
         // Diff viewer surfaces are otherwise treated as temporary. Persist them
         // only when they can actually be restored via the custom scheme (a
         // local-only, non-pending manifest); otherwise persisting would leave a
@@ -5080,6 +5207,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func preferredURLStringForSessionSnapshot() -> String? {
+        if purpose == .code { return nil }
         if let displayURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url),
            let value = Self.serializableSessionHistoryURLString(displayURL) {
             return value
@@ -5103,6 +5231,18 @@ final class BrowserPanel: Panel, ObservableObject {
             contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld
         )
         sameDocumentNavigationMessageHandler = nil
+        codeSurfaceMessageHandler?.closeAll()
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: CodeSurfaceMessageHandler.name,
+            contentWorld: .page
+        )
+        if let codeWebView = webView as? CmuxWebView {
+            codeWebView.codeSurfaceMessageHandler = nil
+            codeWebView.onCodeSurfaceReady = nil
+            codeWebView.onCodeSurfaceUnready = nil
+            codeWebView.onCodeSurfaceFailed = nil
+        }
+        codeSurfaceMessageHandler = nil
         resetMediaPlaybackTracking()
         setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
         webViewCancellables.removeAll()
@@ -5244,8 +5384,20 @@ final class BrowserPanel: Panel, ObservableObject {
             .sink { [weak self] notification in
                 guard let self else { return }
                 self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+                if self.purpose == .code {
+                    self.applyCurrentCodeWebTheme(to: self.webView)
+                    return
+                }
                 guard self.supportsAppWebTheme(self.webView) else { return }
                 self.applyAppWebTheme(AppWebThemeSnapshot.current(notification: notification), to: self.webView)
+            }
+            .store(in: &webViewCancellables)
+
+        NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)
+            .sink { [weak self] _ in
+                guard let self, self.purpose == .code else { return }
+                self.applyConfiguredWebViewBackground()
+                self.applyCurrentCodeWebTheme(to: self.webView)
             }
             .store(in: &webViewCancellables)
 
@@ -5262,8 +5414,20 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func applyCurrentAppWebTheme(to webView: WKWebView) {
+        if purpose == .code {
+            applyCurrentCodeWebTheme(to: webView)
+            return
+        }
         guard supportsAppWebTheme(webView) else { return }
         applyAppWebTheme(AppWebThemeSnapshot.current(), to: webView)
+    }
+
+    private func applyCurrentCodeWebTheme(to webView: WKWebView) {
+        guard purpose == .code,
+              let script = CodeWebThemeSnapshot.current().applyingJavaScript() else {
+            return
+        }
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     private func supportsAppWebTheme(_ webView: WKWebView) -> Bool {
@@ -5298,7 +5462,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// keep WebKit's background drawing so pages without their own CSS
     /// background remain readable.
     private func applyWebViewBackground(color: NSColor) {
-        if !drawsConfiguredWebViewBackgroundForCurrentPage() {
+        if purpose == .code || !drawsConfiguredWebViewBackgroundForCurrentPage() {
             webView.wantsLayer = true
             webView.setValue(false, forKey: "drawsBackground")
             webView.underPageBackgroundColor = .clear
@@ -5582,6 +5746,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        codeSurfaceMessageHandler?.closeAll()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
         automationNavigationCoordinator.invalidate()
@@ -5603,6 +5768,9 @@ final class BrowserPanel: Panel, ObservableObject {
         closeBackgroundPreloadHost(reason: "close")
         closeAllPopupControllers()
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
+        if let cmuxWebView = webView as? CmuxWebView {
+            cmuxWebView.discardCodePrewarmHost()
+        }
         designModeController.webViewWillBeRemoved(webView)
         designModeController.releaseDeliveredHandoffForTeardown()
         isMainFrameProvisionalNavigationActive = false
@@ -6403,6 +6571,9 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         let webView = webView
         Task { @MainActor in
+            if let cmuxWebView = webView as? CmuxWebView {
+                cmuxWebView.discardCodePrewarmHost()
+            }
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
     }

@@ -1,0 +1,185 @@
+:root {
+  --radius: 0.5rem;
+  --cmux-code-canvas: transparent;
+  --cmux-code-font-mono: "SFMono-Regular", "SF Mono", ui-monospace, Menlo, monospace;
+  --cmux-code-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --cmux-ghostty-background: #fcfcfc;
+  --background: var(--cmux-code-canvas);
+  --app-chrome-background: var(--cmux-code-canvas);
+  --foreground: #262626;
+  --card: #ffffff;
+  --card-foreground: #262626;
+  --popover: #ffffff;
+  --popover-foreground: #262626;
+  --primary: #526fff;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f4;
+  --secondary-foreground: #262626;
+  --muted: #f4f4f4;
+  --muted-foreground: #737373;
+  --accent: #eef0ff;
+  --accent-foreground: #273780;
+  --destructive: #ba2623;
+  --border: #e5e5e5;
+  --input: #d4d4d4;
+  --ring: #526fff;
+  --success: #00a240;
+  --success-foreground: #087532;
+  --sidebar: rgb(248 248 248 / 88%);
+  --sidebar-foreground: #262626;
+  --sidebar-muted-foreground: #737373;
+  --sidebar-control-surface: rgb(255 255 255 / 72%);
+  --sidebar-row-hover: rgb(82 111 255 / 7%);
+  --sidebar-row-active: rgb(82 111 255 / 10%);
+  --sidebar-row-selected: rgb(82 111 255 / 12%);
+  --sidebar-border: #e5e5e5;
+  --sidebar-stage-fade: transparent;
+  --surface-raised: #ffffff;
+  --font-mono: var(--cmux-code-font-mono);
+  --font-sans: var(--cmux-code-font-sans);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+:root:is(.dark, .dark *) {
+  --cmux-ghostty-background: #0e0e0e;
+  --background: var(--cmux-code-canvas);
+  --app-chrome-background: var(--cmux-code-canvas);
+  --foreground: #f5f5f5;
+  --card: #151515;
+  --card-foreground: #f5f5f5;
+  --popover: #191919;
+  --popover-foreground: #f5f5f5;
+  --primary: #6073cc;
+  --primary-foreground: #ffffff;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #f5f5f5;
+  --muted: #1a1a1a;
+  --muted-foreground: #a3a3a3;
+  --accent: #252b48;
+  --accent-foreground: #e9ecff;
+  --destructive: #fa423e;
+  --border: rgb(255 255 255 / 9%);
+  --input: rgb(255 255 255 / 14%);
+  --ring: #6073cc;
+  --success: #40c977;
+  --success-foreground: #74e39e;
+  --sidebar: rgb(18 18 18 / 88%);
+  --sidebar-foreground: #f5f5f5;
+  --sidebar-muted-foreground: #a3a3a3;
+  --sidebar-control-surface: rgb(255 255 255 / 6%);
+  --sidebar-row-hover: rgb(96 115 204 / 10%);
+  --sidebar-row-active: rgb(96 115 204 / 14%);
+  --sidebar-row-selected: rgb(96 115 204 / 17%);
+  --sidebar-border: rgb(255 255 255 / 9%);
+  --sidebar-stage-fade: transparent;
+  --surface-raised: #151515;
+}
+
+:root[data-cmux-ghostty-theme="true"] {
+  --background: var(--cmux-code-canvas);
+  --app-chrome-background: var(--cmux-code-canvas);
+  --foreground: var(--cmux-ghostty-foreground);
+  --card: color-mix(in srgb, var(--cmux-ghostty-background) 88%, transparent);
+  --card-foreground: var(--cmux-ghostty-foreground);
+  --popover: color-mix(in srgb, var(--cmux-ghostty-background) 94%, transparent);
+  --popover-foreground: var(--cmux-ghostty-foreground);
+  --primary: var(--cmux-ghostty-primary);
+  --primary-foreground: var(--cmux-ghostty-primary-foreground);
+  --secondary: color-mix(in srgb, var(--cmux-ghostty-foreground) 7%, transparent);
+  --secondary-foreground: var(--cmux-ghostty-foreground);
+  --muted: color-mix(in srgb, var(--cmux-ghostty-foreground) 7%, transparent);
+  --muted-foreground: color-mix(in srgb, var(--cmux-ghostty-foreground) 62%, var(--cmux-ghostty-background));
+  --accent: color-mix(in srgb, var(--cmux-ghostty-primary) 22%, transparent);
+  --accent-foreground: var(--cmux-ghostty-foreground);
+  --destructive: var(--cmux-ghostty-destructive);
+  --border: color-mix(in srgb, var(--cmux-ghostty-foreground) 12%, transparent);
+  --input: color-mix(in srgb, var(--cmux-ghostty-foreground) 18%, transparent);
+  --ring: var(--cmux-ghostty-cursor);
+  --success: var(--cmux-ghostty-success);
+  --success-foreground: var(--cmux-ghostty-success);
+  --sidebar: color-mix(in srgb, var(--cmux-ghostty-background) 82%, transparent);
+  --sidebar-foreground: var(--cmux-ghostty-foreground);
+  --sidebar-muted-foreground: color-mix(in srgb, var(--cmux-ghostty-foreground) 62%, var(--cmux-ghostty-background));
+  --sidebar-control-surface: color-mix(in srgb, var(--cmux-ghostty-foreground) 7%, transparent);
+  --sidebar-row-hover: color-mix(in srgb, var(--cmux-ghostty-primary) 9%, transparent);
+  --sidebar-row-active: color-mix(in srgb, var(--cmux-ghostty-primary) 14%, transparent);
+  --sidebar-row-selected: color-mix(in srgb, var(--cmux-ghostty-primary) 18%, transparent);
+  --sidebar-border: color-mix(in srgb, var(--cmux-ghostty-foreground) 12%, transparent);
+  --sidebar-stage-fade: transparent;
+  --surface-raised: color-mix(in srgb, var(--cmux-ghostty-background) 88%, transparent);
+  font-family: var(--font-sans);
+}
+
+[data-sidebar-version="v1"],
+[data-sidebar-version="v2"],
+.dark [data-sidebar-version="v1"],
+.dark [data-sidebar-version="v2"] {
+  --background: var(--app-chrome-background);
+  --foreground: var(--sidebar-foreground);
+  --card: var(--surface-raised);
+  --card-foreground: var(--foreground);
+  --accent: var(--sidebar-row-active);
+  --accent-foreground: var(--foreground);
+  --muted: var(--sidebar-control-surface);
+  --muted-foreground: var(--sidebar-muted-foreground);
+  --border: var(--sidebar-border);
+  --sidebar: var(--sidebar);
+  --sidebar-row-hover: var(--sidebar-row-hover);
+  --sidebar-row-active: var(--sidebar-row-active);
+  --sidebar-row-selected: var(--sidebar-row-selected);
+}
+
+html,
+body,
+#root {
+  background: transparent !important;
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font-family: var(--font-sans);
+}
+
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
+}
+
+.sidebar-wrapper,
+[data-sidebar-version] {
+  backdrop-filter: blur(20px) saturate(1.08);
+  -webkit-backdrop-filter: blur(20px) saturate(1.08);
+}
+
+.sidebar-brand > svg {
+  display: none;
+}
+
+.composer-glass,
+.composer-glass-surface,
+.composer-glass-shell {
+  border-color: var(--border);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
+}
+
+.dark .composer-glass,
+.dark .composer-glass-surface,
+.dark .composer-glass-shell {
+  box-shadow: 0 10px 28px rgb(0 0 0 / 30%);
+}
+
+.chat-markdown pre,
+.chat-markdown .chat-markdown-codeblock,
+.diff-render-file,
+.diff-render-surface > diffs-container {
+  border-radius: 0.5rem;
+}
+
+* {
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 30%, transparent) transparent;
+}

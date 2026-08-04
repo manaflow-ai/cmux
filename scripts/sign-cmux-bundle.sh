@@ -65,6 +65,12 @@ for helper in "$APP_PATH/Contents/Resources/bin"/*; do
   echo "==> signing helper $(basename "$helper")"
   /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
 done
+if [[ -d "$APP_PATH/Contents/Resources/code-sidecar/resource-monitor" ]]; then
+  while IFS= read -r -d '' helper; do
+    echo "==> signing helper $(basename "$helper")"
+    /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+  done < <(find "$APP_PATH/Contents/Resources/code-sidecar/resource-monitor" -name 'cmux-code-resource-monitor' -type f -print0)
+fi
 
 # 2. Plugins
 if [[ -d "$APP_PATH/Contents/PlugIns" ]]; then
@@ -118,5 +124,14 @@ for helper in "$APP_PATH/Contents/Resources/bin"/*; do
     exit 1
   fi
 done
+if [[ -d "$APP_PATH/Contents/Resources/code-sidecar/resource-monitor" ]]; then
+  while IFS= read -r -d '' helper; do
+    if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \
+         | grep -q "application-identifier"; then
+      echo "error: helper $(basename "$helper") unexpectedly carries application-identifier" >&2
+      exit 1
+    fi
+  done < <(find "$APP_PATH/Contents/Resources/code-sidecar/resource-monitor" -name 'cmux-code-resource-monitor' -type f -print0)
+fi
 
 echo "==> signing OK: $APP_PATH"

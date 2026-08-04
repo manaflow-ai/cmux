@@ -19,6 +19,12 @@ extension CmuxWebView {
         onContextMenuDownloadStateChanged = nil
         onSessionDownloadEvent = nil
         onSubframeDownloadIntent = nil
+        onBrowserPortalPresentationSettled = nil
+        onCodeSurfaceReady = nil
+        onCodeSurfaceUnready = nil
+        onCodeSurfaceFailed = nil
+        codePrewarmHostView?.removeFromSuperview()
+        codePrewarmHostView = nil
     }
 
     private static func scriptedDownloadInterceptionBootstrapScriptSource(token: String) -> String {

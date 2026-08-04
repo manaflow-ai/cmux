@@ -19,6 +19,7 @@ extension BrowserPanel {
     /// or nil for a normal cold load. Remote workspaces, request-based
     /// navigations, and render-deferred panels never adopt.
     static func claimedPrewarmedWebView(
+        purpose: BrowserPanelPurpose,
         isRemoteWorkspace: Bool,
         initialRequest: URLRequest?,
         renderInitialNavigation: Bool,
@@ -26,6 +27,18 @@ extension BrowserPanel {
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore
     ) -> CmuxWebView? {
+        if purpose == .code {
+            guard !isRemoteWorkspace,
+                  initialRequest == nil,
+                  renderInitialNavigation,
+                  initialURL == CodeStaticURLSchemeHandler.launcherURL else {
+                return nil
+            }
+            return CodeWebViewWarmer.shared.claim(
+                profileID: profileID,
+                websiteDataStore: websiteDataStore
+            )
+        }
         guard !isRemoteWorkspace,
               initialRequest == nil,
               renderInitialNavigation,

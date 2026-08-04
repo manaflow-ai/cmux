@@ -1559,7 +1559,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.servicesProvider = self
 
         StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
+        if !isRunningUnderXCTest {
+            // Install the window observer before the first main window becomes
+            // key, so prewarmed clients are hosted in that window from frame one.
+            _ = CodeWebViewWarmer.shared
+        }
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        if !isRunningUnderXCTest {
+            DispatchQueue.main.async {
+                CodeWebViewWarmer.shared.prewarmDefaultProfile()
+            }
+        }
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
         UpdateTestSupport(model: updateController.model, log: updateLog).applyIfNeeded()
@@ -2163,6 +2173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
+        CodeSidecarService.shared.stop()
         MobileHostService.shared.stop()
         TerminalController.shared.stop()
         GhosttyApp.terminalPasteboard.cleanupAllOwnedTemporaryImageFiles()
@@ -7318,11 +7329,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func openNewMainWindow(_ sender: Any?) {
-        _ = createMainWindow(sourceWindow: preferredSourceWindowForNewMainWindow(sender: sender))
+        openNewMainWindow(preferredWindow: preferredSourceWindowForNewMainWindow(sender: sender))
     }
 
     func openNewMainWindow(preferredWindow: NSWindow?) {
-        _ = createMainWindow(sourceWindow: preferredWindow)
+        let manager = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)
+        let initialSurface: NewWorkspaceInitialSurface =
+            contextualSurfaceCreationKind(
+                tabManager: manager,
+                preferredWindow: preferredWindow
+            ) == .code ? .code : .terminal
+        _ = createMainWindow(initialSurface: initialSurface, sourceWindow: preferredWindow)
     }
 
     private func preferredSourceWindowForNewMainWindow(sender: Any?) -> NSWindow? {
@@ -7440,6 +7457,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         performNewWorkspaceCreationAction(
             initialSurface: .terminal,
             preferredTabManager: preferredTabManager,
+            event: event,
+            debugSource: debugSource
+        )
+    }
+
+    @discardableResult
+    func performContextualNewWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "newContextualWorkspace"
+    ) -> Bool {
+        let manager = preferredTabManager
+            ?? event.flatMap { preferredMainWindowContextForShortcutRouting(event: $0)?.tabManager }
+            ?? tabManager
+        if contextualSurfaceCreationKind(
+            tabManager: manager,
+            preferredWindow: event?.window ?? shortcutRoutingActiveWindow
+        ) == .code {
+            return performNewCodeWorkspaceAction(
+                tabManager: manager,
+                event: event,
+                debugSource: debugSource
+            )
+        }
+        return performNewWorkspaceAction(
+            tabManager: manager,
+            event: event,
+            debugSource: debugSource
+        )
+    }
+
+    private func contextualSurfaceCreationKind(
+        tabManager: TabManager?,
+        preferredWindow: NSWindow?
+    ) -> ContextualSurfaceCreationKind {
+        if let dock = focusedDockStoreForShortcut(preferredWindow: preferredWindow) {
+            return dock.contextualSurfaceCreationKind
+        }
+        return tabManager?.selectedWorkspace?.contextualSurfaceCreationKind ?? .terminal
+    }
+
+    @discardableResult
+    func performNewCodeWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "newCodeWorkspace"
+    ) -> Bool {
+        let targetManager = preferredTabManager
+            ?? event.flatMap { preferredMainWindowContextForShortcutRouting(event: $0)?.tabManager }
+            ?? tabManager
+        let targetWindow = targetManager
+            .flatMap { windowId(for: $0) }
+            .flatMap { mainWindow(for: $0) }
+            ?? (event?.window as? CmuxMainWindow)
+            ?? (shortcutRoutingActiveWindow as? CmuxMainWindow)
+            ?? CodeWebViewWarmer.preferredTargetWindow()
+        if let targetWindow {
+            CodeWebViewWarmer.shared.prepareNextWorkspaceClaim(in: targetWindow)
+        }
+        return performNewWorkspaceCreationAction(
+            initialSurface: .code,
+            preferredTabManager: targetManager,
             event: event,
             debugSource: debugSource
         )
@@ -7664,6 +7743,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     if focusInitialBrowserAddressBarOnCreate {
                         focusInitialBrowserAddressBar(in: workspace)
                     }
+                case .code:
+                    let workspace = context.tabManager.addWorkspace(
+                        title: title,
+                        initialSurface: .code,
+                        applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+                    )
+                    closeInitialWorkspaceIfNeeded(
+                        initialWorkspaceId: initialWorkspace?.id,
+                        in: context
+                    )
+                    createdWorkspaceHandler?(workspace)
                 case .cloudVMLoading:
                     let workspace = context.tabManager.addWorkspace(initialSurface: .cloudVMLoading)
                     closeInitialWorkspaceIfNeeded(
@@ -7755,7 +7845,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 chosenContext: nil
             )
 #endif
-            openNewMainWindow(nil)
+            _ = createMainWindow(initialSurface: initialSurface)
         }
         return true
     }
@@ -8569,10 +8659,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let workspace: Workspace
-        if initialSurface == .browser {
+        if initialSurface == .browser || initialSurface == .code {
             workspace = context.tabManager.addWorkspace(
                 title: title,
-                initialSurface: .browser,
+                initialSurface: initialSurface,
                 initialBrowserURL: initialBrowserURL,
                 initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
                 initialBrowserTransparentBackground: initialBrowserTransparentBackground,
@@ -8913,6 +9003,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil,
         preferredWindowId: UUID? = nil,
         shouldActivate: Bool = true,
@@ -8939,6 +9030,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
+            initialSurface: initialSurface,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
@@ -13832,7 +13924,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            performNewWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
+            performContextualNewWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
             return true
         }
 
@@ -15256,6 +15348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow)
         _ = synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+        let contextualKind = tabManager?.selectedWorkspace?.contextualSurfaceCreationKind ?? .terminal
 
         let directionLabel: String
         switch direction {
@@ -15290,6 +15383,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
 
         let didCreateSplit: Bool = {
+            if contextualKind == .code {
+                if let workspace = tabManager?.selectedWorkspace,
+                   workspace.layoutMode == .canvas {
+                    return workspace.openNewCanvasPane(
+                        type: .code,
+                        focus: true,
+                        direction: direction.canvasDirection
+                    ) != nil
+                }
+                return tabManager?.createSplit(direction: direction) != nil
+            }
             if let terminalContext {
                 if let workspace = terminalContext.tabManager.tabs.first(where: { $0.id == terminalContext.workspaceId }),
                    workspace.layoutMode == .canvas {
@@ -15950,6 +16054,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context.tabManager.addWorkspace()
                 onExecuted?()
                 return true
+            case .newCode:
+                let didCreate = performNewCodeWorkspaceAction(
+                    tabManager: context.tabManager,
+                    debugSource: "configured.cmux.newCode"
+                )
+                if didCreate { onExecuted?() }
+                return didCreate
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
             case .cloudVM:
                 let didStart = performCloudVMAction(
@@ -15970,7 +16081,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return workspace != nil
             case .newSimulator: return performConfiguredNewSimulatorAction(context: context, onExecuted: onExecuted)
             case .newTerminal:
-                context.tabManager.newSurface()
+                context.tabManager.selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
                 onExecuted?()
                 return true
             case .newBrowser:

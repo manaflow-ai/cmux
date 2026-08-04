@@ -12,6 +12,19 @@ import WebKit
 final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
+    var onBrowserPortalPresentationSettled: (() -> Void)?
+    var codeSurfaceMessageHandler: CodeSurfaceMessageHandler?
+    var onCodeSurfaceReady: (() -> Void)?
+    var onCodeSurfaceUnready: (() -> Void)?
+    var onCodeSurfaceFailed: (() -> Void)?
+    weak var codePrewarmHostView: NSView?
+    var isCodePrewarmAccessibilitySuppressed = false {
+        didSet {
+            guard oldValue != isCodePrewarmAccessibilitySuppressed else { return }
+            setAccessibilityHidden(isCodePrewarmAccessibilitySuppressed)
+            NSAccessibility.post(element: self, notification: .layoutChanged)
+        }
+    }
 
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
@@ -246,7 +259,27 @@ final class CmuxWebView: WKWebView {
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        if let codePrewarmHostView,
+           superview !== codePrewarmHostView {
+            self.codePrewarmHostView = nil
+            isCodePrewarmAccessibilitySuppressed = false
+            codePrewarmHostView.removeFromSuperview()
+        }
         onBrowserViewportHierarchyChanged?()
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        guard !isCodePrewarmAccessibilitySuppressed else { return [] }
+        return super.accessibilityChildren()
+    }
+
+    func discardCodePrewarmHost() {
+        guard let codePrewarmHostView else { return }
+        self.codePrewarmHostView = nil
+        if superview === codePrewarmHostView {
+            removeFromSuperview()
+        }
+        codePrewarmHostView.removeFromSuperview()
     }
 
     private final class ContextMenuFallbackBox: NSObject {

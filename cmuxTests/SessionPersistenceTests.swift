@@ -500,6 +500,23 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.forwardHistoryURLStrings, source.forwardHistoryURLStrings)
     }
 
+    func testSessionBrowserPanelSnapshotCodePurposeRoundTrip() throws {
+        let source = SessionBrowserPanelSnapshot(
+            urlString: nil,
+            purpose: .code,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1,
+            developerToolsVisible: false
+        )
+
+        let data = try JSONEncoder().encode(source)
+        let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: data)
+
+        XCTAssertEqual(decoded.purpose, .code)
+        XCTAssertNil(decoded.urlString)
+    }
+
     func testSessionBrowserPanelSnapshotHistoryDecodesWhenKeysAreMissing() throws {
         let json = """
         {
@@ -513,6 +530,7 @@ final class SessionPersistenceTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: json)
         XCTAssertEqual(decoded.urlString, "https://example.com/current")
         XCTAssertNil(decoded.profileID)
+        XCTAssertNil(decoded.purpose)
         XCTAssertFalse(decoded.isMuted)
         XCTAssertNil(decoded.omnibarVisible)
         XCTAssertNil(decoded.backHistoryURLStrings)

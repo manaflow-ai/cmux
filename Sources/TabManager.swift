@@ -471,6 +471,7 @@ class TabManager: ObservableObject {
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
@@ -560,6 +561,7 @@ class TabManager: ObservableObject {
             title: initialWorkspaceTitle,
             titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
+            initialSurface: initialSurface,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
         )
@@ -1176,6 +1178,8 @@ class TabManager: ObservableObject {
                 // single-panel title sync keeps the workspace title following
                 // the page title once the user navigates.
                 defaultTitle = String(localized: "browser.newTab", defaultValue: "New tab")
+            case .code:
+                defaultTitle = String(localized: "workspace.code.defaultTitle", defaultValue: "Code")
             case .cloudVMLoading:
                 defaultTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
             }
@@ -3788,11 +3792,16 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectLastSurface()
     }
 
-    /// Create a new terminal surface in the focused pane of the selected workspace
+    /// Create a new surface matching the focused surface's semantic kind.
     func newSurface() {
         // Cmd+T should always focus the newly created surface.
         selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        switch selectedWorkspace?.contextualSurfaceCreationKind ?? .terminal {
+        case .terminal:
+            selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        case .code:
+            selectedWorkspace?.newCodeSurfaceInFocusedPane(focus: true)
+        }
     }
 
     func newSurface(initialInput: String) {
@@ -3818,6 +3827,14 @@ class TabManager: ObservableObject {
               tab.panels[surfaceId] != nil else { return nil }
         tab.clearSplitZoom()
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
+        if ContextualSurfaceCreationKind.resolve(panel: tab.panels[surfaceId]) == .code {
+            return tab.newCodeSplit(
+                from: surfaceId,
+                orientation: direction.orientation,
+                insertFirst: direction.insertFirst,
+                focus: focus
+            )?.id
+        }
         return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
     }
 

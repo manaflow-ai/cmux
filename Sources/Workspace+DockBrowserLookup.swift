@@ -101,6 +101,7 @@ extension DockSplitStore {
         url: URL?,
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
+        purpose: BrowserPanelPurpose = .standard,
         bypassInsecureHTTPHostOnce: String? = nil,
         transparentBackground: Bool = false,
         websiteDataStore: WKWebsiteDataStore? = nil
@@ -108,13 +109,14 @@ extension DockSplitStore {
         let settings = currentRemoteBrowserSettings()
         let panel = BrowserPanel(
             workspaceId: workspaceId,
+            purpose: purpose,
             profileID: preferredProfileID,
             initialURL: url,
             initialRequest: initialRequest,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             transparentBackground: transparentBackground,
             proxyEndpoint: settings.proxyEndpoint,
-            bypassRemoteProxy: settings.bypassRemoteProxy,
+            bypassRemoteProxy: purpose == .code || settings.bypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
             websiteDataStore: websiteDataStore
@@ -128,7 +130,9 @@ extension DockSplitStore {
     /// A transferred panel may still carry closures owned by its old Workspace
     /// or Dock, so configuration is intentionally safe to repeat.
     func configureBrowserPanel(_ panel: BrowserPanel) {
-        AppDelegate.shared?.auth?.browserAppSession.register(panel)
+        if panel.purpose == .standard {
+            AppDelegate.shared?.auth?.browserAppSession.register(panel)
+        }
         panel.webViewDidRequestClose = { [weak self, weak panel] in
             guard let self, let panel else { return }
             guard self.browserPanel(for: panel.id) === panel else { return }

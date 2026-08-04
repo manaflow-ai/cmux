@@ -1,4 +1,5 @@
 import CmuxCore
+import CMUXMobileCore
 import AppKit
 import CmuxFoundation
 import CmuxTerminalCore
@@ -3729,6 +3730,184 @@ final class NewBrowserWorkspaceCreationTests: XCTestCase {
             manager.selectWorkspace(first)
         }
         return manager
+    }
+}
+
+@MainActor
+final class CodeWorkspaceCreationTests: XCTestCase {
+    func testDesktopBootstrapCredentialStaysInNativeEnvelope() throws {
+        let dataDirectory = URL(fileURLWithPath: "/tmp/cmux-code-data", isDirectory: true)
+        let resourceMonitor = URL(fileURLWithPath: "/tmp/cmux-code-resource-monitor")
+        let token = "bootstrap-token_123"
+        let data = try CodeSidecarService.bootstrapEnvelope(
+            port: 4123,
+            dataDirectory: dataDirectory,
+            resourceMonitor: resourceMonitor,
+            bootstrapToken: token
+        )
+        let line = try XCTUnwrap(String(data: data, encoding: .utf8))
+        let decoded = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+        )
+
+        XCTAssertTrue(line.hasSuffix("\n"))
+        XCTAssertEqual(decoded["mode"] as? String, "desktop")
+        XCTAssertEqual(decoded["noBrowser"] as? Bool, true)
+        XCTAssertEqual(decoded["port"] as? Int, 4123)
+        XCTAssertEqual(decoded["host"] as? String, "127.0.0.1")
+        XCTAssertEqual(decoded["t3Home"] as? String, dataDirectory.path)
+        XCTAssertEqual(decoded["desktopBootstrapToken"] as? String, token)
+        XCTAssertEqual(decoded["resourceMonitorPath"] as? String, resourceMonitor.path)
+
+        let launcherURL = try XCTUnwrap(CodeSidecarService.launcherURL())
+        XCTAssertEqual(launcherURL.scheme, CodeStaticURLSchemeHandler.scheme)
+        XCTAssertEqual(launcherURL.host, CodeStaticURLSchemeHandler.host)
+        XCTAssertEqual(launcherURL.path, "/index.html")
+        XCTAssertFalse(launcherURL.absoluteString.contains(token))
+    }
+
+    func testCodeStaticSchemeOnlyResolvesReadableFilesInsideClientRoot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-code-static-\(UUID().uuidString)", isDirectory: true)
+        let assets = root.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let index = root.appendingPathComponent("index.html")
+        let script = assets.appendingPathComponent("app.js")
+        try Data("index".utf8).write(to: index)
+        try Data("script".utf8).write(to: script)
+
+        XCTAssertEqual(
+            CodeStaticURLSchemeHandler.resolvedFileURL(
+                for: try XCTUnwrap(URL(string: "cmux-code://app/")),
+                rootURL: root
+            ),
+            index
+        )
+        XCTAssertEqual(
+            CodeStaticURLSchemeHandler.resolvedFileURL(
+                for: try XCTUnwrap(URL(string: "cmux-code://app/assets/app.js")),
+                rootURL: root
+            ),
+            script
+        )
+        XCTAssertNil(
+            CodeStaticURLSchemeHandler.resolvedFileURL(
+                for: try XCTUnwrap(URL(string: "cmux-code://other/index.html")),
+                rootURL: root
+            )
+        )
+        XCTAssertNil(
+            CodeStaticURLSchemeHandler.resolvedFileURL(
+                for: try XCTUnwrap(URL(string: "cmux-code://app/%2e%2e/outside")),
+                rootURL: root
+            )
+        )
+    }
+
+    func testAutomaticProjectDirectoryRejectsBroadRoots() throws {
+        XCTAssertNil(CodeSidecarService.automaticProjectDirectory("/"))
+        XCTAssertNil(CodeSidecarService.automaticProjectDirectory(FileManager.default.homeDirectoryForCurrentUser.path))
+
+        let scopedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-code-project-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scopedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scopedDirectory) }
+
+        XCTAssertEqual(
+            CodeSidecarService.automaticProjectDirectory(scopedDirectory.path),
+            scopedDirectory.resolvingSymlinksInPath().path
+        )
+    }
+
+    func testCodeInitialSurfaceBootsCodePane() throws {
+        let manager = TabManager()
+
+        let workspace = manager.addWorkspace(initialSurface: .code)
+        let browserPanel = try XCTUnwrap(workspace.panels.values.first as? BrowserPanel)
+
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertEqual(browserPanel.purpose, .code)
+        XCTAssertEqual(browserPanel.currentURL, CodeSidecarService.launcherURL())
+        XCTAssertFalse(browserPanel.isOmnibarVisible)
+        XCTAssertTrue(browserPanel.sessionSnapshotTransparentBackground)
+        XCTAssertEqual(workspace.contextualSurfaceCreationKind, .code)
+        XCTAssertEqual(workspace.title, String(localized: "workspace.code.defaultTitle", defaultValue: "Code"))
+    }
+
+    func testCodeWebThemeMapsGhosttyPaletteAndEmitsLiveUpdateScript() throws {
+        var terminalTheme = TerminalTheme.monokai
+        terminalTheme.background = "#101820"
+        terminalTheme.foreground = "#e6edf3"
+        terminalTheme.cursor = "#ffcc00"
+        terminalTheme.selectionBackground = "#334455"
+        terminalTheme.palette[1] = "#cc3344"
+        terminalTheme.palette[2] = "#33cc77"
+        terminalTheme.palette[4] = "#4488ff"
+
+        let snapshot = CodeWebThemeSnapshot(
+            terminalTheme: terminalTheme,
+            backgroundOpacity: 0.42
+        )
+        let script = try XCTUnwrap(snapshot.applyingJavaScript())
+
+        XCTAssertTrue(snapshot.isDark)
+        XCTAssertEqual(snapshot.variables["--cmux-ghostty-background"], "#101820")
+        XCTAssertEqual(snapshot.variables["--cmux-ghostty-foreground"], "#e6edf3")
+        XCTAssertEqual(snapshot.variables["--cmux-ghostty-primary"], "#4488ff")
+        XCTAssertEqual(snapshot.variables["--cmux-ghostty-success"], "#33cc77")
+        XCTAssertEqual(snapshot.variables["--cmux-ghostty-destructive"], "#cc3344")
+        XCTAssertEqual(snapshot.variables["--cmux-ghostty-cursor"], "#ffcc00")
+        XCTAssertEqual(snapshot.variables["--cmux-ghostty-selection"], "#334455")
+        XCTAssertEqual(snapshot.variables["--cmux-ghostty-background-opacity"], "0.420")
+        XCTAssertEqual(snapshot.variables["--cmux-code-canvas"], "transparent")
+        XCTAssertEqual(
+            snapshot.variables["--font-sans"],
+            CodeWebThemeSnapshot.sansFontFamily
+        )
+        XCTAssertEqual(
+            snapshot.variables["--font-mono"],
+            CodeWebThemeSnapshot.monoFontFamily
+        )
+        XCTAssertTrue(script.contains("cmuxGhosttyTheme"))
+        XCTAssertTrue(script.contains("cmux:ghostty-theme-change"))
+    }
+
+    func testCodeStaticBootstrapInjectsGhosttyThemeWithoutRenderingUI() throws {
+        var terminalTheme = TerminalTheme.monokai
+        terminalTheme.background = "#121416"
+        terminalTheme.foreground = "#f4f5f6"
+        let theme = CodeWebThemeSnapshot(terminalTheme: terminalTheme, backgroundOpacity: 0.7)
+
+        let script = try XCTUnwrap(CodeStaticBootstrap.scriptSource(theme: theme))
+
+        XCTAssertTrue(script.contains("cmux-code:"))
+        XCTAssertFalse(script.contains("innerHTML"))
+        XCTAssertFalse(script.contains("textContent"))
+        XCTAssertTrue(script.contains("#121416"))
+        XCTAssertTrue(script.contains("cmuxGhosttyTheme"))
+    }
+
+    func testContextualTabAndSplitCreationPreserveCodeKind() throws {
+        let manager = TabManager(initialSurface: .code)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+
+        manager.newSurface()
+        let tabPanel = try XCTUnwrap(workspace.focusedPanelId.flatMap { workspace.panels[$0] } as? BrowserPanel)
+        XCTAssertEqual(tabPanel.purpose, .code)
+
+        let splitID = try XCTUnwrap(manager.createSplit(direction: .right))
+        let splitPanel = try XCTUnwrap(workspace.panels[splitID] as? BrowserPanel)
+        XCTAssertEqual(splitPanel.purpose, .code)
+        let browserPanels = workspace.panels.values.compactMap { $0 as? BrowserPanel }
+        XCTAssertEqual(browserPanels.count, 3)
+        XCTAssertTrue(browserPanels.allSatisfy { $0.purpose == .code })
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        XCTAssertTrue(appDelegate.performContextualNewWorkspaceAction(tabManager: manager))
+        let newWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let workspacePanel = try XCTUnwrap(newWorkspace.panels.values.first as? BrowserPanel)
+        XCTAssertEqual(workspacePanel.purpose, .code)
     }
 }
 

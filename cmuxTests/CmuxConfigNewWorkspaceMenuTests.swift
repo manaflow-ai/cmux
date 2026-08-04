@@ -147,6 +147,27 @@ struct CmuxConfigNewWorkspaceMenuTests {
     }
 
     @MainActor
+    @Test func contextMenuAlwaysOffersCodeOnce() throws {
+        let (defaultStore, defaultRoot) = try loadStore(globalJSON: "{}")
+        defer { try? FileManager.default.removeItem(at: defaultRoot) }
+        let defaultIDs = try withNewWorkspaceContextMenu(store: defaultStore) { contextMenuActionIDs($0) }
+        #expect(defaultIDs.filter { $0 == CmuxSurfaceTabBarBuiltInAction.newCode.configID }.count == 1)
+
+        let (customStore, customRoot) = try loadStore(globalJSON: """
+        {
+          "ui": {
+            "newWorkspace": {
+              "contextMenu": ["cmux.newWorkspace"]
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: customRoot) }
+        let customIDs = try withNewWorkspaceContextMenu(store: customStore) { contextMenuActionIDs($0) }
+        #expect(customIDs.filter { $0 == CmuxSurfaceTabBarBuiltInAction.newCode.configID }.count == 1)
+    }
+
+    @MainActor
     @Test func contextMenuIncludesBuiltInAgentChatActionBox() throws {
         try withAgentChatUIFlag(true) {
             let (store, root) = try loadStore(globalJSON: "{}")
@@ -268,30 +289,32 @@ struct CmuxConfigNewWorkspaceMenuTests {
 
     @MainActor
     @Test func renderedContextMenuGroupsCreateLayoutsAndManagementTail() throws {
-        let (store, root) = try loadStore(globalJSON: twoLayoutConfig(defaultActionID: "review-layout"))
-        defer { try? FileManager.default.removeItem(at: root) }
+        try withAgentChatUIFlag(true) {
+            let (store, root) = try loadStore(globalJSON: twoLayoutConfig(defaultActionID: "review-layout"))
+            defer { try? FileManager.default.removeItem(at: root) }
 
-        try withNewWorkspaceContextMenu(store: store) { menu in
-            let layoutsHeader = String(localized: "menu.newWorkspace.layoutsHeader", defaultValue: "Layouts")
-            let headerIndex = try #require(menu.items.firstIndex { $0.title == layoutsHeader })
-            let saveTitle = String(localized: "menu.newWorkspace.saveWorkspaceAsLayout", defaultValue: "Save Workspace as Layout…")
-            let saveIndex = try #require(menu.items.firstIndex { $0.title == saveTitle })
-            let newWorkspaceIndex = try #require(firstContextMenuIndex(menu, actionID: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID))
-            let agentChatIndex = try #require(firstContextMenuIndex(menu, actionID: CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
-            let reviewIndex = try #require(firstContextMenuIndex(menu, actionID: "review-layout"))
-            let devIndex = try #require(firstContextMenuIndex(menu, actionID: "dev-layout"))
+            try withNewWorkspaceContextMenu(store: store) { menu in
+                let layoutsHeader = String(localized: "menu.newWorkspace.layoutsHeader", defaultValue: "Layouts")
+                let headerIndex = try #require(menu.items.firstIndex { $0.title == layoutsHeader })
+                let saveTitle = String(localized: "menu.newWorkspace.saveWorkspaceAsLayout", defaultValue: "Save Workspace as Layout…")
+                let saveIndex = try #require(menu.items.firstIndex { $0.title == saveTitle })
+                let newWorkspaceIndex = try #require(firstContextMenuIndex(menu, actionID: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID))
+                let agentChatIndex = try #require(firstContextMenuIndex(menu, actionID: CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID))
+                let reviewIndex = try #require(firstContextMenuIndex(menu, actionID: "review-layout"))
+                let devIndex = try #require(firstContextMenuIndex(menu, actionID: "dev-layout"))
 
-            #expect(newWorkspaceIndex < headerIndex)
-            #expect(agentChatIndex < headerIndex)
-            #expect(headerIndex < reviewIndex)
-            #expect(headerIndex < devIndex)
-            #expect(reviewIndex < saveIndex)
-            #expect(devIndex < saveIndex)
-            let layoutRange = (headerIndex + 1)..<saveIndex
-            let nonLayoutIDs = menu.items[layoutRange].compactMap(contextMenuActionID).filter {
-                $0 != "review-layout" && $0 != "dev-layout"
+                #expect(newWorkspaceIndex < headerIndex)
+                #expect(agentChatIndex < headerIndex)
+                #expect(headerIndex < reviewIndex)
+                #expect(headerIndex < devIndex)
+                #expect(reviewIndex < saveIndex)
+                #expect(devIndex < saveIndex)
+                let layoutRange = (headerIndex + 1)..<saveIndex
+                let nonLayoutIDs = menu.items[layoutRange].compactMap(contextMenuActionID).filter {
+                    $0 != "review-layout" && $0 != "dev-layout"
+                }
+                #expect(nonLayoutIDs.isEmpty)
             }
-            #expect(nonLayoutIDs.isEmpty)
         }
     }
 

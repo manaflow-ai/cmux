@@ -322,12 +322,14 @@ extension DockSplitStore {
         inPane paneId: PaneID,
         excludingStableIdentities: Set<UUID>
     ) -> UUID? {
-        guard let browserSnapshot = snapshot.browser, isBrowserAvailable() else {
+        guard let browserSnapshot = snapshot.browser,
+              isBrowserAvailable() || browserSnapshot.purpose == .code else {
             return nil
         }
         let browser = makeBrowserPanel(
             url: nil,
             preferredProfileID: browserSnapshot.profileID,
+            purpose: browserSnapshot.purpose ?? .standard,
             transparentBackground: browserSnapshot.transparentBackground ?? false
         )
         guard attachSessionRestoredPanel(browser, snapshot: snapshot, inPane: paneId) != nil else {

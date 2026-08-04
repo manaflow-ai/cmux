@@ -1,0 +1,7 @@
+{
+  "name": "@cmux/code-sidecar-build",
+  "private": true,
+  "dependencies": {
+    "t3": "0.0.31"
+  }
+}

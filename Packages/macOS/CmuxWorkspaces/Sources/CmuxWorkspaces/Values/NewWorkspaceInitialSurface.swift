@@ -9,6 +9,8 @@ public enum NewWorkspaceInitialSurface: Sendable {
     case terminal
     /// A browser pane in its default new-tab state.
     case browser
+    /// The bundled Code workspace surface.
+    case code
     /// A transient Cloud VM loading surface. It is swapped for a terminal once attach is ready.
     case cloudVMLoading
 }

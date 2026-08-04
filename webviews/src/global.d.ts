@@ -1,4 +1,5 @@
 import type { DiffResponse } from "./diff/generated/protocol";
+import type { CmuxCodeBridge, createDesktopBridge } from "./surfaces/codeBridge";
 
 export {};
 
@@ -22,6 +23,8 @@ declare global {
   };
 
   interface Window {
+    cmuxCode?: CmuxCodeBridge;
+    desktopBridge?: ReturnType<typeof createDesktopBridge>;
     __cmuxPerformDiffViewerNavigationAction?: (action: string) => boolean;
     __cmuxDiffViewer?: {
       codeView?: unknown;
@@ -38,6 +41,9 @@ declare global {
         };
         cmuxDiff?: {
           postMessage(message: unknown): Promise<DiffResponse>;
+        };
+        cmuxCode?: {
+          postMessage(message: unknown): Promise<unknown>;
         };
       };
     };
