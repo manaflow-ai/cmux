@@ -15,6 +15,7 @@ thread_local! {
     static FORCE_PENDING_CONNECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FORCED_CONNECT_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static FORCED_CONNECT_POLLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static FORCED_CONNECT_MAX_POLLS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
 
 #[cfg(test)]
@@ -23,11 +24,21 @@ pub(crate) struct ForcedPendingConnectProbe;
 #[cfg(test)]
 impl ForcedPendingConnectProbe {
     pub(crate) fn install() -> Self {
+        Self::install_with_max_polls(None)
+    }
+
+    pub(crate) fn install_until_poll(max_polls: usize) -> Self {
+        assert!(max_polls > 0, "a pending-connect probe needs at least one poll");
+        Self::install_with_max_polls(Some(max_polls))
+    }
+
+    fn install_with_max_polls(max_polls: Option<usize>) -> Self {
         FORCE_PENDING_CONNECT.with(|forced| {
             assert!(!forced.replace(true), "a pending-connect probe is already installed");
         });
         FORCED_CONNECT_ATTEMPTS.with(|attempts| attempts.set(0));
         FORCED_CONNECT_POLLS.with(|polls| polls.set(0));
+        FORCED_CONNECT_MAX_POLLS.with(|limit| limit.set(max_polls));
         Self
     }
 
@@ -46,6 +57,7 @@ impl Drop for ForcedPendingConnectProbe {
         FORCE_PENDING_CONNECT.with(|forced| forced.set(false));
         FORCED_CONNECT_ATTEMPTS.with(|attempts| attempts.set(0));
         FORCED_CONNECT_POLLS.with(|polls| polls.set(0));
+        FORCED_CONNECT_MAX_POLLS.with(|limit| limit.set(None));
     }
 }
 
@@ -275,7 +287,17 @@ fn connect_unix_with_poll_checks(
             if now >= deadline {
                 return Err(connect_timeout_error(socket_path));
             }
-            FORCED_CONNECT_POLLS.with(|polls| polls.set(polls.get() + 1));
+            let polls = FORCED_CONNECT_POLLS.with(|polls| {
+                let next = polls.get() + 1;
+                polls.set(next);
+                next
+            });
+            if FORCED_CONNECT_MAX_POLLS
+                .with(std::cell::Cell::get)
+                .is_some_and(|limit| polls >= limit)
+            {
+                return Err(connect_timeout_error(socket_path));
+            }
             std::thread::sleep(deadline.saturating_duration_since(now).min(poll_interval));
         }
     }

@@ -1155,6 +1155,7 @@ mod tests {
         hook.filter.kinds = vec!["agent.turn.completed".into()];
         hook.filter.max_sensitivity = Some(JournalSensitivity::Sensitive);
         hook.exec.argv = vec!["/bin/sleep".into(), "0.005".into()];
+        hook.exec.timeout_ms = 10_000;
         hook.exec.max_parallel = u16::try_from(MAX_DELIVERY_WORKERS).unwrap();
         hook.permissions = vec!["journal.read.sensitive".into()];
         mux.put_journal_hook(&hook, "client_probe", "hook_probe_v1").unwrap();

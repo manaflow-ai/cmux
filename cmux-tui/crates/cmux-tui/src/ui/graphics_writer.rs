@@ -2115,7 +2115,6 @@ mod tests {
         );
         let master = unsafe { OwnedFd::from_raw_fd(master) };
         let slave = unsafe { OwnedFd::from_raw_fd(slave) };
-        assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
         let flags = unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_GETFL) };
         assert!(flags >= 0);
         assert_eq!(
@@ -2126,6 +2125,7 @@ mod tests {
             unsafe { libc::write(slave.as_raw_fd(), sentinel.as_ptr().cast(), sentinel.len()) },
             sentinel.len() as isize
         );
+        assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
         let fill = [b'x'; 4_096];
         loop {
             let written =

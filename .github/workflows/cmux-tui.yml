@@ -241,6 +241,8 @@ jobs:
         run: python3 cmux-tui/bindings/conformance/runner.py
 
       - name: Binding e2e
+        env:
+          CMUX_ZIG: zig
         run: bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
 
   windows-experimental:

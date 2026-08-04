@@ -1073,6 +1073,13 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
 fn acknowledged_stream_remains_open_past_the_request_timeout() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let timeout_scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(1)
+        .max(1);
+    let request_timeout = Duration::from_millis(250).saturating_mul(timeout_scale);
+    let stream_idle = Duration::from_millis(375).saturating_mul(timeout_scale);
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -1084,7 +1091,7 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
 
         // The request deadline bounds only opening the stream. An acknowledged
         // stream may remain healthy and idle for longer than that deadline.
-        thread::sleep(Duration::from_millis(150));
+        thread::sleep(stream_idle);
         let item = serde_json::to_vec(&json!({
             "protocol": "cmux.protocol/1",
             "type": "stream_item",
@@ -1096,7 +1103,7 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
         let midpoint = item.len() / 2;
         stream.write_all(&item[..midpoint]).unwrap();
         stream.flush().unwrap();
-        thread::sleep(Duration::from_millis(150));
+        thread::sleep(stream_idle);
         stream.write_all(&item[midpoint..]).unwrap();
         stream.write_all(b"\n").unwrap();
 
@@ -1117,10 +1124,9 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
         drop(control);
     });
 
-    let client = cmux::Client::connect(
-        Config::from_socket_path(&path).with_timeout(Duration::from_millis(50)),
-    )
-    .unwrap();
+    let client =
+        cmux::Client::connect(Config::from_socket_path(&path).with_timeout(request_timeout))
+            .unwrap();
     let mut events = client
         .session(SessionId::parse(SESSION).unwrap())
         .events(EventStreamOptions::default())

@@ -977,10 +977,10 @@ mod tests {
 
     #[test]
     fn cancellable_connect_reuses_one_socket_across_poll_slices() {
-        let probe = crate::codec::ForcedPendingConnectProbe::install();
+        let probe = crate::codec::ForcedPendingConnectProbe::install_until_poll(3);
         let cancellation = super::super::options::CancellationToken::new();
         let options = RequestOptions::new()
-            .with_timeout(Duration::from_millis(35))
+            .with_timeout(Duration::from_secs(1))
             .unwrap()
             .with_cancellation(cancellation);
         let budget = CallBudget::new(options, Duration::from_secs(1)).unwrap();
