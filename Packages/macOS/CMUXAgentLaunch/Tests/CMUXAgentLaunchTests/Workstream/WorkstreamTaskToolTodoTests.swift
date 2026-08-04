@@ -385,6 +385,32 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.count == 1)
     }
 
+    /// `replaceChecklist` rejects a whole replacement on a repeated id, so a
+    /// snapshot listing the same wording twice must still yield distinct ids.
+    @Test("Identical id-less entries stay distinct")
+    func duplicateContentEntriesGetDistinctIds() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"content":"write tests"},{"content":"write tests"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        let todos = latestTodos(store) ?? []
+        #expect(todos.count == 2)
+        #expect(Set(todos.map(\.id)).count == 2)
+
+        // The identity is still stable across repeated identical snapshots.
+        let firstIds = todos.map(\.id)
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"content":"write tests"},{"content":"write tests"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        #expect(latestTodos(store)?.map(\.id) == firstIds)
+    }
+
     @Test("Non-task tool calls stay tool telemetry")
     func otherToolsUnaffected() {
         let store = WorkstreamStore(ringCapacity: 50)

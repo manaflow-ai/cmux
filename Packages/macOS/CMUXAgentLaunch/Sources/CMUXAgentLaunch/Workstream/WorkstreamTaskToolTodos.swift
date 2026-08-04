@@ -293,12 +293,26 @@ func parseWorkstreamTodoWriteSnapshot(_ json: String?) -> [WorkstreamTaskTodo]? 
     } else {
         return nil
     }
+    // Identical text yields an identical derived id, so count occurrences to
+    // keep every entry distinct. `replaceChecklist` rejects the whole
+    // replacement on a repeated id, which would silently drop a valid
+    // snapshot that happens to list the same wording twice.
+    var occurrencesByDerivedId: [String: Int] = [:]
     return raw.compactMap { element in
         guard let dict = element as? [String: Any],
               !isCancelledTask(dict),
               let content = taskContent(in: dict) else { return nil }
+        let id: String
+        if let reported = taskId(in: dict) {
+            id = reported
+        } else {
+            let base = contentDerivedTaskId(content)
+            let occurrence = (occurrencesByDerivedId[base] ?? 0) + 1
+            occurrencesByDerivedId[base] = occurrence
+            id = occurrence == 1 ? base : "\(base)-\(occurrence)"
+        }
         return WorkstreamTaskTodo(
-            id: taskId(in: dict) ?? contentDerivedTaskId(content),
+            id: id,
             content: content,
             state: taskState(in: dict) ?? .pending
         )
