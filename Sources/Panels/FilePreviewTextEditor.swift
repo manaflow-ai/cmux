@@ -199,7 +199,7 @@ extension SavingTextView {
     }
 }
 
-extension NSTextView {
+extension SavingTextView {
     /// Configures the text view and its scroll view for soft line wrapping
     /// (`wrap == true`) or the no-wrap baseline with a horizontal scroller
     /// (`wrap == false`). Idempotent, so it is safe to call on every SwiftUI
