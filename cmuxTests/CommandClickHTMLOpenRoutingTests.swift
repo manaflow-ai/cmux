@@ -13,6 +13,46 @@ import struct CmuxSettings.AppCatalogSection
 @Suite(.serialized)
 struct CommandClickHTMLOpenRoutingTests {
     @Test
+    func hoverFilesystemProbePoolRunsOneAndRetainsOnlyLatestPendingJob() {
+        let pool = WordPathHoverFilesystemProbePool(
+            label: "command-hover-probe-test-\(UUID().uuidString)"
+        )
+        let firstStarted = DispatchSemaphore(value: 0)
+        let releaseFirst = DispatchSemaphore(value: 0)
+        let secondDiscarded = DispatchSemaphore(value: 0)
+        let secondRan = DispatchSemaphore(value: 0)
+        let thirdFinished = DispatchSemaphore(value: 0)
+
+        pool.submit(.init(
+            id: UUID(),
+            run: {
+                firstStarted.signal()
+                releaseFirst.wait()
+            },
+            discarded: {}
+        ))
+        #expect(firstStarted.wait(timeout: .now() + 1) == .success)
+
+        pool.submit(.init(
+            id: UUID(),
+            run: { secondRan.signal() },
+            discarded: { secondDiscarded.signal() }
+        ))
+        pool.submit(.init(
+            id: UUID(),
+            run: {
+                thirdFinished.signal()
+            },
+            discarded: {}
+        ))
+
+        #expect(secondDiscarded.wait(timeout: .now() + 1) == .success)
+        releaseFirst.signal()
+        #expect(thirdFinished.wait(timeout: .now() + 1) == .success)
+        #expect(secondRan.wait(timeout: .now()) == .timedOut)
+    }
+
+    @Test
     func hoverCacheIdentityIncludesSurfaceGenerationAndDirectory() {
         let surfaceID = UUID()
         let base = WordPathHoverCacheKey(
