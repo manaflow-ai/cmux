@@ -3088,7 +3088,7 @@ final class cmuxUITests: XCTestCase {
                     for _ in 0..<8 where !action.isHittable {
                         app.swipeUp()
                     }
-                    XCTAssertTrue(action.exists, "Missing switcher-sheet action: \(identifier)")
+                    XCTAssertTrue(action.isHittable, "Unreachable switcher-sheet action: \(identifier)")
                 }
                 tap(app.buttons["Done"], in: app)
             case "inline-tabs":
