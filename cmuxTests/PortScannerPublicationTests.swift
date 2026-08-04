@@ -214,11 +214,8 @@ struct AgentPortPublicationHistoryTests {
 @MainActor
 @Suite("Port scanner visibility publication")
 struct PortScannerVisibilityPublicationTests {
-    @Test(
-        "Disabling scans clears panel and agent publications",
-        .timeLimit(.minutes(1))
-    )
-    func disablingClearsPublishedPorts() async throws {
+    @Test("Disabling scans preserves shared listening-port publications")
+    func disablingDoesNotPublishAuthoritativeEmptyPorts() {
         let enabled = OSAllocatedUnfairLock(initialState: true)
         let scanner = PortScanner(
             portScanningEnabledProvider: { enabled.withLock { $0 } }
@@ -237,24 +234,7 @@ struct PortScannerVisibilityPublicationTests {
             workspaceId: workspaceID,
             roots: [root]
         )
-        let (panelPublications, panelContinuation) = AsyncStream<[Int]>.makeStream()
-        let (agentPublications, agentContinuation) = AsyncStream<[Int]>.makeStream()
-        var panelIterator = panelPublications.makeAsyncIterator()
-        var agentIterator = agentPublications.makeAsyncIterator()
-        scanner.onPortsUpdated = { callbackWorkspaceID, callbackPanelID, ports in
-            guard callbackWorkspaceID == workspaceID, callbackPanelID == panelID else { return }
-            panelContinuation.yield(ports)
-        }
-        scanner.onAgentPortsUpdated = { callbackWorkspaceID, ports in
-            guard callbackWorkspaceID == workspaceID else { return false }
-            agentContinuation.yield(ports)
-            return true
-        }
         defer {
-            panelContinuation.finish()
-            agentContinuation.finish()
-            scanner.onPortsUpdated = nil
-            scanner.onAgentPortsUpdated = nil
             scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
             scanner.unregisterAgentWorkspace(workspaceId: workspaceID)
         }
@@ -271,12 +251,11 @@ struct PortScannerVisibilityPublicationTests {
 
         enabled.withLock { $0 = false }
         scanner.portScanningSettingsDidChange()
+        let publication = scanner.queue.sync {
+            scanner.publicationBuffer.takePendingBatch()
+        }
 
-        let clearedPanelPorts = try #require(await panelIterator.next())
-        let clearedAgentPorts = try #require(await agentIterator.next())
-
-        #expect(clearedPanelPorts.isEmpty)
-        #expect(clearedAgentPorts.isEmpty)
+        #expect(publication?.isEmpty ?? true)
     }
 }
 
