@@ -1405,8 +1405,13 @@ extension Workspace {
                 ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
                 ?? (restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
                 ?? (restoresUntrustedSavedDirectory ? nil : snapshot.directory)
-            let workingDirectory = savedWorkingDirectory
-                ?? currentDirectory
+            // A remote restore may only use a cwd with remote provenance.
+            // `currentDirectory` is local workspace metadata on this Mac.
+            let workingDirectory: String? = if restoresRemoteWorkspaceTerminalSnapshot {
+                savedWorkingDirectory
+            } else {
+                savedWorkingDirectory ?? currentDirectory
+            }
             // A persisted terminal cwd can already be the stray fallback cwd
             // from a prior auto-resume restore; the transient rescue/guard must
             // remember where the resume launcher actually sends the agent.
@@ -1471,7 +1476,8 @@ extension Workspace {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
                             useLocalRestoreVerb: false,
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                            restoringWorkingDirectory: resumeSessionWorkingDirectory,
+                            allowCapturedWorkingDirectoryFallback: false
                         )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {

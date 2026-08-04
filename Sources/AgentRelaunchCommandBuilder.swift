@@ -11,7 +11,8 @@ struct AgentRelaunchCommandBuilder {
         kind: RestorableAgentKind,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
-        includeWorkingDirectoryPrefix: Bool = true
+        includeWorkingDirectoryPrefix: Bool = true,
+        allowCapturedWorkingDirectoryFallback: Bool = true
     ) -> String? {
         guard kind.restoreMode == .relaunchCommand,
               let launchCommand,
@@ -43,7 +44,8 @@ struct AgentRelaunchCommandBuilder {
         guard includeWorkingDirectoryPrefix else { return command }
         return TerminalStartupWorkingDirectoryPrefix.prefix(
             command,
-            workingDirectory: workingDirectory ?? launchCommand.workingDirectory
+            workingDirectory: workingDirectory
+                ?? (allowCapturedWorkingDirectoryFallback ? launchCommand.workingDirectory : nil)
         )
     }
 }

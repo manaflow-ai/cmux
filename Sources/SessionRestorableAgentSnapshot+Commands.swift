@@ -47,15 +47,18 @@ extension SessionRestorableAgentSnapshot {
 
     func resumeCommand(
         includeWorkingDirectoryPrefix: Bool,
-        restoringWorkingDirectory: String? = nil
+        restoringWorkingDirectory: String? = nil,
+        allowCapturedWorkingDirectoryFallback: Bool = true
     ) -> String? {
-        let effectiveWorkingDirectory = restoringWorkingDirectory ?? workingDirectory
+        let effectiveWorkingDirectory = restoringWorkingDirectory
+            ?? (allowCapturedWorkingDirectoryFallback ? workingDirectory : nil)
         if kind.restoreMode == .relaunchCommand {
             return AgentRelaunchCommandBuilder().shellCommand(
                 kind: kind,
                 launchCommand: launchCommand,
                 workingDirectory: effectiveWorkingDirectory,
-                includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+                includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+                allowCapturedWorkingDirectoryFallback: allowCapturedWorkingDirectoryFallback
             )
         }
         return AgentResumeCommandBuilder.resumeShellCommand(
@@ -65,7 +68,8 @@ extension SessionRestorableAgentSnapshot {
             workingDirectory: effectiveWorkingDirectory,
             registrationOverride: registration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
-            observedPermissionMode: permissionMode
+            observedPermissionMode: permissionMode,
+            allowCapturedWorkingDirectoryFallback: allowCapturedWorkingDirectoryFallback
         )
     }
 
