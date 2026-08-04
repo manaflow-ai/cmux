@@ -1074,6 +1074,45 @@ describe("account deletion route", () => {
       .toBeLessThan(accountLifecycleEvents.indexOf("stack-delete"));
   });
 
+  test("checkpoints bounded legacy tenant retirement and resumes without replay", async () => {
+    legacyTenantRows = [
+      { tenantId: "legacy-1" },
+      { tenantId: "legacy-2" },
+      { tenantId: "legacy-3" },
+    ];
+
+    const pending = await DELETE(accountDeletionRequest());
+
+    expect(pending.status).toBe(503);
+    expect(await pending.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(legacySubrouterRevokeRequests.map(([url]) => String(url))).toEqual([
+      "https://subrouter.cmux.dev/admin/tenants/legacy-1/revoke",
+      "https://subrouter.cmux.dev/admin/tenants/legacy-2/revoke",
+    ]);
+    expect(hostedTenantDeleteRequests).toHaveLength(0);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+
+    transactionTombstoneSelectResults = [[{
+      userIdHash: "existing-hash",
+      status: "legacy_delete_pending",
+      updatedAt: new Date(),
+      legacySubrouterRetiredTenantIds: ["legacy-1", "legacy-2"],
+      hostedSubrouterDeletedTeamIds: [],
+    }]];
+
+    const completed = await DELETE(accountDeletionRequest());
+
+    expect(completed.status).toBe(200);
+    expect(legacySubrouterRevokeRequests.slice(2).map(([url]) => String(url))).toEqual([
+      "https://subrouter.cmux.dev/admin/tenants/legacy-3/revoke",
+    ]);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
   test("validates legacy tenant retirement before destructive account cleanup", async () => {
     legacyTenantRows = [{ tenantId: "legacy-personal" }];
     delete process.env.SUBROUTER_ADMIN_TOKEN;
