@@ -197,6 +197,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "browser": [
+                    "userAgent": SettingCatalog().browser.userAgent.defaultValue,
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
                     "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,
                     "customSearchEngineURLTemplate": BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,

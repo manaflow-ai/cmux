@@ -1,7 +1,8 @@
+import CmuxBrowser
+import CmuxSettings
 import Foundation
 import Testing
 import WebKit
-import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,11 +11,11 @@ import CmuxBrowser
 #endif
 
 @MainActor
-@Suite
+@Suite(.serialized)
 struct BrowserUserAgentPolicyWebKitTests {
     @Test func duoNavigationUsesUserAgentOverrideFromCmuxConfig() throws {
         let defaults = UserDefaults.standard
-        let userAgentDefaultsKey = "browserUserAgent"
+        let userAgentDefaultsKey = SettingCatalog().browser.userAgent.userDefaultsKey
         let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
         let importedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
         let previousUserAgent = defaults.object(forKey: userAgentDefaultsKey)

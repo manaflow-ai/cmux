@@ -57,16 +57,31 @@ public struct BrowserUserAgentPolicy: Sendable {
 
     /// Resolves the browser identity policy for a top-level destination.
     ///
-    /// Google Sheets intentionally uses WebKit's default embedded identity.
-    /// Non-web destinations have no applicable user-agent policy.
+    /// A non-empty override takes precedence over destination-specific
+    /// behavior, including Google Sheets. Without an override, Google Sheets
+    /// intentionally uses WebKit's default embedded identity. Non-web
+    /// destinations have no applicable user-agent policy.
     ///
-    /// - Parameter url: The destination of the top-level navigation.
+    /// - Parameters:
+    ///   - url: The destination of the top-level navigation.
+    ///   - userAgentOverride: A configured identity to advertise. Leading and
+    ///     trailing whitespace is ignored; an empty value selects automatic
+    ///     behavior.
     /// - Returns: The user-agent policy resolution for the destination.
-    public func resolution(for url: URL?) -> BrowserUserAgentPolicyResolution {
+    public func resolution(
+        for url: URL?,
+        userAgentOverride: String? = nil
+    ) -> BrowserUserAgentPolicyResolution {
         guard let url,
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else {
             return .notApplicable
+        }
+        if let userAgentOverride {
+            let normalizedOverride = userAgentOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalizedOverride.isEmpty {
+                return .custom(normalizedOverride)
+            }
         }
         guard let host = url.host?.lowercased() else {
             return .custom(safariCompatibleUserAgent)

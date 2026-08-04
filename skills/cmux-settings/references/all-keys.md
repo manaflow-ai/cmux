@@ -120,6 +120,7 @@ Embedded browser settings from Settings > Browser.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
+| `browser.userAgent` | string | `""` | Custom user-agent string for top-level HTTP(S) browser navigations. Leave empty to use cmux's automatic WebKit/Safari identity. This changes only the advertised identity, not the browser engine. |
 | `browser.defaultSearchEngine` | `"google"` or `"duckduckgo"` or `"bing"` or `"kagi"` or `"startpage"` | `"google"` | Default search engine for non-URL queries. |
 | `browser.showSearchSuggestions` | boolean | `true` | Show omnibar search suggestions. |
 | `browser.theme` | `"system"` or `"light"` or `"dark"` | `"system"` | Embedded browser theme. |
