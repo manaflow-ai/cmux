@@ -85,6 +85,28 @@ private final class ServerEventRecorder: Sendable {
     }
 }
 
+/// Records a connection delivered directly from the listener queue. The test
+/// deliberately waits synchronously on the main actor, so delivery cannot
+/// depend on a main-actor or cooperative-executor task getting a turn.
+private final class DirectConnectionHandlerProbe: @unchecked Sendable {
+    private let handled = DispatchSemaphore(value: 0)
+    private let state = OSAllocatedUnfairLock(initialState: 0)
+
+    func handle(_ connection: ControlConnection) {
+        close(connection.socket)
+        state.withLock { $0 += 1 }
+        handled.signal()
+    }
+
+    func wait(timeout: TimeInterval) -> Bool {
+        handled.wait(timeout: .now() + timeout) == .success
+    }
+
+    var invocationCount: Int {
+        state.withLock { $0 }
+    }
+}
+
 /// Deterministic transport fault script used to exercise listener recovery
 /// through the real server lifecycle and real Unix-domain sockets.
 private final class TestSocketTransportFaultInjector: SocketTransportFaultInjecting, Sendable {
@@ -137,7 +159,8 @@ private struct ServerHarness: ~Copyable {
     init(
         recoveryClock: any SocketRecoveryClock = SystemSocketRecoveryClock(),
         transport: SocketTransport = SocketTransport(),
-        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy()
+        listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
+        acceptedConnectionHandler: (@Sendable (ControlConnection) -> Void)? = nil
     ) throws {
         directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("scs-\(UUID().uuidString.prefix(8))", isDirectory: true)
@@ -150,6 +173,7 @@ private struct ServerHarness: ~Copyable {
             listenerPolicy: listenerPolicy,
             recoveryClock: recoveryClock,
             notificationCenter: NotificationCenter(),
+            acceptedConnectionHandler: acceptedConnectionHandler,
             events: recorder.makeEvents()
         )
     }
@@ -289,6 +313,22 @@ struct SocketControlServerLifecycleTests {
         let connection = try #require(await server.connections.nextConnection())
         defer { close(connection.socket) }
         #expect(connection.peerProcessID == getpid())
+    }
+
+    @Test func directConnectionHandlerDoesNotRequireAnAsyncConsumer() throws {
+        let probe = DirectConnectionHandlerProbe()
+        let harness = try ServerHarness(acceptedConnectionHandler: { connection in
+            probe.handle(connection)
+        })
+        defer { harness.shutdown() }
+        #expect(harness.server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+
+        let fd = connect(to: harness.socketPath)
+        #expect(fd >= 0)
+        defer { if fd >= 0 { close(fd) } }
+
+        #expect(probe.wait(timeout: 1))
+        #expect(probe.invocationCount == 1)
     }
 
     @Test func connectionStreamSpansListenerRestarts() async throws {
