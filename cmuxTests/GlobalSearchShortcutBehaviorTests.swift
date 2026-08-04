@@ -780,7 +780,7 @@ extension GlobalSearchShortcutBehaviorTests {
     }
 
     @MainActor
-    @Test func cancelledIndexDeletionsLeaveDocumentsIntact() async throws {
+    @Test func cancelledIndexOperationsLeaveDocumentsIntact() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-global-search-cancellation-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -804,14 +804,17 @@ extension GlobalSearchShortcutBehaviorTests {
         try await index.upsert(panelDocument)
         try await index.upsert(singleDocument)
 
-        await expectCancelledMutation {
+        await expectCancelledIndexOperation {
             try await index.deletePanel(panelID)
         }
-        await expectCancelledMutation {
+        await expectCancelledIndexOperation {
             try await index.deleteDocument(id: singleDocument.id)
         }
-        await expectCancelledMutation {
+        await expectCancelledIndexOperation {
             try await index.deleteAll()
+        }
+        await expectCancelledIndexOperation {
+            _ = try await index.search("panelcancellationtoken")
         }
 
         #expect(try await index.search("panelcancellationtoken").map(\.id) == [panelDocument.id])
@@ -1428,20 +1431,20 @@ extension GlobalSearchShortcutBehaviorTests {
     }
 
     @MainActor
-    private func expectCancelledMutation(
-        _ mutation: @escaping @MainActor @Sendable () async throws -> Void
+    private func expectCancelledIndexOperation(
+        _ operation: @escaping @MainActor @Sendable () async throws -> Void
     ) async {
-        let releaseMutation = GlobalSearchAsyncSignal()
+        let releaseOperation = GlobalSearchAsyncSignal()
         let task = Task { @MainActor in
-            await releaseMutation.wait()
-            try await mutation()
+            await releaseOperation.wait()
+            try await operation()
         }
         task.cancel()
-        releaseMutation.signal()
+        releaseOperation.signal()
 
         switch await task.result {
         case .success:
-            Issue.record("The canceled index mutation unexpectedly committed")
+            Issue.record("The canceled index operation unexpectedly completed")
         case .failure(let error):
             #expect(error is CancellationError)
         }
