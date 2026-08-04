@@ -4806,7 +4806,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(
             app.descendants(matching: .any)["MobileSettingsView"].waitForExistence(timeout: 4)
         )
-        tap(app.buttons["MobileSettingsWorkspaceDetailLab"], in: app)
+        let labRow = app.descendants(matching: .any)["MobileSettingsWorkspaceDetailLab"]
+        for _ in 0..<8 where !labRow.isHittable {
+            app.swipeUp()
+        }
+        tap(labRow, in: app)
         XCTAssertTrue(
             app.descendants(matching: .any)["MobileWorkspaceDetailLab"].waitForExistence(timeout: 4)
         )
