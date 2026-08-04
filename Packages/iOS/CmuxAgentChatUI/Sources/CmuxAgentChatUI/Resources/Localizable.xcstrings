@@ -16,7 +16,13 @@
             "value": "この大きな書類では、先頭部分のみが支援技術に公開されます。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "辅助技术只能读取此大型文档的开头部分。"
+        }
+      }}
     },
     "chat.artifact.action_failed.message": {
       "extractionState": "manual",
@@ -33,7 +39,13 @@
             "value": "Macへの接続を確認して、もう一度お試しください。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "请检查与 Mac 的连接，然后重试。"
+        }
+      }}
     },
     "chat.artifact.action_failed.title": {
       "extractionState": "manual",
@@ -50,7 +62,13 @@
             "value": "操作を完了できませんでした"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "无法完成操作"
+        }
+      }}
     },
     "chat.artifact.actions.title": {
       "extractionState": "manual",
@@ -67,7 +85,13 @@
             "value": "参照項目"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "引用的项目"
+        }
+      }}
     },
     "chat.artifact.browse_folder": {
       "extractionState": "manual",
@@ -84,7 +108,13 @@
             "value": "フォルダを表示"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "浏览文件夹"
+        }
+      }}
     },
     "chat.artifact.copy_contents": {
       "extractionState": "manual",
@@ -101,7 +131,13 @@
             "value": "内容をコピー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "复制内容"
+        }
+      }}
     },
     "chat.artifact.copy_image": {
       "extractionState": "manual",
@@ -118,7 +154,13 @@
             "value": "画像をコピー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "复制图像"
+        }
+      }}
     },
     "chat.artifact.copy_path": {
       "extractionState": "manual",
@@ -135,7 +177,13 @@
             "value": "パスをコピー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "复制路径"
+        }
+      }}
     },
     "chat.artifact.done": {
       "extractionState": "manual",
@@ -152,7 +200,13 @@
             "value": "完了"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "完成"
+        }
+      }}
     },
     "chat.artifact.file_actions": {
       "extractionState": "manual",
@@ -169,7 +223,13 @@
             "value": "ファイル操作"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "文件操作"
+        }
+      }}
     },
     "chat.artifact.file_missing.message": {
       "extractionState": "manual",
@@ -186,7 +246,13 @@
             "value": "そのファイルはMac上で利用できなくなりました。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "该文件在您的 Mac 上已不可用。"
+        }
+      }}
     },
     "chat.artifact.file_missing.title": {
       "extractionState": "manual",
@@ -203,7 +269,13 @@
             "value": "ファイルが見つかりません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "找不到文件"
+        }
+      }}
     },
     "chat.artifact.folder.empty": {
       "extractionState": "manual",
@@ -220,7 +292,13 @@
             "value": "項目がありません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "没有项目"
+        }
+      }}
     },
     "chat.artifact.folder.load_failed": {
       "extractionState": "manual",
@@ -237,7 +315,13 @@
             "value": "このフォルダを読み込めませんでした"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "无法加载此文件夹"
+        }
+      }}
     },
     "chat.artifact.folder.showing_first_500": {
       "extractionState": "manual",
@@ -254,7 +338,13 @@
             "value": "最初の 500 項目を表示しています"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在显示前 500 个项目"
+        }
+      }}
     },
     "chat.artifact.forbidden.message": {
       "extractionState": "manual",
@@ -271,7 +361,13 @@
             "value": "このファイルは会話で参照されていません。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "此文件未被对话引用。"
+        }
+      }}
     },
     "chat.artifact.forbidden.terminal_message": {
       "extractionState": "manual",
@@ -288,7 +384,13 @@
             "value": "このファイルは現在のターミナル画面に表示されていません。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "此文件在当前终端视图中不可见。"
+        }
+      }}
     },
     "chat.artifact.forbidden.title": {
       "extractionState": "manual",
@@ -305,7 +407,13 @@
             "value": "プレビューできません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "预览不可用"
+        }
+      }}
     },
     "chat.artifact.highlighting.off": {
       "extractionState": "manual",
@@ -322,7 +430,13 @@
             "value": "ハイライトはオフ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已关闭高亮"
+        }
+      }}
     },
     "chat.artifact.highlighting.off.explanation": {
       "extractionState": "manual",
@@ -339,7 +453,13 @@
             "value": "このファイルは%@です。スクロールを滑らかに保つため、%@を超えるファイルでは構文ハイライトがオフになります。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "此文件为 %@。为保持滚动流畅，超过 %@ 的部分已关闭语法高亮。"
+        }
+      }}
     },
     "chat.artifact.jump.bottom": {
       "extractionState": "manual",
@@ -356,7 +476,13 @@
             "value": "下端"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "底部"
+        }
+      }}
     },
     "chat.artifact.jump.end": {
       "extractionState": "manual",
@@ -373,7 +499,13 @@
             "value": "末尾"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "末尾"
+        }
+      }}
     },
     "chat.artifact.jump.latest": {
       "extractionState": "manual",
@@ -390,7 +522,13 @@
             "value": "最新"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "最新"
+        }
+      }}
     },
     "chat.artifact.jump.top": {
       "extractionState": "manual",
@@ -407,7 +545,13 @@
             "value": "先頭"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "顶部"
+        }
+      }}
     },
     "chat.artifact.line.close": {
       "extractionState": "manual",
@@ -424,7 +568,13 @@
             "value": "行へ移動を閉じる"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "关闭跳转到行"
+        }
+      }}
     },
     "chat.artifact.line.go": {
       "extractionState": "manual",
@@ -441,7 +591,13 @@
             "value": "移動"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "前往"
+        }
+      }}
     },
     "chat.artifact.line.goto": {
       "extractionState": "manual",
@@ -458,7 +614,13 @@
             "value": "行へ移動"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "转到行"
+        }
+      }}
     },
     "chat.artifact.line.numbers": {
       "extractionState": "manual",
@@ -475,7 +637,13 @@
             "value": "行番号"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "行号"
+        }
+      }}
     },
     "chat.artifact.line.placeholder": {
       "extractionState": "manual",
@@ -492,7 +660,13 @@
             "value": "行番号"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "行号"
+        }
+      }}
     },
     "chat.artifact.loading": {
       "extractionState": "manual",
@@ -509,7 +683,13 @@
             "value": "プレビューを読み込み中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在加载预览"
+        }
+      }}
     },
     "chat.artifact.mac_unreachable.message": {
       "extractionState": "manual",
@@ -526,7 +706,13 @@
             "value": "Macとの接続を確認して、もう一度お試しください。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "请检查与 Mac 的连接，然后重试。"
+        }
+      }}
     },
     "chat.artifact.mac_unreachable.title": {
       "extractionState": "manual",
@@ -543,7 +729,13 @@
             "value": "Macに接続できません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "无法连接 Mac"
+        }
+      }}
     },
     "chat.artifact.markdown.raw": {
       "extractionState": "manual",
@@ -560,7 +752,13 @@
             "value": "ソース"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "原始"
+        }
+      }}
     },
     "chat.artifact.markdown.rendered": {
       "extractionState": "manual",
@@ -577,7 +775,13 @@
             "value": "プレビュー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "渲染"
+        }
+      }}
     },
     "chat.artifact.markdown.view": {
       "extractionState": "manual",
@@ -594,7 +798,13 @@
             "value": "Markdown表示"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Markdown 视图"
+        }
+      }}
     },
     "chat.artifact.ok": {
       "extractionState": "manual",
@@ -611,7 +821,13 @@
             "value": "OK"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "好"
+        }
+      }}
     },
     "chat.artifact.open_item": {
       "extractionState": "manual",
@@ -628,7 +844,13 @@
             "value": "項目を開く"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "打开项目"
+        }
+      }}
     },
     "chat.artifact.preview_unavailable.message": {
       "extractionState": "manual",
@@ -645,7 +867,13 @@
             "value": "このファイルはプレビューできません。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "无法预览此文件。"
+        }
+      }}
     },
     "chat.artifact.preview_unavailable.title": {
       "extractionState": "manual",
@@ -662,7 +890,13 @@
             "value": "プレビューできません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "预览不可用"
+        }
+      }}
     },
     "chat.artifact.retry": {
       "extractionState": "manual",
@@ -679,7 +913,13 @@
             "value": "再試行"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "重试"
+        }
+      }}
     },
     "chat.artifact.save_to_files": {
       "extractionState": "manual",
@@ -696,7 +936,13 @@
             "value": "「ファイル」に保存"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "存储到「文件」"
+        }
+      }}
     },
     "chat.artifact.search.close": {
       "extractionState": "manual",
@@ -713,7 +959,13 @@
             "value": "検索を閉じる"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "关闭搜索"
+        }
+      }}
     },
     "chat.artifact.search.next": {
       "extractionState": "manual",
@@ -730,7 +982,13 @@
             "value": "次の一致"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "下一个匹配项"
+        }
+      }}
     },
     "chat.artifact.search.placeholder": {
       "extractionState": "manual",
@@ -747,7 +1005,13 @@
             "value": "ファイル内を検索"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "在文件中查找"
+        }
+      }}
     },
     "chat.artifact.search.previous": {
       "extractionState": "manual",
@@ -764,7 +1028,13 @@
             "value": "前の一致"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "上一个匹配项"
+        }
+      }}
     },
     "chat.artifact.search.still_loading": {
       "extractionState": "manual",
@@ -781,7 +1051,13 @@
             "value": "読み込み中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "仍在加载"
+        }
+      }}
     },
     "chat.artifact.search.title": {
       "extractionState": "manual",
@@ -798,7 +1074,13 @@
             "value": "検索"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "搜索"
+        }
+      }}
     },
     "chat.artifact.share": {
       "extractionState": "manual",
@@ -815,7 +1097,13 @@
             "value": "共有"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "共享"
+        }
+      }}
     },
     "chat.artifact.text_options": {
       "extractionState": "manual",
@@ -832,7 +1120,13 @@
             "value": "テキストオプション"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "文本选项"
+        }
+      }}
     },
     "chat.artifact.too_large.limit_message": {
       "extractionState": "manual",
@@ -849,7 +1143,13 @@
             "value": "このプレビューの上限は%@です。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "此预览限制为 %@。"
+        }
+      }}
     },
     "chat.artifact.too_large.message": {
       "extractionState": "manual",
@@ -866,7 +1166,13 @@
             "value": "このファイルのサイズは%@です。プレビューの上限は%@です。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "此文件为 %@；预览限制为 %@。"
+        }
+      }}
     },
     "chat.artifact.too_large.title": {
       "extractionState": "manual",
@@ -883,7 +1189,13 @@
             "value": "ファイルが大きすぎてプレビューできません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "文件过大，无法预览"
+        }
+      }}
     },
     "chat.artifact.view_file": {
       "extractionState": "manual",
@@ -900,7 +1212,13 @@
             "value": "ファイルを表示"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "查看文件"
+        }
+      }}
     },
     "chat.artifact.viewer.actions": {
       "extractionState": "manual",
@@ -917,7 +1235,13 @@
             "value": "ビューア操作"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "查看器操作"
+        }
+      }}
     },
     "chat.artifact.wrap": {
       "extractionState": "manual",
@@ -934,7 +1258,13 @@
             "value": "行を折り返す"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "自动换行"
+        }
+      }}
     },
     "chat.attachment.image": {
       "extractionState": "manual",
@@ -951,7 +1281,13 @@
             "value": "画像"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "图像"
+        }
+      }}
     },
     "chat.bubble.copy": {
       "extractionState": "manual",
@@ -968,7 +1304,13 @@
             "value": "コピー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "复制"
+        }
+      }}
     },
     "chat.chip.ctrl_c": {
       "extractionState": "manual",
@@ -985,7 +1327,13 @@
             "value": "Ctrl-C"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Ctrl-C"
+        }
+      }}
     },
     "chat.chip.esc": {
       "extractionState": "manual",
@@ -1002,7 +1350,13 @@
             "value": "Esc"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Esc"
+        }
+      }}
     },
     "chat.chip.stop": {
       "extractionState": "manual",
@@ -1019,7 +1373,13 @@
             "value": "停止"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "停止"
+        }
+      }}
     },
     "chat.chip.terminal": {
       "extractionState": "manual",
@@ -1036,7 +1396,13 @@
             "value": "ターミナル"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "终端"
+        }
+      }}
     },
     "chat.code.language.accessibility": {
       "extractionState": "manual",
@@ -1053,7 +1419,13 @@
             "value": "%@ コード"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ 代码"
+        }
+      }}
     },
     "chat.code_block.accessibility": {
       "extractionState": "manual",
@@ -1070,7 +1442,13 @@
             "value": "コードブロック"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代码块"
+        }
+      }}
     },
     "chat.composer.attach.accessibility": {
       "extractionState": "manual",
@@ -1087,7 +1465,13 @@
             "value": "添付を追加"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "添加附件"
+        }
+      }}
     },
     "chat.composer.attachment.accessibility": {
       "extractionState": "manual",
@@ -1104,7 +1488,13 @@
             "value": "添付ファイル %lld"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "附件 %lld"
+        }
+      }}
     },
     "chat.composer.open_terminal": {
       "extractionState": "manual",
@@ -1121,7 +1511,13 @@
             "value": "ターミナルを開く"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "打开终端"
+        }
+      }}
     },
     "chat.composer.placeholder": {
       "extractionState": "manual",
@@ -1138,7 +1534,13 @@
             "value": "%@にメッセージ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "消息 %@"
+        }
+      }}
     },
     "chat.composer.placeholder.terminal": {
       "extractionState": "manual",
@@ -1155,7 +1557,13 @@
             "value": "❯ コマンド"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "❯ 命令"
+        }
+      }}
     },
     "chat.composer.remove_attachment.accessibility": {
       "extractionState": "manual",
@@ -1172,7 +1580,13 @@
             "value": "添付ファイル %lld を削除"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "移除附件 %lld"
+        }
+      }}
     },
     "chat.composer.send.accessibility": {
       "extractionState": "manual",
@@ -1189,7 +1603,13 @@
             "value": "送信"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "发送"
+        }
+      }}
     },
     "chat.composer.session_ended": {
       "extractionState": "manual",
@@ -1206,7 +1626,13 @@
             "value": "セッションが終了しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "会话已结束"
+        }
+      }}
     },
     "chat.composer.stop.accessibility": {
       "extractionState": "manual",
@@ -1223,7 +1649,13 @@
             "value": "停止"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "停止"
+        }
+      }}
     },
     "chat.detail.code.section": {
       "extractionState": "manual",
@@ -1240,7 +1672,13 @@
             "value": "コード"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代码"
+        }
+      }}
     },
     "chat.detail.code.title": {
       "extractionState": "manual",
@@ -1257,7 +1695,13 @@
             "value": "コードブロック"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代码块"
+        }
+      }}
     },
     "chat.detail.command": {
       "extractionState": "manual",
@@ -1274,7 +1718,13 @@
             "value": "コマンド"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "命令"
+        }
+      }}
     },
     "chat.detail.copy_all": {
       "extractionState": "manual",
@@ -1291,7 +1741,13 @@
             "value": "すべてコピー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "全部复制"
+        }
+      }}
     },
     "chat.detail.diff": {
       "extractionState": "manual",
@@ -1308,7 +1764,13 @@
             "value": "差分"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "差异"
+        }
+      }}
     },
     "chat.detail.done": {
       "extractionState": "manual",
@@ -1325,7 +1787,13 @@
             "value": "完了"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "完成"
+        }
+      }}
     },
     "chat.detail.empty": {
       "extractionState": "manual",
@@ -1342,7 +1810,13 @@
             "value": "詳細はありません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "没有可用详情"
+        }
+      }}
     },
     "chat.detail.file.subtitle": {
       "extractionState": "manual",
@@ -1359,7 +1833,13 @@
             "value": "%@（%@）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ - %@"
+        }
+      }}
     },
     "chat.detail.file.title": {
       "extractionState": "manual",
@@ -1376,7 +1856,13 @@
             "value": "ファイル変更"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "文件更改"
+        }
+      }}
     },
     "chat.detail.operation.delete": {
       "extractionState": "manual",
@@ -1393,7 +1879,13 @@
             "value": "削除"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "删除"
+        }
+      }}
     },
     "chat.detail.operation.edit": {
       "extractionState": "manual",
@@ -1410,7 +1902,13 @@
             "value": "編集"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "编辑"
+        }
+      }}
     },
     "chat.detail.operation.write": {
       "extractionState": "manual",
@@ -1427,7 +1925,13 @@
             "value": "書き込み"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "写入"
+        }
+      }}
     },
     "chat.detail.output": {
       "extractionState": "manual",
@@ -1444,7 +1948,13 @@
             "value": "出力"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输出"
+        }
+      }}
     },
     "chat.detail.show.hint": {
       "extractionState": "manual",
@@ -1461,7 +1971,13 @@
             "value": "ブロック全体を表示するシートを開きます"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "打开包含完整块内容的表单。"
+        }
+      }}
     },
     "chat.detail.status.failed": {
       "extractionState": "manual",
@@ -1478,7 +1994,13 @@
             "value": "失敗"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "失败"
+        }
+      }}
     },
     "chat.detail.status.running": {
       "extractionState": "manual",
@@ -1495,7 +2017,13 @@
             "value": "実行中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "运行中"
+        }
+      }}
     },
     "chat.detail.status.succeeded": {
       "extractionState": "manual",
@@ -1512,7 +2040,13 @@
             "value": "成功"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "成功"
+        }
+      }}
     },
     "chat.detail.terminal.title": {
       "extractionState": "manual",
@@ -1529,7 +2063,13 @@
             "value": "ターミナル出力"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "终端输出"
+        }
+      }}
     },
     "chat.detail.thought.section": {
       "extractionState": "manual",
@@ -1546,7 +2086,13 @@
             "value": "推論"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "推理"
+        }
+      }}
     },
     "chat.detail.tool.input": {
       "extractionState": "manual",
@@ -1563,7 +2109,13 @@
             "value": "入力"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输入"
+        }
+      }}
     },
     "chat.detail.tool.output": {
       "extractionState": "manual",
@@ -1580,7 +2132,13 @@
             "value": "出力"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "输出"
+        }
+      }}
     },
     "chat.detail.tool.subtitle": {
       "extractionState": "manual",
@@ -1597,7 +2155,13 @@
             "value": "%@（%@）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ - %@"
+        }
+      }}
     },
     "chat.detail.tool.summary": {
       "extractionState": "manual",
@@ -1614,7 +2178,13 @@
             "value": "概要"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "摘要"
+        }
+      }}
     },
     "chat.detail.tool.title": {
       "extractionState": "manual",
@@ -1631,7 +2201,13 @@
             "value": "ツール詳細"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "工具详情"
+        }
+      }}
     },
     "chat.diff.added.accessibility": {
       "extractionState": "manual",
@@ -1648,7 +2224,13 @@
             "value": "追加: %@"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已添加：%@"
+        }
+      }}
     },
     "chat.diff.hunk.accessibility": {
       "extractionState": "manual",
@@ -1665,7 +2247,13 @@
             "value": "セクション: %@"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "区块：%@"
+        }
+      }}
     },
     "chat.diff.removed.accessibility": {
       "extractionState": "manual",
@@ -1682,7 +2270,13 @@
             "value": "削除: %@"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已移除：%@"
+        }
+      }}
     },
     "chat.file_edit.accessibility": {
       "extractionState": "manual",
@@ -1699,7 +2293,13 @@
             "value": "ファイル編集"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "文件编辑"
+        }
+      }}
     },
     "chat.file_edit.additions.accessibility": {
       "extractionState": "manual",
@@ -1716,7 +2316,13 @@
             "value": "追加"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "新增"
+        }
+      }}
     },
     "chat.file_edit.deletions.accessibility": {
       "extractionState": "manual",
@@ -1733,7 +2339,13 @@
             "value": "削除"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "删除"
+        }
+      }}
     },
     "chat.header.reconnecting": {
       "extractionState": "manual",
@@ -1750,7 +2362,13 @@
             "value": "再接続中…"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在重新连接…"
+        }
+      }}
     },
     "chat.header.state.ended": {
       "extractionState": "manual",
@@ -1767,7 +2385,13 @@
             "value": "終了"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已结束"
+        }
+      }}
     },
     "chat.header.state.idle": {
       "extractionState": "manual",
@@ -1784,7 +2408,13 @@
             "value": "待機中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "空闲"
+        }
+      }}
     },
     "chat.header.state.needs_input": {
       "extractionState": "manual",
@@ -1801,7 +2431,13 @@
             "value": "入力待ち"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "等待输入"
+        }
+      }}
     },
     "chat.header.state.working": {
       "extractionState": "manual",
@@ -1818,7 +2454,13 @@
             "value": "作業中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "工作中"
+        }
+      }}
     },
     "chat.history.truncated": {
       "extractionState": "manual",
@@ -1835,7 +2477,13 @@
             "value": "これより前の履歴はMac側にあります"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "更早的历史记录在您的 Mac 上"
+        }
+      }}
     },
     "chat.open_terminal.accessibility": {
       "extractionState": "manual",
@@ -1852,7 +2500,13 @@
             "value": "ターミナルを開く"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "打开终端"
+        }
+      }}
     },
     "chat.pending.attachments.accessibility": {
       "extractionState": "manual",
@@ -1869,7 +2523,13 @@
             "value": "%lld件の添付ファイル"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%lld 个附件"
+        }
+      }}
     },
     "chat.pending.cancel": {
       "extractionState": "manual",
@@ -1886,7 +2546,13 @@
             "value": "キャンセル"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "取消"
+        }
+      }}
     },
     "chat.pending.delivered.accessibility": {
       "extractionState": "manual",
@@ -1903,7 +2569,13 @@
             "value": "送信済み"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已送达"
+        }
+      }}
     },
     "chat.pending.discard": {
       "extractionState": "manual",
@@ -1920,7 +2592,13 @@
             "value": "破棄"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "丢弃"
+        }
+      }}
     },
     "chat.pending.failed.accessibility": {
       "extractionState": "manual",
@@ -1937,7 +2615,13 @@
             "value": "送信に失敗しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "发送失败"
+        }
+      }}
     },
     "chat.pending.queued.accessibility": {
       "extractionState": "manual",
@@ -1954,7 +2638,13 @@
             "value": "エージェントが空くまで送信待ち"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已排队，等待代理空闲"
+        }
+      }}
     },
     "chat.pending.retry": {
       "extractionState": "manual",
@@ -1971,7 +2661,13 @@
             "value": "再試行"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "重试"
+        }
+      }}
     },
     "chat.pending.sending.accessibility": {
       "extractionState": "manual",
@@ -1988,7 +2684,13 @@
             "value": "送信中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "正在发送"
+        }
+      }}
     },
     "chat.permission.approve": {
       "extractionState": "manual",
@@ -2005,7 +2707,13 @@
             "value": "許可"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "批准"
+        }
+      }}
     },
     "chat.permission.approved": {
       "extractionState": "manual",
@@ -2022,7 +2730,13 @@
             "value": "許可済み"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已批准"
+        }
+      }}
     },
     "chat.permission.denied": {
       "extractionState": "manual",
@@ -2039,7 +2753,13 @@
             "value": "拒否済み"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已拒绝"
+        }
+      }}
     },
     "chat.permission.deny": {
       "extractionState": "manual",
@@ -2056,7 +2776,13 @@
             "value": "拒否"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "拒绝"
+        }
+      }}
     },
     "chat.permission.expired": {
       "extractionState": "manual",
@@ -2073,7 +2799,13 @@
             "value": "期限切れ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已过期"
+        }
+      }}
     },
     "chat.row.collapse.hint": {
       "extractionState": "manual",
@@ -2090,7 +2822,13 @@
             "value": "ダブルタップで折りたたむ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "轻点两下以折叠"
+        }
+      }}
     },
     "chat.row.collapsed.accessibility": {
       "extractionState": "manual",
@@ -2107,7 +2845,13 @@
             "value": "折りたたみ済み"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已折叠"
+        }
+      }}
     },
     "chat.row.expand.hint": {
       "extractionState": "manual",
@@ -2124,7 +2868,13 @@
             "value": "ダブルタップで展開"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "轻点两下以展开"
+        }
+      }}
     },
     "chat.row.expanded.accessibility": {
       "extractionState": "manual",
@@ -2141,7 +2891,13 @@
             "value": "展開済み"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已展开"
+        }
+      }}
     },
     "chat.scroll_to_bottom.accessibility": {
       "extractionState": "manual",
@@ -2158,7 +2914,13 @@
             "value": "最新メッセージへスクロール"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "滚动到最新消息"
+        }
+      }}
     },
     "chat.status.context_compacted": {
       "extractionState": "manual",
@@ -2175,7 +2937,13 @@
             "value": "コンテキストを圧縮しました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "上下文已压缩"
+        }
+      }}
     },
     "chat.status.interrupted": {
       "extractionState": "manual",
@@ -2192,7 +2960,13 @@
             "value": "中断されました"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "已中断"
+        }
+      }}
     },
     "chat.status.session_ended": {
       "extractionState": "manual",
@@ -2209,7 +2983,13 @@
             "value": "セッション終了"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "会话已结束"
+        }
+      }}
     },
     "chat.status.session_started": {
       "extractionState": "manual",
@@ -2226,7 +3006,13 @@
             "value": "セッション開始"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "会话已开始"
+        }
+      }}
     },
     "chat.terminal.collapse.action": {
       "extractionState": "manual",
@@ -2243,7 +3029,13 @@
             "value": "出力を折りたたむ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "显示更少的输出"
+        }
+      }}
     },
     "chat.terminal.command.accessibility": {
       "extractionState": "manual",
@@ -2260,7 +3052,13 @@
             "value": "コマンド%@"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "命令 %@"
+        }
+      }}
     },
     "chat.terminal.expand.action": {
       "extractionState": "manual",
@@ -2277,7 +3075,13 @@
             "value": "すべての出力を表示"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "显示全部输出"
+        }
+      }}
     },
     "chat.terminal.failed.accessibility": {
       "extractionState": "manual",
@@ -2294,7 +3098,13 @@
             "value": "コマンド%@、失敗、終了コード%lld"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "命令 %@ 失败，退出代码 %lld"
+        }
+      }}
     },
     "chat.terminal.interactive": {
       "extractionState": "manual",
@@ -2311,7 +3121,13 @@
             "value": "インタラクティブプログラム — フルターミナルを開く"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "交互式程序 — 打开完整终端"
+        }
+      }}
     },
     "chat.terminal.interactive.accessibility": {
       "extractionState": "manual",
@@ -2328,7 +3144,13 @@
             "value": "%@はインタラクティブプログラムです。フルターミナルを開いてください。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ 是交互式程序。请打开完整终端。"
+        }
+      }}
     },
     "chat.terminal.more_lines": {
       "extractionState": "manual",
@@ -2345,7 +3167,13 @@
             "value": "⋯ 残り%lld行"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "⋯ 还有 %lld 行"
+        }
+      }}
     },
     "chat.terminal.open_in_terminal": {
       "extractionState": "manual",
@@ -2362,7 +3190,13 @@
             "value": "ターミナルで開く"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "在终端中打开"
+        }
+      }}
     },
     "chat.terminal.running": {
       "extractionState": "manual",
@@ -2379,7 +3213,13 @@
             "value": "実行中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "运行中"
+        }
+      }}
     },
     "chat.terminal.running.accessibility": {
       "extractionState": "manual",
@@ -2396,7 +3236,13 @@
             "value": "コマンド%@、実行中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "命令 %@，正在运行"
+        }
+      }}
     },
     "chat.terminal.succeeded.accessibility": {
       "extractionState": "manual",
@@ -2413,7 +3259,13 @@
             "value": "コマンド%@、成功"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "命令 %@，已成功"
+        }
+      }}
     },
     "chat.thought.title": {
       "extractionState": "manual",
@@ -2430,7 +3282,13 @@
             "value": "思考"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "思考"
+        }
+      }}
     },
     "chat.tool.failed.accessibility": {
       "extractionState": "manual",
@@ -2447,7 +3305,13 @@
             "value": "失敗"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "失败"
+        }
+      }}
     },
     "chat.tool.running.accessibility": {
       "extractionState": "manual",
@@ -2464,7 +3328,13 @@
             "value": "実行中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "运行中"
+        }
+      }}
     },
     "chat.tool.succeeded.accessibility": {
       "extractionState": "manual",
@@ -2481,7 +3351,13 @@
             "value": "成功"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "成功"
+        }
+      }}
     },
     "chat.tool.truncated": {
       "extractionState": "manual",
@@ -2498,7 +3374,13 @@
             "value": "⋯ 省略"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "⋯ 已截断"
+        }
+      }}
     },
     "chat.transcript.empty": {
       "extractionState": "manual",
@@ -2515,7 +3397,13 @@
             "value": "まだメッセージはありません"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "暂无消息"
+        }
+      }}
     },
     "chat.transcript.load_failed": {
       "extractionState": "manual",
@@ -2532,7 +3420,13 @@
             "value": "この会話を読み込めませんでした"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "无法加载此对话"
+        }
+      }}
     },
     "chat.transcript.retry": {
       "extractionState": "manual",
@@ -2549,7 +3443,13 @@
             "value": "再試行"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "重试"
+        }
+      }}
     },
     "chat.typing.accessibility": {
       "extractionState": "manual",
@@ -2566,7 +3466,13 @@
             "value": "エージェントが作業中"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "代理正在工作"
+        }
+      }}
     },
     "chat.unread_separator": {
       "extractionState": "manual",
@@ -2583,7 +3489,13 @@
             "value": "未読メッセージ"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未读消息"
+        }
+      }}
     },
     "chat.unsupported": {
       "extractionState": "manual",
@@ -2600,7 +3512,13 @@
             "value": "未対応のメッセージ（%@）"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "不支持的消息（%@）"
+        }
+      }}
     }
   },
   "version": "1.0"

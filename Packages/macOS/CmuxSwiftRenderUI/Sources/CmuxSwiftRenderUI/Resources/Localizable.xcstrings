@@ -16,7 +16,13 @@
             "value": "サイドバーエラー"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "侧边栏错误"
+        }
+      }}
     },
     "sidebar.custom.missing": {
       "extractionState": "manual",
@@ -33,7 +39,13 @@
             "value": "サイドバーファイルが空か見つかりません。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "侧边栏文件为空或不存在。"
+        }
+      }}
     },
     "sidebar.custom.noView": {
       "extractionState": "manual",
@@ -50,7 +62,13 @@
             "value": "対応するSwiftUIビューが見つかりません。"
           }
         }
-      }
+      ,
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "未找到受支持的 SwiftUI 视图。"
+        }
+      }}
     }
   },
   "version": "1.0"

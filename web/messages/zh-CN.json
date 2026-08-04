@@ -3646,5 +3646,341 @@
         "action": "管理方案"
       }
     }
+  },
+  "billingSuccess": {
+    "metaTitle": "cmux Pro 已激活",
+    "title": "cmux Pro 已激活",
+    "body": "我们已使用 {email} 创建或升级了你的账户。你现在就可以打开 cmux，或添加更多登录方式。",
+    "emailLabel": "购买邮箱",
+    "whatUnlockedTitle": "你已解锁的功能",
+    "openCmux": "打开 cmux",
+    "manageBilling": "管理账单",
+    "manageSignInMethods": "管理登录方式",
+    "features": {
+      "cloudAgents": {
+        "title": "在 Cloud VM 上运行云端智能体",
+        "body": "在隔离的远程沙盒中运行智能体。",
+        "action": "打开 cmux"
+      },
+      "modelGateway": {
+        "title": "模型网关",
+        "body": "在多个提供商之间路由请求，并提供用量与成本分析，每月还附赠 20 个计算小时。",
+        "action": "打开模型网关"
+      },
+      "aiAccounts": {
+        "title": "连接你的 AI 账户",
+        "body": "添加提供商账户，让 cmux 通过这些账户路由任务。",
+        "action": "连接提供商"
+      },
+      "iosApp": {
+        "title": "cmux iOS App",
+        "body": "在手机上使用 cmux。",
+        "action": "加入 iOS 测试版"
+      }
+    }
+  },
+  "enterprise": {
+    "metaTitle": "Enterprise | cmux",
+    "metaDescription": "与 cmux 团队沟通 Enterprise 部署、SSO、自托管 Cloud VM、审计日志和承诺用量等事宜。",
+    "section": "Enterprise",
+    "title": "将 cmux Cloud VM、SSO 和审计管控带给你的团队。",
+    "body": "告诉我们你在组织内部署 cmux 的需求。Enterprise 咨询会直接转交给创始人，确保安全审查、采购和自托管需求都能得到直接处理。",
+    "points": [
+      "为必须留在你环境内的代码，提供自托管的云端执行与网络。",
+      "SSO、SAML、审计日志、集中管理和共享团队规则。",
+      "承诺用量、阶梯定价，以及安全或采购审查支持。"
+    ],
+    "formAriaLabel": "Enterprise 联系表单",
+    "form": {
+      "firstName": "名",
+      "lastName": "姓",
+      "companyName": "公司名称",
+      "jobFunction": "职位职能",
+      "jobTitle": "职务",
+      "businessEmail": "工作邮箱地址",
+      "phoneNumber": "电话号码",
+      "country": "国家/地区",
+      "companySize": "公司规模",
+      "deploymentNeeds": "部署需求",
+      "comments": "备注",
+      "selectPlaceholder": "请选择",
+      "jobFunctionOptions": [
+        "工程",
+        "平台",
+        "安全",
+        "IT",
+        "采购",
+        "管理层",
+        "其他"
+      ],
+      "companySizeOptions": [
+        "1-10",
+        "11-50",
+        "51-200",
+        "201-1,000",
+        "1,001-5,000",
+        "5,001+"
+      ],
+      "deploymentNeedsOptions": [
+        "SSO 或 SAML",
+        "自托管 Cloud VM",
+        "自托管模型网关",
+        "审计日志与合规",
+        "Cloud VM 承诺用量",
+        "安全或采购审查",
+        "其他"
+      ],
+      "privacy": "我们会使用这些信息来回应你的 Enterprise 咨询，并将其转交给相应的创始人。我们不会出售联系信息。",
+      "submit": "提交",
+      "submitting": "提交中...",
+      "success": "谢谢。我们已收到你的请求，并会从 founders@manaflow.com 回复你。",
+      "error": "出错了。请重试，或发送邮件至 founders@manaflow.com。"
+    }
+  },
+  "ios": {
+    "metaTitle": "cmux iOS — 在 iPhone 和 iPad 上使用你的终端",
+    "metaDescription": "cmux iOS App 可通过你自己的 Tailscale 或本地网络，将 Mac 终端实时同步到 iPhone 和 iPad。随时随地操控你的编程智能体。",
+    "title": "cmux iOS",
+    "tagline": "你的终端，尽在口袋中。",
+    "subtitle": "cmux iOS App 可将 Mac 终端实时同步到 iPhone 和 iPad。通过你自己的 Tailscale 或本地网络，随时随地操控编程智能体、查看构建进度并切换工作区。",
+    "ctaBeta": "在 TestFlight 上下载",
+    "ctaDocs": "阅读 iOS 文档",
+    "screenshotAlt": "cmux iOS App 展示实时智能体终端的截图",
+    "features": "功能",
+    "realtimeSync": "实时同步",
+    "realtimeSyncDesc": "：终端一变，立刻同步到 iPhone 和 iPad",
+    "byoNetwork": "自带网络",
+    "byoNetworkDesc": "：通过你自己的 Tailscale 或本地网络连接，中间没有任何服务器",
+    "verticalTabs": "垂直标签页",
+    "verticalTabsDesc": "：每个工作区一键即达，与桌面版一样",
+    "notifications": "智能体通知",
+    "notificationsDesc": "：当 Claude、Codex 或任何智能体需要你输入时收到提醒",
+    "keyboard": "全键盘支持",
+    "keyboardDesc": "：硬件快捷键，以及带方向键、Tab 和修饰键的终端级输入栏",
+    "native": "原生流畅",
+    "nativeDesc": "：与 Mac 应用同引擎的 GPU 加速渲染",
+    "howTitle": "工作原理",
+    "howBody": "在 Mobile Connect 窗口中将 iPhone 与 Mac 配对，然后连接任意工作区。连接通过你自己的 Tailscale 或本地网络进行，你的终端数据绝不会经过第三方服务器。",
+    "galleryTitle": "在你的终端里运行一切",
+    "backToMac": "cmux for Mac",
+    "galleryItemAlt": "在 iPhone 的 cmux 终端中运行 {name}"
+  },
+  "tui": {
+    "marketing": {
+      "sectionLabel": "TUI",
+      "metaTitle": "cmux TUI：面向智能体的终端工作区",
+      "metaDescription": "通过一个为 macOS、Linux 和 Windows 打造的高性能开源终端界面，运行工作区、分屏面板、浏览器标签页和远程机器。",
+      "eyebrow": "cmux TUI · 开源",
+      "title": "随处运行的终端工作区。",
+      "intro": "cmux TUI 将为编程智能体打造的工作区模型带到了 macOS、Linux 和 Windows。把 shell、浏览器、测试和长期运行的智能体都收进一个以键盘为核心的操作树中。",
+      "runButton": "安装 cmux",
+      "docsButton": "阅读文档",
+      "sourceButton": "查看源码",
+      "screenshotAlt": "cmux TUI 在 macOS 上的 cmux 内运行，TUI 工作区栏旁边是包含 Neovim、OpenCode 和 Hunk 的三个面板",
+      "screenshotCaption": "一个真实的 cmux-tui 会话，运行在 macOS 上的 cmux 内。可见 TUI 工作区栏；macOS 应用的侧边栏已隐藏。",
+      "facts": {
+        "platforms": {
+          "label": "支持平台",
+          "value": "macOS + Linux + Windows"
+        },
+        "engine": {
+          "label": "终端引擎",
+          "value": "Ghostty VT"
+        },
+        "license": {
+          "label": "源码",
+          "value": "开源"
+        }
+      },
+      "workflowEyebrow": "一个操作树承载整个工作",
+      "workflowTitle": "让每个智能体和工具都在视野之内。",
+      "workflowBody": "工作区包含屏幕，屏幕包含分屏面板，面板包含终端或浏览器标签页。同一个实时操作树既可以在本地连接，也可以通过 SSH 访问、在网页上渲染，或通过 socket API 控制。",
+      "features": {
+        "tree": {
+          "number": "01 / 工作区",
+          "title": "按任务组织",
+          "body": "为每个功能、调查或智能体团队分配独立的工作区。切换时不会丢失终端状态或布局。"
+        },
+        "agents": {
+          "number": "02 / 智能体",
+          "title": "一览并行工作",
+          "body": "把编程智能体放在测试、日志和审查命令旁边。通知和智能体状态始终与各自的界面区域绑定。"
+        },
+        "browser": {
+          "number": "03 / 浏览器",
+          "title": "打开真正的浏览器标签页",
+          "body": "把 Chrome 目标当作标签页，与终端进程并排操控，支持持久化配置文件、键盘输入、鼠标输入和实时画面。"
+        },
+        "remote": {
+          "number": "04 / 机器",
+          "title": "在不同机器间切换",
+          "body": "使用可选的机器栏在本地会话、Unix socket、SSH 主机和 cmux Cloud 连接之间切换。"
+        }
+      },
+      "keyboardEyebrow": "开箱即快",
+      "keyboardTitle": "tmux 的肌肉记忆，更丰富的模型。",
+      "keyboardBody": "默认的 Ctrl-b 前缀保留了熟悉的面板命令，同时新增了工作区、标签页、浏览器界面、可滚动视口、布局撤销和鼠标控制。",
+      "keys": {
+        "split": "将活动面板向右拆分",
+        "tab": "在面板中打开标签页",
+        "workspace": "创建工作区",
+        "viewport": "在右侧添加可滚动面板"
+      },
+      "installEyebrow": "立即开始",
+      "installTitle": "一条命令，无需应用窗口。",
+      "installBody": "安装程序会为你的平台选择对应的原生二进制文件，验证其 SHA-256 校验和，并将 cmux 命令添加到 PATH。",
+      "installTabs": {
+        "label": "操作系统",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "查看安装脚本",
+        "copy": "复制安装命令",
+        "copied": "已复制"
+      },
+      "installNpx": "已经有 Node.js？你也可以运行",
+      "fullDocs": "安装、按键、远程会话与自动化",
+      "browseSource": "在 GitHub 上浏览 cmux-tui"
+    },
+    "docs": {
+      "metaTitle": "cmux TUI 文档",
+      "metaDescription": "安装 cmux TUI，了解其工作区模型和键盘操作，连接会话、接入远程机器并实现自动化。",
+      "title": "cmux TUI",
+      "intro": "cmux TUI 是一个面向 macOS、Linux 和 Windows 的 Rust 终端复用器。它将工作区、屏幕、分屏面板、终端标签页、浏览器标签页、远程会话和控制 socket 整合到单个进程中。",
+      "screenshotAlt": "cmux TUI 在 macOS 上的 cmux 内运行，TUI 工作区栏旁边是包含 Neovim、OpenCode 和 Hunk 的三个面板",
+      "screenshotCaption": "包含 Neovim、OpenCode 和 Hunk 审查 TUI 的实时会话。",
+      "installTitle": "安装与运行",
+      "installIntro": "安装脚本会为你的操作系统和架构选择对应的原生二进制文件，验证其 SHA-256 校验和，并将 cmux 添加到 PATH。",
+      "installTabs": {
+        "label": "操作系统",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "查看安装脚本",
+        "copy": "复制安装命令",
+        "copied": "已复制"
+      },
+      "installNpx": "如果已安装 Node.js，你可以不进行永久安装直接运行 cmux：",
+      "platforms": "打包版本支持 Apple Silicon 和 Intel Mac、x64 和 Arm64 Linux，以及 x64 Windows。Arm 版 Windows 通过模拟运行 x64 版本。从源码构建需要 Rust、Zig 0.15.2 以及仓库中的 Ghostty 子模块。",
+      "modelTitle": "工作区模型",
+      "modelIntro": "cmux TUI 维护一棵持久化的操作树，而不是把每个进程都平铺成互不相关的终端标签页。",
+      "modelBody": "每个会话拥有一个控制 socket。每个工作区可以包含多个屏幕；每个屏幕拥有自己的面板布局；每个面板可以包含终端和浏览器标签页。只要还有其他标签页，关闭一个标签页并不会关闭其所在面板。",
+      "keyboardTitle": "键盘与鼠标",
+      "keyboardIntro": "默认前缀是 Ctrl-b。连按两次会向活动终端发送字面上的 Ctrl-b。",
+      "keyTable": {
+        "keys": "按键",
+        "action": "操作"
+      },
+      "keys": {
+        "splitRight": "将活动面板向右拆分",
+        "splitDown": "将活动面板向下拆分",
+        "newTab": "创建终端标签页",
+        "newWorkspace": "创建工作区",
+        "sidebar": "显示或隐藏工作区栏",
+        "detach": "在本地退出，或从服务器分离"
+      },
+      "mouse": "可直接点击面板边框、标签页、工作区和屏幕。右键点击面板可呼出操作菜单。当面板内的应用占用鼠标输入时，请按住 Shift 再右键点击。",
+      "sessionsTitle": "无头会话与连接",
+      "sessionsIntro": "无头模式无需本地界面即可让 mux 后端及其终端持续运行。需要界面时，从另一个终端连接即可。",
+      "sessionsBody": "默认会话名为 main。命名会话使用独立的 Unix socket。分离后无头服务器仍会继续运行，之后重新连接即可恢复相同的操作树和终端状态。",
+      "remoteTitle": "远程机器",
+      "remoteIntro": "启用机器栏，即可在当前会话与配置好的 Unix socket 或 SSH 目标之间切换。",
+      "remoteBody": "远程机器上必须已经运行无头 cmux 会话，且非交互式 SSH 需要能找到 cmux 二进制文件。cmux 使用严格的主机密钥校验，并禁用智能体转发和端口转发。",
+      "browserTitle": "浏览器标签页",
+      "browserBody": "浏览器标签页通过 Chrome DevTools Protocol 控制真实的 Chrome 或 Chromium 目标。配置文件会在会话之间保留，因此 Cookie 和登录状态可以持续有效。使用以下方式打开浏览器标签页：",
+      "automationTitle": "自动化与控制 socket",
+      "automationIntro": "TUI 使用的所有操作树变更与检查功能，同样可以通过命令行和 JSON Lines 控制 socket 使用。",
+      "automationBody": "命令可以创建工作区、运行进程、拆分面板、发送输入、读取可见的终端文本、订阅事件以及上报智能体状态。仓库中提供了 TypeScript、Python、Go、Java 和 Rust 的类型化绑定。",
+      "configTitle": "配置",
+      "configBody": "在 TUI 配置文件中配置按键、侧边栏宽度、机器、浏览器行为、启动命令和主题。CMUX_TUI_CONFIG 可覆盖默认路径。",
+      "moreTitle": "更多",
+      "links": {
+        "product": "cmux TUI 产品页",
+        "sourceDocs": "完整的源码文档",
+        "source": "cmux-tui 源代码"
+      }
+    }
+  },
+  "vault": {
+    "overview": {
+      "eyebrow": "cmux Vault",
+      "title": "Vault 概览",
+      "description": "同步会话的存储与上传动态。",
+      "emptyTitle": "还没有同步的会话",
+      "emptyBody": "在存有本地智能体会话的机器上运行 CLI 同步命令。",
+      "totalSessions": "会话总数",
+      "totalRawBytes": "原始字节",
+      "totalCompressedBytes": "压缩字节",
+      "latestUpload": "最近上传",
+      "never": "从未"
+    },
+    "cliAuth": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "批准 CLI 访问",
+      "description": "确认 cmux-vault 显示的代码，将此设备连接到你的 cmux 账户。",
+      "subrouterEyebrow": "Subrouter",
+      "subrouterTitle": "批准 Subrouter 访问",
+      "subrouterDescription": "确认 sr 显示的代码，将此设备连接到你的 cmux 团队。",
+      "codeLabel": "用户代码",
+      "approveButton": "批准访问",
+      "approving": "正在批准...",
+      "success": "访问已批准。你可以返回终端了。",
+      "error": "无法批准该代码。请确认它尚未过期。"
+    },
+    "sessions": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "已同步的会话",
+      "description": "从你的本地机器同步的近期编程智能体会话记录。",
+      "backToOverview": "返回概览",
+      "agent": "智能体",
+      "session": "会话",
+      "cwd": "工作目录",
+      "rawSize": "原始大小",
+      "compressedSize": "压缩大小",
+      "snapshots": "快照",
+      "firstUploaded": "首次上传",
+      "lastUploaded": "最后上传",
+      "unknownCwd": "未知目录",
+      "searchLabel": "搜索会话",
+      "searchPlaceholder": "搜索工作目录、路径或会话 ID",
+      "tableLabel": "Vault 会话",
+      "loadingMore": "正在加载更多...",
+      "loadError": "无法加载更多会话。",
+      "scrollForMore": "滚动以加载更多会话",
+      "noResults": "没有符合这些筛选条件的会话。",
+      "endOfList": "已到会话末尾",
+      "copySession": "复制",
+      "copiedSession": "已复制"
+    },
+    "detail": {
+      "backToSessions": "← 会话",
+      "detailsSummary": "详情",
+      "snapshotsSummary": "快照（{count}）",
+      "cwd": "工作目录",
+      "rawSize": "原始大小",
+      "compressedSize": "压缩大小",
+      "firstUploaded": "首次上传",
+      "lastUploaded": "最后上传",
+      "unknownCwd": "未知目录",
+      "unknownSize": "未知大小",
+      "copyCommand": "复制命令",
+      "copiedCommand": "已复制",
+      "copySessionId": "复制会话 ID",
+      "copiedSessionId": "已复制",
+      "downloadLink": "下载最新会话记录",
+      "downloadExpires": "此预签名链接即将过期。",
+      "downloadUnavailable": "当前无法下载。",
+      "loadingMessages": "正在加载…共 {count} 条消息",
+      "loadedMessages": "共 {count} 条消息",
+      "streamError": "加载 {count} 条消息后流式传输失败",
+      "transcriptTooLarge": "已加载 {count} 条消息后停止（会话记录过大）",
+      "emptyTranscript": "未找到可读的会话记录消息。",
+      "roles": {
+        "user": "user",
+        "assistant": "assistant",
+        "system": "system",
+        "tool": "tool"
+      }
+    }
   }
 }
