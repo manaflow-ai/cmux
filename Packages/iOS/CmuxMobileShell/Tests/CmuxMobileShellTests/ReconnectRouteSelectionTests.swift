@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -541,7 +542,7 @@ import Testing
         return store
     }
 
-    @Test func tailscalePreferencePromotesGrantedRouteAheadOfIrohPin() throws {
+    @Test func tailscaleMethodUsesOnlyGrantedTailscaleRoute() throws {
         let tailscale = try tailscale()
         let routes = MobileShellComposite.storedReconnectRoutes(
             [tailscale, try iroh()],
@@ -553,14 +554,10 @@ import Testing
             )
         )
 
-        // The granted Tailscale destination dials first; Iroh stays as the
-        // fallback instead of being exclusive.
-        #expect(routes.map(\.kind) == [.tailscale, .iroh])
+        #expect(routes.map(\.kind) == [.tailscale])
     }
 
-    @Test func tailscalePreferenceWithoutGrantKeepsIrohExclusivePin() throws {
-        // A preference flip alone grants nothing: without a device-local grant
-        // the Iroh pin still drops every raw host/port fallback.
+    @Test func tailscaleMethodWithoutGrantRejectsEveryRoute() throws {
         let routes = MobileShellComposite.storedReconnectRoutes(
             [try tailscale(), try iroh()],
             supportedKinds: [.iroh, .tailscale],
@@ -571,10 +568,10 @@ import Testing
             )
         )
 
-        #expect(routes.map(\.kind) == [.iroh])
+        #expect(routes.isEmpty)
     }
 
-    @Test func tailscalePreferenceIgnoresGrantForDifferentDestination() throws {
+    @Test func tailscaleMethodRejectsMismatchedGrantWithoutIrohFallback() throws {
         let otherDestination = try tailscale(50907)
         let routes = MobileShellComposite.storedReconnectRoutes(
             [try tailscale(), try iroh()],
@@ -586,6 +583,71 @@ import Testing
             )
         )
 
-        #expect(routes.map(\.kind) == [.iroh])
+        #expect(routes.isEmpty)
+    }
+
+    @Test func changingToUnavailableTailscaleDropsLiveIrohWithoutFallback() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: TransportBox(),
+            failingKinds: [.tailscale]
+        )
+        let tailscale = try tailscale()
+        let iroh = try iroh()
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [tailscale, iroh],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        try await pairedStore.authorizeUserTailscaleRoutes(
+            macDeviceID: "test-mac",
+            instanceTag: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [tailscale]
+        )
+        let methodDefaults = UserDefaults(
+            suiteName: "connection-method-live-switch-\(UUID().uuidString)"
+        )!
+        let methodStore = MobileConnectionMethodStore(defaults: methodDefaults)
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            connectionMethodStore: methodStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "connection-method-pairing-hint-\(UUID().uuidString)"
+            )!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.activeRoute?.kind == .iroh)
+        #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
+
+        methodStore.method = .tailscale
+
+        let applied = try await pollUntil {
+            factory.attemptedKinds().contains(.tailscale)
+                && store.connectionState == .disconnected
+        }
+        #expect(applied)
+        #expect(store.activeRoute == nil)
+        #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
     }
 }
