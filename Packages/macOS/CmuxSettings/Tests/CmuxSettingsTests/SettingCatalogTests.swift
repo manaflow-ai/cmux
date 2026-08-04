@@ -9,80 +9,30 @@ struct SettingCatalogTests {
         #expect(ids.count == Set(ids).count)
     }
 
-    @Test func userDefaultsStorageKeysAreUnique() {
-        let expectedAliases: [String: Set<String>] = [
-            "ampHooksEnabled": [
-                "automation.ampIntegration",
-                "integrations.amp.hooksEnabled",
-            ],
-            "claudeCodeCustomClaudePath": [
-                "automation.claudeBinaryPath",
-                "integrations.claudeCode.customClaudePath",
-            ],
-            "claudeCodeHooksEnabled": [
-                "automation.claudeCodeIntegration",
-                "integrations.claudeCode.hooksEnabled",
-            ],
-            "cursorHooksEnabled": [
-                "automation.cursorIntegration",
-                "integrations.cursor.hooksEnabled",
-            ],
-            "geminiHooksEnabled": [
-                "automation.geminiIntegration",
-                "integrations.gemini.hooksEnabled",
-            ],
-            "kiroHooksEnabled": [
-                "automation.kiroIntegration",
-                "integrations.kiro.hooksEnabled",
-            ],
-            "kiroNotificationLevel": [
-                "automation.kiroNotificationLevel",
-                "integrations.kiro.notificationLevel",
-            ],
-            "ripgrepCustomBinaryPath": [
-                "automation.ripgrepBinaryPath",
-                "integrations.ripgrep.customBinaryPath",
-            ],
-            "suppressSubagentNotifications": [
-                "automation.suppressSubagentNotifications",
-                "integrations.suppressSubagentNotifications",
-            ],
-            "sidebarActiveTabIndicatorStyle": [
-                "sidebar.activeTabIndicatorStyle",
-                "workspaceColors.indicatorStyle",
-            ],
-            "sidebarNotificationBadgeColorHex": [
-                "sidebar.notificationBadgeColor",
-                "workspaceColors.notificationBadgeColor",
-            ],
-            "sidebarSelectionColorHex": [
-                "sidebar.selectionColor",
-                "workspaceColors.selectionColor",
-            ],
-        ]
-
-        var idsByStorageKey: [String: Set<String>] = [:]
+    @Test func sharedUserDefaultsStorageKeysHaveCompatibleTypesAndDefaults() throws {
+        var entriesByStorageKey: [String: [AnySettingKey]] = [:]
         for entry in SettingCatalog().all {
             if case let .userDefaults(storageKey, _, _) = entry.kind {
-                idsByStorageKey[storageKey, default: []].insert(entry.id)
+                entriesByStorageKey[storageKey, default: []].append(entry)
             }
         }
 
-        let aliases = idsByStorageKey.filter { $0.value.count > 1 }
-        #expect(aliases == expectedAliases)
+        for (storageKey, entries) in entriesByStorageKey where entries.count > 1 {
+            let reference = entries[0]
+            let referenceDefault = try #require(reference.userDefaultsDefaultValue)
 
-        for storageKey in expectedAliases.keys {
-            #expect(idsByStorageKey[storageKey] == expectedAliases[storageKey])
+            for entry in entries.dropFirst() {
+                let defaultValue = try #require(entry.userDefaultsDefaultValue)
+                #expect(
+                    ObjectIdentifier(type(of: defaultValue)) == ObjectIdentifier(type(of: referenceDefault)),
+                    "UserDefaults storage key '\(storageKey)' has different Value types for '\(reference.id)' and '\(entry.id)'"
+                )
+                #expect(
+                    settingDefaultsAreEqual(referenceDefault, defaultValue),
+                    "UserDefaults storage key '\(storageKey)' has different defaults for '\(reference.id)' and '\(entry.id)'"
+                )
+            }
         }
-    }
-
-    @Test func userDefaultsStorageKeysAreUniqueRegression() {
-        let keys = SettingCatalog().all.compactMap { entry -> String? in
-            guard case let .userDefaults(storageKey, _, _) = entry.kind else { return nil }
-            return storageKey
-        }
-
-        #expect(keys.count == Set(keys).count)
     }
 
     @Test func jsonBackedKeysUseTheirIdAsPath() {
@@ -120,5 +70,15 @@ struct SettingCatalogTests {
         for key in catalog.automation.all { #expect(key.id.hasPrefix("automation.")) }
         #expect(catalog.paneChrome.paneBorderColorHex.id == "paneBorderColor")
         #expect(catalog.paneChrome.activePaneBorderColorHex.id == "activePaneBorderColor")
+    }
+
+    private func settingDefaultsAreEqual(_ lhs: any Sendable, _ rhs: any Sendable) -> Bool {
+        guard let lhs = lhs as? any SettingCodable else { return false }
+        return settingDefaultEquals(lhs, rhs)
+    }
+
+    private func settingDefaultEquals<Value: SettingCodable>(_ lhs: Value, _ rhs: any Sendable) -> Bool {
+        guard let rhs = rhs as? Value else { return false }
+        return lhs == rhs
     }
 }
