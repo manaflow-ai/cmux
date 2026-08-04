@@ -110,7 +110,7 @@ extension AppDelegate {
 
         guard let destinationWorkspace = targetManager.addWorkspace(
             fromDetachedSurface: detached,
-            title: destinationTitle,
+            title: hasExplicitTitle ? destinationTitle : nil,
             titleSource: hasExplicitTitle ? .user : .auto,
             select: false,
             placementOverride: placementOverride,
