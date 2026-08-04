@@ -384,7 +384,10 @@ struct CMUXMobileRootView: View {
                     signOut: signOut,
                     showAddDevice: showAddDevice,
                     showPairingScanner: showPairingScanner,
-                    reconnectStoredMac: reconnectStoredMacIfNeeded
+                    reconnectStoredMac: reconnectStoredMacIfNeeded,
+                    workspaceListDidBecomeVisible: {
+                        await pushCoordinator.workspaceListDidBecomeVisible()
+                    }
                 )
             }
         }

@@ -88,9 +88,10 @@ struct SettingsSearchIndexTests {
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
     }
 
-    @Test func pushNotificationQueriesFindTheMobileForwardingRow() {
+    @Test(arguments: ["push", "notifications", "iphone"])
+    func pushNotificationQueriesFindTheMobileForwardingRow(query: String) {
         let result = SettingsSearchIndex(catalog: SettingCatalog()).match(
-            "push notifications iphone"
+            query
         )
         #expect(result.contains {
             $0.id == "setting:mobile:phone-push-forwarding"

@@ -506,7 +506,11 @@ struct MobileSettingsView: View {
     @MainActor
     private func updatePhonePushEnabled(_ enabled: Bool) async -> Bool {
         if enabled {
-            return await pushCoordinator.enable()
+            _ = await pushCoordinator.enable()
+            // A denied OS authorization still accepts the user's app-level
+            // intent. Keep the toggle on so readiness can surface the Settings
+            // recovery action instead of rolling the preference back.
+            return pushCoordinator.isEnabled
         }
         await pushCoordinator.disable()
         return !pushCoordinator.isEnabled

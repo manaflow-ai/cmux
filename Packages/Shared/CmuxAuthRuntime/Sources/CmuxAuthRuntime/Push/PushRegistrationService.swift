@@ -11,8 +11,10 @@ private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
 /// URL, bundle id, `UserDefaults(suiteName:)`, and `URLSession`, then inject it
 /// as `any PushRegistering`.
 ///
-/// Privacy: notifications are **off by default**. Nothing (not even a device
-/// token) is uploaded until the user enables them via ``setEnabled(_:)``.
+/// Privacy: nothing (not even a device token) is uploaded until the app's
+/// workspace-list permission flow is accepted or the user explicitly enables
+/// notifications and the coordinator calls ``setEnabled(_:)``. An explicit
+/// app opt-out remains persisted and authoritative.
 public actor PushRegistrationService: PushRegistering {
     private let tokenProvider: any TokenProviding
     private let apiBaseURL: String

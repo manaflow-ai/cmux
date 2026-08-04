@@ -8,8 +8,8 @@ nonisolated private let phonePushLog = Logger(
     category: "phone-push"
 )
 
-/// UserDefaults keys for the phone-forwarding feature. Default OFF: the Mac
-/// uploads nothing unless the user explicitly turns it on.
+/// UserDefaults keys for the phone-forwarding feature. Missing preferences
+/// resolve to enabled + always; an explicit persisted choice remains authoritative.
 enum PhonePushSettings {
     static let forwardEnabledKey = "forwardNotificationsToPhone"
     static let hideContentKey = "forwardNotificationsHideContent"
@@ -22,11 +22,16 @@ struct PhonePushConfiguration: Equatable, Sendable {
     let hideContent: Bool
 
     init(defaults: UserDefaults) {
-        forwardingEnabled = defaults.bool(
-            forKey: PhonePushSettings.forwardEnabledKey
-        )
+        forwardingEnabled = Self.forwardingEnabled(in: defaults)
         mode = PhoneForwardingMode.fromDefaults(defaults)
         hideContent = defaults.bool(forKey: PhonePushSettings.hideContentKey)
+    }
+
+    static func forwardingEnabled(in defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: PhonePushSettings.forwardEnabledKey) != nil else {
+            return true
+        }
+        return defaults.bool(forKey: PhonePushSettings.forwardEnabledKey)
     }
 }
 
@@ -61,6 +66,10 @@ enum PhonePushAdmission: String, Equatable, Sendable {
 @MainActor
 final class PhonePushClient {
     static let shared = PhonePushClient()
+
+    static let settingsDidChangeNotification = Notification.Name(
+        "PhonePushClient.settingsDidChange"
+    )
 
     private static let eventTTLSeconds = 120
     // The route permits 64 ids, but each opaque id may be 200 UTF-16 units and
@@ -136,6 +145,20 @@ final class PhonePushClient {
         PhonePushConfiguration(defaults: settingsDefaults ?? defaults)
     }
 
+    /// Reconciles state after another owner removes stored overrides (Reset All).
+    func reloadConfigurationFromDefaults() {
+        let configuration = PhonePushConfiguration(defaults: defaults)
+        configurationState.configuration = configuration
+        if !configuration.forwardingEnabled {
+            cancelPendingDeliveries()
+        }
+        NotificationCenter.default.post(
+            name: Self.settingsDidChangeNotification,
+            object: self
+        )
+        publishStatusChanged()
+    }
+
     /// Sole mutation path for Mac and phone callers. Validation happens before
     /// entry; all three privacy fields publish as one main-actor transaction.
     @discardableResult
@@ -167,6 +190,10 @@ final class PhonePushClient {
         let configuration = PhonePushConfiguration(defaults: settingsDefaults)
         if settingsDefaults === defaults {
             configurationState.configuration = configuration
+            NotificationCenter.default.post(
+                name: Self.settingsDidChangeNotification,
+                object: self
+            )
         }
         if !configuration.forwardingEnabled {
             cancelPendingDeliveries()
@@ -202,9 +229,7 @@ final class PhonePushClient {
         defaults settingsDefaults: UserDefaults? = nil
     ) -> PhonePushAdmission {
         let settingsDefaults = settingsDefaults ?? defaults
-        guard settingsDefaults.bool(
-            forKey: PhonePushSettings.forwardEnabledKey
-        ) else {
+        guard PhonePushConfiguration.forwardingEnabled(in: settingsDefaults) else {
             return .forwardingDisabled
         }
         let mode = PhoneForwardingMode.fromDefaults(settingsDefaults)
@@ -262,9 +287,7 @@ final class PhonePushClient {
 
     private func forwardingAdmission() -> PhonePushForwardAdmission {
         let mode = PhoneForwardingMode.fromDefaults(defaults)
-        let enabled = defaults.bool(
-            forKey: PhonePushSettings.forwardEnabledKey
-        )
+        let enabled = PhonePushConfiguration.forwardingEnabled(in: defaults)
         if mode == .always {
             return enabled ? .queued : .disabled
         }
@@ -311,7 +334,7 @@ final class PhonePushClient {
     }
 
     func forwardDismissed(ids: [String], badgeCount: Int) {
-        guard defaults.bool(forKey: PhonePushSettings.forwardEnabledKey),
+        guard PhonePushConfiguration.forwardingEnabled(in: defaults),
               !ids.isEmpty,
               let identity = auth?.authenticatedSessionIdentity else { return }
         deliveryQueue.retainOnly(
@@ -395,7 +418,7 @@ final class PhonePushClient {
         identity: AuthenticatedSessionIdentity?,
         auth: AuthCoordinator
     ) async {
-        guard defaults.bool(forKey: PhonePushSettings.forwardEnabledKey) else {
+        guard PhonePushConfiguration.forwardingEnabled(in: defaults) else {
             // Adopt the observed identity so the identity stream's initial
             // yield is a no-op instead of a spurious auth transition that
             // cancels work enqueued between restore and first yield.
@@ -477,7 +500,7 @@ final class PhonePushClient {
     private func drainPersistence() async {
         while let snapshot = pendingPersistenceSnapshot {
             pendingPersistenceSnapshot = nil
-            if defaults.bool(forKey: PhonePushSettings.forwardEnabledKey),
+            if PhonePushConfiguration.forwardingEnabled(in: defaults),
                !snapshot.isEmpty {
                 do {
                     try await queueStore.save(snapshot)
@@ -522,7 +545,7 @@ final class PhonePushClient {
     private func deliver(
         _ envelope: PhonePushRequestEnvelope
     ) async -> PhonePushHTTPResult {
-        guard defaults.bool(forKey: PhonePushSettings.forwardEnabledKey) else {
+        guard PhonePushConfiguration.forwardingEnabled(in: defaults) else {
             return .cancelled
         }
         guard !envelope.isExpired(at: clock.nowEpochSeconds) else {
@@ -535,7 +558,7 @@ final class PhonePushClient {
         var attempt = 1
         while attempt <= PhonePushRetryPolicy.maximumAttempts {
             guard !Task.isCancelled,
-                  defaults.bool(forKey: PhonePushSettings.forwardEnabledKey)
+                  PhonePushConfiguration.forwardingEnabled(in: defaults)
             else { return .cancelled }
             guard !envelope.isExpired(at: clock.nowEpochSeconds) else {
                 return .expired

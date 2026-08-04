@@ -156,6 +156,80 @@ private actor LifecycleSyncGate {
     }
 }
 
+private struct LifecycleTokenProvider: TokenProviding {
+    private let session = AuthenticatedSessionSnapshot(
+        generation: 1,
+        accountID: "push-lifecycle-user",
+        accessToken: "push-lifecycle-access",
+        refreshToken: "push-lifecycle-refresh"
+    )
+
+    func authenticatedSessionSnapshot() async throws
+        -> AuthenticatedSessionSnapshot {
+        session
+    }
+
+    func isAuthenticatedSessionCurrent(
+        _ snapshot: AuthenticatedSessionSnapshot
+    ) async -> Bool {
+        snapshot == session
+    }
+
+    func accessToken() async throws -> String { session.accessToken }
+    func storedAccessToken() async -> String? { session.accessToken }
+    func refreshToken() async -> String? { session.refreshToken }
+    func forceRefreshAccessToken() async throws -> String {
+        session.accessToken
+    }
+}
+
+private final class LifecycleRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedMethods: [String] = []
+
+    var methods: [String] { lock.withLock { storedMethods } }
+
+    func record(_ request: URLRequest) {
+        lock.withLock { storedMethods.append(request.httpMethod ?? "?") }
+    }
+
+    func reset() {
+        lock.withLock { storedMethods.removeAll() }
+    }
+}
+
+private final class LifecyclePushURLProtocol: URLProtocol,
+    @unchecked Sendable {
+    static let recorder = LifecycleRequestRecorder()
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(
+        for request: URLRequest
+    ) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        Self.recorder.record(request)
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        client?.urlProtocol(
+            self,
+            didReceive: response,
+            cacheStoragePolicy: .notAllowed
+        )
+        client?.urlProtocol(self, didLoad: Data(#"{"ok":true}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 @Suite struct MobilePushCoordinatorLifecycleTests {
     @MainActor
     @Test func callbackFailureOffersRetryAndSuccessfulTokenRecoversReadiness() async {
@@ -324,6 +398,62 @@ private actor LifecycleSyncGate {
         #expect(registrationRequests == 0)
         #expect(!(await registration.snapshot.isEnabled))
         #expect(!coordinator.isEnabled)
+    }
+
+    @MainActor
+    @Test func repeatedForegroundAndWorkspaceActivationRequestsAPNsOnce() async {
+        let registration = LifecyclePushRegistration(enabled: true)
+        let suiteName = "push-coordinator-apns-dedupe-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        var registrationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized },
+            registerForRemoteNotifications: { registrationRequests += 1 }
+        )
+
+        await coordinator.refreshReadiness()
+        await coordinator.workspaceListDidBecomeVisible()
+        await coordinator.refreshReadiness()
+
+        #expect(registrationRequests == 1)
+    }
+
+    @MainActor
+    @Test func sharedDefaultsDisableInvokesProductionBackendUnregister() async {
+        LifecyclePushURLProtocol.recorder.reset()
+        let suiteName = "push-coordinator-shared-disable-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [LifecyclePushURLProtocol.self]
+        let registration = PushRegistrationService(
+            tokenProvider: LifecycleTokenProvider(),
+            apiBaseURL: "https://push-lifecycle.test",
+            bundleID: "dev.cmux.ios.push-lifecycle",
+            apnsEnvironment: "sandbox",
+            suiteName: suiteName,
+            session: URLSession(configuration: configuration),
+            retryDelays: []
+        )
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .authorized },
+            registerForRemoteNotifications: {},
+            unregisterForRemoteNotifications: {}
+        )
+
+        #expect(await coordinator.enable())
+        await coordinator.handleDeviceToken(Data([0xAB, 0xCD]))
+        await coordinator.disable()
+
+        #expect(LifecyclePushURLProtocol.recorder.methods == ["POST", "DELETE"])
+        #expect(!defaults.bool(forKey: "cmux.notifications.pushEnabled"))
+        #expect(await registration.snapshot == .disabled)
     }
 
     @MainActor

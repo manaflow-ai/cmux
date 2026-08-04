@@ -92,6 +92,8 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private var registrationSnapshotTask: Task<Void, Never>?
     @ObservationIgnored private var registrationRecoveryTask:
         Task<PushRegistrationSnapshot, Never>?
+    @ObservationIgnored private var workspaceAuthorizationRequestInFlight = false
+    @ObservationIgnored private var hasRequestedRemoteRegistration = false
 
     /// Creates a push coordinator.
     /// - Parameters:
@@ -174,10 +176,10 @@ public final class MobilePushCoordinator {
         applyPendingDeeplinkIfReady()
     }
 
-    /// Install the notification-center delegate, register the dismiss-sync
-    /// notification category, and, if already opted in, re-assert remote
-    /// registration so a rotated token re-uploads. Call once at launch from the
-    /// AppDelegate.
+    /// Install the notification-center delegate and dismiss-sync category, then
+    /// start live readiness observation. The workspace/foreground lifecycle
+    /// requests APNs registration after system authorization permits delivery.
+    /// Call once at launch from the AppDelegate.
     public func configure(delegate: any UNUserNotificationCenterDelegate) {
         let center = UNUserNotificationCenter.current()
         center.delegate = delegate
@@ -191,9 +193,6 @@ public final class MobilePushCoordinator {
             options: [.customDismissAction]
         )
         center.setNotificationCategories([dismissSyncCategory])
-        if isEnabled {
-            registerForRemoteNotifications()
-        }
         startRegistrationSnapshotObservation()
         Task { await refreshReadiness() }
     }
@@ -202,48 +201,88 @@ public final class MobilePushCoordinator {
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
     public func enable() async -> Bool {
-        let priorStatus = (await notificationSettings()).authorization
+        await enable(trigger: "settings_toggle")
+    }
+
+    /// Requests or recovers push only after the authenticated workspace shell
+    /// is mounted. An explicit app opt-out remains authoritative.
+    public func workspaceListDidBecomeVisible() async {
+        if defaults.object(forKey: Self.enabledKey) as? Bool == false {
+            return
+        }
+        let settings = await notificationSettings()
+        apply(settings: settings)
+        switch settings.authorization {
+        case .authorized, .provisional, .ephemeral:
+            persistEnabledIntent()
+            await activateRegistrationIfNeeded()
+            await recoverRegistrationIfNeeded()
+        case .denied:
+            // Preserve intent so Settings can explain the blocked OS gate and
+            // a later foreground return can recover without another app launch.
+            persistEnabledIntent()
+        case .notDetermined:
+            guard !workspaceAuthorizationRequestInFlight else { return }
+            workspaceAuthorizationRequestInFlight = true
+            defer { workspaceAuthorizationRequestInFlight = false }
+            _ = await enable(trigger: "workspace_list")
+        case .unsupported:
+            break
+        }
+    }
+
+    private func enable(trigger: String) async -> Bool {
+        let priorSettings = await notificationSettings()
+        apply(settings: priorSettings)
+        let priorStatus = priorSettings.authorization
+        persistEnabledIntent()
         // Only an undetermined status produces a real OS prompt; gate the
         // "shown" event on it so a re-toggle of an already-decided status does
         // not log a phantom prompt.
         if priorStatus == .notDetermined {
             analytics.capture("ios_push_optin_prompt_shown", [
-                "trigger": .string("settings_toggle"),
+                "trigger": .string(trigger),
                 "prior_authorization_status": .string("not_determined"),
             ])
         }
-        let granted = await requestAuthorization()
+        let granted: Bool
+        switch priorStatus {
+        case .authorized, .provisional, .ephemeral:
+            granted = true
+        case .notDetermined:
+            granted = await requestAuthorization()
+        case .denied, .unsupported:
+            granted = false
+        }
         guard granted else {
             await refreshReadiness()
             analytics.capture("ios_push_optin_declined", [
-                "trigger": .string("settings_toggle"),
+                "trigger": .string(trigger),
                 "was_os_level_predenied": .bool(priorStatus == .denied),
             ])
             return false
         }
-        analytics.capture("ios_push_optin_granted", ["trigger": .string("settings_toggle")])
-        enabledMirror = true
-        defaults.set(true, forKey: Self.enabledKey)
-        registrationSnapshot = PushRegistrationSnapshot(
-            isEnabled: true,
-            hasDeviceToken: registrationSnapshot.hasDeviceToken,
-            backendState: registrationSnapshot.hasDeviceToken
-                ? .registrationRequired
-                : .awaitingDeviceToken
-        )
-        registerForRemoteNotifications()
-        await registration.setEnabled(true)
-        await refreshReadiness()
+        if priorStatus == .notDetermined {
+            apply(settings: await notificationSettings())
+        }
+        analytics.capture("ios_push_optin_granted", ["trigger": .string(trigger)])
+        await activateRegistrationIfNeeded()
+        await recoverRegistrationIfNeeded()
         return true
     }
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
         enabledMirror = false
-        defaults.set(false, forKey: Self.enabledKey)
         registrationSnapshot = .disabled
+        hasRequestedRemoteRegistration = false
         unregisterForRemoteNotifications()
+        // The production registration service owns this same persisted key
+        // and checks its previous value to decide whether server cleanup is
+        // required. Let it observe the prior `true` before mirroring the final
+        // preference here; writing `false` first would skip token removal.
         await registration.setEnabled(false)
+        defaults.set(false, forKey: Self.enabledKey)
         registrationSnapshot = await registration.snapshot
     }
 
@@ -262,6 +301,7 @@ public final class MobilePushCoordinator {
 
     /// User-triggered repair for a failed APNs token callback.
     public func retryDeviceTokenRegistration() {
+        hasRequestedRemoteRegistration = true
         registerForRemoteNotifications()
     }
 
@@ -276,9 +316,56 @@ public final class MobilePushCoordinator {
     /// Call on every foreground transition because users can revoke permission
     /// in iOS Settings while cmux is suspended.
     public func refreshReadiness() async {
-        systemSettings = await notificationSettings()
-        authorization = systemSettings.authorization
+        let settings = await notificationSettings()
+        apply(settings: settings)
+        if enabledMirror, Self.permitsDelivery(settings.authorization) {
+            await activateRegistrationIfNeeded()
+        }
         await recoverRegistrationIfNeeded()
+    }
+
+    private func persistEnabledIntent() {
+        enabledMirror = true
+        defaults.set(true, forKey: Self.enabledKey)
+    }
+
+    private func apply(settings: MobilePushSystemSettings) {
+        systemSettings = settings
+        authorization = settings.authorization
+    }
+
+    private func activateRegistrationIfNeeded() async {
+        guard enabledMirror, Self.permitsDelivery(authorization) else { return }
+        let current = await registration.snapshot
+        registrationSnapshot = PushRegistrationSnapshot(
+            isEnabled: true,
+            hasDeviceToken: current.hasDeviceToken,
+            backendState: current.hasDeviceToken
+                ? .registrationRequired
+                : .awaitingDeviceToken
+        )
+        requestRemoteRegistrationIfNeeded()
+        if !current.isEnabled {
+            await registration.setEnabled(true)
+        }
+        registrationSnapshot = await registration.snapshot
+    }
+
+    private func requestRemoteRegistrationIfNeeded() {
+        guard !hasRequestedRemoteRegistration else { return }
+        hasRequestedRemoteRegistration = true
+        registerForRemoteNotifications()
+    }
+
+    private static func permitsDelivery(
+        _ authorization: MobilePushAuthorization
+    ) -> Bool {
+        switch authorization {
+        case .authorized, .provisional, .ephemeral:
+            true
+        case .notDetermined, .denied, .unsupported:
+            false
+        }
     }
 
     /// Retries an exhausted registration when a meaningful network path
@@ -334,7 +421,9 @@ public final class MobilePushCoordinator {
 
     /// Opens this app's iOS notification settings for a denied authorization.
     public func openSystemSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        guard let url = URL(
+            string: UIApplication.openNotificationSettingsURLString
+        ) else { return }
         UIApplication.shared.open(url)
     }
 

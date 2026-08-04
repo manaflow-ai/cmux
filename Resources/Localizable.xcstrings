@@ -136730,7 +136730,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."
+            "value": "Send local agent notifications to cmux on your iPhone. Enabled by default; turn this off to stop this Mac from forwarding them."
           }
         },
         "es": {
@@ -136754,7 +136754,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントの通知を cmux の iPhone アプリに送信します。デフォルトはオフで、オンにしない限り何もアップロードされません。"
+            "value": "ローカルエージェントの通知を iPhone の cmux に送信します。デフォルトでオンです。この Mac からの転送を停止するにはオフにしてください。"
           }
         },
         "km": {
@@ -174663,6 +174663,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "iOS アプリがローカルネットワーク上でこの Mac を検出し、同期できるようにします。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forward Notifications to iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone に通知を転送"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stops this Mac from sending local agent alerts to mobile devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac からモバイルデバイスへのローカルエージェント通知の送信を停止します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のローカルエージェント通知を iPhone や iPad の cmux に送信します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.hideContent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Notification Content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知内容を非表示"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.hideContent.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends a generic message instead of agent and terminal text."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントやターミナルのテキストの代わりに一般的なメッセージを送信します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When to Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信するタイミング"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.onlyWhenAway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only When Away"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離席中のみ"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always sends every local agent alert. Away mode waits until this Mac is locked, asleep, or idle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「常に」はすべてのローカルエージェント通知を送信します。「離席中」は、この Mac がロック中、スリープ中、またはアイドル状態になるまで待機します。"
           }
         }
       }

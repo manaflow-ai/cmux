@@ -281,8 +281,8 @@ final class MobileHostService {
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
         payload["phone_push"] = [
-            "forwarding_enabled": phonePushDefaults.bool(
-                forKey: PhonePushSettings.forwardEnabledKey
+            "forwarding_enabled": PhonePushConfiguration.forwardingEnabled(
+                in: phonePushDefaults
             ),
             "mode": PhoneForwardingMode.fromDefaults(phonePushDefaults).rawValue,
             "admission": phonePushAdmission.rawValue,
