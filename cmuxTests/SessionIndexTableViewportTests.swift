@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC.runtime
 import SwiftUI
 import Testing
 
@@ -7,6 +8,121 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@Suite(.serialized)
+struct SessionIndexOpenWorkingDirectoryTests {
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func openWorkingDirectoryMenuChecksStalePathInsteadOfOpeningItDirectly() async throws {
+        let stalePath = "/private/tmp/cmux-issue-5977-stale-\(UUID().uuidString)"
+        let entry = SessionEntry(
+            id: "claude:\(stalePath)/session.jsonl",
+            agent: .claude,
+            sessionId: "issue-5977",
+            title: "Stale working directory",
+            cwd: stalePath,
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1),
+            fileURL: nil,
+            specifics: .claude(
+                model: nil,
+                permissionMode: nil,
+                configDirectoryForResume: nil
+            )
+        )
+        let section = IndexSection(
+            key: .directory(stalePath),
+            title: "stale",
+            icon: .folder,
+            entries: [entry]
+        )
+        let controller = SessionIndexTableController()
+        let container = controller.makeContainerView()
+        container.frame = NSRect(x: 0, y: 0, width: 320, height: 160)
+        let window = NSWindow(
+            contentRect: container.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+
+        controller.apply(
+            rows: [SessionIndexTableViewportTests.makeSectionRow(section: section)],
+            environment: .init(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100
+            )
+        )
+        await flushStagedTableMutations()
+        window.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        let cell = try #require(container.tableView.view(
+            atColumn: 0,
+            row: 0,
+            makeIfNecessary: false
+        ) as? SessionIndexTableCellView)
+        cell.layoutSubtreeIfNeeded()
+        let title = String(
+            localized: "sessionIndex.row.openCwd",
+            defaultValue: "Open Working Directory"
+        )
+        let menu = try #require(contextMenu(in: cell, containing: title))
+        let item = try #require(menu.items.first { $0.title == title })
+        let action = try #require(item.action)
+
+        let event = await SessionIndexWorkingDirectoryOpenProbe.captureFirstEvent {
+            #expect(NSApp.sendAction(action, to: item.target, from: item))
+        }
+
+        #expect(event == .stalePathChecked(stalePath))
+    }
+
+    @MainActor
+    private func contextMenu(in cell: NSView, containing title: String) -> NSMenu? {
+        let x = cell.bounds.midX
+        for y in stride(from: CGFloat(1), to: cell.bounds.height, by: 2) {
+            let point = NSPoint(x: x, y: y)
+            guard let event = NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: cell.convert(point, to: nil),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: cell.window?.windowNumber ?? 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            ) else {
+                continue
+            }
+            var candidate = cell.hitTest(point)
+            while let view = candidate {
+                if let menu = view.menu(for: event),
+                   menu.items.contains(where: { $0.title == title }) {
+                    return menu
+                }
+                guard view !== cell else { break }
+                candidate = view.superview
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private func flushStagedTableMutations() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
+        }
+    }
+}
 
 @Suite(.serialized)
 struct SessionIndexTableViewportTests {
@@ -375,7 +491,7 @@ struct SessionIndexTableViewportTests {
     }
 
     @MainActor
-    private static func makeSectionRow(
+    fileprivate static func makeSectionRow(
         section: IndexSection,
         popoverIdentity: SessionIndexTablePopoverIdentity? = nil,
         onSetPopoverOpen: @escaping @MainActor (Bool) -> Void = { _ in }
@@ -397,6 +513,111 @@ struct SessionIndexTableViewportTests {
             setCollapsed: { _ in },
             setPopoverOpen: onSetPopoverOpen
         )
+    }
+
+}
+
+private enum SessionIndexWorkingDirectoryOpenEvent: Equatable {
+    case rawWorkspaceOpen(String)
+    case stalePathChecked(String)
+    case timedOut
+}
+
+@MainActor
+private enum SessionIndexWorkingDirectoryOpenProbe {
+    static let stalePathMarker = "cmux-issue-5977-stale-"
+    private static var continuation: CheckedContinuation<SessionIndexWorkingDirectoryOpenEvent, Never>?
+    private static var timeoutTask: Task<Void, Never>?
+
+    static func captureFirstEvent(
+        perform: () -> Void
+    ) async -> SessionIndexWorkingDirectoryOpenEvent {
+        installInterceptors()
+        defer { removeInterceptors() }
+
+        return await withCheckedContinuation { continuation in
+            precondition(Self.continuation == nil)
+            Self.continuation = continuation
+            timeoutTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(10))
+                guard !Task.isCancelled else { return }
+                record(.timedOut)
+            }
+            perform()
+        }
+    }
+
+    static func record(_ event: SessionIndexWorkingDirectoryOpenEvent) {
+        guard let continuation else { return }
+        Self.continuation = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        continuation.resume(returning: event)
+    }
+
+    private static func installInterceptors() {
+        exchange(
+            on: NSWorkspace.self,
+            #selector(NSWorkspace.open(_:)),
+            #selector(NSWorkspace.cmuxIssue5977_open(_:))
+        )
+        exchange(
+            on: FileManager.self,
+            #selector(FileManager.fileExists(atPath:isDirectory:)),
+            #selector(FileManager.cmuxIssue5977_fileExists(atPath:isDirectory:))
+        )
+    }
+
+    private static func removeInterceptors() {
+        exchange(
+            on: FileManager.self,
+            #selector(FileManager.fileExists(atPath:isDirectory:)),
+            #selector(FileManager.cmuxIssue5977_fileExists(atPath:isDirectory:))
+        )
+        exchange(
+            on: NSWorkspace.self,
+            #selector(NSWorkspace.open(_:)),
+            #selector(NSWorkspace.cmuxIssue5977_open(_:))
+        )
+    }
+
+    private static func exchange(
+        on type: AnyClass,
+        _ original: Selector,
+        _ replacement: Selector
+    ) {
+        guard let originalMethod = class_getInstanceMethod(type, original),
+              let replacementMethod = class_getInstanceMethod(type, replacement) else {
+            preconditionFailure("Missing issue #5977 AppKit test interceptor")
+        }
+        method_exchangeImplementations(originalMethod, replacementMethod)
+    }
+}
+
+private extension NSWorkspace {
+    @MainActor
+    @objc dynamic func cmuxIssue5977_open(_ url: URL) -> Bool {
+        guard url.path.contains(SessionIndexWorkingDirectoryOpenProbe.stalePathMarker) else {
+            return cmuxIssue5977_open(url)
+        }
+        SessionIndexWorkingDirectoryOpenProbe.record(.rawWorkspaceOpen(url.path))
+        return true
+    }
+}
+
+private extension FileManager {
+    @objc dynamic func cmuxIssue5977_fileExists(
+        atPath path: String,
+        isDirectory: UnsafeMutablePointer<ObjCBool>?
+    ) -> Bool {
+        guard path.contains(SessionIndexWorkingDirectoryOpenProbe.stalePathMarker) else {
+            return cmuxIssue5977_fileExists(atPath: path, isDirectory: isDirectory)
+        }
+        isDirectory?.pointee = false
+        Task { @MainActor in
+            SessionIndexWorkingDirectoryOpenProbe.record(.stalePathChecked(path))
+        }
+        return false
     }
 }
 
