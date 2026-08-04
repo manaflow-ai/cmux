@@ -234,7 +234,6 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         try JSONDecoder().decode(Self.self, from: data)
     }
 }
-
 // Memberwise construction for callers that assemble a list response from an
 // already-synced local source (mobile state sync v2 projects its record mirror
 // through the same apply path the decoded wire response uses).

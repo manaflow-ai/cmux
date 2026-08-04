@@ -616,7 +616,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     )
 
-    private lazy var inputProxy: TerminalInputTextView = {
+    lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
         inputProxy.terminalTheme = terminalTheme
         inputProxy.onFirstResponderChanged = { [weak self] isFirstResponder in
@@ -882,7 +882,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var keyboardHeight: CGFloat = 0
-    private var keyboardVisible = false
+    var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is constrained to ``UIView/keyboardLayoutGuide`` and the viewport
     /// coordinator consumes that same guide-derived overlap, so the grid must shrink
@@ -897,7 +897,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the buttons (the "gap below" Lawrence kept seeing). Matching them keeps the
     /// toolbar's live top edge equal to the viewport edge; any whole-cell render
     /// remainder stays inside the terminal viewport instead of becoming toolbar fill.
-    private static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
+    static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
     /// The docked accessory bar. Auto Layout pins it above the composer, whose bottom
     /// is attached to ``UIView/keyboardLayoutGuide``. The viewport coordinator uses
     /// the guide's same top edge for the terminal reservation.
@@ -919,7 +919,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the docked toolbar riding its top edge and the terminal grid above that. The
     /// viewport coordinator consumes the same guide overlap for the
     /// `terminal / toolbar / composer / keyboard` stack.
-    private let composerContainer = UIView()
+    let composerContainer = UIView()
     /// Height (points) the open composer band reserves above the keyboard edge. Fed
     /// by the host from the hosted compose field's intrinsic content size
     /// (``setComposerBandHeight(_:animated:)``); 0 while the composer is closed. The
@@ -927,6 +927,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
     private var composerBandHeight: CGFloat = 0
+    /// Real bottom-dock containers for native scroll-edge registration by an overlaying transcript.
+    public var bottomScrollEdgeElementContainers: [UIView] {
+        [dockedToolbar, composerContainer].compactMap { $0 }
+    }
     /// Surface-owned host for the SwiftUI artifact chip. Keeping it beside the
     /// toolbar/composer containers makes keyboard and composer movement use one
     /// coordinate system instead of a competing SwiftUI safe-area offset.

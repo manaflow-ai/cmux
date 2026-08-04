@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-public import CmuxAgentChat
+public import CmuxAgentSync
 internal import CmuxMobileDiagnostics
 public import CmuxMobileBrowserStream
 public import CmuxMobilePairedMac
@@ -123,10 +123,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let taskCreateCapability = "workspace.task_create.v1"
     static let taskAttachmentCapability = "task.attachments.v1"
     static let taskModelsCapability = "task.models.v1"
-    static let chatArtifactCapability = "chat.artifact.v1"
-    static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
-    static let terminalArtifactCapability = "terminal.artifact.v1"
-    static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"
     static let notificationFeedCapability = "notification.feed.v1"
@@ -350,18 +346,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
-    /// The immutable, reverse-chronological notification feed aggregated across Macs.
     public internal(set) var notificationFeedItems: [MobileNotificationFeedItem] = [] {
         didSet {
             notificationFeedUnreadCount = notificationFeedItems.lazy.filter { !$0.isRead }.count
         }
     }
-    /// The feed's current loading and capability state.
     public internal(set) var notificationFeedStatus: MobileNotificationFeedStatus = .idle
-    /// The number of currently retained unread notifications across all Macs.
     public private(set) var notificationFeedUnreadCount: Int = 0
-    /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
-    var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
     /// The group sections the UI renders. A materialized derivation of
     /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's
     /// `isCollapsed` reflects this device's choice (see ``groupCollapseStore``),
@@ -807,6 +798,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
+    /// Agent GUI synchronization engine for the current foreground Mac.
+    public internal(set) var agentSyncEngine: AgentSyncEngine? = nil
+    @ObservationIgnored var agentGUIConnectionGeneration: UUID? = nil
+    @ObservationIgnored var agentGUIConnectionEventRelay: AgentGUIConnectionEventRelay? = nil
     package var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -820,10 +815,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var usesLocalWorkspaceCreationFallback: Bool {
         remoteClient == nil && connectionState == .connected
     }
-    /// `remoteClient` narrowed for `MobileShellComposite+AgentChat.swift`.
-    var remoteClientForAgentChat: MobileCoreRPCClient? { remoteClient }
-    /// Identity token that changes when the paired Mac chat event source is rebuilt.
-    public var agentChatEventSourceIdentity: String { chatEventSourceGeneration.uuidString }
     var terminalEventListenerTask: Task<Void, Never>?
     private var terminalEventListenerID: UUID?
     /// Recovers the Mac's identity post-handshake for tickets that arrived
@@ -1006,7 +997,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Focus generations whose terminal subscription has been removed for a
     /// role handoff but whose registry transition has not committed yet.
     @ObservationIgnored var focusedHandoffPreparedGenerations: Set<UUID> = []
-    private var chatEventSourceGeneration: UUID
     /// One authoritative per-Mac connection registry. Compatibility accessors
     /// below keep focused/control call sites reviewable while every mutation
     /// lands in this single role-aware map.
@@ -1446,7 +1436,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
         self.connectionAttemptGeneration = UUID()
-        self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.effectiveViewportSizesBySurfaceID = [:]; self.reportedTerminalViewportSizesBySurfaceID = [:]
         self.viewportReportGenerationsBySurfaceID = [:]
@@ -1610,7 +1599,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // not write partial state into a store we are emptying wholesale.
         isLoadingDraft = true
         terminalInputText = ""
-        chatSessionSnapshotsByWorkspaceID = [:]
         // Enqueued on the FIFO draft pipeline so every save issued before this
         // point is applied first and then wiped; a pending keystroke save can
         // never land after the wipe and leak into the next account's session.
@@ -6465,7 +6453,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         workspaces = derived
         pruneTerminalThemes(to: derived)
-        pruneChatSessionSnapshots(to: derived)
         if let selectedWorkspaceID,
            !derived.contains(where: { $0.id == selectedWorkspaceID }) {
             let remapped = previousSelection.flatMap { previous in
@@ -6483,27 +6470,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if selectedWorkspaceID != nil { syncSelectedTerminalForWorkspace() }
         workspaceGroups = workspaceAggregation.derivedGroups(
             statesByMac: statesByAggregateKey, foregroundMacDeviceID: foregroundKey)
-    }
-
-    private func pruneChatSessionSnapshots(to visibleWorkspaces: [MobileWorkspacePreview]) {
-        var validWorkspaceIDs = Set<String>()
-        for workspace in visibleWorkspaces {
-            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
-            validWorkspaceIDs.insert(workspace.id.rawValue)
-            validWorkspaceIDs.insert(remoteID.rawValue)
-            if let macDeviceID = workspace.macDeviceID {
-                validWorkspaceIDs.insert(
-                    workspaceAggregation.rowID(
-                        macDeviceID: macDeviceID,
-                        instanceTag: workspace.macInstanceTag,
-                        workspaceID: remoteID
-                    ).rawValue
-                )
-            }
-        }
-        chatSessionSnapshotsByWorkspaceID = chatSessionSnapshotsByWorkspaceID.filter {
-            validWorkspaceIDs.contains($0.key)
-        }
     }
 
     /// Set the user's per-Mac customizations (name / color / icon), persist them
@@ -6660,22 +6626,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func dropStalePreviousForeground(_ previousKey: MacPairingKey) {
         guard previousKey != foregroundMacKey,
               secondaryMacSubscriptions[previousKey] == nil else { return }
-        let removedWorkspaceIDs = Set((workspacesByMac[previousKey]?.workspaces ?? []).flatMap { workspace in
-            let remoteID = workspace.remoteWorkspaceID ?? workspace.id
-            return [
-                workspace.id.rawValue,
-                remoteID.rawValue,
-                workspaceAggregation.rowID(
-                    macDeviceID: previousKey.canonicalMacDeviceID,
-                    instanceTag: previousKey.normalizedInstanceTag,
-                    workspaceID: remoteID
-                ).rawValue,
-            ]
-        })
         workspacesByMac[previousKey] = nil
-        for workspaceID in removedWorkspaceIDs {
-            chatSessionSnapshotsByWorkspaceID[workspaceID] = nil
-        }
     }
 
     /// Adopt a host-reported real device id as the foreground Mac's aggregate key.
@@ -8320,6 +8271,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     if !(runtime.supportsServerPushEvents) {
                         scheduleHostIdentityAdoptionIfNeeded(client: client)
                     }
+                    installAgentGUIEngine(client: client, generation: generation)
                     diagnosticLog?.record(DiagnosticEvent(
                         .rpcReady,
                         a: DiagnosticTransportKind(route.kind).rawValue
@@ -8738,8 +8690,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             previous.retire()
         }
         remoteClient = newValue
-        if newValue != nil, previous !== newValue {
-            chatEventSourceGeneration = UUID()
+        if previous !== newValue {
+            if newValue == nil {
+                clearAgentGUIEngine(reason: "disconnected")
+            } else if previous != nil {
+                resetAgentGUIEngine()
+            }
         }
         if previous !== newValue {
             terminalSubscriptionHandoffFenceClientID = nil
@@ -8763,7 +8719,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = UUID()
         remoteClient = newValue
         terminalSubscriptionHandoffFenceClientID = nil
-        chatEventSourceGeneration = UUID()
         return connectionGeneration
     }
 
@@ -9357,6 +9312,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+        noteAgentGUIConnectionHealthy()
     }
 
     @discardableResult
@@ -9387,6 +9343,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .reconnecting
         isRecoveringConnection = true
         connectionRecoveryFailed = false
+        noteAgentGUIConnectionReconnecting()
     }
 
     private func markMacConnectionUnavailable() {
@@ -9397,6 +9354,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         isRecoveringConnection = false
         connectionRecoveryFailed = true
+        noteAgentGUIConnectionUnavailable()
     }
 
     func markMacConnectionUnavailableIfNeeded(after error: any Error) {

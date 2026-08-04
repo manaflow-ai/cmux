@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAuthRuntime
+import CmuxAgentGUIUI
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -42,14 +43,6 @@ struct MobileSettingsView: View {
     @State private var notificationsEnabled = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
-    #if DEBUG
-    @State private var showingChatDemo = false
-    @State private var showingTerminalDemo = false
-    @State private var showingToastGallery = false
-    /// Seconds between tapping "Run Toast Demo" and the first toast, so you
-    /// can navigate to any screen (terminal, chat) and watch it play there.
-    @AppStorage("cmux.debug.toastDemoDelaySeconds") private var toastDemoDelaySeconds = 3
-    #endif
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
@@ -240,62 +233,15 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
-                    Button {
-                        showingChatDemo = true
+                    NavigationLink {
+                        TranscriptDemoScreen()
                     } label: {
                         Label(
-                            L10n.string("mobile.settings.agentChatDemo", defaultValue: "Agent Chat Demo"),
-                            systemImage: "bubble.left.and.bubble.right"
+                            L10n.string("mobile.settings.transcriptDemo", defaultValue: "Transcript Demo"),
+                            systemImage: "bubble.left.and.text.bubble.right"
                         )
                     }
-                    .accessibilityIdentifier("MobileSettingsAgentChatDemo")
-                    Button {
-                        showingTerminalDemo = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.terminalLogDemo", defaultValue: "Terminal Log Demo"),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
-                    Button {
-                        showingToastGallery = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.toastGallery", defaultValue: "Toast Gallery"),
-                            systemImage: "rectangle.portrait.topthird.inset.filled"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastGallery")
-                    Button {
-                        ToastDemo.run(on: toasts, after: .seconds(toastDemoDelaySeconds))
-                        dismiss()
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.toastDemo", defaultValue: "Run Toast Demo"),
-                            systemImage: "play.rectangle"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastDemo")
-                    Stepper(value: $toastDemoDelaySeconds, in: 0...30) {
-                        HStack {
-                            Text(L10n.string(
-                                "mobile.settings.toastDemoDelay",
-                                defaultValue: "Toast Demo Delay"
-                            ))
-                            Spacer()
-                            Text(String.localizedStringWithFormat(
-                                L10n.string(
-                                    "mobile.settings.toastDemoDelayValueFormat",
-                                    defaultValue: "%d s"
-                                ),
-                                toastDemoDelaySeconds
-                            ))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastDemoDelay")
+                    .accessibilityIdentifier("MobileSettingsTranscriptDemo")
 
                     debugLayoutSlider(
                         title: L10n.string(
@@ -341,13 +287,24 @@ struct MobileSettingsView: View {
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
-                    Toggle(isOn: $displaySettings.showMissingFiles) {
+                    Picker(selection: $displaySettings.transcriptDensity) {
                         Text(L10n.string(
-                            "mobile.settings.showMissingFiles",
-                            defaultValue: "Show missing files"
+                            "mobile.settings.transcriptDensity.comfortable",
+                            defaultValue: "Comfortable"
+                        ))
+                        .tag(TranscriptDensity.comfortable)
+                        Text(L10n.string(
+                            "mobile.settings.transcriptDensity.compact",
+                            defaultValue: "Compact"
+                        ))
+                        .tag(TranscriptDensity.compact)
+                    } label: {
+                        Text(L10n.string(
+                            "mobile.settings.transcriptDensity",
+                            defaultValue: "Transcript Density"
                         ))
                     }
-                    .accessibilityIdentifier("MobileSettingsShowMissingFiles")
+                    .accessibilityIdentifier("MobileSettingsTranscriptDensityPicker")
 
                     Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
@@ -455,17 +412,6 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingShortcuts) {
                 TerminalShortcutsSettingsView()
             }
-            #if DEBUG
-            .fullScreenCover(isPresented: $showingChatDemo) {
-                AgentChatDemoScreen()
-            }
-            .fullScreenCover(isPresented: $showingTerminalDemo) {
-                TerminalLogDemoScreen()
-            }
-            .sheet(isPresented: $showingToastGallery) {
-                ToastGalleryView()
-            }
-            #endif
             .sheet(isPresented: $showingOnboarding) {
                 // Re-entry never writes first-run progress. The final scene reads
                 // live connection state and can reopen pairing from offline Settings.

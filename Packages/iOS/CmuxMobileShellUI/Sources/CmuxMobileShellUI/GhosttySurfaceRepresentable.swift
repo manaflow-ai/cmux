@@ -1,6 +1,5 @@
 #if canImport(UIKit)
 import CMUXMobileCore
-import CmuxAgentChat
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -13,7 +12,6 @@ import UIKit
 /// composer into the surface-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
-    let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
@@ -34,32 +32,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// The store's raw config generation. This drives a surface-local
     /// Ghostty config update without remounting or changing another scene.
     var configThemeGeneration: UInt64 = 0
-    var artifactFilesEnabled: Bool = false
-    var terminalFolderTapEnabled: Bool = true
-    var terminalFilesChipEnabled: Bool = false
-    var showMissingFiles: Bool = false
-    var sessionArtifactCountEnabled: Bool = false
-    var visibleArtifactCount: Int = 0
-    var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
-    var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
-    var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
-    var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
+    var composerSubmitAction: (@MainActor () async -> Void)? = nil
+    var onComposerChromeHeightChange: ((CGFloat) -> Void)? = nil
+    var onBottomScrollEdgeElementContainersChange: (@MainActor ([UIView]) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
-            workspaceID: workspaceID,
             surfaceID: surfaceID,
             store: store,
-            artifactFilesEnabled: artifactFilesEnabled,
-            terminalFolderTapEnabled: terminalFolderTapEnabled,
-            terminalFilesChipEnabled: terminalFilesChipEnabled,
-            showMissingFiles: showMissingFiles,
-            sessionArtifactCountEnabled: sessionArtifactCountEnabled,
-            visibleArtifactCount: visibleArtifactCount,
-            onArtifactFilesRequested: onArtifactFilesRequested,
-            onArtifactPathTapped: onArtifactPathTapped,
-            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
-            onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal
+            composerSubmitAction: composerSubmitAction,
+            onComposerChromeHeightChange: onComposerChromeHeightChange,
+            onBottomScrollEdgeElementContainersChange: onBottomScrollEdgeElementContainersChange
         )
     }
 
@@ -86,14 +69,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             terminalConfigTheme: terminalConfigTheme
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
-        view.artifactFilesEnabled = artifactFilesEnabled
-        // Screen-anchored sessions scroll the local mirror's own scrollback
-        // immediately (the Mac never repaints for a primary-screen scroll), so
-        // they keep the low-latency local authority even under verified replay.
-        view.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
-            && !store.usesScreenAnchoredRenderGrid
-            ? .verifiedRenderGrid
-            : .legacyMirror
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
@@ -124,32 +99,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
+        context.coordinator.updateComposerRouting(
+            submitAction: composerSubmitAction,
+            chromeHeightChange: onComposerChromeHeightChange,
+            edgeElementContainersChange: onBottomScrollEdgeElementContainersChange
+        )
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
-        context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
-        context.coordinator.onArtifactPathTapped = onArtifactPathTapped
-        context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
-        context.coordinator.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
-        context.coordinator.terminalFolderTapEnabled = terminalFolderTapEnabled
-        let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
-            artifactFilesEnabled: artifactFilesEnabled,
-            terminalFilesChipEnabled: terminalFilesChipEnabled,
-            showMissingFiles: showMissingFiles,
-            sessionArtifactCountEnabled: sessionArtifactCountEnabled
-        )
-        surfaceView.artifactFilesEnabled = artifactFilesEnabled
-        surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
-            && !store.usesScreenAnchoredRenderGrid
-            ? .verifiedRenderGrid
-            : .legacyMirror
-        if artifactCountModeChanged {
-            surfaceView.resetVisibleArtifactCountTracking()
-        }
-        let projectedArtifactCount = context.coordinator.artifactCountNeedsRefresh
-            ? 0
-            : visibleArtifactCount
-        context.coordinator.updateArtifactChip(count: projectedArtifactCount)
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         context.coordinator.scheduleTheme(terminalConfigTheme, generation: configThemeGeneration)
@@ -161,53 +118,27 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         (uiView as? GhosttySurfaceView)?.prepareForDismantle()
-        coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
         coordinator.detach()
     }
 
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
-        let workspaceID: String
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
-        var artifactFilesEnabled: Bool
-        var terminalFolderTapEnabled: Bool
-        var artifactChipGate: TerminalArtifactChipFeatureGate
-        var showMissingFiles: Bool
-        var sessionArtifactCountEnabled: Bool
-        var visibleArtifactCount: Int
-        var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
-        var onArtifactPathTapped: @MainActor (_ path: String) -> Void
-        var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
-        var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
         var outputStartContinuation: AsyncStream<Void>.Continuation?
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
         private var liveFontTask: Task<Void, Never>?
         let themeApplicationScheduler = TerminalThemeApplicationScheduler()
-        var artifactCountTask: Task<Void, Never>?
-        var artifactCountTaskRequest: TerminalArtifactChipCountState.Request?
-        var artifactCountState = TerminalArtifactChipCountState()
-        var artifactCountNeedsRefresh: Bool
-        var freshestLocalArtifactCount = 0
-        /// Async Mac clicks apply only for the newest tap and current mount.
-        /// Keyboard intent is owned synchronously by the surface input session,
-        /// so this generation can invalidate click work without starving focus.
-        var clickGeneration: UInt64 = 0
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
-        private var composerController: UIHostingController<TerminalComposerView>?
-        var artifactChipController: UIHostingController<TerminalArtifactChipView>?
-        var artifactChipVisibility = TerminalArtifactChipVisibilityState()
-        /// Pending debounced chip unmount; cancelled whenever a positive count
-        /// arrives so transient zero counts cannot flicker the chip.
-        var artifactChipHideTask: Task<Void, Never>?
-        /// Injected so the hide grace period is testable and cancellable
-        /// (`DispatchQueue.asyncAfter` is banned for intentional delays).
-        let artifactChipHideClock: any Clock<Duration>
-        private var composerMounted = false
+        var composerController: UIHostingController<TerminalComposerView>?
+        let composerSubmitRouter: TerminalComposerSubmitRouter
+        var onComposerChromeHeightChange: ((CGFloat) -> Void)?
+        var onBottomScrollEdgeElementContainersChange: (@MainActor ([UIView]) -> Void)?
+        var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
         private var pendingReplayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
@@ -217,61 +148,47 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// report resolve after the newer keyboard-down echo, permanently
         /// re-pinning the phone to the stale smaller grid (empty space above
         /// the terminal). Built on attach, torn down on detach.
-        var viewportReportScheduler: TerminalViewportReportScheduler?
+        private var viewportReportScheduler: TerminalViewportReportScheduler?
         /// Bumped on every mount/unmount transition so a deferred close completion
         /// can tell whether it is still the latest transition. Guards the
         /// close-then-quickly-reopen race: an interrupted close animation still runs
         /// its completion, which must not unmount a composer that was remounted in
         /// the meantime.
-        private var composerMountGeneration = 0
+        var composerMountGeneration = 0
 
         init(
-            workspaceID: String,
             surfaceID: String,
             store: CMUXMobileShellStore,
-            artifactFilesEnabled: Bool,
-            terminalFolderTapEnabled: Bool,
-            terminalFilesChipEnabled: Bool,
-            showMissingFiles: Bool = false,
-            sessionArtifactCountEnabled: Bool,
-            visibleArtifactCount: Int,
-            onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
-            onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
-            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void,
-            onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void,
-            artifactChipHideClock: any Clock<Duration> = ContinuousClock()
+            composerSubmitAction: (@MainActor () async -> Void)?,
+            onComposerChromeHeightChange: ((CGFloat) -> Void)?,
+            onBottomScrollEdgeElementContainersChange: (@MainActor ([UIView]) -> Void)?
         ) {
-            self.workspaceID = workspaceID
             self.surfaceID = surfaceID
             self.store = store
-            self.artifactFilesEnabled = artifactFilesEnabled
-            self.terminalFolderTapEnabled = terminalFolderTapEnabled
-            self.artifactChipGate = TerminalArtifactChipFeatureGate(
-                artifactsAvailable: artifactFilesEnabled,
-                preferenceEnabled: terminalFilesChipEnabled
-            )
-            self.showMissingFiles = showMissingFiles
-            self.sessionArtifactCountEnabled = sessionArtifactCountEnabled
-            self.visibleArtifactCount = visibleArtifactCount
-            self.artifactCountNeedsRefresh = artifactChipGate.isEnabled
-            self.onArtifactFilesRequested = onArtifactFilesRequested
-            self.onArtifactPathTapped = onArtifactPathTapped
-            self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
-            self.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
-            self.artifactChipHideClock = artifactChipHideClock
+            self.composerSubmitRouter = TerminalComposerSubmitRouter(action: composerSubmitAction)
+            self.onComposerChromeHeightChange = onComposerChromeHeightChange
+            self.onBottomScrollEdgeElementContainersChange = onBottomScrollEdgeElementContainersChange
             super.init()
+        }
+
+        func updateComposerRouting(
+            submitAction: (@MainActor () async -> Void)?,
+            chromeHeightChange: ((CGFloat) -> Void)?,
+            edgeElementContainersChange: (@MainActor ([UIView]) -> Void)?
+        ) {
+            composerSubmitRouter.action = submitAction
+            onComposerChromeHeightChange = chromeHeightChange
+            onBottomScrollEdgeElementContainersChange = edgeElementContainersChange
+            if let surfaceView {
+                edgeElementContainersChange?(surfaceView.bottomScrollEdgeElementContainers)
+            }
         }
 
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
-            surfaceView.artifactFilesEnabled = artifactFilesEnabled
-            updateArtifactChip(count: artifactCountNeedsRefresh ? 0 : visibleArtifactCount)
-            guard surfaceView.window != nil else { return }
-            startMountedTasks(surfaceView: surfaceView)
-        }
-
-        private func startMountedTasks(surfaceView: GhosttySurfaceView) {
-            guard outputTask == nil else { return }
+            onBottomScrollEdgeElementContainersChange?(
+                surfaceView.bottomScrollEdgeElementContainers
+            )
             guard let store else { return }
             let surfaceID = surfaceID
             let outputStartSignal = AsyncStream<Void> { [weak self] continuation in
@@ -479,7 +396,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         private func stopMountedTasks() {
-            clickGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil
             preparedViewportReportsByReportID.removeAll()
@@ -495,26 +411,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func detach() {
-            surfaceView = nil
-            stopMountedTasks()
+            onBottomScrollEdgeElementContainersChange?([])
+            outputTask?.cancel()
+            outputTask = nil
+            liveFontTask?.cancel()
+            liveFontTask = nil
             themeApplicationScheduler.cancel()
-            artifactCountTask?.cancel()
-            artifactCountTask = nil
-            artifactCountTaskRequest = nil
-            artifactCountState.reset()
-            surfaceView = nil
-        }
-
-        func ghosttySurfaceView(
-            _ surfaceView: GhosttySurfaceView,
-            didChangeWindowAttachment isAttached: Bool
-        ) {
-            guard self.surfaceView === surfaceView else { return }
-            if isAttached {
-                startMountedTasks(surfaceView: surfaceView)
-            } else {
-                stopMountedTasks()
-            }
+            viewportReportScheduler?.cancel()
+            viewportReportScheduler = nil
         }
 
         private func applyVerifiedRenderGrid(
@@ -573,8 +477,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 return false
             }
 
-            // Capture reads the post-reflow scrollbar, so Ghostty's resize pin
-            // remap is authoritative and anchor math never sees reflow as append drift.
+            // Capture after reflow so Ghostty's pin remap, not replay row
+            // arithmetic, remains authoritative.
             let capturedViewportAnchor =
                 await surfaceView.captureVerifiedReplayViewportAnchor()
             guard !Task.isCancelled else { return false }
@@ -596,7 +500,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 )
                 guard !Task.isCancelled else { return false }
                 guard applied else {
-                    requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
+                    requestVerifiedReplayReset(
+                        transactionID: transaction.id,
+                        chunk: chunk,
+                        store: store
+                    )
                     return false
                 }
             }
@@ -654,8 +562,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return false }
                     if restored {
                         pendingReplayViewportAnchor = nil
-                        // Restore and re-fence happen under render suppression,
-                        // so the renderer identity cannot change before reveal.
                         _ = await surfaceView.presentRestoredVerifiedReplayViewport()
                         guard !Task.isCancelled else { return false }
                     }
@@ -680,149 +586,116 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
-        // MARK: - Composer band hosting
+        // MARK: - GhosttySurfaceViewDelegate
 
-        /// Mount or unmount the SwiftUI compose field into the surface's composer
-        /// band so the surface owns its position and grid reservation. Idempotent.
-        @MainActor
-        func setComposerMounted(_ mounted: Bool) {
-            guard mounted != composerMounted, let store, let surfaceView else { return }
-            composerMounted = mounted
-            composerMountGeneration &+= 1
-            if mounted {
-                let controller = composerController ?? makeComposerController(store: store)
-                composerController = controller
-                surfaceView.mountComposerView(controller.view)
-                // The field opens at one line; report its initial height without
-                // animation (the composer's open transition already animates), then
-                // live grows/shrinks animate.
-                reportComposerHeight(animated: false)
-            } else {
-                // Symmetric close: animate the band to 0 with the field STILL
-                // mounted, on the keyboard curve, then unmount it in the completion.
-                // Unmounting first left the band collapsing over empty space (a janky
-                // close). Keep the surface reference for the deferred unmount.
-                //
-                // The completion is generation-guarded: UIKit runs animation
-                // completions even when the animation is interrupted, so a
-                // close-then-quick-reopen would otherwise unmount the freshly
-                // remounted field and leave `composerMounted` true with no view.
-                let generation = composerMountGeneration
-                surfaceView.setComposerBandHeight(0, animated: true) { [weak self] in
-                    guard let self,
-                          self.composerMountGeneration == generation,
-                          !self.composerMounted else { return }
-                    self.surfaceView?.mountComposerView(nil)
-                }
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
+            // Bytes the iPhone wants to send TO the PTY (typing, paste,
+            // mouse reports). Forward to the Mac sync server which
+            // writes them into the Mac's libghostty surface, which in
+            // turn writes them down the PTY.
+            Task { @MainActor [weak store] in
+                await store?.submitTerminalRawInput(data, surfaceID: self.surfaceID)
             }
         }
 
-        /// Build the hosting controller for the compose field. The field asks for a
-        /// re-measure (via ``reportComposerHeight(animated:)``) whenever its content
-        /// changes; the coordinator measures the ideal height with `sizeThatFits` and
-        /// sizes the surface band.
-        @MainActor
-        private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
-            let view = TerminalComposerView(
-                store: store,
-                terminalID: surfaceID,
-                requestHeightRemeasure: { [weak self] in
-                    // Content changed (a line added/removed, or cleared after send): live
-                    // grows/shrinks animate. `setComposerBandHeight` is idempotent on
-                    // unchanged heights, so a no-op change is harmless.
-                    self?.reportComposerHeight(animated: true)
-                },
-                requestInputFocus: { [weak self] in
-                    self?.surfaceView?.requestComposerInputFocus()
-                },
-                inputFocusChanged: { [weak self] focused in
-                    self?.surfaceView?.composerInputFocusChanged(focused)
-                },
-                photoPickerWillPresent: { [weak self] in
-                    self?.surfaceView?.photoPickerWillPresent()
-                },
-                photoPickerDidPresent: { [weak self] in
-                    self?.surfaceView?.photoPickerDidPresent()
-                },
-                photoPickerDidDismiss: { [weak self] in
-                    self?.surfaceView?.photoPickerDidDismiss()
-                }
-            )
-            let controller = UIHostingController(rootView: view)
-            // The field is pinned edge-to-edge in the band, so the band frame (not an
-            // intrinsic size) drives the hosting view's height; the measured ideal
-            // height flows separately through `sizeThatFits`. Clear background so the
-            // terminal/glass shows through.
-            controller.view.backgroundColor = .clear
-            // Keyboard geometry is owned explicitly by the surface's frame math;
-            // opting out here prevents the hosted field from avoiding it a second time.
-            controller.safeAreaRegions = .container
-            return controller
-        }
-
-        /// Measure the hosted compose field's ideal height and size the surface band.
-        /// `sizeThatFits` returns the height the content wants independent of the band's
-        /// current (pinned) frame, so it is not circular: the band height is set FROM
-        /// this measurement, and the measurement does not depend on the band height.
-        /// The proposed width is the surface width and the proposed height is unbounded
-        /// so a multi-line field measures its full desired height (capped to 14 lines by
-        /// the field's own `lineLimit`).
-        ///
-        /// `requestHeightRemeasure` fires the instant the field's content changes — a
-        /// `.onChange(of:)` action, or the post-send clear — which is BEFORE SwiftUI has
-        /// committed that change into the hosted controller's view graph. Measuring a
-        /// `UIHostingController` synchronously at that point captures the PRE-change
-        /// (tall) ideal height, so after a send the band stays reserved tall and the
-        /// empty field renders as a tall box that never collapses. It is worst for an
-        /// image-only send: clearing the text fires no `.onChange(of: terminalInputText)`
-        /// (it was already empty), so the stale measurement is never corrected by a
-        /// follow-up. Flush the host's pending SwiftUI update into a concrete layout pass
-        /// BEFORE calling `sizeThatFits` — mirroring the `setNeedsLayout()`/
-        /// `layoutIfNeeded()` the GUI chat composer relies on to keep its hosted-field
-        /// measurement current — so the measurement reflects the new (e.g. collapsed
-        /// one-line) content. `sizeThatFits` re-proposes the surface width itself, so the
-        /// flush only needs to apply the pending content change, not fix the width.
-        @MainActor
-        private func reportComposerHeight(animated: Bool) {
-            guard let controller = composerController, let surfaceView else { return }
-            // The hosting controller is mounted before any remeasure, so its view is
-            // loaded; annotate to force-unwrap the `UIView!` rather than infer `UIView?`.
-            let hostView: UIView = controller.view
-            hostView.setNeedsLayout()
-            hostView.layoutIfNeeded()
-            let width = max(1, surfaceView.bounds.width)
-            let target = CGSize(width: width, height: .greatestFiniteMagnitude)
-            let fitting = controller.sizeThatFits(in: target)
-            let clampedHeight = min(
-                fitting.height,
-                floor(surfaceView.bounds.height * 0.45)
-            )
-            if clampedHeight < fitting.height {
-                MobileDebugLog.anchormux(
-                    "composer.bandHeightClamped measured=\(fitting.height) clamped=\(clampedHeight)"
-                )
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {
+            // An image the user pasted on the phone. Upload it to the Mac, which
+            // writes a temp file and injects its path into the terminal so the
+            // running TUI (e.g. Claude Code) attaches it.
+            Task { @MainActor [weak store] in
+                await store?.submitTerminalPasteImage(data, format: format)
             }
-            surfaceView.setComposerBandHeight(clampedHeight, animated: animated)
         }
 
-        /// Re-measure the open composer after a non-text layout change (rotation /
-        /// width change). A no-op when the composer is closed; `setComposerBandHeight`
-        /// is idempotent on an unchanged height. Animated so a rotation reflow is smooth.
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
+            // Report our natural grid to the Mac. The output stream decides
+            // whether the phone should keep that natural grid (primary screen)
+            // or pin to the Mac grid (alternate-screen render-grid replay).
+            // The scheduler serializes the RPCs (send order = report order,
+            // so the PTY settles on the NEWEST grid) and drops echoes whose
+            // report was superseded while in flight; the surface additionally
+            // rejects any echo whose reportID is no longer the newest.
+            guard size.columns > 0, size.rows > 0 else { return }
+            viewportReportScheduler?.submit(
+                .init(id: reportID, columns: size.columns, rows: size.rows)
+            )
+        }
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {
+            // Forward to the Mac's real surface; libghostty scrolls scrollback
+            // (normal screen) or sends mouse-wheel to the program (alt screen).
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.store?.scrollTerminal(surfaceID: self.surfaceID, lines: lines, col: col, row: row)
+            }
+        }
+
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {
+            // Forward to the Mac's real surface as a left click; libghostty
+            // reports it to a TUI with mouse mode, or no-ops on a normal screen.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.store?.clickTerminal(surfaceID: self.surfaceID, col: col, row: row)
+            }
+        }
+
+        func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {
+            // The "customize" button on the keyboard toolbar. The editor view
+            // lives in this UI package, so present it here (the terminal package
+            // that owns the bar can't reach up to it) from the surface's owning
+            // view controller.
+            guard let presenter = presentingController(for: surfaceView) else { return }
+            let editor = UIHostingController(rootView: TerminalShortcutsSettingsView())
+            presenter.present(editor, animated: true)
+        }
+
+        func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView) {
+            // The composer button on the docked accessory bar was tapped AND the
+            // surface resolved (from the dock state) that this is a genuine open/close
+            // toggle. Flip the store flag; the terminal screen observes it and
+            // presents/dismisses the iMessage-style composer. The reveal-and-focus
+            // case routes through `...DidRequestComposerFocus` instead, so this never
+            // closes a still-presented-but-suppressed composer.
+            Task { @MainActor [weak store, surfaceID] in
+                store?.toggleComposer(forTerminalID: surfaceID)
+            }
+        }
+
+        func ghosttySurfaceViewDidRequestComposerFocus(_ surfaceView: GhosttySurfaceView) {
+            // The surface needs the composer presented (if not already) and its field
+            // re-focused, without dismissing it — the reveal-after-hide and
+            // present-while-suppressed paths. Ensure-present + bump the focus token the
+            // composer view observes, so the draft and its focus return together.
+            Task { @MainActor [weak store, surfaceID] in
+                store?.presentAndFocusComposer(forTerminalID: surfaceID)
+            }
+        }
+
+        func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
+            Task { @MainActor [weak self, weak store, surfaceID] in
+                guard let self, self.surfaceView === surfaceView else { return }
+                store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
+            }
+        }
+
+        /// Walk up from `view` to the nearest owning `UIViewController`, then to
+        /// its top-most presented controller, so a sheet presents above whatever
+        /// is already on screen.
         @MainActor
-        func remeasureComposerForLayoutChange() {
-            guard composerMounted else { return }
-            reportComposerHeight(animated: true)
+        private func presentingController(for view: UIView) -> UIViewController? {
+            var responder: UIResponder? = view
+            while let current = responder {
+                if let controller = current as? UIViewController {
+                    var top = controller
+                    while let presented = top.presentedViewController {
+                        top = presented
+                    }
+                    return top
+                }
+                responder = current.next
+            }
+            return view.window?.rootViewController
         }
-
-        /// Tear the hosting controller down on dismantle so a removed surface does not
-        /// leave a detached SwiftUI host alive.
-        @MainActor
-        func tearDownComposer() {
-            surfaceView?.mountComposerView(nil)
-            composerController = nil
-            composerMounted = false
-        }
-
     }
 }
 #endif

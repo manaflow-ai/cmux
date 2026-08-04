@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxAgentGUIUI
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileTerminal
@@ -23,15 +25,29 @@ extension WorkspaceDetailView {
                 .opacity(surface == .terminal ? 1 : 0)
                 .allowsHitTesting(surface == .terminal)
                 .accessibilityHidden(surface != .terminal)
-            if surface == .chat, let session = chosenChatSession {
-                chatContent(session)
-                    .background(store.activeTerminalTheme.terminalBackgroundColor)
-            } else if surface == .browser, let browser = activeBrowser {
+            if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             } else if surface == .browserStream, let browser = activeBrowserStream {
                 browserStreamContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            }
+            if isAgentGUIVisible,
+               let engine = store.agentSyncEngine,
+               let availability = agentGUIAvailability {
+                TranscriptLiveView(
+                    engine: engine,
+                    sessionID: availability.sessionID,
+                    bottomChromeHeight: transcriptBottomChromeHeight,
+                    bottomEdgeElementContainers: transcriptBottomEdgeElementContainers,
+                    terminalTheme: store.activeTerminalTheme,
+                    terminalThemeGeneration: store.terminalThemeGeneration,
+                    density: displaySettings.transcriptDensity,
+                    onShowTerminal: { guiModeSelected = false },
+                    onShowActivity: { transcriptActivityDetails = $0 }
+                )
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+                .transition(.opacity)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {

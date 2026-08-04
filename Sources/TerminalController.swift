@@ -132,8 +132,6 @@ class TerminalController {
     /// listener starts. Socket auth commands read these on the main actor.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var accountFlow: HostAccountFlow?
-    @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
-    nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
     nonisolated let passwordStore: SocketControlPasswordStore
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
@@ -379,7 +377,6 @@ class TerminalController {
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
             shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         ),
-        terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -394,7 +391,6 @@ class TerminalController {
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
-        self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
         let simulatorOwnershipFileManager = FileManager()
@@ -2336,7 +2332,7 @@ class TerminalController {
         case "system.capabilities":
             return v2Ok(id: id, result: v2CapabilitiesWithBrowserDesignMode())
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
-        // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
+        // aliases), and mobile.terminal.paste/terminal.paste
         // handled by ControlCommandCoordinator (bodies stay; shared with
         // mobileHostHandleRPC).
 
@@ -5888,7 +5884,19 @@ class TerminalController {
             )
         }
 
-        return v2IngestFeedEvent(event, waitTimeout: waitTimeout)
+        CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
+        AgentGUIService.shared?.handleHookEvent(event)
+        v2ApplyIMessageModeSideEffects(for: event)
+        let result = FeedCoordinator.shared.ingestBlocking(
+            event: event,
+            waitTimeout: waitTimeout
+        )
+        CmuxEventBus.shared.publishWorkstreamEvent(
+            event,
+            phase: "completed",
+            result: FeedSocketEncoding.payload(for: result)
+        )
+        return .ok(FeedSocketEncoding.payload(for: result))
     }
 
     nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
@@ -14089,6 +14097,8 @@ class TerminalController {
         // MobileHostRPCResult` type round-trip with no behavior change. The v2
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
+        if let result = await AgentGUIService.shared?.handleRPC(request) { return result }
+
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":
@@ -14135,24 +14145,12 @@ class TerminalController {
             result = v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
-        case let method where method.hasPrefix("mobile.terminal.artifact."):
-            result = await v2MobileTerminalArtifactDispatch(
-                method: method,
-                params: request.params,
-                executionContext: executionContext
-            )
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
         case "workspace.move":
             result = v2MobileWorkspaceMove(params: request.params)
         case "workspace.group.action", "workspace.group.create":
             result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
-        case let method where method.hasPrefix("mobile.chat."):
-            result = await v2MobileChatDispatch(
-                method: method,
-                params: request.params,
-                executionContext: executionContext
-            )
         case let method where method.hasPrefix("mobile.browser."):
             result = await v2MobileBrowserDispatch(
                 method: method,
@@ -14993,7 +14991,7 @@ class TerminalController {
         }
 
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
-
+        if submitKeyName != nil, let agentResult = handleCmuxOwnedMobileAgentInput(params: params, text: text, surfaceID: surfaceId, workspaceID: resolved.workspace.id, terminalPanel: terminalPanel) { return agentResult }
         // Send through the TerminalPanel explicit-input wrappers (not the raw
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile

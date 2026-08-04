@@ -1,4 +1,3 @@
-import CmuxAgentChat
 import Foundation
 
 enum TextBoxAgentDetection: CaseIterable {
@@ -83,14 +82,19 @@ enum TextBoxAgentDetection: CaseIterable {
         isClaudeCode(context: context) && containsNewline ? "ctrl+enter" : "return"
     }
 
-    static func composedPromptSubmitKey(containsNewline: Bool, agentKind: ChatAgentKind) -> String {
-        agentKind == .claude && containsNewline ? "ctrl+enter" : "return"
-    }
-
     static func boundedLaunchCommandContext(from rawCommand: String) -> String? {
         let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return nil }
         return allCases.first { $0.matchesLaunchExecutable(command: command) }?.boundedActiveContextCommand
+    }
+
+    static func launchAgentID(from rawCommand: String) -> String? {
+        let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return nil }
+        let tokens = shellLikeTokens(command)
+        return commandSegments(from: tokens).compactMap { segment in
+            matchingLaunchDefinition(in: segment, depth: 0)?.id
+        }.first
     }
 
     private var boundedActiveContextCommand: String {
@@ -158,6 +162,27 @@ enum TextBoxAgentDetection: CaseIterable {
         return Self.shellSubcommandSegments(from: resolved.arguments).contains { segment in
             matchesLaunchExecutableSegment(segment, depth: depth + 1)
         }
+    }
+
+    private static func matchingLaunchDefinition(
+        in tokens: [String],
+        depth: Int
+    ) -> CmuxTaskManagerCodingAgentDefinition? {
+        guard !tokens.isEmpty else { return nil }
+        let resolved = resolvedCommandSegment(tokens)
+        guard let executable = resolved.arguments.first else { return nil }
+        if let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: executable,
+            processPath: executable,
+            arguments: resolved.arguments,
+            environment: resolved.environment
+        ) {
+            return definition
+        }
+        guard depth < 2 else { return nil }
+        return shellSubcommandSegments(from: resolved.arguments).compactMap { segment in
+            matchingLaunchDefinition(in: segment, depth: depth + 1)
+        }.first
     }
 
     /// `ollama` is an interactive agent only for its `run` subcommand;

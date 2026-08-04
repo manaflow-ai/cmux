@@ -551,6 +551,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let workspaceTerminalFontSizeArbiter =
         WorkspaceTerminalFontSizeArbiter()
     private let systemAppearanceObserver = SystemAppearanceObserver()
+    /// Owns the Mac-side gui.v1 truth/read path for paired phones.
+    private let agentGUIService = AgentGUIService()
+    lazy var agentSurfaceLaunchStateObserver = AgentSurfaceLaunchStateObserver(service: agentGUIService)
+    lazy var agentSurfaceLaunchExecutor = AgentSurfaceLaunchExecutor(service: agentGUIService)
+    lazy var agentLaunchGuard = AgentLaunchGuard(
+        observer: agentSurfaceLaunchStateObserver,
+        executor: agentSurfaceLaunchExecutor
+    )
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
         environment: ProcessInfo.processInfo.environment
@@ -774,7 +782,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
-    private let agentChatTranscriptService = AgentChatTranscriptService()
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
@@ -2212,6 +2219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
+        agentGUIService.start()
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)
@@ -2220,14 +2228,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
-        TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
-        if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
-            TerminalController.shared.startSimulatorMutationRecovery()
-        }
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
-        agentChatTranscriptService.start()
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded()
@@ -9723,24 +9726,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !text.isEmpty
         else { return }
 
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
+        if case .failed(let code) = agentSurfaceLaunchExecutor.submitPrompt(
+            surfaceID: surfaceId,
+            text: text,
+            ticketID: nil
+        ) {
+            NSLog("[AgentPrompt] Feed reply failed for surface %@: %@", surfaceId, code)
         }
-        // Terminal-mode Return is CR. sendNamedKey "Return" also works
-        // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
-            "surface_id": surfaceId,
-            "text": text + "\r",
-        ])
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {

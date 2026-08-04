@@ -10,6 +10,13 @@ import Foundation
 // group collapse/expand handler. Lives in its own file so the mobile list
 // payload code stays together without growing TerminalController.swift.
 extension TerminalController {
+    func mobileNonEmpty(_ raw: String?) -> String? {
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
     /// Mobile-gated collapse/expand of a workspace group. This requires an
     /// explicit, resolvable `group_id` (it must never fall back to the Mac's
     /// selected group) and mutates through the same

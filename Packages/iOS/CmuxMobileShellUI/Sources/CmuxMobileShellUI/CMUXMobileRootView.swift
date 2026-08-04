@@ -1,3 +1,6 @@
+#if os(iOS) && DEBUG
+import CmuxAgentGUIUI
+#endif
 import Foundation
 import CMUXMobileCore
 import CmuxAuthRuntime
@@ -83,6 +86,24 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowTranscriptDemoPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.transcriptDemoPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var transcriptDemoPreview: some View {
+        #if os(iOS) && DEBUG
+        NavigationStack {
+            TranscriptDemoScreen()
+        }
+        #else
+        EmptyView()
+        #endif
+    }
+
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -91,33 +112,9 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowChangesPreview: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.changesPreviewMode != nil
-        #else
-        return false
-        #endif
-    }
-
-    private var shouldShowStreamingChatPreview: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.streamingChatPreviewEnabled
-        #else
-        return false
-        #endif
-    }
-
     private var shouldShowHiddenComputersPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.hiddenComputersPreviewEnabled
-        #else
-        return false
-        #endif
-    }
-
-    private var shouldShowOnboardingPreview: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.onboardingPreviewEnabled
         #else
         return false
         #endif
@@ -134,15 +131,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
     #endif
-
-    @ViewBuilder private var streamingChatPreview: some View {
-        #if os(iOS) && DEBUG
-        StreamingChatPreviewView()
-        #else
-        EmptyView()
-        #endif
-    }
-
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
@@ -308,24 +296,16 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowChangesPreview {
-            changesPreview
-        } else if shouldShowHideComputersVerifier {
+        if shouldShowHideComputersVerifier {
             hideComputersVerifier
-        } else if shouldShowAgentChatDemoPreview {
-            agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
+        } else if shouldShowTranscriptDemoPreview {
+            transcriptDemoPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
-        } else if shouldShowStreamingChatPreview {
-            streamingChatPreview
-        } else if shouldShowOnboardingPreview {
-            onboardingPreview
-        } else if shouldShowOnboarding {
-            onboardingFlow
         } else if !isAuthenticated {
             SignInView()
         } else {

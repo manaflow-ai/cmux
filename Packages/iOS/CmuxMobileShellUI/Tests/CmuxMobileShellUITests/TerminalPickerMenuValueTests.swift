@@ -85,8 +85,7 @@ import Testing
             snapshotRows: snapshotRows,
             selectedID: selectedID,
             canCreateWorkspace: true,
-            hasActiveBrowser: false,
-            isChatMode: false
+            hasActiveBrowser: false
         )
     }
 }

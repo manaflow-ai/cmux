@@ -96,6 +96,9 @@ extension MobileShellComposite {
                 break
             }
         }
+        if case .networkChange = trigger {
+            agentSyncEngine?.noteNetworkPathChanged()
+        }
         beginConnectionRecovery(
             trigger: trigger,
             expectedClient: remoteClient,

@@ -176,6 +176,15 @@ extension TerminalSurface {
         )
     }
 
+    /// Exact paste payloads waiting in the cold-surface input queue (test hook).
+    @MainActor
+    public func debugPendingPasteTextsForTesting() -> [String] {
+        pendingSocketInputQueue.compactMap { item in
+            guard case .pasteText(let data) = item else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+    }
+
     /// Test-only helper to deterministically simulate a released runtime surface.
     @MainActor
     public func releaseSurfaceForTesting() {
