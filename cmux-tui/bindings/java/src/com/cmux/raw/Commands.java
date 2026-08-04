@@ -40,6 +40,7 @@ public final class Commands {
     public static final CommandMetadata EXPORT_LAYOUT = new CommandMetadata("export-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata GET_CELL_PIXELS = new CommandMetadata("get-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_FRONTEND_PROJECTION = new CommandMetadata("get-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -91,7 +92,7 @@ public final class Commands {
     public static final CommandMetadata SET_SPLIT_RATIO = new CommandMetadata("set-split-ratio", Authority.CONTROL, 8, null, StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
     public static final CommandMetadata SET_VIEWPORT_PANE_WIDTH = new CommandMetadata("set-viewport-pane-width", Authority.CONTROL, 9, "viewport-column-resize-v1", StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
     public static final CommandMetadata SET_WINDOW_TITLE = new CommandMetadata("set-window-title", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SHUTDOWN_DAEMON = new CommandMetadata("shutdown-daemon", Authority.LOCAL_ADMIN, 9, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SHUTDOWN_DAEMON = new CommandMetadata("shutdown-daemon", Authority.LOCAL_ADMIN, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("force", 10L)), Map.ofEntries(Map.entry("force", "daemon-handoff-force-v1")));
     public static final CommandMetadata SIDEBAR_PLUGIN = new CommandMetadata("sidebar-plugin", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SPLIT = new CommandMetadata("split", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SUBSCRIBE = new CommandMetadata("subscribe", Authority.FRONTEND, 5, null, StreamKind.SUBSCRIBE, Map.ofEntries(Map.entry("surface", 9L), Map.entry("tree_events", 7L)), Map.ofEntries(Map.entry("surface", "surface-subscribe-filter")));
@@ -135,6 +136,7 @@ public final class Commands {
         values.put("export-layout", EXPORT_LAYOUT);
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
+        values.put("get-cell-pixels", GET_CELL_PIXELS);
         values.put("get-frontend-projection", GET_FRONTEND_PROJECTION);
         values.put("identify", IDENTIFY);
         values.put("ids", IDS);

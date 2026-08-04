@@ -25,11 +25,17 @@ private final class WorkspaceListLayoutPreviewModel {
     }
 
     var workspaces: [MobileWorkspacePreview]
+    var groups: [MobileWorkspaceGroupPreview]
     private let liveUpdateMode: LiveUpdateMode
 
     /// Creates a preview model with an optional continuous update feed.
-    init(workspaces: [MobileWorkspacePreview], liveUpdateMode: LiveUpdateMode) {
+    init(
+        workspaces: [MobileWorkspacePreview],
+        groups: [MobileWorkspaceGroupPreview],
+        liveUpdateMode: LiveUpdateMode
+    ) {
         self.workspaces = workspaces
+        self.groups = groups
         self.liveUpdateMode = liveUpdateMode
     }
 
@@ -121,7 +127,6 @@ public struct WorkspaceListLayoutPreviewView: View {
             initialGroups = []
         }
         self.reorderEnabled = reorderEnabled
-        _groups = State(initialValue: initialGroups)
         let fixtureWorkspaces = reorderEnabled
             ? initialWorkspaces.map { workspace in
                 var workspace = workspace
@@ -131,8 +136,10 @@ public struct WorkspaceListLayoutPreviewView: View {
                 // swipes, context menus, rename, and delete are
                 // dogfoodable against local state without a paired Mac.
                 workspace.actionCapabilities.supportsWorkspaceActions = true
+                workspace.actionCapabilities.supportsWorkspaceMetadata = true
                 workspace.actionCapabilities.supportsReadStateActions = true
                 workspace.actionCapabilities.supportsCloseActions = true
+                workspace.actionCapabilities.supportsGroupActions = true
                 return workspace
             }
             : initialWorkspaces
@@ -145,6 +152,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         _model = State(
             initialValue: WorkspaceListLayoutPreviewModel(
                 workspaces: fixtureWorkspaces,
+                groups: initialGroups,
                 liveUpdateMode: liveUpdateMode
             )
         )
@@ -167,7 +175,6 @@ public struct WorkspaceListLayoutPreviewView: View {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_SWEEP"] == "1"
     }
 
-    @State private var groups: [MobileWorkspaceGroupPreview]
     private let reorderEnabled: Bool
 
     private static let defaultWorkspaces: [MobileWorkspacePreview] = [
@@ -314,7 +321,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     private func workspaceListFixture(searchText: String) -> some View {
         WorkspaceListView(
             workspaces: model.workspaces,
-            groups: groups,
+            groups: model.groups,
             selectedWorkspaceID: selectedWorkspaceID,
             host: "Visual Mock Mac",
             connectionStatus: .connected,
@@ -326,6 +333,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                 selectFixtureWorkspace(id)
             },
             createWorkspace: {},
+            createWorkspaceInGroup: reorderEnabled ? { _ in } : nil,
+            createWorkspaceGroup: reorderEnabled ? {} : nil,
             macSelection: $macSelection,
             refresh: {
                 await MainActor.run {
@@ -336,6 +345,17 @@ public struct WorkspaceListLayoutPreviewView: View {
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
                     model.workspaces[index].name = newName
                 }
+            } : nil,
+            customizeWorkspace: reorderEnabled ? { id, _, submittedDraft in
+                guard let index = model.workspaces.firstIndex(where: { $0.id == id }) else {
+                    return .failure()
+                }
+                model.workspaces[index].name = submittedDraft.name
+                model.workspaces[index].customDescription = submittedDraft.customDescription
+                model.workspaces[index].customDescriptionIsTruncated = false
+                model.workspaces[index].customColorHex = submittedDraft.customColorHex
+                model.workspaces[index].isPinned = submittedDraft.isPinned
+                return .success
             } : nil,
             setPinned: reorderEnabled ? { id, pinned in
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
@@ -358,15 +378,36 @@ public struct WorkspaceListLayoutPreviewView: View {
                         movesGroup: movesGroup
                     ),
                     movedWorkspaceID: id,
-                    groups: groups
+                    groups: model.groups
                 )
                 return true
             } : nil,
+            renameWorkspaceGroup: reorderEnabled ? { id, newName in
+                if let index = model.groups.firstIndex(where: { $0.id == id }) {
+                    model.groups[index].name = newName
+                }
+            } : nil,
+            setGroupPinned: reorderEnabled ? { id, pinned in
+                if let index = model.groups.firstIndex(where: { $0.id == id }) {
+                    model.groups[index].isPinned = pinned
+                }
+            } : nil,
+            ungroupWorkspaceGroup: reorderEnabled ? { id in
+                for index in model.workspaces.indices
+                where model.workspaces[index].groupID == id {
+                    model.workspaces[index].groupID = nil
+                }
+                model.groups.removeAll { $0.id == id }
+            } : nil,
+            deleteWorkspaceGroup: reorderEnabled ? { id in
+                model.workspaces.removeAll { $0.groupID == id }
+                model.groups.removeAll { $0.id == id }
+            } : nil,
             toggleGroupCollapsed: reorderEnabled ? { groupID, isCollapsed in
-                guard let index = groups.firstIndex(where: { $0.id == groupID }) else {
+                guard let index = model.groups.firstIndex(where: { $0.id == groupID }) else {
                     return
                 }
-                groups[index].isCollapsed = isCollapsed
+                model.groups[index].isCollapsed = isCollapsed
             } : nil,
             filterState: filterState,
             searchText: searchText

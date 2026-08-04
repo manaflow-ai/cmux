@@ -191,10 +191,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactCountState = TerminalArtifactChipCountState()
         var artifactCountNeedsRefresh: Bool
         var freshestLocalArtifactCount = 0
-        /// Taps must apply in user order, and stopping the live mount invalidates pending work.
-        /// Same-path taps intentionally classify independently so the newest coordinates
-        /// win; human tap rate and the two-second deadline bound concurrent stats.
-        var tapGeneration: UInt64 = 0
+        /// Async Mac clicks apply only for the newest tap and current mount.
+        /// Keyboard intent is owned synchronously by the surface input session,
+        /// so this generation can invalidate click work without starving focus.
+        var clickGeneration: UInt64 = 0
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
@@ -479,7 +479,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         private func stopMountedTasks() {
-            tapGeneration &+= 1
+            clickGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil
             preparedViewportReportsByReportID.removeAll()
@@ -732,11 +732,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     // unchanged heights, so a no-op change is harmless.
                     self?.reportComposerHeight(animated: true)
                 },
-                prepareForModalPresentation: { [weak self] in
-                    // The photo picker suppresses the keyboard without reliably
-                    // resigning the existing input proxy. Release the surface's
-                    // actual responder first so the next terminal tap can focus it.
-                    self?.surfaceView?.resignCurrentInput()
+                requestInputFocus: { [weak self] in
+                    self?.surfaceView?.requestComposerInputFocus()
+                },
+                inputFocusChanged: { [weak self] focused in
+                    self?.surfaceView?.composerInputFocusChanged(focused)
+                },
+                photoPickerWillPresent: { [weak self] in
+                    self?.surfaceView?.photoPickerWillPresent()
+                },
+                photoPickerDidPresent: { [weak self] in
+                    self?.surfaceView?.photoPickerDidPresent()
+                },
+                photoPickerDidDismiss: { [weak self] in
+                    self?.surfaceView?.photoPickerDidDismiss()
                 }
             )
             let controller = UIHostingController(rootView: view)

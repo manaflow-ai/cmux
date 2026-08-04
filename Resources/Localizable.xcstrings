@@ -35061,6 +35061,773 @@
         }
       }
     },
+    "cli.closeSurface.error.explicitSurfaceRequiresWorkspaceOrWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب close-surface الخيار --workspace أو --window عند تحديد --surface صراحةً"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface zahtijeva --workspace ili --window uz eksplicitni --surface"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface kræver --workspace eller --window med eksplicit --surface"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface erfordert --workspace oder --window mit explizitem --surface"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface requires --workspace or --window with explicit --surface"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface requiere --workspace o --window con --surface explícito"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface requiert --workspace ou --window avec --surface explicite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface richiede --workspace o --window con --surface esplicito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明示的に --surface を指定する場合、close-surface には --workspace または --window が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface ត្រូវការ --workspace ឬ --window ជាមួយ --surface ដែលបានបញ្ជាក់ច្បាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명시적 --surface에는 close-surface에 --workspace 또는 --window가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface krever --workspace eller --window med eksplisitt --surface"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface wymaga --workspace albo --window przy jawnym --surface"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface requer --workspace ou --window com --surface explícito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface требует --workspace или --window при явном --surface"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface ต้องใช้ --workspace หรือ --window เมื่อระบุ --surface อย่างชัดเจน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık --surface ile close-surface için --workspace veya --window gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close-surface потребує --workspace або --window з явним --surface"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显式指定 --surface 时，close-surface 需要 --workspace 或 --window"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明確指定 --surface 時，close-surface 需要 --workspace 或 --window"
+          }
+        }
+      }
+    },
+    "cli.surface.error.handleBlank": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف السطح فارغ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ručka površine je prazna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overfladehåndtaget er tomt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberflächen-Handle ist leer"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface handle is blank"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El identificador de superficie está vacío"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’identifiant de surface est vide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'handle della superficie è vuoto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスハンドルが空です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ហែនឌែលផ្ទៃទទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스 핸들이 비어 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflatehåndtaket er tomt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uchwyt powierzchni jest pusty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O identificador da superfície está vazio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дескриптор поверхности пуст"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แฮนเดิลพื้นผิวว่างเปล่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey tanıtıcısı boş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дескриптор поверхні порожній"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表面句柄为空"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表面控制代碼為空"
+          }
+        }
+      }
+    },
+    "cli.surface.error.indexNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على فهرس السطح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indeks površine nije pronađen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overfladeindeks blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberflächenindex nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface index not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró el índice de superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Index de surface introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indice superficie non trovato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスインデックスが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញលិបិក្រមផ្ទៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스 인덱스를 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflateindeks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono indeksu powierzchni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Índice de superfície não encontrado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Индекс поверхности не найден"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบดัชนีพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey dizini bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Індекс поверхні не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面索引"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面索引"
+          }
+        }
+      }
+    },
+    "cli.surface.error.invalidHandle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّف سطح غير صالح: %@ (المتوقع UUID أو مرجع مثل surface:1 أو فهرس)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevažeća ručka površine: %@ (očekuje se UUID, referenca poput surface:1 ili indeks)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldigt overfladehåndtag: %@ (forventede UUID, reference som surface:1 eller indeks)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiges Oberflächen-Handle: %@ (UUID, Referenz wie surface:1 oder Index erwartet)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid surface handle: %@ (expected UUID, ref like surface:1, or index)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identificador de superficie no válido: %@ (se esperaba UUID, referencia como surface:1 o índice)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identifiant de surface invalide: %@ (UUID, référence comme surface:1 ou index attendu)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handle superficie non valido: %@ (previsto UUID, riferimento come surface:1 o indice)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効なサーフェスハンドル: %@ (UUID、surface:1 のような参照、またはインデックスを指定してください)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ហែនឌែលផ្ទៃមិនត្រឹមត្រូវ: %@ (រំពឹង UUID សេចក្តីយោងដូចជា surface:1 ឬលិបិក្រម)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 서피스 핸들: %@ (UUID, surface:1 같은 참조 또는 인덱스 필요)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig overflatehåndtak: %@ (forventet UUID, referanse som surface:1 eller indeks)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowy uchwyt powierzchni: %@ (oczekiwano UUID, odwołania jak surface:1 albo indeksu)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identificador de superfície inválido: %@ (esperado UUID, referência como surface:1 ou índice)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимый дескриптор поверхности: %@ (ожидается UUID, ссылка вида surface:1 или индекс)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แฮนเดิลพื้นผิวไม่ถูกต้อง: %@ (ต้องเป็น UUID การอ้างอิงเช่น surface:1 หรือดัชนี)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz yüzey tanıtıcısı: %@ (UUID, surface:1 gibi başvuru veya dizin beklenir)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недійсний дескриптор поверхні: %@ (очікується UUID, посилання на кшталт surface:1 або індекс)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无效的表面句柄: %@ (应为 UUID、类似 surface:1 的引用或索引)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無效的表面控制代碼: %@ (預期 UUID、類似 surface:1 的參照或索引)"
+          }
+        }
+      }
+    },
+    "cli.surface.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على السطح: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina nije pronađena: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflade blev ikke fundet: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberfläche nicht gefunden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la superficie: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface introuvable: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie non trovata: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញផ្ទៃ: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스를 찾을 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflate: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono powierzchni: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície não encontrada: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность не найдена: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบพื้นผิว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey bulunamadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхню не знайдено: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面: %@"
+          }
+        }
+      }
+    },
+    "cli.surface.error.refNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على مرجع السطح: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Referenca površine nije pronađena: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overfladereference blev ikke fundet: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberflächenreferenz nicht gefunden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface ref not found: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la referencia de superficie: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Référence de surface introuvable: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riferimento superficie non trovato: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス参照が見つかりません: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញសេចក្តីយោងផ្ទៃ: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스 참조를 찾을 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflatereferanse: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono odwołania do powierzchni: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Referência de superfície não encontrada: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка на поверхность не найдена: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบการอ้างอิงพื้นผิว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey referansı bulunamadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посилання на поверхню не знайдено: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面引用: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面參照: %@"
+          }
+        }
+      }
+    },
+    "cli.surfaceResume.set.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume set: unknown flag '%1$@'. Known flags: %2$@. Use -- <argv...> for command arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume set: 不明なフラグ '%1$@'。利用可能なフラグ: %2$@。コマンド引数には -- <argv...> を使用してください。"
+          }
+        }
+      }
+    },
     "cli.claude-hook.notification.title": {
       "extractionState": "manual",
       "localizations": {
@@ -35589,6 +36356,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "Невідома підкоманда workspace: %@. Доступні: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+          }
+        }
+      }
+    },
+    "cli.events.error.invalidTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout must be greater than 0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout は0より大きい値である必要があります"
+          }
+        }
+      }
+    },
+    "cli.events.error.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for a matching event"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するイベントを待機中にタイムアウトしました"
+          }
+        }
+      }
+    },
+    "cli.events.help.snapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Print the subscription snapshot and exit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購読スナップショットを表示して終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구독 스냅샷을 출력하고 종료"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вивести знімок підписки та завершити роботу"
+          }
+        }
+      }
+    },
+    "cli.events.help.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit unsuccessfully if no matching event arrives before the deadline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限までに一致するイベントが届かない場合はエラーで終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제한 시간 전에 일치하는 이벤트가 도착하지 않으면 오류로 종료"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершити з помилкою, якщо відповідна подія не надійде до кінцевого терміну"
           }
         }
       }
@@ -52847,6 +53706,23 @@
         }
       }
     },
+    "cli.workspaceAction.tailscalePairingUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale Pairing is unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleペアリングは利用できません"
+          }
+        }
+      }
+    },
     "cli.workspace.status.usage": {
       "extractionState": "manual",
       "localizations": {
@@ -60486,7 +61362,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile"
+            "value": "Tailscale"
           }
         },
         "es": {
@@ -60510,7 +61386,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "モバイル"
+            "value": "Tailscale"
           }
         },
         "km": {
@@ -60611,7 +61487,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connect iPhone/iPad"
+            "value": "Open Tailscale Pairing"
           }
         },
         "es": {
@@ -60635,7 +61511,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone/iPadを接続"
+            "value": "Tailscaleペアリングを開く"
           }
         },
         "km": {
@@ -70987,6 +71863,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "選擇自訂工作區名稱。"
+          }
+        }
+      }
+    },
+    "commandPalette.rename.workspaceGroupConfirmHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط Enter لتطبيق اسم المجموعة، أو Escape للإلغاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pritisnite Enter za primjenu naziva grupe, ili Escape za otkazivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk Enter for at anvende dette gruppenavn, eller Escape for at annullere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drücken Sie die Eingabetaste, um den Gruppennamen zu übernehmen, oder Escape zum Abbrechen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press Enter to apply this group name, or Escape to cancel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsa Intro para aplicar este nombre de grupo, o Escape para cancelar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez sur Entrée pour appliquer ce nom de groupe, ou sur Échap pour annuler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi Invio per applicare il nome del gruppo, oppure Esc per annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enterキーでグループ名を適用、Escapeキーでキャンセルします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter를 눌러 그룹 이름을 적용하거나, Escape를 눌러 취소하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trykk Enter for å bruke dette gruppenavnet, eller Escape for å avbryte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naciśnij Enter, aby zastosować nazwę grupy, lub Escape, aby anulować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressione Enter para aplicar este nome de grupo ou Escape para cancelar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите Enter, чтобы применить имя группы, или Escape для отмены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กด Enter เพื่อใช้ชื่อกลุ่มนี้ หรือ Escape เพื่อยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu grup adını uygulamak için Enter tuşuna basın veya iptal etmek için Escape tuşuna basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натисніть Enter, щоб застосувати назву групи, або Escape для скасування."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 Enter 应用此分组名称，或按 Escape 取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 Enter 套用此群組名稱，或按 Escape 取消。"
+          }
+        }
+      }
+    },
+    "commandPalette.rename.workspaceGroupInputHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل اسم المجموعة. اضغط Enter لإعادة التسمية، Escape للإلغاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unesite naziv grupe. Pritisnite Enter za preimenovanje, Escape za otkazivanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indtast et gruppenavn. Tryk Enter for at omdøbe, Escape for at annullere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geben Sie einen Gruppennamen ein. Eingabetaste zum Umbenennen, Escape zum Abbrechen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a group name. Press Enter to rename, Escape to cancel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce un nombre de grupo. Pulsa Intro para renombrar, Escape para cancelar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un nom de groupe. Appuyez sur Entrée pour renommer, Échap pour annuler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci un nome per il gruppo. Premi Invio per rinominare, Esc per annullare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名を入力してください。Enterで名称変更、Escapeでキャンセルします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 이름을 입력하세요. Enter로 이름 변경, Escape로 취소."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv inn et gruppenavn. Trykk Enter for å gi nytt navn, Escape for å avbryte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wprowadź nazwę grupy. Naciśnij Enter, aby zmienić nazwę, Escape, aby anulować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insira um nome para o grupo. Pressione Enter para renomear, Escape para cancelar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите имя группы. Нажмите Enter для переименования, Escape для отмены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้อนชื่อกลุ่ม กด Enter เพื่อเปลี่ยนชื่อ, Escape เพื่อยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir grup adı girin. Yeniden adlandırmak için Enter, iptal etmek için Escape tuşuna basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть назву групи. Enter — перейменувати, Escape — скасувати."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入分组名称。按 Enter 重命名，按 Escape 取消。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入群組名稱。按 Enter 重新命名，按 Escape 取消。"
           }
         }
       }
@@ -109512,13 +110626,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Mobile Connect entrypoints that open the iPhone pairing workspace."
+            "value": "Shows the Tailscale Pairing button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneペアリングワークスペースを開くMobile Connectの入口を表示します。"
+            "value": "サイドバーのフッターにTailscaleペアリングボタンを表示します。"
           }
         }
       }
@@ -109529,13 +110643,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connect button"
+            "value": "Tailscale Pairing button"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile Connectボタン"
+            "value": "Tailscaleペアリングボタン"
           }
         }
       }
@@ -133633,36 +134747,19 @@
         }
       }
     },
-    "mobile.pairing.codeMode.legacyDetail": {
+    "mobile.pairing.codeMode.tailscaleDetail": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale code: for the Tailscale connection method and older iPhone apps. The iPhone must be on the same Tailscale network."
+            "value": "Tailscale pairing code. Keep Tailscale connected on both devices. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleコード: Tailscale接続方法および旧バージョンのiPhoneアプリ用。iPhoneが同じTailscaleネットワークに接続されている必要があります。"
-          }
-        }
-      }
-    },
-    "mobile.pairing.codeMode.useLegacy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use Tailscale Pairing Code"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscaleペアリングコードを使用"
+            "value": "Tailscale ペアリングコードです。両方のデバイスで Tailscale の接続を維持してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -134183,13 +135280,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac and iPhone both need Tailscale to connect over the internet."
+            "value": "Tailscale must be installed and connected on both this Mac and your iPhone. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターネット経由で接続するには、Mac と iPhone の両方に Tailscale が必要です。"
+            "value": "この Mac と iPhone の両方に Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -134200,13 +135297,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not detected. Install Tailscale on this Mac and your iPhone, signed in to the same account."
+            "value": "Tailscale is not connected on this Mac. Install it on both devices and connect both to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検出されませんでした。この Mac と iPhone の両方に、同じアカウントで Tailscale をインストールしてください。"
+            "value": "この Mac で Tailscale が接続されていません。両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。"
           }
         }
       }
@@ -134217,13 +135314,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reachable over Tailscale."
+            "value": "Tailscale is connected on this Mac. It must also be installed and connected on your iPhone. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 経由で接続できます。"
+            "value": "この Mac は Tailscale に接続済みです。iPhone にも Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -134694,13 +135791,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap Add device, then Scan QR Code, and point the camera at the code above."
+            "value": "On your iPhone, choose Tailscale, tap Scan QR Code, then scan the code above."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「デバイスを追加」→「QR コードをスキャン」をタップし、上のコードにカメラを向けます。"
+            "value": "接続方法として Tailscale を選び、「QR コードをスキャン」をタップして上のコードにカメラを向けます。"
           }
         }
       }
@@ -134745,13 +135842,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair your iPhone"
+            "value": "Pair your iPhone with Tailscale"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリング"
+            "value": "TailscaleでiPhoneをペアリング"
           }
         }
       }
@@ -134762,13 +135859,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhones signed in to the same cmux account connect automatically. Scan this code with the cmux app if this Mac doesn't appear on its own."
+            "value": "iPhones on your cmux account connect automatically. Use this code only for Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。この Mac が自動的に表示されない場合は、cmux アプリでこのコードをスキャンしてください。"
+            "value": "同じ cmux アカウントでサインインしている iPhone は自動的に接続されます。iPhone の接続方法で Tailscale を選択した場合は、このコードを使用してください。"
           }
         }
       }
@@ -134779,13 +135876,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair iPhone"
+            "value": "Tailscale Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone をペアリング"
+            "value": "Tailscaleペアリング"
           }
         }
       }
@@ -145561,13 +146658,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $240/year."
+            "value": "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $288/year."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$30、または年額$240。"
+            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$30、または年額$288。"
           }
         }
       }
@@ -173360,13 +174457,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair a Device"
+            "value": "Tailscale Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスをペアリング"
+            "value": "Tailscaleペアリング"
           }
         }
       }
@@ -173377,13 +174474,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair…"
+            "value": "Show Tailscale QR…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリング…"
+            "value": "Tailscale QRを表示…"
           }
         }
       }
@@ -173394,13 +174491,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
+            "value": "Devices signed in to the same account connect automatically. Use this QR only to pair through Tailscale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。手動でペアリングするには QR コードを表示します。"
+            "value": "同じアカウントでサインインしているデバイスは自動的に接続されます。このQRはTailscale経由のペアリングにのみ使用します。"
           }
         }
       }
@@ -174387,6 +175484,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "プロトコルエラー"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.routeGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تعليق محاولة الاتصال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokušaj povezivanja je zadržan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsesforsøg sat på pause"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindungsversuch angehalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Attempt Held"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intento de conexión en pausa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentative de connexion suspendue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentativo di connessione sospeso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続試行が一時的に保留されました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានផ្អាកការព្យាយាមតភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 시도 보류됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilkoblingsforsøk satt på vent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próba połączenia wstrzymana"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentativa de conexão pausada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попытка подключения приостановлена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระงับความพยายามเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlantı denemesi bekletildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спробу підключення призупинено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接尝试已暂停"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線嘗試已暫停"
           }
         }
       }
@@ -204427,6 +205649,125 @@
         }
       }
     },
+    "shortcut.focusNextPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز على اللوحة التالية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusiraj sljedeći panel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser næste panel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächsten Bereich fokussieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Next Pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfocar panel siguiente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer le panneau suivant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta focus pannello successivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のペインにフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 패널로 포커스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser neste panel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus na następny panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focar Próximo Painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на следующую панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟกัสบานหน้าต่างถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki Bölmeye Odaklan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на наступну панель"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦下一个面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦下一個面板"
+          }
+        }
+      }
+    },
     "shortcut.focusPaneDown.label": {
       "extractionState": "manual",
       "localizations": {
@@ -204899,6 +206240,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "聚焦上方面板"
+          }
+        }
+      }
+    },
+    "shortcut.focusPreviousPane.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز على اللوحة السابقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusiraj prethodni panel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser forrige panel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorherigen Bereich fokussieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Previous Pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfocar panel anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer le panneau précédent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta focus pannello precedente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のペインにフォーカス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 패널로 포커스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokuser forrige panel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus na poprzedni panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focar Painel Anterior"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на предыдущую панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟกัสบานหน้าต่างก่อนหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki Bölmeye Odaklan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фокус на попередню панель"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦上一个面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦上一個面板"
           }
         }
       }
@@ -228561,6 +230021,131 @@
         }
       }
     },
+    "socket.pane.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على السطح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina nije pronađena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflade blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberfläche nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie non trovata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញផ្ទៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스를 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflate"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono powierzchni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície não encontrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность не найдена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхню не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面"
+          }
+        }
+      }
+    },
     "socket.pane.resize.invalidParameters": {
       "extractionState": "manual",
       "localizations": {
@@ -228884,6 +230469,131 @@
         }
       }
     },
+    "socket.surface.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على السطح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina nije pronađena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflade blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberfläche nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie non trovata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញផ្ទៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스를 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflate"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono powierzchni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície não encontrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность не найдена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхню не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面"
+          }
+        }
+      }
+    },
     "socket.surfaceSplitOff.error.appDelegateUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -229084,6 +230794,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "分割して移動すると移動元ペインが空になります"
+          }
+        }
+      }
+    },
+    "socket.tabAction.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على السطح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Površina nije pronađena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overflade blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oberfläche nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie non trovata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញផ្ទៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서피스를 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke overflate"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono powierzchni"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superfície não encontrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхность не найдена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüzey bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поверхню не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到表面"
+          }
+        }
+      }
+    },
+    "socket.tabAction.error.tabNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم العثور على علامة التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica nije pronađena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fane blev ikke fundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab nicht gefunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab not found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró la pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onglet introuvable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda non trovata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブが見つかりません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭을 찾을 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ikke fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aba não encontrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладка не найдена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme bulunamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладку не знайдено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到分頁"
           }
         }
       }
@@ -259790,6 +261750,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "プロトコルエラー"
+          }
+        }
+      }
+    },
+    "settings.networking.diagnostics.failure.routeGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Attempt Held"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続試行が一時的に保留されました"
           }
         }
       }
