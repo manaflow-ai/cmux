@@ -14,6 +14,43 @@ import struct CmuxSettings.AppCatalogSection
 @Suite(.serialized)
 struct CommandClickHTMLOpenRoutingTests {
     @Test
+    func filesystemProbeUsesDeadlineAndPreservesCandidateOrder() async throws {
+        let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
+            stdout: "1\n",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        ))
+        let probe = WordPathFilesystemProbe(
+            commands: runner,
+            timeout: 0.25
+        )
+        let paths = ["/tmp/first.html", "/tmp/second.html"]
+
+        #expect(await probe.firstExistingPathIndex(in: paths) == 1)
+        let invocation = try #require(await runner.lastInvocation())
+        #expect(invocation.directory == "/")
+        #expect(invocation.executable == "/bin/sh")
+        #expect(invocation.arguments.suffix(paths.count) == paths[...])
+        #expect(invocation.timeout == 0.25)
+    }
+
+    @Test
+    func filesystemProbeFailsClosedWhenDeadlineExpires() async {
+        let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
+            stdout: "0\n",
+            stderr: "",
+            exitStatus: nil,
+            timedOut: true,
+            executionError: nil
+        ))
+        let probe = WordPathFilesystemProbe(commands: runner, timeout: 0.25)
+
+        #expect(await probe.firstExistingPathIndex(in: ["/tmp/index.html"]) == nil)
+    }
+
+    @Test
     func hoverFilesystemProbePoolRunsOneAndRetainsOnlyLatestPendingJob() async {
         let pool = WordPathFilesystemResolutionCoordinator(
             label: "command-hover-probe-test-\(UUID().uuidString)"
@@ -787,5 +824,40 @@ struct CommandClickHTMLOpenRoutingTests {
             try? await Task.sleep(for: .milliseconds(50))
         }
         return false
+    }
+}
+
+private actor RecordingWordPathProbeCommandRunner: CommandRunning {
+    struct Invocation: Sendable {
+        let directory: String
+        let executable: String
+        let arguments: [String]
+        let timeout: TimeInterval?
+    }
+
+    private let result: CommandResult
+    private var invocation: Invocation?
+
+    init(result: CommandResult) {
+        self.result = result
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        invocation = Invocation(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout
+        )
+        return result
+    }
+
+    func lastInvocation() -> Invocation? {
+        invocation
     }
 }
