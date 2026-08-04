@@ -1866,7 +1866,6 @@ import Testing
         XCTAssertEqual(stableResponder.receivedRequests, [], result.diagnostics)
     }
 
-    @MainActor
     @Test func testThemesSetReloadsRunningAppAfterEveryThemeWrite() async throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
