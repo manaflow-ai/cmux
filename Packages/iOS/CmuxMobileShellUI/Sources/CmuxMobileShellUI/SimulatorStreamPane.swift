@@ -16,6 +16,7 @@ struct SimulatorStreamPane: View {
     private let workspaceID: String
     private let actions: SimulatorStreamSurfaceActions
     private let reconnect: () -> Void
+    private let touchPointPolicy = SimulatorStreamTouchPointPolicy()
 
     init(
         state: MobileSimulatorStreamSurfaceState,
@@ -77,7 +78,7 @@ struct SimulatorStreamPane: View {
                     return
                 }
                 let mapper = SimulatorStreamCoordinateMapper(viewSize: viewSize, imageSize: imageSize)
-                let endPoint = SimulatorStreamTouchPointPolicy.endPoint(
+                let endPoint = touchPointPolicy.endPoint(
                     start: value.startLocation,
                     location: value.location
                 )

@@ -46,13 +46,13 @@ import Testing
         let start = CGPoint(x: 372, y: 708)
         let location = CGPoint(x: 375, y: 704)
 
-        #expect(SimulatorStreamTouchPointPolicy.endPoint(start: start, location: location) == start)
+        #expect(SimulatorStreamTouchPointPolicy().endPoint(start: start, location: location) == start)
     }
 
     @Test func dragEndsAtFinalPoint() {
         let start = CGPoint(x: 120, y: 180)
         let location = CGPoint(x: 190, y: 300)
 
-        #expect(SimulatorStreamTouchPointPolicy.endPoint(start: start, location: location) == location)
+        #expect(SimulatorStreamTouchPointPolicy().endPoint(start: start, location: location) == location)
     }
 }
