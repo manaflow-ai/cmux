@@ -1,5 +1,4 @@
 import { locales, type Locale } from "./routing";
-import { genericCodingAgents } from "./coding-agents";
 
 export const featureWorkflowContentLocales = [
   "en",
@@ -34,14 +33,6 @@ const fallbackContentRoutes = [
     path: "/docs/agent-integrations/oh-my-pi",
     locales: fallbackContentLocales,
   },
-  {
-    path: "/agents/pi",
-    locales: englishFallbackContentLocales,
-  },
-  ...genericCodingAgents.map((agent) => ({
-    path: `/agents/${agent.slug}`,
-    locales: englishFallbackContentLocales,
-  })),
   {
     path: "/blog/claude-code-best-worktree-manager",
     locales: fallbackContentLocales,

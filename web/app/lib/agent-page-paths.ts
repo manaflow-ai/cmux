@@ -232,12 +232,10 @@ export const agentReadablePages = [
   {
     path: "/agents/pi",
     title: "Best terminal for Pi",
-    locales: englishFallbackContentLocales,
   },
   ...genericCodingAgents.map((agent) => ({
     path: `/agents/${agent.slug}`,
     title: `Best terminal for ${agent.seoName ?? agent.name}`,
-    locales: englishFallbackContentLocales,
   })),
   { path: "/agents/gemini-cli", title: "Terminal for Gemini CLI" },
   { path: "/agents/aider", title: "Terminal for Aider" },

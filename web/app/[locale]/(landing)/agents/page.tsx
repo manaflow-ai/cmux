@@ -5,7 +5,9 @@ import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } fr
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { LandingCTA } from "../landing-ui";
 import { LandingFaq, LandingSchema } from "../landing-schema";
-import { englishFallbackContentLocales } from "@/i18n/locale-availability";
+import {
+  fallbackContentLocales,
+} from "@/i18n/locale-availability";
 import {
   codingAgentPath,
   codingAgents,
@@ -43,7 +45,7 @@ const AGENTS: {
   {
     href: "/agents/pi",
     key: "pi",
-    locales: englishFallbackContentLocales,
+    label: "Pi",
   },
   { href: "/agents/gemini-cli", key: "geminiCli" },
   { href: "/agents/aider", key: "aider" },
@@ -55,7 +57,7 @@ const AGENTS: {
       href: codingAgentPath(agent),
       key: agent.slug,
       label: agent.name,
-      locales: englishFallbackContentLocales,
+      locales: agent.genericPage ? undefined : fallbackContentLocales,
     })),
 ];
 

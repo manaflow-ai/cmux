@@ -10,6 +10,7 @@ import {
   findGenericCodingAgent,
   genericCodingAgents,
 } from "@/i18n/coding-agents";
+import { locales } from "@/i18n/routing";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
   JsonLd,
@@ -21,23 +22,25 @@ import { LandingCTA } from "../../landing-ui";
 type Params = Promise<{ locale: string; agent: string }>;
 
 export function generateStaticParams() {
-  return genericCodingAgents.map((agent) => ({
-    locale: "en",
-    agent: agent.slug,
-  }));
+  return locales.flatMap((locale) =>
+    genericCodingAgents.map((agent) => ({
+      locale,
+      agent: agent.slug,
+    })),
+  );
 }
 
 export async function generateMetadata({ params }: { params: Params }) {
   const { locale, agent: slug } = await params;
   const agent = findGenericCodingAgent(slug);
   if (!agent) notFound();
-  const t = await getTranslations({ locale, namespace: "landing.agentDetail" });
+  const t = await getTranslations({ locale, namespace: "landing.agents" });
   const name = agent.seoName ?? agent.name;
-  const alternates = buildAlternates(locale, `/agents/${agent.slug}`, ["en"]);
-  const title = t("metaTitle", { agent: name });
+  const alternates = buildAlternates(locale, `/agents/${agent.slug}`);
+  const title = `${name}: ${t("title")} | cmux`;
   const description = seoDescription(
     locale,
-    t("metaDescription", { agent: name }),
+    `${name}. ${t("metaDescription")}`,
   );
   return {
     title,
@@ -63,13 +66,12 @@ export default async function CodingAgentPage({ params }: { params: Params }) {
   const { locale, agent: slug } = await params;
   const agent = findGenericCodingAgent(slug);
   if (!agent) notFound();
-  const t = await getTranslations({ locale, namespace: "landing.agentDetail" });
+  const t = await getTranslations({ locale, namespace: "landing.agents" });
   const tl = await getTranslations({ locale, namespace: "landing.links" });
   const name = agent.seoName ?? agent.name;
-  const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   const qas = [1, 2, 3, 4].map((number) => ({
-    question: t(`faqQ${number}`, { agent: name }),
-    answer: t(`faqA${number}`, { agent: name }),
+    question: t(`faqQ${number}`),
+    answer: t(`faqA${number}`),
   }));
 
   return (
@@ -86,25 +88,16 @@ export default async function CodingAgentPage({ params }: { params: Params }) {
             ])}
           />
 
-          <h1>{t("title", { agent: name })}</h1>
-          <p>
-            {agent.command
-              ? t.rich("introCommand", {
-                  agent: name,
-                  command: agent.command,
-                  code,
-                })
-              : t("introGeneric", { agent: name })}
-          </p>
+          <h1>
+            {name}: {t("title")}
+          </h1>
+          <p>{t("intro")}</p>
 
-          <h2>{t("organizeTitle", { agent: name })}</h2>
+          <h2>{t("organizeTitle")}</h2>
           <p>{t("organizeBody")}</p>
 
           <h2>{t("notifyTitle")}</h2>
           <p>{t("notifyBody")}</p>
-
-          <h2>{t("browserTitle")}</h2>
-          <p>{t("browserBody")}</p>
 
           <h2>{t("scriptTitle")}</h2>
           <p>{t("scriptBody")}</p>
@@ -128,7 +121,7 @@ export default async function CodingAgentPage({ params }: { params: Params }) {
               { href: "/agents", label: tl("agents") },
               { href: "/agents/claude-code", label: tl("claude") },
               { href: "/agents/codex", label: tl("codex") },
-              { href: "/agents/pi", label: tl("pi") },
+              { href: "/agents/pi", label: "Pi" },
             ]}
           />
         </div>
