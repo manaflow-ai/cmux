@@ -1,5 +1,8 @@
 import { env } from "../../app/env";
-import { defaultHostedSubrouterURL } from "./constants";
+import {
+  defaultHostedSubrouterURL,
+  hostedSubrouterBaseURL,
+} from "./constants";
 import type {
   SubrouterAccount,
   SubrouterAccountInput,
@@ -62,8 +65,9 @@ export function createHostedSubrouterClient(options: {
   readonly tenantDeleteToken?: string;
   readonly fetch?: typeof fetch;
 } = {}): HostedSubrouterClient {
-  const baseUrl = (options.baseUrl ?? env.SUBROUTER_HOSTED_URL ??
-    defaultHostedSubrouterURL()).replace(/\/+$/, "");
+  const baseUrl = hostedSubrouterBaseURL(
+    options.baseUrl ?? env.SUBROUTER_HOSTED_URL ?? defaultHostedSubrouterURL(),
+  );
   const fetchImpl = options.fetch ?? fetch;
   const tenantDeleteToken = (
     options.tenantDeleteToken ??
@@ -364,8 +368,12 @@ function sameCapabilities(
   left: readonly HostedTenantCapability[],
   right: readonly HostedTenantCapability[],
 ): boolean {
-  return left.length === right.length &&
-    left.every((capability) => right.includes(capability));
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  return leftSet.size === left.length &&
+    rightSet.size === right.length &&
+    leftSet.size === rightSet.size &&
+    [...leftSet].every((capability) => rightSet.has(capability));
 }
 
 function parseHostedAccount(value: unknown): SubrouterAccount {

@@ -1,4 +1,7 @@
-import { defaultHostedSubrouterURL } from "@/services/subrouter/constants";
+import {
+  defaultHostedSubrouterURL,
+  hostedSubrouterBaseURL,
+} from "@/services/subrouter/constants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,13 +15,16 @@ export function GET(request: Request): Response {
   const tenantControlToken =
     process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN?.trim();
   if (!projectId || !publishableClientKey || !tenantControlToken) {
-    return Response.json(
-      { error: "cli_auth_unavailable" },
-      {
-        status: 503,
-        headers: { "cache-control": "no-store" },
-      },
+    return unavailableResponse();
+  }
+  let subrouterURL: string;
+  try {
+    subrouterURL = hostedSubrouterBaseURL(
+      process.env.SUBROUTER_HOSTED_URL?.trim() ||
+        defaultHostedSubrouterURL(),
     );
+  } catch {
+    return unavailableResponse();
   }
 
   return Response.json(
@@ -35,9 +41,7 @@ export function GET(request: Request): Response {
         confirmUrl: new URL("/handler/cli-auth-confirm", request.url).toString(),
       },
       subrouter: {
-        url:
-          process.env.SUBROUTER_HOSTED_URL?.trim() ||
-          defaultHostedSubrouterURL(),
+        url: subrouterURL,
         exchangeUrl: new URL(
           "/api/subrouter/exchange",
           request.url,
@@ -48,6 +52,16 @@ export function GET(request: Request): Response {
       headers: {
         "cache-control": "public, max-age=300",
       },
+    },
+  );
+}
+
+function unavailableResponse(): Response {
+  return Response.json(
+    { error: "cli_auth_unavailable" },
+    {
+      status: 503,
+      headers: { "cache-control": "no-store" },
     },
   );
 }
