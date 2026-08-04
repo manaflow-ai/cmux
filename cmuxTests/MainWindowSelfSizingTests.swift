@@ -1,6 +1,5 @@
 @preconcurrency import XCTest
 import AppKit
-import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,15 +7,27 @@ import SwiftUI
 @testable import cmux
 #endif
 
+private final class OversizedIntrinsicView: NSView {
+    private let reportedSize: NSSize
+
+    init(reportedSize: NSSize) {
+        self.reportedSize = reportedSize
+        super.init(frame: NSRect(origin: .zero, size: reportedSize))
+    }
+
+    override var intrinsicContentSize: NSSize { reportedSize }
+    override var fittingSize: NSSize { reportedSize }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
 @MainActor
 final class MainWindowSelfSizingTests: XCTestCase {
-    /// The main window must never resize itself to fit its SwiftUI content.
-    /// NSHostingView watches window layout and calls NSWindow.setFrame when
-    /// the measured content size disagrees with the window
-    /// (updateAnimatedWindowSize) — with content whose measured size tracks
-    /// the container, that path grows the window a step per layout pass,
-    /// without bound. MainWindowHostingView disables it (sizingOptions = []);
-    /// this pins that contract with content whose ideal size is far larger
+    /// The main window must never resize itself to fit descendant content.
+    /// This pins that contract with content whose intrinsic size is far larger
     /// than the window.
     @MainActor
     func testWindowDoesNotGrowTowardContentIdealSize() {
@@ -30,16 +41,14 @@ final class MainWindowSelfSizingTests: XCTestCase {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        let oversized = Color.clear.frame(
-            minWidth: 0, idealWidth: 4000, maxWidth: .infinity,
-            minHeight: 0, idealHeight: 3000, maxHeight: .infinity
+        let oversized = OversizedIntrinsicView(
+            reportedSize: NSSize(width: 4_000, height: 3_000)
         )
-        window.contentView = MainWindowHostingView(rootView: AnyView(oversized))
+        window.contentView = MainWindowContentView(contentView: oversized)
         window.setFrame(NSRect(x: 0, y: 0, width: 500, height: 400), display: true)
         window.makeKeyAndOrderFront(nil)
 
-        // Several display cycles: the hosting view's window-resize pass runs
-        // from windowDidLayout, so one layout alone can read as a false pass.
+        // Several display cycles catch deferred AppKit constraint resolution.
         for _ in 0..<5 {
             window.displayIfNeeded()
             window.contentView?.layoutSubtreeIfNeeded()
@@ -75,14 +84,11 @@ final class MainWindowSelfSizingTests: XCTestCase {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        // A fixed-size child inside a topLeading flexible frame: the frame
-        // reports the child's 4000pt whenever the proposal is smaller — the
-        // same shape as the leak the fuzz caught.
-        let overReporting = Color.clear
-            .frame(width: 4000, height: 3000)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        let hostingView = MainWindowHostingView(rootView: AnyView(overReporting))
-        window.contentView = hostingView
+        let overReporting = OversizedIntrinsicView(
+            reportedSize: NSSize(width: 4_000, height: 3_000)
+        )
+        let contentView = MainWindowContentView(contentView: overReporting)
+        window.contentView = contentView
         window.setFrame(NSRect(x: 0, y: 0, width: 500, height: 400), display: true)
         window.makeKeyAndOrderFront(nil)
 
@@ -97,12 +103,12 @@ final class MainWindowSelfSizingTests: XCTestCase {
             "Window width must stay where it was set — over-reporting content must not grow the window"
         )
         XCTAssertLessThanOrEqual(
-            hostingView.frame.width, window.frame.width + 1.0,
-            "The hosting view's frame must track the window, never the content's reported width"
+            contentView.frame.width, window.frame.width + 1.0,
+            "The content view's frame must track the window, never the descendant's reported width"
         )
         XCTAssertLessThanOrEqual(
-            hostingView.frame.height, window.frame.height + 1.0,
-            "The hosting view's frame must track the window, never the content's reported height"
+            contentView.frame.height, window.frame.height + 1.0,
+            "The content view's frame must track the window, never the descendant's reported height"
         )
     }
 
@@ -122,11 +128,10 @@ final class MainWindowSelfSizingTests: XCTestCase {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        let wide = Color.clear.frame(
-            minWidth: 900, maxWidth: .infinity,
-            minHeight: 700, maxHeight: .infinity
+        let wide = OversizedIntrinsicView(
+            reportedSize: NSSize(width: 900, height: 700)
         )
-        window.contentView = MainWindowHostingView(rootView: AnyView(wide))
+        window.contentView = MainWindowContentView(contentView: wide)
         window.setFrame(NSRect(x: 0, y: 0, width: 500, height: 400), display: true)
         window.makeKeyAndOrderFront(nil)
 
@@ -146,9 +151,9 @@ final class MainWindowSelfSizingTests: XCTestCase {
         )
     }
 
-    /// The hosting view must refuse a frame beyond its window outright. The
-    /// SwiftUI-side tests above cover content that over-reports through the
-    /// hosting view's own measurement; the live claim explosion took the other
+    /// The content view must refuse a frame beyond its window outright. The
+    /// tests above cover descendants that over-report through intrinsic sizing;
+    /// the live claim explosion took the other
     /// door: AppKit's layout engine handed the content view an inflated frame
     /// directly — required constraints from hosted AppKit subtrees resolve by
     /// growing the frame that setFrameSize is asked to apply — and a 6373pt
@@ -169,23 +174,22 @@ final class MainWindowSelfSizingTests: XCTestCase {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        let filler = Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
-        let hostingView = MainWindowHostingView(rootView: AnyView(filler))
-        window.contentView = hostingView
+        let contentView = MainWindowContentView()
+        window.contentView = contentView
         window.setFrame(NSRect(x: 0, y: 0, width: 500, height: 400), display: true)
         window.makeKeyAndOrderFront(nil)
 
         // What the live engine did: set the content view's frame far past the
         // window (observed at 6373pt in a 1728pt window).
-        hostingView.setFrameSize(NSSize(width: 6_373, height: 3_000))
+        contentView.setFrameSize(NSSize(width: 6_373, height: 3_000))
 
         XCTAssertLessThanOrEqual(
-            hostingView.frame.width, window.frame.width + 1.0,
-            "The hosting view accepted a frame wider than its window — every space-filling descendant inherits this width"
+            contentView.frame.width, window.frame.width + 1.0,
+            "The content view accepted a frame wider than its window — every space-filling descendant inherits this width"
         )
         XCTAssertLessThanOrEqual(
-            hostingView.frame.height, window.frame.height + 1.0,
-            "The hosting view accepted a frame taller than its window"
+            contentView.frame.height, window.frame.height + 1.0,
+            "The content view accepted a frame taller than its window"
         )
     }
 }
