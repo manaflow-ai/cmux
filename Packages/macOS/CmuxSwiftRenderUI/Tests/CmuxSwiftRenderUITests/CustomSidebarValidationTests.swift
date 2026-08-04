@@ -298,7 +298,11 @@ struct CustomSidebarValidationTests {
     func validatesDeepOutputWithoutCallerStackRecursion() throws {
         let directory = try temporaryDirectory()
         let fileURL = directory.appendingPathComponent("deep.swift")
-        let depth = 390
+        // Each nested container consumes one view-evaluation and one
+        // ViewBuilder-item frame, so this stays just below the interpreter's
+        // 400-frame safety budget while remaining deep enough to exercise the
+        // post-evaluation walkers.
+        let depth = 175
         let source = String(repeating: "VStack { ", count: depth) + """
         ForEach(workspaces) { workspace in
             if workspace.selected && workspace.branch == "never" {

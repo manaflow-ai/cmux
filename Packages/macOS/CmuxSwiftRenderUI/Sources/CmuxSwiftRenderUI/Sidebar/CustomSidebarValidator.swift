@@ -244,19 +244,23 @@ public struct CustomSidebarValidator {
 
 func localizedEmptySidebarRenderWarning(locale: Locale = .current) -> String {
     String(
-        localized: "sidebar.custom.validation.emptyRender",
-        defaultValue: "Sidebar rendered no visible content.",
-        bundle: .module,
-        locale: locale
+        localized: LocalizedStringResource(
+            "sidebar.custom.validation.emptyRender",
+            defaultValue: "Sidebar rendered no visible content.",
+            locale: locale,
+            bundle: .module
+        )
     )
 }
 
 func localizedMissingOptionalDataCoverageWarning(locale: Locale = .current) -> String {
     String(
-        localized: "sidebar.custom.validation.noOptionalDataCoverage",
-        defaultValue: "Sidebar output did not change when its referenced optional workspace data was removed.",
-        bundle: .module,
-        locale: locale
+        localized: LocalizedStringResource(
+            "sidebar.custom.validation.noOptionalDataCoverage",
+            defaultValue: "Sidebar output did not change when its referenced optional workspace data was removed.",
+            locale: locale,
+            bundle: .module
+        )
     )
 }
 
