@@ -6,7 +6,9 @@ import Testing
 
 @Suite("Custom sidebar validation")
 struct CustomSidebarValidationTests {
-    private let validator = CustomSidebarValidator()
+    private let validator = CustomSidebarValidator(
+        warningLocale: Locale(identifier: "en")
+    )
 
     @Test("discovers one file per sidebar name and prefers Swift")
     func discoversSwiftBeforeJSON() throws {
@@ -340,40 +342,33 @@ struct CustomSidebarValidationTests {
         #expect(!visibleTree.hasSameValidationOutput(as: emptyTree))
     }
 
-    @Test("warning catalog includes Japanese translations")
-    func warningCatalogIncludesJapaneseTranslations() throws {
-        let packageDirectory = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let catalogURL = packageDirectory
-            .appendingPathComponent("Sources/CmuxSwiftRenderUI/Resources/Localizable.xcstrings")
-        let data = try Data(contentsOf: catalogURL)
-        let catalog = try #require(
-            JSONSerialization.jsonObject(with: data) as? [String: Any]
-        )
-        let strings = try #require(catalog["strings"] as? [String: Any])
-
-        func japaneseValue(for key: String) -> String? {
-            let entry = strings[key] as? [String: Any]
-            let localizations = entry?["localizations"] as? [String: Any]
-            let japanese = localizations?["ja"] as? [String: Any]
-            let unit = japanese?["stringUnit"] as? [String: Any]
-            return unit?["value"] as? String
-        }
+    @Test("warning strings resolve through package localizations")
+    func warningStringsResolveThroughPackageLocalizations() {
+        let english = Locale(identifier: "en")
+        let japanese = Locale(identifier: "ja")
 
         #expect(
-            japaneseValue(for: "sidebar.custom.validation.emptyRender")
+            localizedEmptySidebarRenderWarning(locale: english)
+                == "Sidebar rendered no visible content."
+        )
+        #expect(
+            localizedEmptySidebarRenderWithoutOptionalDataWarning(locale: english)
+                == "Sidebar rendered no visible content when optional workspace data was absent."
+        )
+        #expect(
+            localizedMissingOptionalDataCoverageWarning(locale: english)
+                == "Sidebar output did not change when its referenced optional workspace data was removed."
+        )
+        #expect(
+            localizedEmptySidebarRenderWarning(locale: japanese)
                 == "サイドバーに表示可能な内容がレンダリングされませんでした。"
         )
         #expect(
-            japaneseValue(
-                for: "sidebar.custom.validation.emptyRenderWithoutOptionalData"
-            )
+            localizedEmptySidebarRenderWithoutOptionalDataWarning(locale: japanese)
                 == "オプションのワークスペースデータがない場合、サイドバーに表示可能な内容がレンダリングされませんでした。"
         )
         #expect(
-            japaneseValue(for: "sidebar.custom.validation.noOptionalDataCoverage")
+            localizedMissingOptionalDataCoverageWarning(locale: japanese)
                 == "参照されているオプションのワークスペースデータを削除しても、サイドバーの出力が変化しませんでした。"
         )
     }
