@@ -105,6 +105,14 @@ export async function resolveSubrouterRequestContext(
         };
       }
 
+      const client = createHostedSubrouterClient();
+      if (!client.tenantControlConfigured) {
+        return {
+          ok: false,
+          response: serviceUnavailableResponse(),
+        };
+      }
+
       const nativeTokens = parseNativeStackTokens(request);
       const tokenStore = nativeTokens ?? {
         headers: {
@@ -130,7 +138,7 @@ export async function resolveSubrouterRequestContext(
           user,
           team,
           accessToken,
-          client: createHostedSubrouterClient(),
+          client,
         },
       };
     });
