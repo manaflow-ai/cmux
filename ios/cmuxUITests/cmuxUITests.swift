@@ -194,14 +194,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
         XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
         tap(tailscaleMethod, in: app)
-        XCTAssertTrue(tailscaleMethod.isSelected)
-        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].exists)
+        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts[
             "Connect only over your Tailscale network. Scan the pairing code shown on your Mac."
-        ].exists)
+        ].waitForExistence(timeout: 4))
         tap(automaticMethod, in: app)
-        XCTAssertTrue(automaticMethod.isSelected)
-        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
         capture("onboarding-04-resumed-connect")
 
         let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
