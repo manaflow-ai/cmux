@@ -13870,21 +13870,11 @@ struct VerticalTabsSidebar: View, Equatable {
         guard let app = AppDelegate.shared else { return }
         let orderedIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
         guard !orderedIds.isEmpty else { return }
-        var movedIds: [UUID] = []
-        movedIds.reserveCapacity(orderedIds.count)
-        for workspaceId in orderedIds {
-            if app.moveWorkspaceToWindow(
-                workspaceId: workspaceId,
-                windowId: windowId,
-                focus: false
-            ) {
-                movedIds.append(workspaceId)
-            }
-        }
-        guard let focusId = movedIds.last else { return }
-        // The workspace is already attached to the destination, so this takes
-        // AppDelegate's same-manager focus path rather than moving it twice.
-        _ = app.moveWorkspaceToWindow(workspaceId: focusId, windowId: windowId, focus: true)
+        let movedIds = SidebarWorkspaceWindowMover(app: app).moveWorkspaces(
+            orderedIds,
+            toWindow: windowId
+        )
+        guard !movedIds.isEmpty else { return }
         selectedTabIds.subtract(movedIds)
         syncWorkspaceRowSelectionAfterMutation()
     }
@@ -13892,29 +13882,9 @@ struct VerticalTabsSidebar: View, Equatable {
     private func moveWorkspaceRowsToNewWindow(_ workspaceIds: [UUID]) {
         guard let app = AppDelegate.shared else { return }
         let orderedIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
-        guard let firstId = orderedIds.first else { return }
-        guard let newWindowId = app.moveWorkspaceToNewWindow(
-            workspaceId: firstId,
-            focus: false
-        ) else { return }
-        var movedIds = [firstId]
-        movedIds.reserveCapacity(orderedIds.count)
-        if orderedIds.count > 1 {
-            for workspaceId in orderedIds.dropFirst() {
-                if app.moveWorkspaceToWindow(
-                    workspaceId: workspaceId,
-                    windowId: newWindowId,
-                    focus: false
-                ) {
-                    movedIds.append(workspaceId)
-                }
-            }
-        }
-        // Focus the final successful attachment without detaching or attaching
-        // it again; AppDelegate recognizes it is already in this window.
-        if let focusId = movedIds.last {
-            _ = app.moveWorkspaceToWindow(workspaceId: focusId, windowId: newWindowId, focus: true)
-        }
+        guard !orderedIds.isEmpty else { return }
+        let movedIds = SidebarWorkspaceWindowMover(app: app).moveWorkspacesToNewWindow(orderedIds)
+        guard !movedIds.isEmpty else { return }
         selectedTabIds.subtract(movedIds)
         syncWorkspaceRowSelectionAfterMutation()
     }

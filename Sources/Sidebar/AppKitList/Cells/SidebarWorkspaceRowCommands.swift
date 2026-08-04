@@ -246,11 +246,12 @@ struct SidebarWorkspaceRowCommands {
         guard let tabManager, let app = AppDelegate.shared else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { contextMenuWorkspaceIds.contains($0.id) ? $0.id : nil }
         guard !orderedWorkspaceIds.isEmpty else { return }
-        for (index, workspaceId) in orderedWorkspaceIds.enumerated() {
-            let shouldFocus = index == orderedWorkspaceIds.count - 1
-            _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: shouldFocus)
-        }
-        writeSelectedTabIds(readSelectedTabIds().subtracting(orderedWorkspaceIds))
+        let movedIds = SidebarWorkspaceWindowMover(app: app).moveWorkspaces(
+            orderedWorkspaceIds,
+            toWindow: windowId
+        )
+        guard !movedIds.isEmpty else { return }
+        writeSelectedTabIds(readSelectedTabIds().subtracting(movedIds))
         syncSelectionAfterMutation()
     }
 
@@ -258,18 +259,10 @@ struct SidebarWorkspaceRowCommands {
     func moveWorkspacesToNewWindow() {
         guard let tabManager, let app = AppDelegate.shared else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { contextMenuWorkspaceIds.contains($0.id) ? $0.id : nil }
-        guard let firstWorkspaceId = orderedWorkspaceIds.first else { return }
-        let shouldFocusImmediately = orderedWorkspaceIds.count == 1
-        guard let newWindowId = app.moveWorkspaceToNewWindow(workspaceId: firstWorkspaceId, focus: shouldFocusImmediately) else {
-            return
-        }
-        if orderedWorkspaceIds.count > 1 {
-            for (offset, workspaceId) in orderedWorkspaceIds.dropFirst().enumerated() {
-                let isLast = offset == orderedWorkspaceIds.count - 2
-                _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: newWindowId, focus: isLast)
-            }
-        }
-        writeSelectedTabIds(readSelectedTabIds().subtracting(orderedWorkspaceIds))
+        guard !orderedWorkspaceIds.isEmpty else { return }
+        let movedIds = SidebarWorkspaceWindowMover(app: app).moveWorkspacesToNewWindow(orderedWorkspaceIds)
+        guard !movedIds.isEmpty else { return }
+        writeSelectedTabIds(readSelectedTabIds().subtracting(movedIds))
         syncSelectionAfterMutation()
     }
 
