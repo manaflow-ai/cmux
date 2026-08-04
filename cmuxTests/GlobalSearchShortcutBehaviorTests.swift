@@ -1066,7 +1066,6 @@ extension GlobalSearchShortcutBehaviorTests {
         )
         let indexRequestStarted = GlobalSearchAsyncSignal()
         let releaseIndexRequest = GlobalSearchAsyncSignal()
-        let lateInvalidation = GlobalSearchAsyncSignal()
         let refreshFinishedCount = GlobalSearchCounter()
         var invalidatedPanelIDs: [UUID] = []
         let captureManager = GlobalSearchPanelCaptureManager(
@@ -1078,7 +1077,6 @@ extension GlobalSearchShortcutBehaviorTests {
             cancelPanelPurge: { _ in },
             contentDidChange: { panelID in
                 invalidatedPanelIDs.append(panelID)
-                lateInvalidation.signal()
             }
         )
         defer {
@@ -1113,16 +1111,107 @@ extension GlobalSearchShortcutBehaviorTests {
         )
 
         releaseIndexRequest.signal()
-        await lateInvalidation.wait()
+        #expect(
+            await waitUntil(timeout: 2) {
+                invalidatedPanelIDs == [panel.id]
+            },
+            "A capture that commits after the presentation rerun must invalidate the active query once"
+        )
         await refreshTask.value
 
         #expect(
-            invalidatedPanelIDs == [panel.id],
-            "A capture that commits after the presentation rerun must invalidate the active query once"
-        )
-        #expect(
             try await index.search(token).contains(where: { $0.panelID == panel.id }),
             "The late invalidation must follow a committed searchable document"
+        )
+    }
+
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func reusedCaptureFromCancelledPresentationInvalidatesReopenedQuery() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-reused-refresh-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let token = "reusedrefresh\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let fileURL = directoryURL.appendingPathComponent("reused.md")
+        try token.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspaceID = UUID()
+        let panel = MarkdownPanel(workspaceId: workspaceID, filePath: fileURL.path)
+        let index = try SearchIndex(
+            databaseURL: directoryURL.appendingPathComponent("search.sqlite3")
+        )
+        let indexRequestStarted = GlobalSearchAsyncSignal()
+        let releaseIndexRequest = GlobalSearchAsyncSignal()
+        let indexRequestCount = GlobalSearchCounter()
+        let reopenedRefreshFinishedCount = GlobalSearchCounter()
+        var invalidatedPanelIDs: [UUID] = []
+        let captureManager = GlobalSearchPanelCaptureManager(
+            indexProvider: {
+                indexRequestCount.increment()
+                indexRequestStarted.signal()
+                await releaseIndexRequest.wait()
+                return index
+            },
+            cancelPanelPurge: { _ in },
+            contentDidChange: { panelID in
+                invalidatedPanelIDs.append(panelID)
+            }
+        )
+        defer {
+            releaseIndexRequest.signal()
+            captureManager.cancelCaptures(forPanelID: panel.id)
+            panel.close()
+        }
+        let context = GlobalSearchPanelContext(
+            windowID: UUID(),
+            windowTitle: "Window",
+            workspaceID: workspaceID,
+            workspaceTitle: "Workspace",
+            panelID: panel.id,
+            panelTitle: panel.displayTitle,
+            panel: panel
+        )
+
+        let dismissedRefreshTask = Task { @MainActor in
+            await captureManager.refreshPanelContent(for: context)
+        }
+        await indexRequestStarted.wait()
+        dismissedRefreshTask.cancel()
+        await dismissedRefreshTask.value
+
+        let reopenedRefreshTask = Task { @MainActor in
+            await captureManager.refreshPanelContent(for: context)
+            reopenedRefreshFinishedCount.increment()
+        }
+        #expect(
+            await waitUntil(timeout: 2) {
+                reopenedRefreshFinishedCount.value == 1
+            },
+            "The reopened presentation must stay bounded while reusing the earlier capture"
+        )
+        #expect(
+            indexRequestCount.value == 1,
+            "Reopening Search must reuse the existing capture instead of duplicating work"
+        )
+        #expect(invalidatedPanelIDs.isEmpty)
+
+        releaseIndexRequest.signal()
+        #expect(
+            await waitUntil(timeout: 2) {
+                invalidatedPanelIDs == [panel.id]
+            },
+            "A capture whose original presentation was canceled must invalidate the reopened query once"
+        )
+        await reopenedRefreshTask.value
+
+        #expect(
+            try await index.search(token).contains(where: { $0.panelID == panel.id }),
+            "The reopened query invalidation must follow the reused capture's commit"
         )
     }
 

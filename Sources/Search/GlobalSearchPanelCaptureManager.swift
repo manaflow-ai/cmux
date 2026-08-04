@@ -12,7 +12,7 @@ final class GlobalSearchPanelCaptureManager {
             case .notifyOnCommit:
                 return true
             case .deferToPresentation(let deadline):
-                return deadline.hasExpired
+                return deadline.hasEnded
             }
         }
     }

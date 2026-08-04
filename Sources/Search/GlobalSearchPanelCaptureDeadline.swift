@@ -10,6 +10,10 @@ final class GlobalSearchPanelCaptureDeadline {
     private var expirationHandlers: [UUID: ExpirationHandler] = [:]
     private let timer: DispatchSourceTimer
 
+    var hasEnded: Bool {
+        hasExpired || isCancelled
+    }
+
     init(milliseconds: Int) {
         timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(
