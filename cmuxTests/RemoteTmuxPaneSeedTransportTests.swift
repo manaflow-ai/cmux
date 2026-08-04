@@ -577,6 +577,87 @@ import Testing
         )
     }
 
+    /// Crossing one pane's live catch-up ceiling takes the pane-local recovery path.
+    @Test func paneLiveSeedCeilingRecoversOnlyThatPane() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        _ = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 7,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 7,
+            data: Data(
+                repeating: UInt8(ascii: "x"),
+                count: RemoteTmuxControlConnection.maximumPendingPaneSeedLiveBytes + 1
+            )
+        ))
+
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(fixture.connection.pendingPaneSeeds[7] == nil)
+        #expect(fixture.connection.pendingPaneSeedByteCount == 0)
+        let events = fixture.connection.snapshot().recentEvents
+        #expect(events.filter { $0.hasPrefix("pane-seed-backpressure") }.count == 1)
+        #expect(!events.contains { $0.hasPrefix("pane-seed-total-backpressure") })
+    }
+
+    /// A recovery waits for another pane to release capacity, then re-seeds exactly once.
+    @Test func aggregateConnectionSeedBudgetRetriesAfterCapacityReturns() async throws {
+        let fixture = attachedConnection(pendingPaneSeedByteLimit: 16)
+        defer { fixture.close() }
+        let blockingSeedID = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 7,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 7,
+            data: Data(repeating: UInt8(ascii: "a"), count: 10)
+        ))
+        _ = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 8,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 8,
+            data: Data(repeating: UInt8(ascii: "b"), count: 7)
+        ))
+        await Task.yield()
+        await Task.yield()
+
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(fixture.connection.pendingPaneSeeds[8] == nil)
+        #expect(
+            fixture.connection.snapshot().recentEvents
+                .filter { $0.hasPrefix("pane-seed-total-backpressure") }.count == 1,
+            "a blocked recovery must not enqueue itself again on every main-actor turn"
+        )
+
+        fixture.connection.cancelPaneSeed(paneId: 7, seedID: blockingSeedID)
+        for _ in 0..<10 {
+            if fixture.connection.pendingPaneSeeds[8] != nil { break }
+            await Task.yield()
+        }
+
+        #expect(fixture.connection.pendingPaneSeeds[8]?.count == 1)
+        #expect(fixture.connection.pendingPaneSeedByteCount == 11)
+        #expect(
+            fixture.connection.snapshot().recentEvents
+                .filter { $0.hasPrefix("pane-seed-total-backpressure") }.count == 1,
+            "capacity release should start the one deferred recovery without duplicating it"
+        )
+    }
+
     @Test func connectionSeedCountersReleaseOnFinishPruneAndDisconnect() throws {
         let fixture = attachedConnection(pendingPaneSeedByteLimit: 32)
         defer { fixture.close() }
