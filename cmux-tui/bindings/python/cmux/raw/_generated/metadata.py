@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = 'c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd'
+IR_SHA256 = '17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350'
 
 
 @dataclass(frozen=True)
@@ -438,6 +438,16 @@ COMMANDS = {
         None,
         {
             'pane': CommandFieldMetadata(None, None),
+        },
+    ),
+    'get-cell-pixels': CommandMetadata(
+        'get-cell-pixels',
+        'frontend',
+        6,
+        None,
+        ('frontend',),
+        None,
+        {
         },
     ),
     'get-frontend-projection': CommandMetadata(
@@ -1106,6 +1116,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
             'pid': CommandFieldMetadata(None, None),
         },
@@ -1237,6 +1248,7 @@ EVENTS = {
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
+    'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),
