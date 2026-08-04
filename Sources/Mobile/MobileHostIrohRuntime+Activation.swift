@@ -1,8 +1,8 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
-import CryptoKit
 import Foundation
+import IrohLib
 
 @MainActor
 extension MobileHostIrohRuntime {
@@ -567,10 +567,9 @@ extension MobileHostIrohRuntime {
 
 private extension CmxIrohIdentityMaterial {
     var peerIdentity: CmxIrohPeerIdentity? {
-        guard let privateKey = try? Curve25519.Signing.PrivateKey(
-            rawRepresentation: secretKey.bytes
-        ) else { return nil }
-        let endpointID = privateKey.publicKey.rawRepresentation
+        guard let endpoint = try? SecretKey.fromBytes(bytes: secretKey.bytes).public()
+        else { return nil }
+        let endpointID = endpoint.toBytes()
             .map { String(format: "%02x", $0) }
             .joined()
         return try? CmxIrohPeerIdentity(endpointID: endpointID)
