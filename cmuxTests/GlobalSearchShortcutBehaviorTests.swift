@@ -1216,6 +1216,72 @@ extension GlobalSearchShortcutBehaviorTests {
     }
 
     @MainActor
+    @Test func discardedBrowserRefreshPreservesPreviouslyIndexedContent() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-discarded-browser-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let workspaceID = UUID()
+        let windowID = UUID()
+        let panel = BrowserPanel(
+            workspaceId: workspaceID,
+            renderInitialNavigation: false
+        )
+        let index = try SearchIndex(databaseURL: directoryURL.appendingPathComponent("search.sqlite3"))
+        let token = "discardedbrowser\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let document = SearchIndexDocument(
+            id: SearchIndexDocument.panelStableID(panelID: panel.id, kind: .browser),
+            windowID: windowID,
+            workspaceID: workspaceID,
+            panelID: panel.id,
+            kind: .browser,
+            title: "Indexed page",
+            location: "https://example.com/indexed",
+            anchor: "https://example.com/indexed",
+            text: token
+        )
+        try await index.upsert(document)
+
+        let captureManager = GlobalSearchPanelCaptureManager(
+            indexProvider: { index },
+            cancelPanelPurge: { _ in }
+        )
+        defer {
+            captureManager.cancelCaptures(forPanelID: panel.id)
+            panel.close()
+        }
+        let context = GlobalSearchPanelContext(
+            windowID: windowID,
+            windowTitle: "Window",
+            workspaceID: workspaceID,
+            workspaceTitle: "Workspace",
+            panelID: panel.id,
+            panelTitle: panel.displayTitle,
+            panel: panel
+        )
+
+        #expect(
+            try await index.search(token).contains(where: { $0.panelID == panel.id }),
+            "The fixture must begin with the browser's prior DOM text in the stable document"
+        )
+        panel.hiddenWebViewDiscardManager.markDiscarded(
+            reason: "test.global_search",
+            now: Date()
+        )
+
+        await captureManager.refreshPanelContent(for: context)
+
+        #expect(
+            try await index.search(token).contains(where: { $0.panelID == panel.id }),
+            "Refreshing an unloaded discarded browser shell must preserve its previously indexed DOM text"
+        )
+    }
+
+    @MainActor
     @Test(.timeLimit(.minutes(1)))
     func presentationDeadlineAdvancesPastUnresponsiveBrowserCaptures() async throws {
         let workspaceID = UUID()
