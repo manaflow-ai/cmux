@@ -34809,11 +34809,17 @@ export default CMUXSessionRestore;
                 client: activeClient
             ) {
                 eventDict["workspace_id"] = rehomed
-                request["params"] = [
-                    "event": eventDict,
-                    "wait_timeout_seconds": waitTimeout,
-                ]
             }
+            // Carry the surface so the app can revalidate ownership at its own
+            // acceptance boundary; the probe above races a move that lands
+            // between it and the push.
+            if let surfaceId = env["CMUX_SURFACE_ID"], !surfaceId.isEmpty {
+                eventDict["surface_id"] = surfaceId
+            }
+            request["params"] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
         }
         if shouldAwaitTelemetryIngestion {
             if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {
@@ -34850,8 +34856,19 @@ export default CMUXSessionRestore;
             return
         }
         if shouldAwaitTaskIngestion {
-            // The app answered, so the delta was admitted. Nothing to feed
-            // back to Claude beyond a neutral ack.
+            // A response is not admission: feed.push answers ok:false while
+            // starting up, when overloaded, or when the target is gone. Losing
+            // a TaskCreate is permanent, since later status-only updates
+            // cannot reconstruct its subject, so retry once within the hook's
+            // remaining deadline before giving up.
+            if !taskFeedPushWasAcknowledged(response),
+               let retried = try? activeClient.send(
+                   command: line,
+                   responseTimeout: try remainingResponseTime(),
+                   deadline: clientDeadline
+               ) {
+                _ = taskFeedPushWasAcknowledged(retried)
+            }
             print("{}")
             return
         }

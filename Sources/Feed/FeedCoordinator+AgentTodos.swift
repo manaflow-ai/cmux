@@ -29,15 +29,31 @@ extension FeedCoordinator {
             || (event.toolName.map(isWorkstreamTaskTool) ?? false)
         guard isTaskEvent else { return }
         guard let store, !store.hasTaskTodos(forWorkstream: event.sessionId) else { return }
-        guard let workspace = Self.resolveTodoWorkspace(for: event) else { return }
 
-        let restored = workspace.todoState.checklist.compactMap { item -> WorkstreamTaskTodo? in
-            guard let ref = item.agentTaskRef, ref.workstreamId == event.sessionId else { return nil }
-            return WorkstreamTaskTodo(
-                id: ref.taskId,
-                content: item.text,
-                state: Self.todoState(for: item.state)
-            )
+        // The event's own workspace first, then every other one we can
+        // enumerate: if the surface moved while cmux was restarting, the
+        // persisted rows are still sitting in the workspace it left, and
+        // seeding from there is what lets the next delta recreate them here
+        // and retire them there.
+        var candidates: [Workspace] = []
+        if let resolved = Self.resolveTodoWorkspace(for: event) { candidates.append(resolved) }
+        candidates.append(contentsOf: AppDelegate.shared?.allWorkspacesForAgentTodoRetirement ?? [])
+
+        var restored: [WorkstreamTaskTodo] = []
+        var seenTaskIds = Set<String>()
+        var seenWorkspaceIds = Set<UUID>()
+        for workspace in candidates {
+            guard seenWorkspaceIds.insert(workspace.id).inserted else { continue }
+            for item in workspace.todoState.checklist {
+                guard let ref = item.agentTaskRef,
+                      ref.workstreamId == event.sessionId,
+                      seenTaskIds.insert(ref.taskId).inserted else { continue }
+                restored.append(WorkstreamTaskTodo(
+                    id: ref.taskId,
+                    content: item.text,
+                    state: Self.todoState(for: item.state)
+                ))
+            }
         }
         store.seedTaskTodos(forWorkstream: event.sessionId, todos: restored)
     }

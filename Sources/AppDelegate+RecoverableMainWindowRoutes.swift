@@ -394,13 +394,13 @@ extension AppDelegate {
     var allWorkspacesForAgentTodoRetirement: [Workspace] {
         var seen = Set<UUID>()
         var result: [Workspace] = []
-        for manager in recoverableMainWindowRoutes().compactMap(\.tabManager) {
+        // Registered windows first: registration forgets a window's
+        // recoverable route, so an ordinary inactive window appears only here.
+        var managers = mainWindowContexts.values.map(\.tabManager)
+        managers.append(contentsOf: recoverableMainWindowRoutes().compactMap(\.tabManager))
+        if let tabManager { managers.append(tabManager) }
+        for manager in managers {
             for workspace in manager.tabs where seen.insert(workspace.id).inserted {
-                result.append(workspace)
-            }
-        }
-        if let tabManager {
-            for workspace in tabManager.tabs where seen.insert(workspace.id).inserted {
                 result.append(workspace)
             }
         }
