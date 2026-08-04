@@ -127,7 +127,7 @@ impl RelayPolicyVerifier {
             serde_json::from_slice(&header_bytes).context("relay policy header is invalid")?;
         ensure!(header.alg == "EdDSA", "relay policy algorithm is invalid");
         ensure!(header.typ == POLICY_TYP, "relay policy type is invalid");
-        ensure!(safe_label(&header.kid), "relay policy key ID is invalid");
+        ensure!(safe_key_id(&header.kid), "relay policy key ID is invalid");
         let key = self.keys.get(&header.kid).context("relay policy key is not pinned")?;
         let signature = Signature::from_slice(&signature_bytes)
             .map_err(|_| anyhow::anyhow!("relay policy signature is invalid"))?;
@@ -251,9 +251,9 @@ fn validate_claims(claims: PolicyClaims, compact: &str, now: i64) -> Result<Veri
     let mut urls = HashSet::new();
     let mut relays = Vec::with_capacity(claims.relays.len());
     for relay in claims.relays {
-        ensure!(safe_label(&relay.id), "relay ID is invalid");
-        ensure!(safe_label(&relay.provider), "relay provider is invalid");
-        ensure!(safe_label(&relay.region), "relay region is invalid");
+        ensure!(safe_relay_id(&relay.id), "relay ID is invalid");
+        ensure!(safe_relay_label(&relay.provider), "relay provider is invalid");
+        ensure!(safe_relay_label(&relay.region), "relay region is invalid");
         validate_root_https_url(&relay.url)?;
         ensure!(ids.insert(relay.id.clone()), "duplicate relay ID");
         ensure!(urls.insert(relay.url.clone()), "duplicate relay URL");
@@ -287,12 +287,31 @@ fn canonical_decode(value: &str, maximum_bytes: usize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn safe_label(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b':' | b'_'))
+fn safe_key_id(value: &str) -> bool {
+    bounded_ascii_label(value, 64, |byte| {
+        byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_')
+    })
+}
+
+fn safe_relay_id(value: &str) -> bool {
+    bounded_ascii_label(value, 64, |byte| {
+        byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'.' | b'_')
+    })
+}
+
+fn safe_relay_label(value: &str) -> bool {
+    bounded_ascii_label(value, 80, |byte| {
+        byte.is_ascii_alphanumeric() || matches!(byte, b' ' | b'-' | b'.' | b'_')
+    })
+}
+
+fn bounded_ascii_label(value: &str, maximum_bytes: usize, allowed: impl Fn(u8) -> bool) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= maximum_bytes
+        && bytes[0].is_ascii_alphanumeric()
+        && bytes[bytes.len() - 1].is_ascii_alphanumeric()
+        && bytes.iter().copied().all(allowed)
 }
 
 #[cfg(test)]
@@ -326,7 +345,7 @@ mod tests {
                 "relays": [{
                     "id": "test",
                     "provider": "cmux",
-                    "region": "local",
+                    "region": "US Central",
                     "url": url
                 }]
             }))
@@ -363,5 +382,18 @@ mod tests {
         assert!(verifier.verify_and_record(&path, 1_100).is_err());
         let expired = compact(&signing, 1, 1_050, "https://relay.example.com/");
         assert!(verifier.verify_and_record(&expired, 1_100).is_err());
+    }
+
+    #[test]
+    fn relay_metadata_matches_the_broker_catalog_schema() {
+        assert!(safe_key_id("cmux-staging-relay-policy-2026-08"));
+        assert!(safe_relay_id("usc1"));
+        assert!(!safe_relay_id("US Central"));
+        assert!(safe_relay_label("Asia Pacific Northeast"));
+        assert!(safe_relay_label("a"));
+        assert!(!safe_relay_label(" Asia Pacific Northeast"));
+        assert!(!safe_relay_label("Asia Pacific Northeast "));
+        assert!(!safe_relay_label("Asia/Pacific"));
+        assert!(!safe_relay_label(&"a".repeat(81)));
     }
 }
