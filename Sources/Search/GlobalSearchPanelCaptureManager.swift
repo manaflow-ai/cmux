@@ -14,9 +14,11 @@ final class GlobalSearchPanelCaptureManager {
     private var browserCaptureTimers: [UUID: DispatchSourceTimer] = [:]
     private var browserCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var browserCaptureTaskIDs: [UUID: UUID] = [:]
+    private var browserCaptureCompletions: [UUID: GlobalSearchPanelCaptureCompletion] = [:]
     private var markdownCaptureTimers: [UUID: DispatchSourceTimer] = [:]
     private var markdownCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var markdownCaptureTaskIDs: [UUID: UUID] = [:]
+    private var markdownCaptureCompletions: [UUID: GlobalSearchPanelCaptureCompletion] = [:]
 
     init(
         indexProvider: @escaping () async -> SearchIndex?,
@@ -86,6 +88,10 @@ final class GlobalSearchPanelCaptureManager {
 
                 guard let panel else {
                     self.browserCaptureTaskIDs[panelID] = nil
+                    self.finishBrowserCaptureCompletion(
+                        forPanelID: panelID,
+                        panelRevision: capture.panelRevision
+                    )
                     return
                 }
                 let task = self.makeBrowserCaptureTask(
@@ -121,6 +127,12 @@ final class GlobalSearchPanelCaptureManager {
         } onCancel: {
             task.cancel()
         }
+
+        await awaitLatestBrowserCapture(
+            forPanelID: panel.id,
+            generation: capture.generation,
+            startingRevision: capture.panelRevision
+        )
     }
 
     private func beginBrowserCapture(
@@ -135,6 +147,9 @@ final class GlobalSearchPanelCaptureManager {
 
         let taskID = UUID()
         browserCaptureTaskIDs[panelID] = taskID
+        browserCaptureCompletions[panelID] = GlobalSearchPanelCaptureCompletion(
+            panelRevision: panelRevision
+        )
         return (taskID, generation, panelRevision)
     }
 
@@ -152,6 +167,10 @@ final class GlobalSearchPanelCaptureManager {
                 if self.browserCaptureTaskIDs[panelID] == taskID {
                     self.browserCaptureTasks[panelID] = nil
                     self.browserCaptureTaskIDs[panelID] = nil
+                    self.finishBrowserCaptureCompletion(
+                        forPanelID: panelID,
+                        panelRevision: panelRevision
+                    )
                 }
             }
 
@@ -213,6 +232,10 @@ final class GlobalSearchPanelCaptureManager {
 
                 guard let panel else {
                     self.markdownCaptureTaskIDs[panelID] = nil
+                    self.finishMarkdownCaptureCompletion(
+                        forPanelID: panelID,
+                        panelRevision: capture.panelRevision
+                    )
                     return
                 }
                 let task = self.makeMarkdownCaptureTask(
@@ -248,6 +271,12 @@ final class GlobalSearchPanelCaptureManager {
         } onCancel: {
             task.cancel()
         }
+
+        await awaitLatestMarkdownCapture(
+            forPanelID: panel.id,
+            generation: capture.generation,
+            startingRevision: capture.panelRevision
+        )
     }
 
     private func beginMarkdownCapture(
@@ -264,6 +293,9 @@ final class GlobalSearchPanelCaptureManager {
 
         let taskID = UUID()
         markdownCaptureTaskIDs[panelID] = taskID
+        markdownCaptureCompletions[panelID] = GlobalSearchPanelCaptureCompletion(
+            panelRevision: panelRevision
+        )
         return (taskID, generation, panelRevision)
     }
 
@@ -281,6 +313,10 @@ final class GlobalSearchPanelCaptureManager {
                 if self.markdownCaptureTaskIDs[panelID] == taskID {
                     self.markdownCaptureTasks[panelID] = nil
                     self.markdownCaptureTaskIDs[panelID] = nil
+                    self.finishMarkdownCaptureCompletion(
+                        forPanelID: panelID,
+                        panelRevision: panelRevision
+                    )
                 }
             }
 
@@ -370,6 +406,8 @@ final class GlobalSearchPanelCaptureManager {
         browserCaptureTasks[panelID]?.cancel()
         browserCaptureTasks[panelID] = nil
         browserCaptureTaskIDs[panelID] = nil
+        browserCaptureCompletions[panelID]?.finish()
+        browserCaptureCompletions[panelID] = nil
     }
 
     private func cancelMarkdownCapture(forPanelID panelID: UUID) {
@@ -378,6 +416,8 @@ final class GlobalSearchPanelCaptureManager {
         markdownCaptureTasks[panelID]?.cancel()
         markdownCaptureTasks[panelID] = nil
         markdownCaptureTaskIDs[panelID] = nil
+        markdownCaptureCompletions[panelID]?.finish()
+        markdownCaptureCompletions[panelID] = nil
     }
 
     private func makeDebounceTimer(
@@ -491,6 +531,68 @@ final class GlobalSearchPanelCaptureManager {
         return revision
     }
 
+    private func awaitLatestBrowserCapture(
+        forPanelID panelID: UUID,
+        generation: UInt64,
+        startingRevision: UInt64
+    ) async {
+        var observedRevision = startingRevision
+        while !Task.isCancelled,
+              contentIndexGeneration == generation,
+              let currentRevision = panelContentRevisions[panelID],
+              currentRevision != observedRevision {
+            guard let completion = browserCaptureCompletions[panelID],
+                  completion.panelRevision == currentRevision else {
+                return
+            }
+            observedRevision = currentRevision
+            await completion.wait()
+        }
+    }
+
+    private func awaitLatestMarkdownCapture(
+        forPanelID panelID: UUID,
+        generation: UInt64,
+        startingRevision: UInt64
+    ) async {
+        var observedRevision = startingRevision
+        while !Task.isCancelled,
+              contentIndexGeneration == generation,
+              let currentRevision = panelContentRevisions[panelID],
+              currentRevision != observedRevision {
+            guard let completion = markdownCaptureCompletions[panelID],
+                  completion.panelRevision == currentRevision else {
+                return
+            }
+            observedRevision = currentRevision
+            await completion.wait()
+        }
+    }
+
+    private func finishBrowserCaptureCompletion(
+        forPanelID panelID: UUID,
+        panelRevision: UInt64
+    ) {
+        guard let completion = browserCaptureCompletions[panelID],
+              completion.panelRevision == panelRevision else {
+            return
+        }
+        completion.finish()
+        browserCaptureCompletions[panelID] = nil
+    }
+
+    private func finishMarkdownCaptureCompletion(
+        forPanelID panelID: UUID,
+        panelRevision: UInt64
+    ) {
+        guard let completion = markdownCaptureCompletions[panelID],
+              completion.panelRevision == panelRevision else {
+            return
+        }
+        completion.finish()
+        markdownCaptureCompletions[panelID] = nil
+    }
+
     private func browserPagePayload(for panel: BrowserPanel) async -> BrowserPagePayload? {
         let script = """
         (() => {
@@ -526,5 +628,51 @@ final class GlobalSearchPanelCaptureManager {
         } catch {
             return nil
         }
+    }
+}
+
+/// Resolves each refresh waiter when one panel-content revision finishes or is superseded.
+@MainActor
+private final class GlobalSearchPanelCaptureCompletion {
+    let panelRevision: UInt64
+
+    private var isFinished = false
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    init(panelRevision: UInt64) {
+        self.panelRevision = panelRevision
+    }
+
+    func wait() async {
+        guard !isFinished, !Task.isCancelled else { return }
+        let waiterID = UUID()
+
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !isFinished, !Task.isCancelled else {
+                    continuation.resume()
+                    return
+                }
+                waiters[waiterID] = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelWaiter(waiterID)
+            }
+        }
+    }
+
+    func finish() {
+        guard !isFinished else { return }
+        isFinished = true
+        let pendingWaiters = Array(waiters.values)
+        waiters.removeAll()
+        for waiter in pendingWaiters {
+            waiter.resume()
+        }
+    }
+
+    private func cancelWaiter(_ waiterID: UUID) {
+        waiters.removeValue(forKey: waiterID)?.resume()
     }
 }
