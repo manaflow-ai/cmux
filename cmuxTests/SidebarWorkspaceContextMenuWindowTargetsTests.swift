@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)

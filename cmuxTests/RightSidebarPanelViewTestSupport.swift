@@ -1,6 +1,5 @@
 import AppKit
 import CmuxAppKitSupportUI
-import SwiftUI
 
 extension WindowAppearanceSnapshot {
     static var rightSidebarPanelViewTestDefault: WindowAppearanceSnapshot {

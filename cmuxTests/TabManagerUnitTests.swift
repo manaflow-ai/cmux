@@ -1,7 +1,6 @@
 import XCTest
 import CmuxCore
 import AppKit
-import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime

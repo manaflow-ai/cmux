@@ -4,7 +4,6 @@ import CmuxNotifications
 import CmuxUpdater
 import CoreGraphics
 import Observation
-import SwiftUI
 import Bonsplit
 
 #if canImport(cmux_DEV)

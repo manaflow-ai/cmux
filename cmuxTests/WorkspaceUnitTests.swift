@@ -2,7 +2,6 @@ import CmuxCore
 import AppKit
 import CmuxFoundation
 import CmuxTerminalCore
-import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime

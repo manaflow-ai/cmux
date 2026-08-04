@@ -9,7 +9,7 @@ extension SettingsWindowPresenter {
     /// Ready live content receives the navigation immediately. Until the
     /// content signals readiness (a window can exist before its navigation
     /// consumer is installed — fresh creation, hidden app), the target stays
-    /// pending and ``SettingsWindowHostRoot`` delivers it from `onAppear` via
+    /// pending and ``SettingsWindowRoot`` delivers it from `viewDidAppear` via
     /// `deliverPendingNavigationAfterContentAppears()`.
     func deliverNavigation(reusedExistingWindow: Bool) {
         guard let target = pendingNavigationTarget else { return }

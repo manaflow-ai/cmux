@@ -1,7 +1,6 @@
 import CmuxTerminal
 import CmuxTerminalCore
 import Foundation
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)

@@ -1,6 +1,5 @@
 import AppKit
 import CmuxSettingsUI
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -20,9 +19,8 @@ private final class SettingsChromeNotificationFlag: @unchecked Sendable {
 
 extension SettingsWindowSharedStateSuites {
     /// Window-construction coverage for the native Settings chrome contract:
-    /// the structure the SwiftUI-owned `WindowGroup` scene produced (full-
-    /// height sidebar, sidebar toggle, leading title) on top of the reliable
-    /// AppKit-owned lifecycle from #7783.
+    /// the native split-view structure, full-height sidebar, sidebar toggle,
+    /// and leading title on top of the AppKit-owned lifecycle from #7783.
     @MainActor
     @Suite(.serialized)
     struct SettingsWindowChromeTests {
@@ -38,36 +36,29 @@ extension SettingsWindowSharedStateSuites {
                 }
             )
 
-            // Empirically (probe app on macOS 26), a SwiftUI-owned
-            // `WindowGroup` window hosting a NavigationSplitView gets
-            // `.fullSizeContentView` — required for the sidebar to extend
-            // under the titlebar — while the titlebar stays at the AppKit
+            // `.fullSizeContentView` is required for the sidebar to extend
+            // under the titlebar, while the titlebar stays at the AppKit
             // defaults: visible title, opaque titlebar, automatic toolbar
             // style and separator. #8015 diverged by forcing a transparent
             // titlebar, hidden title, no separator, and compact toolbar
             // styling; the follow-up revert overshot by dropping
-            // `.fullSizeContentView` too. Pin the exact SwiftUI-owned set.
+            // `.fullSizeContentView` too. Pin the exact native set.
             #expect(window.styleMask.contains(.fullSizeContentView))
             #expect(window.toolbarStyle == .automatic)
             #expect(!window.titlebarAppearsTransparent)
             #expect(window.titleVisibility == .visible)
             #expect(window.titlebarSeparatorStyle == .automatic)
 
-            // Only the title is scene-bridged. `.toolbars` must stay off:
-            // the bridge never materializes NavigationSplitView's implicit
-            // sidebar toggle in an AppKit-hosted window (and bridged items
-            // don't materialize in the CI harness at all), so the factory
-            // owns the toolbar in AppKit, deterministically.
-            let hostingController = try #require(
-                window.contentViewController as? NSHostingController<SettingsWindowHostRoot>
+            let splitController = try #require(
+                window.contentViewController as? SettingsWindowRoot
             )
-            #expect(hostingController.sceneBridgingOptions.contains(.title))
-            #expect(!hostingController.sceneBridgingOptions.contains(.toolbars))
+            #expect(splitController.splitViewItems.count == 2)
+            #expect(splitController.splitViewItems[0].canCollapse)
+            #expect(splitController.splitViewItems[0].minimumThickness == 190)
 
             // [flexible space, sidebar toggle, sidebar tracking separator]
-            // is the exact item layout SwiftUI builds for its own
-            // NavigationSplitView window: toggle at the sidebar's trailing
-            // edge, bold title at the detail column's leading edge.
+            // keeps the toggle at the sidebar's trailing edge and the title
+            // at the detail column's leading edge.
             let toolbar = try #require(window.toolbar)
             #expect(
                 toolbar.items.map(\.itemIdentifier) == [

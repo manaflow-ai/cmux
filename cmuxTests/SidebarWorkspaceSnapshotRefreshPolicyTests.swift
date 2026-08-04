@@ -3,7 +3,6 @@ import CmuxNotifications
 import CmuxSidebar
 import CmuxWorkspaces
 @_spi(CmuxHostTransport) import CmuxExtensionKit
-import SwiftUI
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

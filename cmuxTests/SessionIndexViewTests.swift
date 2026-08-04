@@ -2,7 +2,6 @@ import AppKit
 import CMUXAgentLaunch
 import Observation
 import SQLite3
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)

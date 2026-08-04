@@ -20,7 +20,7 @@ enum SettingsWindowFactory {
     /// factory drain their own pending navigation).
     static func makeSettingsWindow(onContentAppear: @escaping @MainActor () -> Void) -> NSWindow {
         if AppDelegate.shared?.settingsRuntime == nil {
-            // ``SettingsWindowHostRoot`` presents a visible, localized error
+            // The fallback controller presents a visible, localized error
             // in this state — loud, never a silent no-op (issue #7777).
             log.fault("settings.window.factory settingsRuntime unavailable; presenting fallback content")
         }
@@ -42,9 +42,9 @@ enum SettingsWindowFactory {
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.title = String(localized: "settings.title", defaultValue: "Settings")
         // [flexible space, sidebar toggle, sidebar tracking separator] is the
-        // exact item layout the SwiftUI-owned 0.64.17 window built for its
-        // NavigationSplitView: the toggle sits at the sidebar's trailing edge
-        // and the title renders bold at the detail column's leading edge.
+        // native split-view item layout: the toggle sits at the sidebar's
+        // trailing edge and the title renders bold at the detail column's
+        // leading edge.
         window.toolbar = window.sidebarToolbarController.makeToolbar()
         window.setContentSize(NSSize(width: 980, height: 680))
         return window
@@ -100,8 +100,8 @@ final class SettingsSidebarToolbarController: NSObject, NSToolbarDelegate {
 extension SettingsWindowPresenter {
     /// Routes the app's sidebar-toggle menu command (Toggle Left Sidebar) to
     /// the Settings split view when the Settings window is key. The AppKit-
-    /// hosted window gets no SwiftUI `SidebarCommands`, so without this the
-    /// command would toggle a terminal window's sidebar instead. Callers pass
+    /// hosted window has its own sidebar owner, so without this the command
+    /// would toggle a terminal window's sidebar instead. Callers pass
     /// `NSApp.keyWindow`; a default argument would be evaluated outside the
     /// main actor and warn under strict concurrency.
     static func handleSidebarToggleIfSettingsWindowIsKey(keyWindow: NSWindow?) -> Bool {

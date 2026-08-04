@@ -12,7 +12,6 @@ import Combine
 import CoreText
 import WebKit
 import Darwin
-import SwiftUI
 import Testing
 import CmuxTerminal
 

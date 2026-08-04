@@ -1,6 +1,5 @@
 import AppKit
 import ObjectiveC.runtime
-import SwiftUI
 import Testing
 import WebKit
 import CmuxUpdater
