@@ -1119,6 +1119,8 @@ final class FileExplorerStore: ObservableObject {
         silent: Bool,
         identifier: UUID
     ) async {
+        // A load cancelled by cancelAllLoads, such as a root reload during an
+        // SSH provider swap, must not reach the replacement provider.
         guard ownsLoad(at: path, identifier: identifier) else { return }
         guard !Task.isCancelled, let provider else {
             retireLoad(
