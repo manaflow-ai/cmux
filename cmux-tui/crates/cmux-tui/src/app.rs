@@ -69,8 +69,9 @@ use crate::pty_input::{
 };
 use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
-    CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, Session, SidebarPluginSurface, SurfaceHandle,
-    TreeView, is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
+    AmbiguousCreation, CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, CreationReceipt, Session,
+    SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_surface_unavailable,
+    is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::ui::graphics::{
@@ -103,11 +104,19 @@ const DURABLE_NOTICE_ACK_MAX_BACKOFF_EXPONENT: u8 = 5;
 #[derive(Debug, Clone)]
 enum TerminalInput {
     Keyboard(keys::KeyboardInput),
+    FrontendAction { action: Action, prefix: KeyEvent },
+    ClearHistoryKey(keys::KeyboardInput),
     Mouse(MouseEvent),
     Paste(String),
     FocusGained,
     FocusLost,
     Resize,
+}
+
+enum KeyboardIngress {
+    Routed(TerminalInput),
+    Handled(RenderAction),
+    Ignored,
 }
 
 impl From<Event> for TerminalInput {
@@ -130,16 +139,29 @@ impl TerminalInput {
     }
 
     fn is_routable(&self) -> bool {
-        matches!(self, Self::Keyboard(_) | Self::Mouse(_) | Self::Paste(_))
+        matches!(
+            self,
+            Self::Keyboard(_)
+                | Self::FrontendAction { .. }
+                | Self::ClearHistoryKey(_)
+                | Self::Mouse(_)
+                | Self::Paste(_)
+        )
     }
 
     fn is_keyboard_or_paste(&self) -> bool {
-        matches!(self, Self::Keyboard(_) | Self::Paste(_))
+        matches!(
+            self,
+            Self::Keyboard(_)
+                | Self::FrontendAction { .. }
+                | Self::ClearHistoryKey(_)
+                | Self::Paste(_)
+        )
     }
 
     fn retained_bytes(&self) -> usize {
         match self {
-            Self::Keyboard(key) => {
+            Self::Keyboard(key) | Self::ClearHistoryKey(key) => {
                 DEFERRED_INPUT_FIXED_BYTES.saturating_add(key.associated_text_bytes())
             }
             Self::Paste(text) => deferred_paste_bytes(text),
@@ -664,6 +686,10 @@ impl PtyFailureIngress {
 }
 
 pub enum SessionMutationOutcome {
+    SemanticIntent {
+        intent: u64,
+        outcome: Box<SessionMutationOutcome>,
+    },
     Success {
         tree: Option<TreeView>,
     },
@@ -704,6 +730,7 @@ pub enum SessionMutationOutcome {
         surface: SurfaceId,
     },
     ClientSizingChanged,
+    CreationResponseAmbiguous(String),
     MutationTimedOut(String),
     Failed(String),
     Canceled,
@@ -711,6 +738,7 @@ pub enum SessionMutationOutcome {
 
 pub struct SessionCompletion {
     mutation_generation: u64,
+    semantic_intent: Option<u64>,
     action: SessionCompletionAction,
 }
 
@@ -735,6 +763,7 @@ struct PendingSessionMutationState {
     pending_mutations: Arc<AtomicUsize>,
     pending_pointer_mutations: Arc<AtomicUsize>,
     impact: MutationImpact,
+    semantic_intent: Option<u64>,
     cancellation_pending: Arc<AtomicBool>,
     settled: AtomicBool,
     deferred_outcome: Mutex<Option<SessionMutationOutcome>>,
@@ -764,6 +793,12 @@ struct PendingSessionMutation(Arc<PendingSessionMutationState>);
 impl PendingSessionMutation {
     fn settle(self, outcome: SessionMutationOutcome) {
         if !self.0.settled.swap(true, Ordering::AcqRel) {
+            let outcome = match self.0.semantic_intent {
+                Some(intent) => {
+                    SessionMutationOutcome::SemanticIntent { intent, outcome: Box::new(outcome) }
+                }
+                None => outcome,
+            };
             let _ = self
                 .0
                 .events
@@ -815,6 +850,12 @@ impl Drop for PendingSessionMutationState {
                 .unwrap()
                 .take()
                 .unwrap_or(SessionMutationOutcome::Canceled);
+            let outcome = match self.semantic_intent {
+                Some(intent) => {
+                    SessionMutationOutcome::SemanticIntent { intent, outcome: Box::new(outcome) }
+                }
+                None => outcome,
+            };
             match self
                 .events
                 .try_send(AppEvent::SessionMutationSettled { outcome, impact: self.impact })
@@ -1352,6 +1393,28 @@ fn record_surface_resize_dispatch_result(
     }
 }
 
+#[derive(Clone, Copy)]
+enum CreationCompletionKind {
+    Surface,
+    Browser,
+}
+
+impl CreationCompletionKind {
+    fn completion(self, surface: SurfaceId) -> SessionCompletionAction {
+        match self {
+            Self::Surface => SessionCompletionAction::SurfaceCreated { surface },
+            Self::Browser => SessionCompletionAction::BrowserTabCreated { surface },
+        }
+    }
+}
+
+struct PendingAmbiguousCreation {
+    creation: AmbiguousCreation,
+    semantic_intent: Option<u64>,
+    kind: CreationCompletionKind,
+    label: &'static str,
+}
+
 /// Read access stays synchronous, while every UI-originated session mutation
 /// enters the same ordered worker as PTY input. Accepted keys, mouse releases,
 /// resizes, and closes therefore have one execution order without blocking the
@@ -1386,6 +1449,7 @@ pub struct OrderedSession {
     retired_surfaces: Arc<Mutex<HashSet<SurfaceId>>>,
     layout_resize_owner: u64,
     layout_resize_transaction: Arc<AtomicU64>,
+    ambiguous_creations: Arc<Mutex<VecDeque<PendingAmbiguousCreation>>>,
     #[cfg(test)]
     surface_attach_after_obsolete_check: SurfaceAttachAfterObsoleteCheckHook,
 }
@@ -1443,6 +1507,7 @@ impl OrderedSession {
             retired_surfaces: Arc::new(Mutex::new(HashSet::new())),
             layout_resize_owner,
             layout_resize_transaction: Arc::new(AtomicU64::new(1)),
+            ambiguous_creations: Arc::new(Mutex::new(VecDeque::new())),
             #[cfg(test)]
             surface_attach_after_obsolete_check: Arc::new(Mutex::new(None)),
         }
@@ -1457,6 +1522,14 @@ impl OrderedSession {
     }
 
     fn pending_mutation_with_impact(&self, impact: MutationImpact) -> PendingSessionMutation {
+        self.pending_mutation_for_semantic_intent(impact, None)
+    }
+
+    fn pending_mutation_for_semantic_intent(
+        &self,
+        impact: MutationImpact,
+        semantic_intent: Option<u64>,
+    ) -> PendingSessionMutation {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
         if impact.blocks_pointer() {
             self.pending_pointer_mutations.fetch_add(1, Ordering::AcqRel);
@@ -1467,6 +1540,7 @@ impl OrderedSession {
             pending_mutations: self.pending_mutations.clone(),
             pending_pointer_mutations: self.pending_pointer_mutations.clone(),
             impact,
+            semantic_intent,
             cancellation_pending: self.cancellation_pending.clone(),
             settled: AtomicBool::new(false),
             deferred_outcome: Mutex::new(None),
@@ -1651,6 +1725,7 @@ impl OrderedSession {
     }
 
     fn begin_shutdown(&self) {
+        self.ambiguous_creations.lock().unwrap().clear();
         if let Some(executor) = self.remote_surface_attaches.lock().unwrap().as_ref() {
             executor.shutdown();
         }
@@ -2064,9 +2139,64 @@ impl OrderedSession {
         + Send
         + 'static,
     ) {
+        self.enqueue_with_completion_for_semantic_intent(label, impact, None, operation);
+    }
+
+    fn enqueue_with_completion_for_semantic_intent(
+        &self,
+        label: &'static str,
+        impact: MutationImpact,
+        semantic_intent: Option<u64>,
+        operation: impl FnOnce(Session) -> anyhow::Result<Option<SessionCompletionAction>>
+        + Send
+        + 'static,
+    ) {
+        self.enqueue_with_completion_internal(label, impact, semantic_intent, None, operation);
+    }
+
+    fn enqueue_creation_with_completion_for_semantic_intent(
+        &self,
+        label: &'static str,
+        semantic_intent: Option<u64>,
+        kind: CreationCompletionKind,
+        operation: impl FnOnce(Session) -> anyhow::Result<SurfaceId> + Send + 'static,
+    ) {
+        self.enqueue_creation_attempt(label, semantic_intent, kind, operation);
+    }
+
+    fn enqueue_creation_attempt(
+        &self,
+        label: &'static str,
+        semantic_intent: Option<u64>,
+        kind: CreationCompletionKind,
+        operation: impl FnOnce(Session) -> anyhow::Result<SurfaceId> + Send + 'static,
+    ) {
+        self.enqueue_with_completion_internal(
+            label,
+            MutationImpact::Destination,
+            semantic_intent,
+            Some(kind),
+            move |session| {
+                let surface = operation(session)?;
+                Ok(Some(kind.completion(surface)))
+            },
+        );
+    }
+
+    fn enqueue_with_completion_internal(
+        &self,
+        label: &'static str,
+        impact: MutationImpact,
+        semantic_intent: Option<u64>,
+        creation_attempt: Option<CreationCompletionKind>,
+        operation: impl FnOnce(Session) -> anyhow::Result<Option<SessionCompletionAction>>
+        + Send
+        + 'static,
+    ) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation_with_impact(impact);
+        let pending = self.pending_mutation_for_semantic_intent(impact, semantic_intent);
         let remote = self.remote;
+        let ambiguous_creations = self.ambiguous_creations.clone();
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let destination_token = impact
             .creates_destination_intent()
@@ -2081,6 +2211,19 @@ impl OrderedSession {
                 let completion = match operation(session.clone()) {
                     Ok(completion) => completion,
                     Err(error) => {
+                        if let Some(kind) = creation_attempt
+                            && let Some(creation) =
+                                error.downcast_ref::<AmbiguousCreation>().cloned()
+                        {
+                            ambiguous_creations.lock().unwrap().push_back(
+                                PendingAmbiguousCreation { creation, semantic_intent, kind, label },
+                            );
+                            session.invalidate_remote_tree();
+                            pending.defer(SessionMutationOutcome::CreationResponseAmbiguous(
+                                error.to_string(),
+                            ));
+                            return Err(error);
+                        }
                         if remote && is_remote_timeout(&error) {
                             session.invalidate_remote_tree();
                             pending
@@ -2096,8 +2239,11 @@ impl OrderedSession {
                 if let Some(destination_token) = destination_token {
                     destination_mutation_committed.fetch_max(destination_token, Ordering::AcqRel);
                 }
-                let completion =
-                    completion.map(|action| SessionCompletion { mutation_generation, action });
+                let completion = completion.map(|action| SessionCompletion {
+                    mutation_generation,
+                    semantic_intent,
+                    action,
+                });
                 session.invalidate_remote_tree();
                 if remote {
                     pending.defer(SessionMutationOutcome::CommittedTreeStale {
@@ -2125,6 +2271,24 @@ impl OrderedSession {
                 Ok(())
             },
         );
+    }
+
+    fn reconcile_ambiguous_creations(&self) -> usize {
+        let retryable = {
+            let mut pending = self.ambiguous_creations.lock().unwrap();
+            pending.drain(..).collect::<Vec<_>>()
+        };
+        let count = retryable.len();
+        for pending in retryable {
+            let creation = pending.creation;
+            self.enqueue_creation_attempt(
+                pending.label,
+                pending.semantic_intent,
+                pending.kind,
+                move |_| creation.retry(),
+            );
+        }
+        count
     }
 
     #[cfg(test)]
@@ -2587,10 +2751,22 @@ impl OrderedSession {
     }
 
     pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create tab", MutationImpact::Destination, move |session| {
-            let surface = session.new_tab(pane, size)?;
-            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-        });
+        self.new_tab_for_semantic_intent(pane, size, None)
+    }
+
+    fn new_tab_for_semantic_intent(
+        &self,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let receipt = CreationReceipt::new();
+        self.enqueue_creation_with_completion_for_semantic_intent(
+            "create tab",
+            semantic_intent,
+            CreationCompletionKind::Surface,
+            move |session| session.new_tab_receipted(pane, size, &receipt),
+        );
         Ok(())
     }
 
@@ -2601,10 +2777,13 @@ impl OrderedSession {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("run command", MutationImpact::Destination, move |session| {
-            let surface = session.run_command(argv, pane, cwd, size)?;
-            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-        });
+        let receipt = CreationReceipt::new();
+        self.enqueue_creation_with_completion_for_semantic_intent(
+            "run command",
+            None,
+            CreationCompletionKind::Surface,
+            move |session| session.run_command_receipted(argv, pane, cwd, size, &receipt),
+        );
         Ok(())
     }
 
@@ -2618,13 +2797,22 @@ impl OrderedSession {
         pane: Option<PaneId>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion(
+        self.new_browser_tab_for_semantic_intent(url, pane, size, None)
+    }
+
+    fn new_browser_tab_for_semantic_intent(
+        &self,
+        url: String,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let receipt = CreationReceipt::new();
+        self.enqueue_creation_with_completion_for_semantic_intent(
             "create browser tab",
-            MutationImpact::Destination,
-            move |session| {
-                let surface = session.new_browser_tab(url, pane, size)?;
-                Ok(Some(SessionCompletionAction::BrowserTabCreated { surface }))
-            },
+            semantic_intent,
+            CreationCompletionKind::Browser,
+            move |session| session.new_browser_tab_receipted(url, pane, size, &receipt),
         );
         Ok(())
     }
@@ -2648,30 +2836,33 @@ impl OrderedSession {
         );
     }
 
-    pub fn new_workspace(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_with_completion(
+    fn new_workspace_for_semantic_intent(
+        &self,
+        size: Option<(u16, u16)>,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let receipt = CreationReceipt::new();
+        self.enqueue_creation_with_completion_for_semantic_intent(
             "create workspace",
-            MutationImpact::Destination,
-            move |session| {
-                let surface = session.new_workspace(size)?;
-                Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-            },
+            semantic_intent,
+            CreationCompletionKind::Surface,
+            move |session| session.new_workspace_receipted(size, &receipt),
         );
         Ok(())
     }
 
-    pub fn new_screen(
+    fn new_screen_for_semantic_intent(
         &self,
         workspace: Option<WorkspaceId>,
         size: Option<(u16, u16)>,
+        semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion(
+        let receipt = CreationReceipt::new();
+        self.enqueue_creation_with_completion_for_semantic_intent(
             "create screen",
-            MutationImpact::Destination,
-            move |session| {
-                let surface = session.new_screen(workspace, size)?;
-                Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-            },
+            semantic_intent,
+            CreationCompletionKind::Surface,
+            move |session| session.new_screen_receipted(workspace, size, &receipt),
         );
         Ok(())
     }
@@ -2699,40 +2890,52 @@ impl OrderedSession {
         });
     }
 
-    pub fn split(
+    fn split_for_semantic_intent(
         &self,
         pane: PaneId,
         dir: SplitDir,
         size: Option<(u16, u16)>,
+        semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion("split pane", MutationImpact::Destination, move |session| {
-            let surface = session.split(pane, dir, size)?;
-            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-        });
+        let receipt = CreationReceipt::new();
+        self.enqueue_creation_with_completion_for_semantic_intent(
+            "split pane",
+            semantic_intent,
+            CreationCompletionKind::Surface,
+            move |session| session.split_receipted(pane, dir, size, &receipt),
+        );
         Ok(())
     }
 
-    pub fn new_pane(&self, pane: PaneId, size: Option<(u16, u16)>) -> anyhow::Result<()> {
-        self.enqueue_with_completion("create pane", MutationImpact::Destination, move |session| {
-            let surface = session.new_pane(pane, size)?;
-            Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-        });
+    fn new_pane_for_semantic_intent(
+        &self,
+        pane: PaneId,
+        size: Option<(u16, u16)>,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let receipt = CreationReceipt::new();
+        self.enqueue_creation_with_completion_for_semantic_intent(
+            "create pane",
+            semantic_intent,
+            CreationCompletionKind::Surface,
+            move |session| session.new_pane_receipted(pane, size, &receipt),
+        );
         Ok(())
     }
 
-    pub fn new_pane_right(
+    fn new_pane_right_for_semantic_intent(
         &self,
         pane: PaneId,
         width: f32,
         size: Option<(u16, u16)>,
+        semantic_intent: Option<u64>,
     ) -> anyhow::Result<()> {
-        self.enqueue_with_completion(
+        let receipt = CreationReceipt::new();
+        self.enqueue_creation_with_completion_for_semantic_intent(
             localization::catalog().layout.create_viewport_pane_operation,
-            MutationImpact::Destination,
-            move |session| {
-                let surface = session.new_pane_right(pane, width, size)?;
-                Ok(Some(SessionCompletionAction::SurfaceCreated { surface }))
-            },
+            semantic_intent,
+            CreationCompletionKind::Surface,
+            move |session| session.new_pane_right_receipted(pane, width, size, &receipt),
         );
         Ok(())
     }
@@ -4653,9 +4856,18 @@ struct DeferredInput {
 struct DeferredInputAdmission {
     destination: Option<SurfaceId>,
     destination_intent: Option<u64>,
+    semantic_dependency: Option<u64>,
+    semantic_result: Option<u64>,
     sidebar_focus_intent: bool,
     pairing_request: Option<u64>,
     client_owned: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SemanticDestinationOutcome {
+    Pending,
+    Resolved(SurfaceId),
+    Failed,
 }
 
 #[derive(Clone, Debug)]
@@ -5486,6 +5698,9 @@ pub struct App {
     /// Latest passive pointer position retained while the rendered hit map is stale.
     pending_pointer_motion: Option<PendingPointerMotion>,
     deferred_input_sequence: u64,
+    next_semantic_destination_intent: u64,
+    latest_semantic_destination_intent: Option<u64>,
+    semantic_destination_outcomes: HashMap<u64, SemanticDestinationOutcome>,
     /// Pointer routing snapshot for the frame that was last committed to the terminal.
     rendered_pointer_frame: RenderedPointerFrame,
     pointer_route_phase: PointerRoutePhase,
@@ -6715,6 +6930,9 @@ fn run_with_machine_updates_inner(
         deferred_input: VecDeque::new(),
         pending_pointer_motion: None,
         deferred_input_sequence: 0,
+        next_semantic_destination_intent: 0,
+        latest_semantic_destination_intent: None,
+        semantic_destination_outcomes: HashMap::new(),
         rendered_pointer_frame: RenderedPointerFrame::default(),
         pointer_route_phase: PointerRoutePhase::DrawPending,
         pointer_focus_generation: 0,
@@ -8405,6 +8623,42 @@ impl App {
             || self.deferred_input.iter().any(|input| input.sequence == sequence)
     }
 
+    fn mark_semantic_destination_failed(&mut self, intent: u64) {
+        if let Some(outcome) = self.semantic_destination_outcomes.get_mut(&intent) {
+            *outcome = SemanticDestinationOutcome::Failed;
+        }
+    }
+
+    fn retire_deferred_semantic_result(&mut self, input: &DeferredInput) {
+        if let Some(intent) = input.admission.semantic_result {
+            self.mark_semantic_destination_failed(intent);
+        }
+    }
+
+    fn semantic_dependency_outcome(
+        &self,
+        admission: &DeferredInputAdmission,
+    ) -> Option<SemanticDestinationOutcome> {
+        admission.semantic_dependency.map(|intent| {
+            self.semantic_destination_outcomes
+                .get(&intent)
+                .copied()
+                .unwrap_or(SemanticDestinationOutcome::Failed)
+        })
+    }
+
+    fn clear_finished_semantic_destinations(&mut self) {
+        if self.deferred_input.is_empty()
+            && !self
+                .semantic_destination_outcomes
+                .values()
+                .any(|outcome| *outcome == SemanticDestinationOutcome::Pending)
+        {
+            self.latest_semantic_destination_intent = None;
+            self.semantic_destination_outcomes.clear();
+        }
+    }
+
     fn replay_deferred_input_batch(&mut self) -> anyhow::Result<DeferredReplayOutcome> {
         const MAX_REPLAYED_INPUTS: usize = 256;
         let mut action = RenderAction::None;
@@ -8476,6 +8730,45 @@ impl App {
                 });
             }
             let Some(input) = self.deferred_input.front() else { break };
+            match self.semantic_dependency_outcome(&input.admission) {
+                Some(SemanticDestinationOutcome::Pending) => {
+                    return Ok(DeferredReplayOutcome {
+                        action,
+                        disposition: DeferredReplayDisposition::Blocked,
+                    });
+                }
+                Some(SemanticDestinationOutcome::Failed) => {
+                    let input = self.deferred_input.pop_front().unwrap();
+                    self.retire_deferred_semantic_result(&input);
+                    self.status_message = Some(
+                        localization::catalog()
+                            .terminal
+                            .deferred_input_destination_changed
+                            .to_string(),
+                    );
+                    action = action.merge(RenderAction::Draw);
+                    replayed += 1;
+                    continue;
+                }
+                Some(SemanticDestinationOutcome::Resolved(surface))
+                    if !input.admission.client_owned
+                        && !Self::input_accepts_semantic_destination(&input.event)
+                        && self.input_destination(&input.event) != Some(surface) =>
+                {
+                    let input = self.deferred_input.pop_front().unwrap();
+                    self.retire_deferred_semantic_result(&input);
+                    self.status_message = Some(
+                        localization::catalog()
+                            .terminal
+                            .deferred_input_destination_changed
+                            .to_string(),
+                    );
+                    action = action.merge(RenderAction::Draw);
+                    replayed += 1;
+                    continue;
+                }
+                Some(SemanticDestinationOutcome::Resolved(_)) | None => {}
+            }
             if input
                 .pointer
                 .as_ref()
@@ -8521,6 +8814,7 @@ impl App {
         } else {
             DeferredReplayDisposition::Blocked
         };
+        self.clear_finished_semantic_destinations();
         Ok(DeferredReplayOutcome { action, disposition })
     }
 
@@ -8655,11 +8949,14 @@ impl App {
         if self.surface_only.is_some() {
             return;
         }
+        let semantic_intent = completion.semantic_intent;
         match completion.action {
             SessionCompletionAction::SurfaceCreated { surface } => {
+                self.resolve_semantic_destination(semantic_intent, surface);
                 self.select_created_surface(surface);
             }
             SessionCompletionAction::BrowserTabCreated { surface } => {
+                self.resolve_semantic_destination(semantic_intent, surface);
                 self.select_created_surface(surface);
                 let pane = self
                     .tab_locations
@@ -8700,6 +8997,18 @@ impl App {
                 self.status_message =
                     Some(localization::catalog().sidebar.layout_undo_stale.to_string());
             }
+        }
+    }
+
+    fn resolve_semantic_destination(&mut self, intent: Option<u64>, surface: SurfaceId) {
+        let Some(intent) = intent else { return };
+        let outcome = if self.tab_locations.contains_key(&surface) {
+            SemanticDestinationOutcome::Resolved(surface)
+        } else {
+            SemanticDestinationOutcome::Failed
+        };
+        if let Some(current) = self.semantic_destination_outcomes.get_mut(&intent) {
+            *current = outcome;
         }
     }
 
@@ -8750,6 +9059,8 @@ impl App {
 
     fn apply_session_cancellation(&mut self) {
         self.deferred_input.clear();
+        self.latest_semantic_destination_intent = None;
+        self.semantic_destination_outcomes.clear();
         self.prefix_armed = false;
         self.pending_session_completions.clear();
         self.pending_size_releases.clear();
@@ -10139,13 +10450,28 @@ impl App {
                     }
                 }
                 self.input_revision = self.input_revision.wrapping_add(1);
+                input = match input {
+                    TerminalInput::Keyboard(key) => match self.resolve_keyboard_ingress(key) {
+                        KeyboardIngress::Routed(input) => input,
+                        KeyboardIngress::Handled(action) => {
+                            let dismissed = self.dismiss_painted_durable_notice();
+                            return Ok(if dismissed {
+                                action.merge(RenderAction::Draw)
+                            } else {
+                                action
+                            });
+                        }
+                        KeyboardIngress::Ignored => return Ok(RenderAction::None),
+                    },
+                    input => input,
+                };
                 if input.retained_bytes() > MAX_DEFERRED_INPUT_BYTES {
                     self.status_message = Some(
                         match &input {
                             TerminalInput::Paste(_) => {
                                 localization::catalog().terminal.paste_text_too_large
                             }
-                            TerminalInput::Keyboard(_) => {
+                            TerminalInput::Keyboard(_) | TerminalInput::ClearHistoryKey(_) => {
                                 localization::catalog().terminal.keyboard_text_too_large
                             }
                             _ => unreachable!("fixed-size input cannot exceed the byte limit"),
@@ -10160,7 +10486,12 @@ impl App {
         };
         if matches!(
             &event,
-            AppEvent::NormalizedInput(TerminalInput::Keyboard(_) | TerminalInput::Paste(_))
+            AppEvent::NormalizedInput(
+                TerminalInput::Keyboard(_)
+                    | TerminalInput::FrontendAction { .. }
+                    | TerminalInput::ClearHistoryKey(_)
+                    | TerminalInput::Paste(_)
+            )
         ) {
             let current_pairing = self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id);
             let replayed_pairing_changed = replay_context
@@ -10229,10 +10560,12 @@ impl App {
         let event = match event {
             AppEvent::NormalizedInput(
                 input @ (TerminalInput::Keyboard(_)
+                | TerminalInput::FrontendAction { .. }
+                | TerminalInput::ClearHistoryKey(_)
                 | TerminalInput::Mouse(_)
                 | TerminalInput::Paste(_)),
             ) if self.fresh_input_must_follow_deferred(&input, input_sequence)
-                && !self.input_can_update_pending_mutation(&input) =>
+                && !self.input_can_overtake_deferred(&input) =>
             {
                 return Ok(self.defer_input_with_sequence(
                     input,
@@ -10246,14 +10579,18 @@ impl App {
         let client_owned = match &event {
             AppEvent::NormalizedInput(input) => {
                 replay_context.as_ref().and_then(|context| context.admission.as_ref()).map_or_else(
-                    || self.prefixed_key_is_client_owned(input),
+                    || self.input_is_client_owned(input),
                     |admission| admission.client_owned,
                 )
             }
             _ => false,
         };
         let missing_surface = match &event {
-            AppEvent::NormalizedInput(input) if !client_owned => self.missing_input_surface(input),
+            AppEvent::NormalizedInput(input) if !client_owned => self
+                .missing_input_surface_for_admission(
+                    input,
+                    replay_context.as_ref().and_then(|context| context.admission.as_ref()),
+                ),
             _ => None,
         };
         let mut terminal_pointer_admission = None;
@@ -10338,15 +10675,38 @@ impl App {
                 && !pointer_has_capture
             {
                 let follows_pending_route =
-                    matches!(input, TerminalInput::Keyboard(_) | TerminalInput::Paste(_))
-                        && admission.destination_intent.is_some_and(|intent| {
-                            self.session.destination_mutation_committed() >= intent
-                                && self.session.destination_mutation_started() == intent
-                        });
+                    matches!(
+                        input,
+                        TerminalInput::Keyboard(_)
+                            | TerminalInput::FrontendAction { .. }
+                            | TerminalInput::ClearHistoryKey(_)
+                            | TerminalInput::Paste(_)
+                    ) && admission.destination_intent.is_some_and(|intent| {
+                        self.session.destination_mutation_committed() >= intent
+                            && self.session.destination_mutation_started() == intent
+                    });
+                let follows_semantic_route = admission.semantic_dependency.is_some_and(|intent| {
+                    matches!(
+                        self.semantic_destination_outcomes.get(&intent),
+                        Some(SemanticDestinationOutcome::Resolved(surface))
+                            if Self::input_accepts_semantic_destination(input)
+                                && self.tab_locations.contains_key(surface)
+                    )
+                });
+                let follows_captured_action_route = matches!(
+                    input,
+                    TerminalInput::FrontendAction { action, .. }
+                        if !action_is_frontend_local(*action)
+                            && admission.destination.is_some_and(|surface| {
+                                self.tab_locations.contains_key(&surface)
+                            })
+                );
                 let follows_sidebar_focus =
                     admission.sidebar_focus_intent && self.workspace_sidebar_focused();
                 if !admission.client_owned
                     && !follows_pending_route
+                    && !follows_semantic_route
+                    && !follows_captured_action_route
                     && !follows_sidebar_focus
                     && self.input_destination(input) != admission.destination
                 {
@@ -10382,6 +10742,8 @@ impl App {
         let event = match event {
             AppEvent::NormalizedInput(
                 input @ (TerminalInput::Keyboard(_)
+                | TerminalInput::FrontendAction { .. }
+                | TerminalInput::ClearHistoryKey(_)
                 | TerminalInput::Mouse(_)
                 | TerminalInput::Paste(_)),
             ) if missing_surface.is_some() && !self.input_can_update_pending_mutation(&input) => {
@@ -10396,6 +10758,8 @@ impl App {
             }
             AppEvent::NormalizedInput(
                 input @ (TerminalInput::Keyboard(_)
+                | TerminalInput::FrontendAction { .. }
+                | TerminalInput::ClearHistoryKey(_)
                 | TerminalInput::Mouse(_)
                 | TerminalInput::Paste(_)),
             ) if !matches!(
@@ -10459,6 +10823,8 @@ impl App {
                             return Ok(RenderAction::None);
                         }
                         self.deferred_input.clear();
+                        self.latest_semantic_destination_intent = None;
+                        self.semantic_destination_outcomes.clear();
                         self.prefix_armed = false;
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
@@ -10697,7 +11063,16 @@ impl App {
             }
             AppEvent::SessionMutationSettled { outcome, impact } => {
                 self.session.settle_pending_mutation(impact);
+                let (semantic_intent, outcome) = match outcome {
+                    SessionMutationOutcome::SemanticIntent { intent, outcome } => {
+                        (Some(intent), *outcome)
+                    }
+                    outcome => (None, outcome),
+                };
                 match outcome {
+                    SessionMutationOutcome::SemanticIntent { .. } => {
+                        unreachable!("semantic mutation outcomes are unwrapped once")
+                    }
                     SessionMutationOutcome::Success { tree } => {
                         if let Some(tree) = tree {
                             self.replace_tree(tree);
@@ -10746,6 +11121,7 @@ impl App {
                         self.background_refresh_retry_at = None;
                         self.apply_session_completions_through(authoritative_generation);
                         self.complete_remote_tree_refresh(true);
+                        self.session.reconcile_ambiguous_creations();
                     }
                     SessionMutationOutcome::CommittedTreeStale { error, completion } => {
                         if let Some(completion) = completion {
@@ -10833,7 +11209,23 @@ impl App {
                     SessionMutationOutcome::ClientSizingChanged => {
                         self.session.refresh_clients_background();
                     }
+                    SessionMutationOutcome::CreationResponseAmbiguous(error) => {
+                        self.status_message = Some(format!(
+                            "session creation may have committed; resolving its receipt: {error}"
+                        ));
+                        self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
+                        self.session.invalidate_remote_tree();
+                        self.session.refresh_remote_tree_if_stale();
+                        return Ok(RenderAction::Draw);
+                    }
                     SessionMutationOutcome::MutationTimedOut(error) => {
+                        if let Some(intent) = semantic_intent {
+                            // A peer without creation receipts cannot identify
+                            // which surface, if any, a timed-out creation made.
+                            // Fail only that route so dependent input is never
+                            // guessed onto whichever surface became active.
+                            self.mark_semantic_destination_failed(intent);
+                        }
                         self.status_message = Some(format!(
                             "session operation may have committed; refreshing its layout: {error}"
                         ));
@@ -10843,6 +11235,12 @@ impl App {
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Failed(error) => {
+                        if let Some(intent) = semantic_intent {
+                            self.mark_semantic_destination_failed(intent);
+                            self.status_message =
+                                Some(format!("session operation failed: {error}"));
+                            return Ok(RenderAction::Draw);
+                        }
                         self.deferred_input.clear();
                         self.prefix_armed = false;
                         self.pending_session_completions.clear();
@@ -10850,6 +11248,12 @@ impl App {
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Canceled => {
+                        if let Some(intent) = semantic_intent {
+                            self.mark_semantic_destination_failed(intent);
+                            self.status_message =
+                                Some("session operation was canceled".to_string());
+                            return Ok(RenderAction::Draw);
+                        }
                         if self.session.has_pending_mutations() {
                             self.session.defer_cancellation();
                             return Ok(RenderAction::None);
@@ -10892,6 +11296,7 @@ impl App {
                 };
                 if refreshed {
                     self.complete_remote_tree_refresh(true);
+                    self.session.reconcile_ambiguous_creations();
                 }
                 Ok(RenderAction::Draw)
             }
@@ -10908,7 +11313,22 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             AppEvent::NormalizedInput(input) => {
-                self.dispatch_terminal_input(input, input_sequence, terminal_pointer_admission)
+                let admission =
+                    replay_context.as_ref().and_then(|context| context.admission.as_ref());
+                let semantic_result = admission.and_then(|value| value.semantic_result);
+                let semantic_destination = self.semantic_destination_for_input(&input, admission);
+                let action_destination = if matches!(&input, TerminalInput::FrontendAction { .. }) {
+                    semantic_destination.or_else(|| admission.and_then(|value| value.destination))
+                } else {
+                    semantic_destination
+                };
+                self.dispatch_terminal_input(
+                    input,
+                    input_sequence,
+                    terminal_pointer_admission,
+                    semantic_result,
+                    action_destination,
+                )
             }
             AppEvent::HostInputFailed(error) => {
                 anyhow::bail!(localization::catalog().runtime.host_input_failed(&error))
@@ -10925,11 +11345,37 @@ impl App {
         input: TerminalInput,
         input_sequence: Option<u64>,
         terminal_pointer_admission: Option<TerminalPointerAdmission>,
+        semantic_result: Option<u64>,
+        action_destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
+        let semantic_result =
+            if semantic_result.is_none() && self.input_creates_session_destination(&input) {
+                self.clear_finished_semantic_destinations();
+                let intent = self.allocate_semantic_destination_intent();
+                self.latest_semantic_destination_intent = Some(intent);
+                Some(intent)
+            } else {
+                semantic_result
+            };
         match input {
             TerminalInput::Keyboard(key) => {
                 let dismissed = !key.is_release() && self.dismiss_painted_durable_notice();
-                let action = self.handle_keyboard(key)?;
+                let action = self.handle_direct_keyboard_to(key, action_destination)?;
+                Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
+            }
+            TerminalInput::FrontendAction { action, prefix } => {
+                let dismissed = self.dismiss_painted_durable_notice();
+                let action = self.run_resolved_action_with_semantic_intent(
+                    action,
+                    prefix,
+                    semantic_result,
+                    action_destination,
+                )?;
+                Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
+            }
+            TerminalInput::ClearHistoryKey(input) => {
+                let dismissed = self.dismiss_painted_durable_notice();
+                let action = self.run_clear_history_shortcut_to(input, action_destination);
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             TerminalInput::Mouse(mouse) => {
@@ -10956,7 +11402,7 @@ impl App {
             }
             TerminalInput::Paste(text) => {
                 let dismissed = self.dismiss_painted_durable_notice();
-                let action = self.handle_paste(text)?;
+                let action = self.handle_paste_to(text, action_destination)?;
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             TerminalInput::FocusGained => {
@@ -10981,7 +11427,11 @@ impl App {
         }
     }
 
-    fn handle_paste(&mut self, text: String) -> anyhow::Result<RenderAction> {
+    fn handle_paste_to(
+        &mut self,
+        text: String,
+        destination: Option<SurfaceId>,
+    ) -> anyhow::Result<RenderAction> {
         self.status_message = None;
         if self.pairing_dialog.is_some() || self.shortcut_help.is_some() {
             Ok(RenderAction::Draw)
@@ -11009,26 +11459,38 @@ impl App {
                 Ok(RenderAction::Draw)
             }
         } else {
-            self.paste(&text);
+            if let Some(surface) = destination {
+                self.paste_to_surface(&text, surface);
+            } else {
+                self.paste(&text);
+            }
             Ok(if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None })
         }
     }
 
     fn input_can_update_pending_mutation(&self, input: &TerminalInput) -> bool {
-        if let TerminalInput::Keyboard(input) = input
-            && !input.suppresses_alt_shortcut()
+        if matches!(
+            input,
+            TerminalInput::Keyboard(_)
+                | TerminalInput::FrontendAction { .. }
+                | TerminalInput::ClearHistoryKey(_)
+        ) && (self.pairing_dialog.is_some()
+            || self.shortcut_help.is_some()
+            || self.prompt.is_some()
+            || self.menu.is_some()
+            || self.omnibar.is_some()
+            || self.machine_sidebar_focused()
+            || self.workspace_sidebar_focused() && self.config.sidebar.plugin.is_none())
         {
-            let (key, fallback) = input.shortcut_keys();
-            if (binding_matches(&self.config.keys.prefix, &key, fallback.as_ref())
-                && !self.prefix_armed)
-                || modeless_action_for_binding(&self.config.keys, &key, fallback.as_ref())
-                    == Some(Action::Detach)
-                || (self.prefix_armed
-                    && action_for_binding(&self.config.keys, &key, fallback.as_ref())
-                        == Some(Action::Detach))
+            return true;
+        }
+        match input {
+            TerminalInput::FrontendAction { action, .. }
+                if action_is_frontend_local(*action) || *action == Action::Detach =>
             {
                 return true;
             }
+            _ => {}
         }
         if let TerminalInput::Mouse(mouse) = input
             && self.pointer_has_capture(mouse.kind)
@@ -11084,33 +11546,86 @@ impl App {
         )
     }
 
-    /// A completed prefix chord is frontend control input, so a routing
-    /// refresh must not reinterpret or discard its suffix as PTY input. The
-    /// doubled prefix and browser shortcuts on non-browser tabs are excluded
-    /// because those paths intentionally forward bytes to the active surface.
-    fn prefixed_key_is_client_owned(&self, input: &TerminalInput) -> bool {
-        let TerminalInput::Keyboard(input) = input else { return false };
-        if !self.prefix_armed {
-            return false;
-        }
-        let mut input = input.clone();
-        input.resolve_macos_option_as_alt(self.config.keys.macos_option_as_alt);
-        if input.is_composing() {
-            return false;
-        }
-        if input.suppresses_alt_shortcut() {
+    fn input_can_overtake_deferred(&self, input: &TerminalInput) -> bool {
+        if matches!(input, TerminalInput::FrontendAction { action: Action::Detach, .. }) {
             return true;
         }
-        let (key, fallback) = input.shortcut_keys();
-        if binding_matches(&self.config.keys.prefix, &key, fallback.as_ref()) {
-            return false;
+        if let TerminalInput::Mouse(mouse) = input
+            && self.pointer_has_capture(mouse.kind)
+        {
+            return true;
         }
-        action_for_binding(&self.config.keys, &key, fallback.as_ref()).is_none_or(|action| {
-            !browser_only_action(action)
-                || self
-                    .active_surface_handle()
-                    .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
-        })
+        matches!(
+            (input, &self.drag),
+            (
+                TerminalInput::Mouse(MouseEvent {
+                    kind: MouseEventKind::Drag(_) | MouseEventKind::Up(_),
+                    ..
+                }),
+                Some(
+                    Drag::HorizontalScrollbar { .. }
+                        | Drag::ResizeSplit { .. }
+                        | Drag::Select { .. }
+                        | Drag::Browser { .. }
+                        | Drag::PtyMouse { .. }
+                        | Drag::WorkspaceArm { .. }
+                        | Drag::TabArm { .. }
+                )
+            )
+        )
+    }
+
+    /// Prefix syntax is resolved exactly once at host ingress. Frontend-owned
+    /// suffixes can therefore survive a backend refresh without consulting
+    /// mutable parser state during replay.
+    fn input_is_client_owned(&self, input: &TerminalInput) -> bool {
+        matches!(
+            input,
+            TerminalInput::FrontendAction { action, .. } if action_is_frontend_local(*action)
+        )
+    }
+
+    fn input_accepts_semantic_destination(input: &TerminalInput) -> bool {
+        matches!(
+            input,
+            TerminalInput::Keyboard(_)
+                | TerminalInput::FrontendAction { .. }
+                | TerminalInput::ClearHistoryKey(_)
+                | TerminalInput::Paste(_)
+        )
+    }
+
+    fn semantic_destination_for_input(
+        &self,
+        input: &TerminalInput,
+        admission: Option<&DeferredInputAdmission>,
+    ) -> Option<SurfaceId> {
+        if !Self::input_accepts_semantic_destination(input) {
+            return None;
+        }
+        let intent = admission?.semantic_dependency?;
+        match self.semantic_destination_outcomes.get(&intent) {
+            Some(SemanticDestinationOutcome::Resolved(surface)) => Some(*surface),
+            Some(SemanticDestinationOutcome::Pending | SemanticDestinationOutcome::Failed)
+            | None => None,
+        }
+    }
+
+    fn input_creates_session_destination(&self, input: &TerminalInput) -> bool {
+        let TerminalInput::FrontendAction { action, .. } = input else { return false };
+        action_creates_destination(*action)
+            && (*action != Action::NewWorkspace
+                || self.workspace_creation_policy() == Some(WorkspaceCreationPolicy::SessionOwned))
+    }
+
+    fn allocate_semantic_destination_intent(&mut self) -> u64 {
+        self.next_semantic_destination_intent =
+            self.next_semantic_destination_intent.wrapping_add(1).max(1);
+        let intent = self.next_semantic_destination_intent;
+        let previous =
+            self.semantic_destination_outcomes.insert(intent, SemanticDestinationOutcome::Pending);
+        debug_assert!(previous.is_none(), "live semantic destination intent reused");
+        intent
     }
 
     fn advance_pointer_focus_generation(&mut self) {
@@ -11136,20 +11651,34 @@ impl App {
         // Admission belongs to the input's arrival, not to whichever pane is
         // focused when asynchronous mutations later replay it. Preserve the
         // complete original admission whenever an input must wait again.
-        let admission = replay_admission.unwrap_or_else(|| {
+        let admission = if let Some(admission) = replay_admission {
+            admission
+        } else {
+            self.clear_finished_semantic_destinations();
             let destination_started = self.session.destination_mutation_started();
+            let client_owned = self.input_is_client_owned(&input);
+            let semantic_dependency =
+                if client_owned { None } else { self.latest_semantic_destination_intent };
+            let semantic_result = self
+                .input_creates_session_destination(&input)
+                .then(|| self.allocate_semantic_destination_intent());
+            if let Some(intent) = semantic_result {
+                self.latest_semantic_destination_intent = Some(intent);
+            }
             DeferredInputAdmission {
                 destination: self.input_destination(&input),
                 destination_intent: (destination_started > self.applied_destination_generation)
                     .then_some(destination_started),
+                semantic_dependency,
+                semantic_result,
                 sidebar_focus_intent: self.sidebar_focus_pending && input.is_keyboard_or_paste(),
                 pairing_request: replay_sequence
                     .is_none()
                     .then(|| self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id))
                     .flatten(),
-                client_owned: self.prefixed_key_is_client_owned(&input),
+                client_owned,
             }
-        });
+        };
         let pointer = if replay_sequence.is_some() {
             replay_pointer
         } else if let TerminalInput::Mouse(mouse) = &input {
@@ -11217,6 +11746,7 @@ impl App {
                 return RenderAction::Draw;
             }
             let Some(removed) = self.deferred_input.pop_front() else { break };
+            self.retire_deferred_semantic_result(&removed);
             queued_bytes = queued_bytes.saturating_sub(removed.event.retained_bytes());
         }
         let input = DeferredInput { event: input, admission, pointer, sequence };
@@ -11305,6 +11835,8 @@ impl App {
             admission: DeferredInputAdmission {
                 destination: pending.destination,
                 destination_intent: None,
+                semantic_dependency: None,
+                semantic_result: None,
                 sidebar_focus_intent: false,
                 pairing_request: None,
                 client_owned: false,
@@ -11362,7 +11894,10 @@ impl App {
             return false;
         }
         match input {
-            TerminalInput::Keyboard(_) | TerminalInput::Paste(_) => true,
+            TerminalInput::Keyboard(_)
+            | TerminalInput::FrontendAction { .. }
+            | TerminalInput::ClearHistoryKey(_)
+            | TerminalInput::Paste(_) => true,
             TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }) => false,
             TerminalInput::Mouse(_) => self.active_pointer_buttons.is_empty(),
             _ => false,
@@ -11516,11 +12051,18 @@ impl App {
 
     fn input_destination(&self, input: &TerminalInput) -> Option<SurfaceId> {
         match input {
-            TerminalInput::Keyboard(_) | TerminalInput::Paste(_)
+            TerminalInput::Keyboard(_)
+            | TerminalInput::ClearHistoryKey(_)
+            | TerminalInput::Paste(_)
                 if self.prompt.is_none()
                     && self.shortcut_help.is_none()
                     && self.omnibar.is_none()
                     && self.focus == FocusTarget::Pane =>
+            {
+                self.active_surface()
+            }
+            TerminalInput::FrontendAction { action, .. }
+                if !action_is_frontend_local(*action) && self.focus == FocusTarget::Pane =>
             {
                 self.active_surface()
             }
@@ -11534,6 +12076,18 @@ impl App {
 
     fn active_pane(&self) -> Option<PaneId> {
         self.tree.active_screen().map(|screen| screen.active_pane)
+    }
+
+    fn pane_for_surface(&self, surface: SurfaceId) -> Option<PaneId> {
+        let [workspace, screen, pane, _] = self.tab_locations.get(&surface).copied()?;
+        self.tree
+            .workspaces
+            .get(workspace)?
+            .screens
+            .get(screen)?
+            .panes
+            .get(pane)
+            .map(|pane| pane.id)
     }
 
     fn active_surface(&self) -> Option<SurfaceId> {
@@ -11573,8 +12127,23 @@ impl App {
     }
 
     fn missing_input_surface(&self, input: &TerminalInput) -> Option<SurfaceId> {
+        self.missing_input_surface_for_admission(input, None)
+    }
+
+    fn missing_input_surface_for_admission(
+        &self,
+        input: &TerminalInput,
+        admission: Option<&DeferredInputAdmission>,
+    ) -> Option<SurfaceId> {
         let surface = match input {
-            TerminalInput::Keyboard(_) | TerminalInput::Paste(_) => self.active_surface()?,
+            TerminalInput::Keyboard(_)
+            | TerminalInput::ClearHistoryKey(_)
+            | TerminalInput::Paste(_) => self
+                .semantic_destination_for_input(input, admission)
+                .or_else(|| self.active_surface())?,
+            TerminalInput::FrontendAction { action: Action::SendPrefix, .. } => self
+                .semantic_destination_for_input(input, admission)
+                .or_else(|| self.active_surface())?,
             TerminalInput::Mouse(mouse) => {
                 let area = self.pane_area_at(mouse.column, mouse.row)?;
                 area.content.contains(mouse.column, mouse.row).then_some(area.surface)?
@@ -11605,7 +12174,9 @@ impl App {
                 TerminalInput::Mouse(mouse) => !self.pointer_route_is_stale_for_mouse(mouse),
                 _ => true,
             })
-            .filter_map(|input| self.missing_input_surface(&input.event))
+            .filter_map(|input| {
+                self.missing_input_surface_for_admission(&input.event, Some(&input.admission))
+            })
             .find(|surface| self.session.can_attach_surface(*surface))
             .or_else(|| {
                 self.pending_pointer_motion
@@ -11892,17 +12463,30 @@ impl App {
         self.size_of_rect(b)
     }
 
-    fn split_pane(&mut self, pane: PaneId, dir: SplitDir) -> anyhow::Result<()> {
+    fn split_pane(
+        &mut self,
+        pane: PaneId,
+        dir: SplitDir,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<()> {
         let hint = self.split_size_hint(pane, dir);
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        self.session.split(pane, dir, hint)
+        self.session.split_for_semantic_intent(pane, dir, hint, semantic_intent)
     }
 
-    fn new_terminal_tab(&mut self, pane: Option<PaneId>) -> anyhow::Result<()> {
+    fn new_terminal_tab(
+        &mut self,
+        pane: Option<PaneId>,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<()> {
         let pane = pane.or_else(|| self.active_pane());
-        self.session.new_tab(pane, self.terminal_tab_size_hint(pane))
+        self.session.new_tab_for_semantic_intent(
+            pane,
+            self.terminal_tab_size_hint(pane),
+            semantic_intent,
+        )
     }
 
     fn terminal_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
@@ -11917,7 +12501,11 @@ impl App {
         }
     }
 
-    fn new_pane_smart(&mut self, pane: Option<PaneId>) -> anyhow::Result<()> {
+    fn new_pane_smart(
+        &mut self,
+        pane: Option<PaneId>,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<()> {
         let Some(pane) = pane.or_else(|| self.active_pane()) else {
             return Ok(());
         };
@@ -11951,10 +12539,10 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        self.session.new_pane(pane, Some(hint))
+        self.session.new_pane_for_semantic_intent(pane, Some(hint), semantic_intent)
     }
 
-    fn new_pane_right(&mut self) -> anyhow::Result<()> {
+    fn new_pane_right(&mut self, semantic_intent: Option<u64>) -> anyhow::Result<()> {
         let Some(pane) = self.active_pane() else {
             return Ok(());
         };
@@ -11964,12 +12552,17 @@ impl App {
         let rect = Rect { width, ..self.content_area };
         let hint = self.size_of_rect(rect);
         if self.prepare_pty_input_before_mutation() {
-            self.session.new_pane_right(pane, DEFAULT_VIEWPORT_PANE_WIDTH, hint)?;
+            self.session.new_pane_right_for_semantic_intent(
+                pane,
+                DEFAULT_VIEWPORT_PANE_WIDTH,
+                hint,
+                semantic_intent,
+            )?;
         }
         Ok(())
     }
 
-    fn new_workspace(&mut self) -> anyhow::Result<()> {
+    fn new_workspace(&mut self, semantic_intent: Option<u64>) -> anyhow::Result<()> {
         let Some(mode) = self.default_workspace_creation_mode() else {
             self.status_message = Some(
                 if self.workspace_creation_policy().is_none() {
@@ -11981,10 +12574,14 @@ impl App {
             );
             return Ok(());
         };
-        self.create_workspace(mode)
+        self.create_workspace(mode, semantic_intent)
     }
 
-    fn create_workspace(&mut self, mode: Option<WorkspaceCreationMode>) -> anyhow::Result<()> {
+    fn create_workspace(
+        &mut self,
+        mode: Option<WorkspaceCreationMode>,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<()> {
         if let Some(mode) = mode {
             self.request_managed_workspace(mode);
             return Ok(());
@@ -11997,7 +12594,10 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        self.session.new_workspace(self.size_of_rect(self.content_area))
+        self.session.new_workspace_for_semantic_intent(
+            self.size_of_rect(self.content_area),
+            semantic_intent,
+        )
     }
 
     fn request_managed_workspace(&mut self, mode: WorkspaceCreationMode) {
@@ -12339,12 +12939,91 @@ impl App {
         }
     }
 
-    fn new_screen(&mut self) -> anyhow::Result<()> {
+    fn new_screen(&mut self, semantic_intent: Option<u64>) -> anyhow::Result<()> {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
         let workspace = self.tree.active_workspace().map(|workspace| workspace.id);
-        self.session.new_screen(workspace, self.size_of_rect(self.content_area))
+        self.session.new_screen_for_semantic_intent(
+            workspace,
+            self.size_of_rect(self.content_area),
+            semantic_intent,
+        )
+    }
+
+    fn resolve_keyboard_ingress(&mut self, mut input: keys::KeyboardInput) -> KeyboardIngress {
+        input.resolve_macos_option_as_alt(self.config.keys.macos_option_as_alt);
+        if input.is_composing() || input.is_modifier_only() || input.is_release() {
+            return KeyboardIngress::Ignored;
+        }
+        self.status_message = None;
+        if self.pairing_dialog.is_some()
+            || self.shortcut_help.is_some()
+            || self.prompt.is_some()
+            || self.menu.is_some()
+            || self.omnibar.is_some()
+        {
+            return KeyboardIngress::Routed(TerminalInput::Keyboard(input));
+        }
+        let (binding_key, binding_fallback) = input.shortcut_keys();
+        if self.prefix_armed {
+            self.prefix_armed = false;
+            if input.suppresses_alt_shortcut() {
+                self.focus = FocusTarget::Pane;
+                return KeyboardIngress::Handled(RenderAction::Draw);
+            }
+            if binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref()) {
+                return KeyboardIngress::Routed(TerminalInput::Keyboard(input));
+            }
+            let Some(action) =
+                action_for_binding(&self.config.keys, &binding_key, binding_fallback.as_ref())
+            else {
+                self.focus = FocusTarget::Pane;
+                return KeyboardIngress::Handled(RenderAction::Draw);
+            };
+            let was_sidebar_focused = self.workspace_sidebar_focused();
+            if !(was_sidebar_focused && action == Action::SendPrefix) {
+                self.focus = FocusTarget::Pane;
+            }
+            if was_sidebar_focused && action == Action::FocusSidebar {
+                return KeyboardIngress::Handled(RenderAction::Draw);
+            }
+            if browser_only_action(action)
+                && !self
+                    .active_surface_handle()
+                    .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
+            {
+                return KeyboardIngress::Routed(TerminalInput::Keyboard(input));
+            }
+            let prefix = self.config.keys.prefix;
+            return KeyboardIngress::Routed(TerminalInput::FrontendAction {
+                action,
+                prefix: KeyEvent::new(prefix.code, prefix.mods),
+            });
+        }
+        if !input.suppresses_alt_shortcut()
+            && binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref())
+        {
+            self.prefix_armed = true;
+            return KeyboardIngress::Handled(RenderAction::Draw);
+        }
+        if !input.suppresses_alt_shortcut()
+            && let Some(action) = modeless_action_for_binding(
+                &self.config.keys,
+                &binding_key,
+                binding_fallback.as_ref(),
+            )
+        {
+            if action == Action::ClearHistory {
+                return KeyboardIngress::Routed(TerminalInput::ClearHistoryKey(input));
+            }
+            let prefix = self.config.keys.prefix;
+            return KeyboardIngress::Routed(TerminalInput::FrontendAction {
+                action,
+                prefix: KeyEvent::new(prefix.code, prefix.mods),
+            });
+        }
+        KeyboardIngress::Routed(TerminalInput::Keyboard(input))
     }
 
     #[cfg(test)]
@@ -12352,16 +13031,38 @@ impl App {
         self.handle_keyboard(key.into())
     }
 
-    fn handle_keyboard(&mut self, mut input: keys::KeyboardInput) -> anyhow::Result<RenderAction> {
-        input.resolve_macos_option_as_alt(self.config.keys.macos_option_as_alt);
-        if input.is_composing() {
-            return Ok(RenderAction::None);
+    #[cfg(test)]
+    fn handle_keyboard(&mut self, input: keys::KeyboardInput) -> anyhow::Result<RenderAction> {
+        match self.resolve_keyboard_ingress(input) {
+            KeyboardIngress::Routed(TerminalInput::Keyboard(input)) => {
+                self.handle_direct_keyboard(input)
+            }
+            KeyboardIngress::Routed(TerminalInput::FrontendAction { action, prefix }) => {
+                self.run_resolved_action(action, prefix)
+            }
+            KeyboardIngress::Routed(TerminalInput::ClearHistoryKey(input)) => {
+                Ok(self.run_clear_history_shortcut(input))
+            }
+            KeyboardIngress::Routed(_) => unreachable!("keyboard ingress returned non-key input"),
+            KeyboardIngress::Handled(action) => Ok(action),
+            KeyboardIngress::Ignored => Ok(RenderAction::None),
         }
+    }
+
+    #[cfg(test)]
+    fn handle_direct_keyboard(
+        &mut self,
+        input: keys::KeyboardInput,
+    ) -> anyhow::Result<RenderAction> {
+        self.handle_direct_keyboard_to(input, None)
+    }
+
+    fn handle_direct_keyboard_to(
+        &mut self,
+        input: keys::KeyboardInput,
+        destination: Option<SurfaceId>,
+    ) -> anyhow::Result<RenderAction> {
         let key = input.ui_key();
-        if key.kind == KeyEventKind::Release {
-            return Ok(RenderAction::None);
-        }
-        self.status_message = None;
         if self.pairing_dialog.is_some() {
             return self.handle_pairing_key(key);
         }
@@ -12382,17 +13083,6 @@ impl App {
                 return self.handle_omnibar_text(text);
             }
             return self.handle_omnibar_key(key);
-        }
-        let (binding_key, binding_fallback) = input.shortcut_keys();
-        if self.prefix_armed {
-            self.prefix_armed = false;
-            return self.handle_prefixed(input, binding_key, binding_fallback);
-        }
-        if !input.suppresses_alt_shortcut()
-            && binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref())
-        {
-            self.prefix_armed = true;
-            return Ok(RenderAction::Draw);
         }
         if self.machine_sidebar_focused() {
             return Ok(self.handle_machine_sidebar_key(&key));
@@ -12415,21 +13105,13 @@ impl App {
                 return self.handle_builtin_sidebar_key(&key);
             }
         }
-        if !input.suppresses_alt_shortcut()
-            && let Some(action) = modeless_action_for_binding(
-                &self.config.keys,
-                &binding_key,
-                binding_fallback.as_ref(),
-            )
-        {
-            if action == Action::ClearHistory {
-                return Ok(self.run_clear_history_shortcut(input));
-            }
-            return self.run_action(action);
-        }
         // Typing replaces any selection highlight.
         self.replace_selection(None);
-        self.forward_key(input);
+        if let Some(surface) = destination {
+            self.forward_key_to_surface(input, surface);
+        } else {
+            self.forward_key(input);
+        }
         Ok(if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None })
     }
 
@@ -12780,7 +13462,7 @@ impl App {
                             }
                         }
                         Some(WorkspaceRailTarget::Create(mode)) => {
-                            self.create_workspace(mode)?;
+                            self.create_workspace(mode, None)?;
                         }
                         Some(WorkspaceRailTarget::Recoverable(id)) => {
                             self.request_restore_managed_workspace(&id);
@@ -13264,64 +13946,51 @@ impl App {
         }
     }
 
-    fn handle_prefixed(
+    fn run_resolved_action(
         &mut self,
-        input: keys::KeyboardInput,
-        binding_key: KeyEvent,
-        binding_fallback: Option<KeyEvent>,
+        action: Action,
+        prefix: KeyEvent,
     ) -> anyhow::Result<RenderAction> {
-        if input.suppresses_alt_shortcut() {
-            if self.focus != FocusTarget::Pane {
-                self.focus = FocusTarget::Pane;
-            }
+        self.run_resolved_action_with_semantic_intent(action, prefix, None, None)
+    }
+
+    fn run_resolved_action_with_semantic_intent(
+        &mut self,
+        action: Action,
+        prefix: KeyEvent,
+        semantic_intent: Option<u64>,
+        action_destination: Option<SurfaceId>,
+    ) -> anyhow::Result<RenderAction> {
+        if action == Action::SendPrefix && self.workspace_sidebar_focused() {
+            self.forward_sidebar_key(prefix.into());
             return Ok(RenderAction::Draw);
         }
-        // Prefix twice forwards the prefix chord literally.
-        if binding_matches(&self.config.keys.prefix, &binding_key, binding_fallback.as_ref()) {
-            if self.workspace_sidebar_focused() {
-                self.forward_sidebar_key(input);
-            } else {
-                self.forward_key(input);
-            }
-            return Ok(RenderAction::Draw);
-        }
-        let Some(action) =
-            action_for_binding(&self.config.keys, &binding_key, binding_fallback.as_ref())
-        else {
-            if self.focus != FocusTarget::Pane {
-                self.focus = FocusTarget::Pane;
-            }
-            return Ok(RenderAction::Draw); // unknown prefix command: swallow, redraw indicator
+        let pane = match action_destination {
+            Some(surface) => self.pane_for_surface(surface),
+            None => self.active_pane(),
         };
-        let was_sidebar_focused = self.workspace_sidebar_focused();
-        if was_sidebar_focused && action == Action::SendPrefix {
-            return self.run_action(action);
-        }
-        self.focus = FocusTarget::Pane;
-        if was_sidebar_focused && action == Action::FocusSidebar {
+        if action_destination.is_some() && pane.is_none() {
+            if let Some(intent) = semantic_intent {
+                self.mark_semantic_destination_failed(intent);
+            }
             return Ok(RenderAction::Draw);
         }
-        if browser_only_action(action)
-            && !self
-                .active_surface_handle()
-                .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
+        let destination_started = self.session.destination_mutation_started();
+        let result = self.run_action_for_pane_with_prefix(action, pane, prefix, semantic_intent);
+        if let Some(intent) = semantic_intent
+            && (result.is_err()
+                || self.session.destination_mutation_started() == destination_started)
         {
-            self.forward_key(input);
-            return Ok(RenderAction::Draw);
+            self.mark_semantic_destination_failed(intent);
         }
-        self.run_action(action)
+        result
     }
 
     /// Execute one bound action. Shared by the (configurable) prefix keys
     /// and any future command surface.
     fn run_action(&mut self, action: Action) -> anyhow::Result<RenderAction> {
-        if action == Action::SendPrefix && self.workspace_sidebar_focused() {
-            let prefix = self.config.keys.prefix;
-            self.forward_sidebar_key(KeyEvent::new(prefix.code, prefix.mods).into());
-            return Ok(RenderAction::Draw);
-        }
-        let pane = self.active_pane();
-        self.run_action_for_pane(action, pane)
+        let prefix = self.config.keys.prefix;
+        self.run_resolved_action(action, KeyEvent::new(prefix.code, prefix.mods))
     }
 
     /// Execute an action against an explicit pane. Context menus use this
@@ -13331,6 +14000,22 @@ impl App {
         action: Action,
         pane: Option<PaneId>,
     ) -> anyhow::Result<RenderAction> {
+        let prefix = self.config.keys.prefix;
+        self.run_action_for_pane_with_prefix(
+            action,
+            pane,
+            KeyEvent::new(prefix.code, prefix.mods),
+            None,
+        )
+    }
+
+    fn run_action_for_pane_with_prefix(
+        &mut self,
+        action: Action,
+        pane: Option<PaneId>,
+        prefix: KeyEvent,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<RenderAction> {
         if !self.action_available(action) {
             return Ok(RenderAction::Draw);
         }
@@ -13339,14 +14024,13 @@ impl App {
         }
         match action {
             Action::SendPrefix => {
-                let prefix = self.config.keys.prefix;
-                self.forward_key_to_pane(&KeyEvent::new(prefix.code, prefix.mods), pane);
+                self.forward_key_to_pane(&prefix, pane);
             }
             Action::NewTab => {
-                self.new_terminal_tab(pane)?;
+                self.new_terminal_tab(pane, semantic_intent)?;
             }
-            Action::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
-            Action::NewPaneSmart => self.new_pane_smart(pane)?,
+            Action::NewBrowserTab => self.create_browser_tab_for_edit(pane, semantic_intent)?,
+            Action::NewPaneSmart => self.new_pane_smart(pane, semantic_intent)?,
             Action::NextTab => self.select_tab_for_client(pane, None, Some(1)),
             Action::PrevTab => self.select_tab_for_client(pane, None, Some(-1)),
             Action::SelectTab(_) => {
@@ -13356,12 +14040,12 @@ impl App {
             }
             Action::SplitRight => {
                 if let Some(pane) = pane {
-                    self.split_pane(pane, SplitDir::Right)?;
+                    self.split_pane(pane, SplitDir::Right, semantic_intent)?;
                 }
             }
             Action::SplitDown => {
                 if let Some(pane) = pane {
-                    self.split_pane(pane, SplitDir::Down)?;
+                    self.split_pane(pane, SplitDir::Down, semantic_intent)?;
                 }
             }
             Action::CloseTab => {
@@ -13394,10 +14078,10 @@ impl App {
                     self.select_screen_for_client(Some(index), None);
                 }
             }
-            Action::NewScreen => self.new_screen()?,
+            Action::NewScreen => self.new_screen(semantic_intent)?,
             Action::PrevWorkspace => self.select_workspace_for_client(None, Some(-1)),
             Action::NextWorkspace => self.select_workspace_for_client(None, Some(1)),
-            Action::NewWorkspace => self.new_workspace()?,
+            Action::NewWorkspace => self.new_workspace(semantic_intent)?,
             Action::CloseWorkspace => {
                 if let Some(workspace) = self.tree.active_workspace().map(|workspace| workspace.id)
                 {
@@ -13417,7 +14101,7 @@ impl App {
             }
             Action::ToggleSidebarView => self.toggle_sidebar_view(),
             Action::FocusSidebar => self.toggle_sidebar_focus(),
-            Action::NewPaneRight => self.new_pane_right()?,
+            Action::NewPaneRight => self.new_pane_right(semantic_intent)?,
             Action::UndoLayout => {
                 if let Some(pane) = pane {
                     self.session.undo_layout(pane, None, false)?;
@@ -13564,15 +14248,20 @@ impl App {
         }
     }
 
-    fn create_browser_tab_for_edit(&mut self, pane: Option<PaneId>) -> anyhow::Result<()> {
+    fn create_browser_tab_for_edit(
+        &mut self,
+        pane: Option<PaneId>,
+        semantic_intent: Option<u64>,
+    ) -> anyhow::Result<()> {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
         let pane = pane.or_else(|| self.active_pane());
-        self.session.new_browser_tab(
+        self.session.new_browser_tab_for_semantic_intent(
             "about:blank".to_string(),
             pane,
             self.browser_tab_size_hint(pane),
+            semantic_intent,
         )
     }
 
@@ -14017,8 +14706,17 @@ impl App {
         self.sidebar_plugin_surface.and_then(|surface| self.session.surface(surface))
     }
 
+    #[cfg(test)]
     fn run_clear_history_shortcut(&mut self, input: keys::KeyboardInput) -> RenderAction {
-        let Some(surface_id) = self.active_surface() else {
+        self.run_clear_history_shortcut_to(input, None)
+    }
+
+    fn run_clear_history_shortcut_to(
+        &mut self,
+        input: keys::KeyboardInput,
+        destination: Option<SurfaceId>,
+    ) -> RenderAction {
+        let Some(surface_id) = destination.or_else(|| self.active_surface()) else {
             return RenderAction::None;
         };
         if !should_claim_clear_history_shortcut(
@@ -14026,7 +14724,7 @@ impl App {
             self.session.supports_clear_history_key_fallback(surface_id),
         ) {
             self.replace_selection(None);
-            self.forward_key(input);
+            self.forward_key_to_surface(input, surface_id);
             return if self.status_message.is_some() {
                 RenderAction::Draw
             } else {
@@ -14055,17 +14753,33 @@ impl App {
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
         }
-        if self
-            .active_surface_handle()
-            .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
-        {
-            self.forward_browser_key(input);
+        let Some(surface_id) = self.active_surface() else { return };
+        self.forward_key_to_surface(input, surface_id);
+    }
+
+    fn forward_key_to_surface(&mut self, input: keys::KeyboardInput, surface_id: SurfaceId) {
+        if !self.session_available() {
+            self.status_message =
+                Some(localization::catalog().sidebar.no_active_session.to_string());
+            return;
+        }
+        let Some(surface) = self.session.surface(surface_id) else { return };
+        if surface.kind() == SurfaceKind::Browser {
+            let key = input.ui_key();
+            if matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L'))
+                && key.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                if let Some(pane) = self.pane_for_surface(surface_id) {
+                    self.focus_omnibar(pane);
+                }
+                return;
+            }
+            self.forward_browser_key_to(surface_id, surface, input);
             return;
         }
         let Some(input) = input.into_terminal_input() else {
             return;
         };
-        let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         self.encode_buf.clear();
         let _ = surface.scroll_to_bottom();
         let Some(encoded) = surface.with_terminal(|term| {
@@ -14139,20 +14853,6 @@ impl App {
         }
     }
 
-    fn forward_browser_key(&mut self, input: keys::KeyboardInput) {
-        let key = input.ui_key();
-        if matches!(key.code, KeyCode::Char('l') | KeyCode::Char('L'))
-            && key.modifiers.contains(KeyModifiers::CONTROL)
-        {
-            if let Some(pane) = self.active_pane() {
-                self.focus_omnibar(pane);
-            }
-            return;
-        }
-        let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
-        self.forward_browser_key_to(surface_id, surface, input);
-    }
-
     fn forward_browser_key_to(
         &mut self,
         surface_id: SurfaceId,
@@ -14213,7 +14913,17 @@ impl App {
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
         }
-        let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
+        let Some(surface_id) = self.active_surface() else { return };
+        self.paste_to_surface(text, surface_id);
+    }
+
+    fn paste_to_surface(&mut self, text: &str, surface_id: SurfaceId) {
+        if !self.session_available() {
+            self.status_message =
+                Some(localization::catalog().sidebar.no_active_session.to_string());
+            return;
+        }
+        let Some(surface) = self.session.surface(surface_id) else { return };
         if surface.kind() == SurfaceKind::Browser {
             let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
@@ -15820,7 +16530,7 @@ impl App {
                     self.focus = FocusTarget::WorkspaceRail;
                     self.workspace_rail_follow_selection = true;
                     self.workspace_rail_selection = workspace_creation_selection(mode);
-                    self.create_workspace(mode)?;
+                    self.create_workspace(mode, None)?;
                 }
                 Hit::SidebarFile { index } => {
                     self.focus = FocusTarget::WorkspaceRail;
@@ -15845,7 +16555,7 @@ impl App {
                 }
                 Hit::NewScreen => {
                     self.focus = FocusTarget::Pane;
-                    self.new_screen()?;
+                    self.new_screen(None)?;
                 }
                 Hit::Tab { pane, index } => {
                     if let Some(surface) = self
@@ -17239,6 +17949,47 @@ fn browser_only_action(action: Action) -> bool {
     )
 }
 
+fn action_is_frontend_local(action: Action) -> bool {
+    matches!(
+        action,
+        Action::NextTab
+            | Action::PrevTab
+            | Action::SelectTab(_)
+            | Action::PrevScreen
+            | Action::NextScreen
+            | Action::SelectScreen(_)
+            | Action::PrevWorkspace
+            | Action::NextWorkspace
+            | Action::ToggleSidebar
+            | Action::ToggleSidebarCompact
+            | Action::ToggleSidebarView
+            | Action::FocusSidebar
+            | Action::FocusLeft
+            | Action::FocusRight
+            | Action::FocusUp
+            | Action::FocusDown
+            | Action::FocusNextPane
+            | Action::ScrollUp
+            | Action::ScrollDown
+            | Action::BrowserEditUrl
+            | Action::ShowShortcuts
+    )
+}
+
+fn action_creates_destination(action: Action) -> bool {
+    matches!(
+        action,
+        Action::NewTab
+            | Action::NewBrowserTab
+            | Action::NewPaneSmart
+            | Action::SplitRight
+            | Action::SplitDown
+            | Action::NewScreen
+            | Action::NewWorkspace
+            | Action::NewPaneRight
+    )
+}
+
 fn publishes_global_cell_metrics(surface_only: Option<SurfaceId>) -> bool {
     surface_only.is_none()
 }
@@ -17580,6 +18331,8 @@ mod tests {
             admission: DeferredInputAdmission {
                 destination,
                 destination_intent: None,
+                semantic_dependency: None,
+                semantic_result: None,
                 sidebar_focus_intent: false,
                 pairing_request: None,
                 client_owned: false,
@@ -17975,14 +18728,10 @@ mod tests {
         .unwrap();
 
         assert!(!app.quit);
-        assert!(app.prefix_armed);
-        assert_eq!(app.deferred_input.len(), 1);
-        assert!(app.deferred_input.front().unwrap().admission.client_owned);
-        app.focus = FocusTarget::WorkspaceRail;
-        app.session.pending_mutations.store(0, Ordering::Release);
-        app.replay_deferred_input().unwrap();
         assert!(!app.prefix_armed);
+        assert!(app.deferred_input.is_empty());
         assert_eq!(app.focus, FocusTarget::Pane);
+        app.session.pending_mutations.store(0, Ordering::Release);
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
     }
 
@@ -18823,9 +19572,7 @@ mod tests {
         })))
         .unwrap();
 
-        app.session
-            .new_screen_for_semantic_intent(None, Some((20, 8)), None)
-            .unwrap();
+        app.session.new_screen_for_semantic_intent(None, Some((20, 8)), None).unwrap();
         app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
             KeyCode::Char('d'),
             KeyModifiers::CONTROL,
@@ -18901,9 +19648,9 @@ mod tests {
         })))
         .unwrap();
 
-        assert!(app.prefix_armed);
+        assert!(!app.prefix_armed);
         assert_eq!(app.deferred_input.len(), 1);
-        assert!(app.deferred_input.front().unwrap().admission.client_owned);
+        assert!(!app.deferred_input.front().unwrap().admission.client_owned);
         app.focus = FocusTarget::WorkspaceRail;
         app.session.settle_pending_mutation(MutationImpact::PointerMap);
         app.replay_deferred_input().unwrap();
@@ -19949,6 +20696,7 @@ mod tests {
     fn viewport_animation_leases_every_column_in_its_swept_range() {
         let pane = |id, surface| PaneView {
             id,
+            resource_id: None,
             short_id: format!("p{id}"),
             name: None,
             tabs: vec![TabView {
@@ -19968,6 +20716,7 @@ mod tests {
         };
         let screen = ScreenView {
             id: 4,
+            resource_id: None,
             short_id: "s".to_string(),
             name: None,
             layout: Node::Leaf(1),
@@ -20004,6 +20753,7 @@ mod tests {
     fn viewport_animation_rejects_an_unbounded_synchronization_sweep() {
         let pane = |id, surface| PaneView {
             id,
+            resource_id: None,
             short_id: format!("p{id}"),
             name: None,
             tabs: vec![TabView {
@@ -20024,6 +20774,7 @@ mod tests {
         let pane_count = 80;
         let screen = ScreenView {
             id: 4,
+            resource_id: None,
             short_id: "s".to_string(),
             name: None,
             layout: Node::Leaf(1),
@@ -20061,6 +20812,7 @@ mod tests {
         let pane_count = 128u64;
         let screen = ScreenView {
             id: 4,
+            resource_id: None,
             short_id: "s".to_string(),
             name: None,
             layout: Node::Leaf(1),
@@ -20071,6 +20823,7 @@ mod tests {
             panes: (1..=pane_count)
                 .map(|id| PaneView {
                     id,
+                    resource_id: None,
                     short_id: format!("p{id}"),
                     name: None,
                     tabs: vec![TabView {
@@ -20101,6 +20854,7 @@ mod tests {
         app.tree = TreeView {
             workspaces: vec![WorkspaceView {
                 id: 3,
+                resource_id: None,
                 key: "workspace".to_string(),
                 short_id: "w".to_string(),
                 name: "workspace".to_string(),
@@ -20129,6 +20883,7 @@ mod tests {
     fn viewport_projection_cache_matches_full_projection_for_overlapping_ranges() {
         let pane = |id| PaneView {
             id,
+            resource_id: None,
             short_id: format!("p{id}"),
             name: None,
             tabs: vec![TabView {
@@ -20148,6 +20903,7 @@ mod tests {
         };
         let screen = ScreenView {
             id: 4,
+            resource_id: None,
             short_id: "s".to_string(),
             name: None,
             layout: Node::Leaf(1),
@@ -20240,11 +20996,13 @@ mod tests {
         app.tree = TreeView {
             workspaces: vec![WorkspaceView {
                 id: 3,
+                resource_id: None,
                 key: "workspace".to_string(),
                 short_id: "w".to_string(),
                 name: "workspace".to_string(),
                 screens: vec![ScreenView {
                     id: 4,
+                    resource_id: None,
                     short_id: "s".to_string(),
                     name: None,
                     layout: Node::Leaf(1),
@@ -20255,6 +21013,7 @@ mod tests {
                     panes: vec![
                         PaneView {
                             id: 1,
+                            resource_id: None,
                             short_id: "p1".to_string(),
                             name: None,
                             tabs: vec![TabView {
@@ -20274,6 +21033,7 @@ mod tests {
                         },
                         PaneView {
                             id: 2,
+                            resource_id: None,
                             short_id: "p2".to_string(),
                             name: None,
                             tabs: vec![TabView {
@@ -24377,6 +25137,7 @@ mod tests {
             pending_mutations: pending_mutations.clone(),
             pending_pointer_mutations,
             impact: MutationImpact::Ordered,
+            semantic_intent: None,
             cancellation_pending: cancellation_pending.clone(),
             settled: AtomicBool::new(false),
             deferred_outcome: Mutex::new(None),
@@ -24399,6 +25160,7 @@ mod tests {
             pending_mutations: pending_mutations.clone(),
             pending_pointer_mutations,
             impact: MutationImpact::Ordered,
+            semantic_intent: None,
             cancellation_pending: cancellation_pending.clone(),
             settled: AtomicBool::new(false),
             deferred_outcome: Mutex::new(None),
@@ -26564,6 +27326,7 @@ mod tests {
         app.pane_areas.push(browser_completion_area(surface));
         app.pending_session_completions.push_back(SessionCompletion {
             mutation_generation: 4,
+            semantic_intent: None,
             action: SessionCompletionAction::BrowserTabCreated { surface },
         });
 
@@ -27290,6 +28053,56 @@ mod tests {
     }
 
     #[test]
+    fn creation_timeout_without_receipt_fails_only_its_semantic_route() {
+        let mux = Mux::new("legacy-creation-timeout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
+        app.semantic_destination_outcomes.insert(7, super::SemanticDestinationOutcome::Pending);
+
+        app.handle(AppEvent::SessionMutationSettled {
+            outcome: super::SessionMutationOutcome::SemanticIntent {
+                intent: 7,
+                outcome: Box::new(super::SessionMutationOutcome::MutationTimedOut(
+                    "legacy peer timeout".to_string(),
+                )),
+            },
+            impact: MutationImpact::Destination,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.semantic_destination_outcomes.get(&7),
+            Some(&super::SemanticDestinationOutcome::Failed)
+        );
+    }
+
+    #[test]
+    fn receipted_creation_timeout_keeps_its_semantic_route_pending() {
+        let mux = Mux::new("receipted-creation-timeout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.session.pending_pointer_mutations.store(1, Ordering::Release);
+        app.semantic_destination_outcomes.insert(7, super::SemanticDestinationOutcome::Pending);
+
+        app.handle(AppEvent::SessionMutationSettled {
+            outcome: super::SessionMutationOutcome::SemanticIntent {
+                intent: 7,
+                outcome: Box::new(super::SessionMutationOutcome::CreationResponseAmbiguous(
+                    "receipt response timeout".to_string(),
+                )),
+            },
+            impact: MutationImpact::Destination,
+        })
+        .unwrap();
+
+        assert_eq!(
+            app.semantic_destination_outcomes.get(&7),
+            Some(&super::SemanticDestinationOutcome::Pending)
+        );
+    }
+
+    #[test]
     fn remote_coalesced_resize_timeouts_settle_as_ambiguous() {
         let mux = Mux::new("coalesced-timeout-test", SurfaceOptions::default());
         let (mut app, events) = test_app_with_events(Session::Local(mux));
@@ -27384,6 +28197,7 @@ mod tests {
         app.pane_areas.push(browser_completion_area(surface));
         app.pending_session_completions.push_back(SessionCompletion {
             mutation_generation: 4,
+            semantic_intent: None,
             action: SessionCompletionAction::BrowserTabCreated { surface },
         });
         let tree = browser_completion_tree(surface, surface);
@@ -27434,6 +28248,7 @@ mod tests {
         app.pane_areas.push(browser_completion_area(active_surface));
         app.pending_session_completions.push_back(SessionCompletion {
             mutation_generation: 4,
+            semantic_intent: None,
             action: SessionCompletionAction::BrowserTabCreated { surface: created_surface },
         });
         app.session.pending_mutations.store(1, Ordering::Release);
@@ -27463,6 +28278,7 @@ mod tests {
 
         app.apply_session_completion(SessionCompletion {
             mutation_generation: 4,
+            semantic_intent: None,
             action: SessionCompletionAction::BrowserTabCreated { surface: created_surface },
         });
 
@@ -27854,8 +28670,11 @@ mod tests {
             },
         );
         started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        app.prefix_armed = true;
-        app.defer_input(Event::Key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT)));
+        let prefix = app.config.keys.prefix;
+        app.defer_input(TerminalInput::FrontendAction {
+            action: Action::FocusSidebar,
+            prefix: KeyEvent::new(prefix.code, prefix.mods),
+        });
         app.retain_pointer_motion(MouseEvent {
             kind: MouseEventKind::Moved,
             column: 14,
@@ -28142,8 +28961,11 @@ mod tests {
     fn event_loop_drains_replay_draw_before_receiving_more_input() {
         let mux = Mux::new("event-loop-draw-replay-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
-        app.prefix_armed = true;
-        app.defer_input(Event::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)));
+        let prefix = app.config.keys.prefix;
+        app.defer_input(TerminalInput::FrontendAction {
+            action: Action::ToggleSidebar,
+            prefix: KeyEvent::new(prefix.code, prefix.mods),
+        });
         app.retain_pointer_motion(MouseEvent {
             kind: MouseEventKind::Moved,
             column: 14,
@@ -29416,7 +30238,7 @@ mod tests {
     }
 
     #[test]
-    fn doubled_prefix_waits_for_pending_mutation_after_first_prefix_arms() {
+    fn doubled_prefix_is_resolved_before_waiting_for_pending_mutation() {
         let mux = Mux::new("doubled-prefix-barrier-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.session.pending_mutations.store(1, Ordering::Release);
@@ -29427,7 +30249,7 @@ mod tests {
         assert!(app.deferred_input.is_empty());
 
         app.handle(AppEvent::Input(prefix)).unwrap();
-        assert!(app.prefix_armed);
+        assert!(!app.prefix_armed, "the doubled prefix must not leave mutable parser state behind");
         assert_eq!(app.deferred_input.len(), 1);
     }
 
@@ -29800,12 +30622,14 @@ mod tests {
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
+                resource_id: None,
                 key: "00000000-0000-4000-8000-000000000004".to_string(),
                 short_id: "000004".to_string(),
                 name: "work".to_string(),
                 active_screen: 0,
                 screens: vec![ScreenView {
                     id: 3,
+                    resource_id: None,
                     short_id: "000003".to_string(),
                     name: None,
                     layout: Node::Leaf(2),
@@ -29815,6 +30639,7 @@ mod tests {
                     viewport_splits: BTreeMap::new(),
                     panes: vec![PaneView {
                         id: 2,
+                        resource_id: None,
                         short_id: "000002".to_string(),
                         name: None,
                         tabs,
@@ -33528,6 +34353,9 @@ mod tests {
             deferred_input: VecDeque::new(),
             pending_pointer_motion: None,
             deferred_input_sequence: 0,
+            next_semantic_destination_intent: 0,
+            latest_semantic_destination_intent: None,
+            semantic_destination_outcomes: HashMap::new(),
             rendered_pointer_frame: RenderedPointerFrame::default(),
             pointer_route_phase: PointerRoutePhase::Fresh,
             pointer_focus_generation: 0,
@@ -33558,12 +34386,14 @@ mod tests {
             active_workspace: 0,
             workspaces: vec![WorkspaceView {
                 id: 4,
+                resource_id: None,
                 key: "00000000-0000-4000-8000-000000000004".to_string(),
                 short_id: "000004".to_string(),
                 name: "work".to_string(),
                 active_screen: 0,
                 screens: vec![ScreenView {
                     id: 3,
+                    resource_id: None,
                     short_id: "000003".to_string(),
                     name: None,
                     layout: Node::Leaf(2),
@@ -33573,6 +34403,7 @@ mod tests {
                     viewport_splits: BTreeMap::new(),
                     panes: vec![PaneView {
                         id: 2,
+                        resource_id: None,
                         short_id: "000002".to_string(),
                         name: None,
                         active_tab: 0,
