@@ -2769,7 +2769,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
 
                 lastHandledCommandID = commandID
-                terminalPanel.hostedView.debugSimulateCommandClick(at: hitPoint) { result in
+                terminalPanel.hostedView.performAutomatedCommandClick(at: hitPoint) { result in
                     var completionPayload: [String: Any] = [
                         "lastCommandId": commandID,
                         "lastCommandAction": action,

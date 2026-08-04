@@ -7613,7 +7613,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return payload
     }
 
-    func debugSimulateCommandClick(
+    func performAutomatedCommandClick(
         at point: NSPoint,
         completion: @escaping @MainActor @Sendable ([String: Any]) -> Void
     ) {
@@ -8897,11 +8897,11 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugSimulateCommandHoverDetails(at: debugPointInSurface(point))
     }
 
-    func debugSimulateCommandClick(
+    func performAutomatedCommandClick(
         at point: NSPoint,
         completion: @escaping @MainActor @Sendable ([String: Any]) -> Void
     ) {
-        surfaceView.debugSimulateCommandClick(
+        surfaceView.performAutomatedCommandClick(
             at: debugPointInSurface(point),
             completion: completion
         )
