@@ -1078,7 +1078,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
-    private var didScheduleInitialMainWindowBootstrap = false
+    private var didScheduleAutomaticLaunchBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
     var isTerminatingApp = false
@@ -1315,6 +1315,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard MacAppLaunchMode.current().shouldAutomaticallyCreateMainWindow else {
+            return false
+        }
         if hasVisibleMainTerminalWindow() {
             _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
             return true
@@ -1559,7 +1562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.servicesProvider = self
 
         StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
-        scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        scheduleAutomaticLaunchBootstrap(debugSource: "didFinishLaunching")
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
         UpdateTestSupport(model: updateController.model, log: updateLog).applyIfNeeded()
@@ -7354,14 +7357,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return event
     }
 
-    func scheduleInitialMainWindowBootstrap(debugSource: String) {
-        guard !didScheduleInitialMainWindowBootstrap else { return }
-        didScheduleInitialMainWindowBootstrap = true
+    func scheduleAutomaticLaunchBootstrap(debugSource: String) {
+        guard !didScheduleAutomaticLaunchBootstrap else { return }
+        didScheduleAutomaticLaunchBootstrap = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if self.shouldDeferInitialMainWindowBootstrapForExternalConfirmation { self.didScheduleInitialMainWindowBootstrap = false; return }
-            self.bootstrapInitialMainWindowIfNeeded(debugSource: debugSource)
+            switch MacAppLaunchMode.current() {
+            case .normal, .uiTest:
+                if self.shouldDeferInitialMainWindowBootstrapForExternalConfirmation {
+                    self.didScheduleAutomaticLaunchBootstrap = false
+                    return
+                }
+                self.bootstrapInitialMainWindowIfNeeded(debugSource: debugSource)
+            case .unitTestHost:
+                self.bootstrapUnitTestHostServices(debugSource: debugSource)
+            }
         }
+    }
+
+    private func bootstrapUnitTestHostServices(debugSource: String) {
+        reserveInitialSocketPathIfNeeded()
+        guard let tabManager else {
+            StartupBreadcrumbLog.append(
+                "appDelegate.unitTestHostBootstrap.missingTabManager",
+                fields: ["source": debugSource]
+            )
+            return
+        }
+        // No main-window context exists to seed command routing. Attach the
+        // composition root's manager directly while starting the test-scoped
+        // listener, without realizing a terminal view or restoring a session.
+        startSocketListenerIfEnabled(
+            tabManager: tabManager,
+            source: "bootstrapUnitTestHost.\(debugSource)"
+        )
+        MobileHostService.shared.start()
+        StartupBreadcrumbLog.append(
+            "appDelegate.unitTestHostBootstrap.complete",
+            fields: ["source": debugSource]
+        )
     }
 
     @discardableResult
