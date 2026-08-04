@@ -300,6 +300,75 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testConnectedWorkspaceSurvivesTenColdLaunchesAndForegroundCycles()
+        async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+        try assertConnectedWorkspaceReady(
+            in: app,
+            phase: "initial",
+            startedAt: Date()
+        )
+
+        let initial = XCTAttachment(screenshot: app.screenshot())
+        initial.name = "connected-lifecycle-initial"
+        initial.lifetime = .keepAlways
+        add(initial)
+
+        for cycle in 1 ... 10 {
+            XCUIDevice.shared.press(.home)
+            XCTAssertTrue(
+                app.wait(for: .runningBackground, timeout: 5),
+                "Cycle \(cycle) must background the connected app"
+            )
+            let startedAt = Date()
+            app.activate()
+            XCTAssertTrue(
+                app.wait(for: .runningForeground, timeout: 5),
+                "Cycle \(cycle) must foreground without user action"
+            )
+            try assertConnectedWorkspaceReady(
+                in: app,
+                phase: "foreground-\(cycle)",
+                startedAt: startedAt
+            )
+        }
+
+        let resumed = XCTAttachment(screenshot: app.screenshot())
+        resumed.name = "connected-lifecycle-after-ten-foreground-cycles"
+        resumed.lifetime = .keepAlways
+        add(resumed)
+
+        for cycle in 1 ... 10 {
+            app.terminate()
+            XCTAssertTrue(
+                app.wait(for: .notRunning, timeout: 5),
+                "Cold launch \(cycle) must begin from a stopped process"
+            )
+            let startedAt = Date()
+            app.launch()
+            XCTAssertTrue(
+                app.wait(for: .runningForeground, timeout: 8),
+                "Cold launch \(cycle) must reach the foreground"
+            )
+            try assertConnectedWorkspaceReady(
+                in: app,
+                phase: "cold-launch-\(cycle)",
+                startedAt: startedAt
+            )
+        }
+
+        let relaunched = XCTAttachment(screenshot: app.screenshot())
+        relaunched.name = "connected-lifecycle-after-ten-cold-launches"
+        relaunched.lifetime = .keepAlways
+        add(relaunched)
+    }
+
+    @MainActor
     func testDeleteComputersVerifierPasses() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_DELETE_COMPUTERS_VERIFIER": "1",
@@ -4720,6 +4789,62 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 8))
         row.tap()
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    private func assertConnectedWorkspaceReady(
+        in app: XCUIApplication,
+        phase: String,
+        startedAt: Date,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try openSelectedWorkspaceIfNeeded(app)
+        XCTAssertTrue(
+            app.otherElements["MobileTerminalSurface"].exists,
+            "\(phase) must return to the terminal",
+            file: file,
+            line: line
+        )
+        assertTerminalRow(
+            0,
+            label: "$ cmux ios status",
+            in: app,
+            file: file,
+            line: line
+        )
+        assertTerminalRow(
+            1,
+            label: "Mobile Core: connected",
+            in: app,
+            file: file,
+            line: line
+        )
+
+        let blockingConnectionSurfaceIDs = [
+            "MobileOnboardingConnectScene",
+            "MobilePairingView",
+            "MobileAddDeviceForm",
+            "MobilePairingScannerSheet",
+            "MobileInitialConnectionRetry",
+            "MobileMacReconnectButton",
+            "MobileWorkspaceMacPickerReconnect",
+            "MobileConnectionReauthBanner",
+            "MobileConnectionReauthRow",
+        ]
+        for identifier in blockingConnectionSurfaceIDs {
+            XCTAssertFalse(
+                app.descendants(matching: .any)[identifier].exists,
+                "\(phase) must not present \(identifier)",
+                file: file,
+                line: line
+            )
+        }
+
+        let readyMilliseconds = Int(
+            Date().timeIntervalSince(startedAt) * 1_000
+        )
+        print("CMUX_LIFECYCLE_READY phase=\(phase) ready_ms=\(readyMilliseconds)")
     }
 
     @MainActor
