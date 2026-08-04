@@ -160,9 +160,9 @@ export function createHostedSubrouterClient(options: {
             "x-subrouter-stack-control-token": tenantDeleteToken,
           },
           body: JSON.stringify({
+            capabilities,
             teamId: team.teamId,
             teamName: team.teamName,
-            capabilities,
           }),
         },
         "caller",

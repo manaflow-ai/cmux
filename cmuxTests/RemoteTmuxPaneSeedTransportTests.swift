@@ -19,6 +19,48 @@ import Testing
 /// after the capture block must be replayed exactly once after pane state.
 @MainActor
 @Suite struct RemoteTmuxPaneSeedTransportTests {
+    @Test func peerDetachReplaysEveryRecordedSizeClaimInStableOrder() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        fixture.connection.lastClientSize = (columns: 242, rows: 62)
+        fixture.connection.lastWindowSizes = [
+            9: (242, 62),
+            3: (180, 50),
+        ]
+        fixture.connection.sentWindowSizes = fixture.connection.lastWindowSizes
+        fixture.connection.windowClaimParityRearmsSpent = [3: 1, 9: 3]
+        _ = fixture.pipe.fileHandleForReading.availableData
+
+        fixture.connection.handleMessageForTesting(
+            .clientDetached(client: "/dev/pts/22")
+        )
+
+        let commands = String(
+            decoding: fixture.pipe.fileHandleForReading.availableData,
+            as: UTF8.self
+        )
+        let envelope = try #require(commands.range(of: "refresh-client -C 242x62"))
+        let window3 = try #require(
+            commands.range(of: "refresh-client -C '@3:180x50'")
+        )
+        let window9 = try #require(
+            commands.range(of: "refresh-client -C '@9:242x62'")
+        )
+
+        #expect(envelope.lowerBound < window3.lowerBound)
+        #expect(window3.lowerBound < window9.lowerBound)
+        #expect(commands.components(separatedBy: "refresh-client -C 242x62").count - 1 == 1)
+        #expect(commands.components(separatedBy: "refresh-client -C '@3:180x50'").count - 1 == 1)
+        #expect(commands.components(separatedBy: "refresh-client -C '@9:242x62'").count - 1 == 1)
+        #expect(fixture.connection.sentWindowSizes[3]?.0 == 180)
+        #expect(fixture.connection.sentWindowSizes[3]?.1 == 50)
+        #expect(fixture.connection.sentWindowSizes[9]?.0 == 242)
+        #expect(fixture.connection.sentWindowSizes[9]?.1 == 62)
+        #expect(fixture.connection.windowClaimParityRearmsSpent.isEmpty)
+        #expect(fixture.connection.snapshot().recentEvents.last == "client-detached")
+    }
+
     @Test func laggingControlOutputCursorCannotReplayCapturedReconnectOutput() throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
