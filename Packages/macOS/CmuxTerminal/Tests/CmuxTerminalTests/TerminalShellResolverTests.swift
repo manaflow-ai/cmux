@@ -74,6 +74,19 @@ struct TerminalShellResolverTests {
     }
 
     @Test
+    func resolvedZshLaunchesDirectlyAsALoginShell() {
+        let command = TerminalLaunchCommandPolicy().resolve(
+            initialCommand: nil,
+            surfaceCommand: nil,
+            hasUserGhosttyCommand: false,
+            managedShellCommand: nil,
+            resolvedShell: "/bin/zsh"
+        )
+
+        #expect(command == "direct:/bin/zsh -l")
+    }
+
+    @Test
     func explicitGhosttyCommandIsInheritedWithoutSurfaceOverride() {
         let command = TerminalLaunchCommandPolicy().resolve(
             initialCommand: nil,
