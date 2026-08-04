@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::terminal_host::{
     CAPABILITY_TOKEN_LEN, CapabilityRights, CapabilityToken, ClientHello, ClientRole, TerminalId,
@@ -272,6 +273,129 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
     assert_eq!(resolved["exit"]["outcome"], serde_json::json!({"kind":"exit","code":23}));
     assert!(resolved["exit"]["exited_at"].as_str().is_some());
     assert!(resolved["exit"]["revision"].as_str().is_some());
+}
+
+#[test]
+fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
+    let harness = RecoveryHarness::start_with_host_ready_delay("journal-initial-output", 250);
+    let marker = format!("fast-journal-marker-{}", std::process::id());
+    let created = resource_request(
+        &harness.socket,
+        "journal-initial-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Journal initial output",
+            "initial_content":"empty",
+        }),
+        Some("journal-initial-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let run = resource_request(
+        &harness.socket,
+        "journal-initial-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",format!("printf '{marker}\\n'")],
+        }),
+        Some("journal-initial-run"),
+    );
+    let path = &run["value"];
+    let terminal = path["terminal_id"].as_str().unwrap();
+    resource_request(
+        &harness.socket,
+        "journal-initial-wait",
+        "terminal.wait_exit",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "terminal":terminal,
+            "timeout_ms":"5000",
+        }),
+        None,
+    );
+
+    let stream = transport::connect(&harness.socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(
+        writer,
+        "{}",
+        serde_json::json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":"journal-initial-subscribe",
+            "operation":"session.journal.subscribe",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "stream_id":"stream_11111111111141118111111111111111",
+                "start":"beginning",
+                "filter":{
+                    "kinds":["workspace.run","terminal.output","terminal.exited"],
+                    "subjects":[{"kind":"terminal","id":terminal}],
+                    "max_sensitivity":"sensitive",
+                },
+            },
+        })
+    )
+    .unwrap();
+
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let opened: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(opened["ok"], true, "journal subscription failed: {opened}");
+
+    let mut run_sequence = None;
+    let mut output_sequence = None;
+    let mut exit_sequence = None;
+    while exit_sequence.is_none() {
+        line.clear();
+        reader.read_line(&mut line).expect("journal stream omitted short-lived terminal output");
+        let envelope: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let record = &envelope["item"];
+        let sequence = record["sequence"].as_str().unwrap().parse::<u64>().unwrap();
+        match record["kind"].as_str().unwrap() {
+            "workspace.run" => run_sequence = Some(sequence),
+            "terminal.output" => {
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(record["payload"]["data"].as_str().unwrap())
+                    .unwrap();
+                assert!(
+                    bytes.windows(marker.len()).any(|window| window == marker.as_bytes()),
+                    "journal output omitted marker: {:?}",
+                    String::from_utf8_lossy(&bytes)
+                );
+                for (kind, id) in [
+                    ("terminal", terminal),
+                    ("tab", path["tab_id"].as_str().unwrap()),
+                    ("pane", path["pane_id"].as_str().unwrap()),
+                    ("screen", path["screen_id"].as_str().unwrap()),
+                    ("workspace", path["workspace_id"].as_str().unwrap()),
+                ] {
+                    assert!(
+                        record["subjects"].as_array().unwrap().iter().any(|subject| {
+                            subject["kind"].as_str() == Some(kind)
+                                && subject["id"].as_str() == Some(id)
+                        }),
+                        "terminal output omitted {kind}:{id}: {record}"
+                    );
+                }
+                output_sequence = Some(sequence);
+            }
+            "terminal.exited" => exit_sequence = Some(sequence),
+            other => panic!("unexpected journal record {other}: {record}"),
+        }
+    }
+    assert!(
+        run_sequence < output_sequence && output_sequence < exit_sequence,
+        "journal order was run={run_sequence:?}, output={output_sequence:?}, exit={exit_sequence:?}"
+    );
 }
 
 #[test]
