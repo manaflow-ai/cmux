@@ -7,6 +7,10 @@ final class GlobalSearchPanelCaptureManager {
     private let indexProvider: () async -> SearchIndex?
     private let cancelPanelPurge: (UUID) -> Void
 
+    private var contentIndexGeneration: UInt64 = 0
+    private var indexedBrowserPanelIDs = Set<UUID>()
+    private var indexedMarkdownPanelIDs = Set<UUID>()
+    private var panelContentRevisions: [UUID: UInt64] = [:]
     private var browserCaptureTimers: [UUID: DispatchSourceTimer] = [:]
     private var browserCaptureTasks: [UUID: Task<Void, Never>] = [:]
     private var browserCaptureTaskIDs: [UUID: UUID] = [:]
@@ -22,30 +26,62 @@ final class GlobalSearchPanelCaptureManager {
         self.cancelPanelPurge = cancelPanelPurge
     }
 
-    func refreshPanelContent(for context: GlobalSearchPanelContext, index: SearchIndex) async {
+    /// Indexes content first discovered during live reconciliation.
+    ///
+    /// Browser URL/title callbacks and Markdown content/file callbacks own
+    /// subsequent dirty captures, so reopening Search does not rescan panels
+    /// whose content is already represented in the index.
+    func refreshPanelContent(for context: GlobalSearchPanelContext) {
         if let markdownPanel = context.panel as? MarkdownPanel {
-            if markdownPanel.isFileUnavailable {
-                cancelMarkdownCapture(forPanelID: context.panelID)
-                await purgeMarkdownDocument(forPanelID: context.panelID, index: index)
-            } else if let document = GlobalSearchDocuments.markdownDocument(for: markdownPanel, context: context) {
-                do {
-                    try await index.upsert(document)
-                } catch {
-#if DEBUG
-                    cmuxDebugLog("globalSearch.markdown.upsert failed panel=\(context.panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
-#endif
-                }
+            guard !indexedMarkdownPanelIDs.contains(context.panelID),
+                  markdownCaptureTaskIDs[context.panelID] == nil else {
+                return
             }
+            captureMarkdownPanel(markdownPanel)
         } else if let browserPanel = context.panel as? BrowserPanel {
+            guard !indexedBrowserPanelIDs.contains(context.panelID),
+                  browserCaptureTaskIDs[context.panelID] == nil else {
+                return
+            }
             captureBrowserPanel(browserPanel)
+        }
+    }
+
+    func resetIndexedContent() {
+        contentIndexGeneration &+= 1
+        let trackedPanelIDs = indexedBrowserPanelIDs
+            .union(indexedMarkdownPanelIDs)
+            .union(browserCaptureTaskIDs.keys)
+            .union(markdownCaptureTaskIDs.keys)
+            .union(panelContentRevisions.keys)
+        for panelID in trackedPanelIDs {
+            cancelBrowserCapture(forPanelID: panelID)
+            cancelMarkdownCapture(forPanelID: panelID)
+        }
+        indexedBrowserPanelIDs.removeAll()
+        indexedMarkdownPanelIDs.removeAll()
+        panelContentRevisions.removeAll()
+    }
+
+    func reconcileLivePanels(_ livePanelIDs: Set<UUID>) {
+        let trackedPanelIDs = indexedBrowserPanelIDs
+            .union(indexedMarkdownPanelIDs)
+            .union(browserCaptureTaskIDs.keys)
+            .union(markdownCaptureTaskIDs.keys)
+            .union(panelContentRevisions.keys)
+        for panelID in trackedPanelIDs where !livePanelIDs.contains(panelID) {
+            cancelCaptures(forPanelID: panelID)
         }
     }
 
     func captureBrowserPanel(_ panel: BrowserPanel) {
         let panelID = panel.id
         let taskID = UUID()
+        let generation = contentIndexGeneration
+        let panelRevision = markPanelContentDirty(panelID)
         cancelPanelPurge(panelID)
         cancelBrowserCapture(forPanelID: panelID)
+        indexedBrowserPanelIDs.remove(panelID)
         browserCaptureTaskIDs[panelID] = taskID
 
         let timer = makeDebounceTimer(milliseconds: browserCaptureDebounceMilliseconds) { [weak self, weak panel] in
@@ -68,11 +104,17 @@ final class GlobalSearchPanelCaptureManager {
 
                     guard !Task.isCancelled,
                           self.browserCaptureTaskIDs[panelID] == taskID,
+                          self.contentIndexGeneration == generation,
+                          self.panelContentRevisions[panelID] == panelRevision,
                           let panel else {
                         return
                     }
 
-                    await self.indexBrowserPanel(panel)
+                    await self.indexBrowserPanel(
+                        panel,
+                        generation: generation,
+                        panelRevision: panelRevision
+                    )
                 }
                 self.browserCaptureTasks[panelID] = task
             }
@@ -83,8 +125,11 @@ final class GlobalSearchPanelCaptureManager {
 
     func captureMarkdownPanel(_ panel: MarkdownPanel) {
         let panelID = panel.id
+        let generation = contentIndexGeneration
+        let panelRevision = markPanelContentDirty(panelID)
         guard !panel.isFileUnavailable else {
             cancelMarkdownCapture(forPanelID: panelID)
+            indexedMarkdownPanelIDs.remove(panelID)
             let taskID = UUID()
             markdownCaptureTaskIDs[panelID] = taskID
             let task = Task { @MainActor [weak self] in
@@ -98,11 +143,21 @@ final class GlobalSearchPanelCaptureManager {
 
                 guard !Task.isCancelled,
                       self.markdownCaptureTaskIDs[panelID] == taskID,
+                      self.contentIndexGeneration == generation,
+                      self.panelContentRevisions[panelID] == panelRevision,
                       let index = await self.indexProvider() else {
                     return
                 }
 
-                await self.purgeMarkdownDocument(forPanelID: panelID, index: index)
+                let didPurge = await self.purgeMarkdownDocument(forPanelID: panelID, index: index)
+                guard didPurge,
+                      !Task.isCancelled,
+                      self.markdownCaptureTaskIDs[panelID] == taskID,
+                      self.contentIndexGeneration == generation,
+                      self.panelContentRevisions[panelID] == panelRevision else {
+                    return
+                }
+                self.indexedMarkdownPanelIDs.insert(panelID)
             }
             markdownCaptureTasks[panelID] = task
             return
@@ -111,6 +166,7 @@ final class GlobalSearchPanelCaptureManager {
         cancelPanelPurge(panelID)
         let taskID = UUID()
         cancelMarkdownCapture(forPanelID: panelID)
+        indexedMarkdownPanelIDs.remove(panelID)
         markdownCaptureTaskIDs[panelID] = taskID
 
         let timer = makeDebounceTimer(milliseconds: markdownCaptureDebounceMilliseconds) { [weak self, weak panel] in
@@ -133,6 +189,8 @@ final class GlobalSearchPanelCaptureManager {
 
                     guard !Task.isCancelled,
                           self.markdownCaptureTaskIDs[panelID] == taskID,
+                          self.contentIndexGeneration == generation,
+                          self.panelContentRevisions[panelID] == panelRevision,
                           let panel,
                           let context = AppDelegate.shared?.globalSearchContext(
                               forPanelID: panel.id,
@@ -145,6 +203,13 @@ final class GlobalSearchPanelCaptureManager {
 
                     do {
                         try await index.upsert(document)
+                        guard !Task.isCancelled,
+                              self.markdownCaptureTaskIDs[panelID] == taskID,
+                              self.contentIndexGeneration == generation,
+                              self.panelContentRevisions[panelID] == panelRevision else {
+                            return
+                        }
+                        self.indexedMarkdownPanelIDs.insert(panelID)
                     } catch {
                         guard !Task.isCancelled else { return }
 #if DEBUG
@@ -162,6 +227,9 @@ final class GlobalSearchPanelCaptureManager {
     func cancelCaptures(forPanelID panelID: UUID) {
         cancelBrowserCapture(forPanelID: panelID)
         cancelMarkdownCapture(forPanelID: panelID)
+        indexedBrowserPanelIDs.remove(panelID)
+        indexedMarkdownPanelIDs.remove(panelID)
+        panelContentRevisions[panelID] = nil
     }
 
     private func cancelBrowserCapture(forPanelID panelID: UUID) {
@@ -190,18 +258,25 @@ final class GlobalSearchPanelCaptureManager {
         return timer
     }
 
-    private func purgeMarkdownDocument(forPanelID panelID: UUID, index: SearchIndex) async {
+    private func purgeMarkdownDocument(forPanelID panelID: UUID, index: SearchIndex) async -> Bool {
         let documentID = SearchIndexDocument.panelStableID(panelID: panelID, kind: .markdown)
         do {
             try await index.deleteDocument(id: documentID)
+            return true
         } catch {
+            guard !Task.isCancelled else { return false }
 #if DEBUG
             cmuxDebugLog("globalSearch.markdown.purge failed panel=\(panelID.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
+            return false
         }
     }
 
-    private func indexBrowserPanel(_ panel: BrowserPanel) async {
+    private func indexBrowserPanel(
+        _ panel: BrowserPanel,
+        generation: UInt64,
+        panelRevision: UInt64
+    ) async {
         guard let context = AppDelegate.shared?.globalSearchContext(
             forPanelID: panel.id,
             preferredWorkspaceID: panel.workspaceId
@@ -237,12 +312,24 @@ final class GlobalSearchPanelCaptureManager {
         do {
             guard !Task.isCancelled else { return }
             try await index.upsert(document)
+            guard !Task.isCancelled,
+                  contentIndexGeneration == generation,
+                  panelContentRevisions[panel.id] == panelRevision else {
+                return
+            }
+            indexedBrowserPanelIDs.insert(panel.id)
         } catch {
             guard !Task.isCancelled else { return }
 #if DEBUG
             cmuxDebugLog("globalSearch.browser.upsert failed panel=\(panel.id.uuidString.prefix(5)) error=\(error.localizedDescription)")
 #endif
         }
+    }
+
+    private func markPanelContentDirty(_ panelID: UUID) -> UInt64 {
+        let revision = (panelContentRevisions[panelID] ?? 0) &+ 1
+        panelContentRevisions[panelID] = revision
+        return revision
     }
 
     private func browserPagePayload(for panel: BrowserPanel) async -> BrowserPagePayload? {

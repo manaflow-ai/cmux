@@ -40,6 +40,7 @@ final class GlobalSearchCoordinator {
             guard !Task.isCancelled else { return }
             self.titleIndexGeneration &+= 1
             self.indexedTitleSnapshots.removeAll()
+            self.captureManager.resetIndexedContent()
             await self.refreshLiveIndex()
             if !Task.isCancelled {
                 self.startupIndexTask = nil
@@ -87,13 +88,14 @@ final class GlobalSearchCoordinator {
     func refreshLiveIndex() async {
         guard let index = await ensureIndex(), let appDelegate = AppDelegate.shared else { return }
         let contexts = appDelegate.globalSearchPanelContexts()
+        captureManager.reconcileLivePanels(Set(contexts.map(\.panelID)))
 
         await refreshLivePanelTitles(contexts: contexts, index: index)
         guard !Task.isCancelled else { return }
 
         for context in contexts {
             guard !Task.isCancelled else { return }
-            await captureManager.refreshPanelContent(for: context, index: index)
+            captureManager.refreshPanelContent(for: context)
         }
     }
 
