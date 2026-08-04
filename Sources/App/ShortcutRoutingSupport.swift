@@ -85,7 +85,7 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
-func browserResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
+func shortcutResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
     guard let responder else { return false }
 
     // During IME composition, Return/Enter belongs to the text system so the
@@ -500,14 +500,16 @@ func focusedTerminalKeyRepairNeeded(
 func shouldRepairFocusedTerminalCommandEquivalentInputs(
     flags: NSEvent.ModifierFlags,
     responderIsWindow: Bool,
-    responderHasViableKeyRoutingOwner: Bool
+    responderHasViableKeyRoutingOwner: Bool,
+    responderMatchesPreferredKeyboardFocus: Bool
 ) -> Bool {
     let normalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
     guard normalizedFlags.contains(.command) else { return false }
-    // Command shortcuts should only repair genuinely broken responder states.
-    // If another live view already owns first responder, let menu routing use
-    // that responder rather than retargeting to the selected terminal pane.
-    return responderIsWindow || !responderHasViableKeyRoutingOwner
+    // The caller filters foreign controls first. A live terminal responder is
+    // viable only for the pane whose preferred keyboard focus it matches.
+    return responderIsWindow
+        || !responderHasViableKeyRoutingOwner
+        || !responderMatchesPreferredKeyboardFocus
 }
 func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,

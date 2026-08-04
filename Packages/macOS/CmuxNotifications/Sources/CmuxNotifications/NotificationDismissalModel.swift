@@ -55,8 +55,8 @@ public final class NotificationDismissalModel: NotificationDismissing {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard let panelId = host?.focusedPanelId(in: workspaceId) else { return }
-        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: panelId, context: context)
+        guard let surfaceId = host?.focusedSurfaceId(in: workspaceId) else { return }
+        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
     }
 
     public func dismissPanelNotificationOnFocus(
@@ -76,7 +76,6 @@ public final class NotificationDismissalModel: NotificationDismissing {
         panelId: UUID,
         context: NotificationDismissalContext
     ) {
-        guard host?.selectedWorkspaceId == workspaceId else { return }
         guard !suppressFocusFlash else { return }
         _ = dismissNotification(
             workspaceId: workspaceId,
@@ -102,7 +101,10 @@ public final class NotificationDismissalModel: NotificationDismissing {
         context: NotificationDismissalContext
     ) -> Bool {
         guard let host else { return false }
-        guard host.selectedWorkspaceId == workspaceId else { return false }
+        guard host.isNotificationTargetSelected(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        ) else { return false }
         if context.requiresActiveApp {
             guard host.isAppActive else { return false }
             // Opt-in (`notifications.suppressOnlyFocusedSurface`): narrow the

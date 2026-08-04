@@ -1,4 +1,5 @@
 import Darwin
+import CmuxFoundation
 import Foundation
 import Testing
 

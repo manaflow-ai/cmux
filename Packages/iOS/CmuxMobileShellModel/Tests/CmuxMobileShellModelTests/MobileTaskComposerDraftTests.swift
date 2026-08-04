@@ -69,6 +69,25 @@ import Testing
         #expect(restored.workspaceName == "Release checklist")
     }
 
+    @Test func modelIdentifierSurvivesDraftRoundTrip() throws {
+        let draft = MobileTaskComposerDraft(
+            prompt: "Use the selected model",
+            modelID: "claude-opus-4-8",
+            templateID: UUID(),
+            macDeviceID: "mac-a",
+            directory: "~/Dev/cmux",
+            didEditDirectory: false
+        )
+
+        let restored = try JSONDecoder().decode(
+            MobileTaskComposerDraft.self,
+            from: JSONEncoder().encode(draft)
+        )
+
+        #expect(restored == draft)
+        #expect(restored.modelID == "claude-opus-4-8")
+    }
+
     @Test func legacyDraftWithoutWorkspaceNameStillDecodes() throws {
         let data = try #require(
             """
@@ -85,6 +104,7 @@ import Testing
         let restored = try JSONDecoder().decode(MobileTaskComposerDraft.self, from: data)
 
         #expect(restored.workspaceName == nil)
+        #expect(restored.modelID == nil)
         #expect(restored.prompt == "Keep this draft")
     }
 }
