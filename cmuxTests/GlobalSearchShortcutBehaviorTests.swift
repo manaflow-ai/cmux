@@ -1218,14 +1218,6 @@ extension GlobalSearchShortcutBehaviorTests {
     @MainActor
     @Test(.timeLimit(.minutes(1)))
     func presentationDeadlineStopsStartingLaterBrowserCaptures() async throws {
-        let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-global-search-browser-batch-timeout-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true
-        )
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
         let workspaceID = UUID()
         let firstPanel = BrowserPanel(
             workspaceId: workspaceID,
@@ -1235,7 +1227,6 @@ extension GlobalSearchShortcutBehaviorTests {
             workspaceId: workspaceID,
             renderInitialNavigation: false
         )
-        let index = try SearchIndex(databaseURL: directoryURL.appendingPathComponent("search.sqlite3"))
         let indexRequestStarted = GlobalSearchAsyncSignal()
         let releaseIndexRequest = GlobalSearchAsyncSignal()
         let indexRequestCount = GlobalSearchCounter()
@@ -1245,7 +1236,7 @@ extension GlobalSearchShortcutBehaviorTests {
                 indexRequestCount.increment()
                 indexRequestStarted.signal()
                 await releaseIndexRequest.wait()
-                return index
+                return nil
             },
             cancelPanelPurge: { _ in }
         )
