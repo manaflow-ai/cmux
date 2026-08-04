@@ -17,6 +17,18 @@ extension XCUIApplication {
     func launchAllowingHeadlessBackgroundActivation() {
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
+        options.issueMatcher = { issue in
+            guard issue.type == .system else { return false }
+
+            let description = [
+                issue.compactDescription,
+                issue.detailedDescription ?? "",
+                issue.associatedError?.localizedDescription ?? "",
+            ].joined(separator: "\n")
+
+            return description.contains("Failed to activate application") &&
+                description.contains("Running Background")
+        }
         XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
             launch()
         }
