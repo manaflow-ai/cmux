@@ -804,6 +804,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "presentation-only",
         "route": "tree snapshot + frontend clipboard",
     },
+    "CopyStatusMessage": {
+        "classification": "presentation-only",
+        "route": "status snapshot + frontend clipboard",
+    },
     "SetClientSizing": {
         "classification": "direct",
         "route": "set-client-sizing",
