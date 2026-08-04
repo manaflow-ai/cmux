@@ -205,6 +205,8 @@ actor SearchIndex {
     }
 
     func search(_ rawQuery: String, limit: Int = 20) throws -> [SearchIndexHit] {
+        try Task.checkCancellation()
+
         let trimmed = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, limit > 0 else { return [] }
         guard let matchQuery = Self.matchQuery(for: trimmed) else { return [] }
@@ -240,6 +242,7 @@ actor SearchIndex {
 
             var hits: [SearchIndexHit] = []
             while true {
+                try Task.checkCancellation()
                 let stepResult = sqlite3_step(statement)
                 switch stepResult {
                 case SQLITE_ROW:

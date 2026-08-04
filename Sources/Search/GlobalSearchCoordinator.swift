@@ -77,6 +77,8 @@ final class GlobalSearchCoordinator {
         guard let index = await ensureIndex() else { return [] }
         do {
             return try await index.search(query, limit: 20)
+        } catch is CancellationError {
+            return []
         } catch {
 #if DEBUG
             cmuxDebugLog("globalSearch.search failed error=\(error.localizedDescription)")
