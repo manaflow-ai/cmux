@@ -240,6 +240,16 @@ final class MarkdownRendererSession {
         return ownedCoordinator
     }
 
+    func updateFileLinkContext(
+        workspaceId: UUID,
+        fileLinkResolver: MarkdownPanelFileLinkResolver
+    ) {
+        ownedCoordinator.updateFileLinkContext(
+            workspaceId: workspaceId,
+            fileLinkResolver: fileLinkResolver
+        )
+    }
+
     func close() {
         ownedCoordinator.close()
     }

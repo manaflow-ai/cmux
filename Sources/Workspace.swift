@@ -9778,6 +9778,11 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let markdownPanel = detached.panel as? MarkdownPanel {
+            markdownPanel.reattachToWorkspace(
+                id,
+                workspaceRootPath: currentDirectory
+            )
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {

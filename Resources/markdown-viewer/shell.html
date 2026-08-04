@@ -1721,6 +1721,16 @@ html { scroll-behavior: smooth; }
     }
   };
 
+  window.__cmuxMarkdownFileContextDidChange = function() {
+    mdFileResolveCache = {};
+    mdFileResolvePending = {};
+    contentEl.querySelectorAll('[data-cmux-file-checked], [data-cmux-file-exists]').forEach(function(el) {
+      el.removeAttribute('data-cmux-file-checked');
+      el.removeAttribute('data-cmux-file-exists');
+    });
+    markMarkdownFileLinks();
+  };
+
   function openMarkdownCandidate(rawPath) {
     try {
       window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'openMarkdownFile', path: rawPath });

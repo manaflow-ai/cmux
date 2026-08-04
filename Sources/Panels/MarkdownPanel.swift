@@ -136,6 +136,19 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         observeTypographyDefaults()
     }
 
+    /// Retargets workspace-owned behavior when this live panel moves without
+    /// recreating its renderer session.
+    func reattachToWorkspace(_ workspaceId: UUID, workspaceRootPath: String?) {
+        self.workspaceId = workspaceId
+        rendererSession.updateFileLinkContext(
+            workspaceId: workspaceId,
+            fileLinkResolver: MarkdownPanelFileLinkResolver(
+                fileManager: .default,
+                fallbackDirectoryPath: workspaceRootPath
+            )
+        )
+    }
+
     /// Adopt a changed typography default (from another viewer's "Set as Default"
     /// or a `cmux.json` reload), but only while this viewer still matches the
     /// default it was tracking — i.e. the user has not customized it.

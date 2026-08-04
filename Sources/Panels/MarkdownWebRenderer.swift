@@ -139,7 +139,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
-        private let fileLinkResolver: MarkdownPanelFileLinkResolver
+        private var fileLinkResolver: MarkdownPanelFileLinkResolver
         var webView: MarkdownWebView?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
@@ -198,6 +198,21 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             self.panelId = panelId
             self.workspaceId = workspaceId
             self.filePath = filePath
+        }
+
+        func updateFileLinkContext(
+            workspaceId: UUID,
+            fileLinkResolver: MarkdownPanelFileLinkResolver
+        ) {
+            self.workspaceId = workspaceId
+            self.fileLinkResolver = fileLinkResolver
+            webView?.evaluateJavaScript(
+                """
+                window.__cmuxMarkdownFileContextDidChange &&
+                  window.__cmuxMarkdownFileContextDidChange();
+                """,
+                completionHandler: nil
+            )
         }
 
         /// Records the desired body font size and applies it as `pageZoom`.

@@ -959,6 +959,20 @@ final class DockSplitStore: BonsplitDelegate {
         return resolvedBaseDirectory
     }
 
+    func retargetTransferredPanelForAttachment(_ panel: any Panel) {
+        if let terminal = panel as? TerminalPanel {
+            terminal.surface.setFocusPlacement(.rightSidebarDock)
+            terminal.updateWorkspaceId(workspaceId)
+        } else if let browser = panel as? BrowserPanel {
+            browser.updateWorkspaceId(workspaceId)
+        } else if let markdown = panel as? MarkdownPanel {
+            markdown.reattachToWorkspace(
+                workspaceId,
+                workspaceRootPath: currentBaseDirectory()
+            )
+        }
+    }
+
     private func resolvedTerminalStartupWorkingDirectory(
         kind: DockSurfaceKind,
         requestedWorkingDirectory: String?,
