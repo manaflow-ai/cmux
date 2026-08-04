@@ -6,11 +6,13 @@ The files sidebar view (`sidebar.view = "files"`) shows the focused pane's cwd, 
 
 The workspaces view shows a `workspaces` header, two rows per workspace, and `+ new workspace`. Click either row of a workspace to select it. Click `+ new workspace` to create one. Its terminal-style scrollbar appears one column inside the resize divider only when workspace rows overflow. Wheel over the rail, click the scrollbar's invisible track, or drag its thumb to scroll the workspace list. Drag the sidebar's right border in either built-in view to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
 
-When configured, the machine rail appears to the left of the workspace or files rail with the same header, two-line entry, active marker, and selected-row treatment as the built-in workspace list. Press and release on the same non-active machine entry to connect to it. Click `+ Connect machine` to open the shared text-input dialog for a `host` or `user@host`. A provider that advertises create capability also shows `+ New VM`; the built-in static Unix/SSH catalog does not advertise that capability. Drag the machine rail's right divider to resize that rail, or the second rail's right divider to resize the workspace/files rail. The two session-local width overrides are independent.
+When configured, the machine rail appears to the left of the workspace or files rail with the same header, two-line entry, active marker, and selected-row treatment as the built-in workspace list. Press and release on the same non-active machine entry to connect to it. Click `+ Connect machine` to open the shared text-input dialog for a host address or pairing code. A negotiated dynamic provider receives that value as opaque input; the static catalog accepts `host` or `user@host` and creates a temporary local SSH target. A provider that advertises create capability also shows `+ new machine`; the built-in static Unix/SSH catalog does not advertise that capability. Drag the machine rail's right divider to resize that rail, or the second rail's right divider to resize the workspace/files rail. The two session-local width overrides are independent.
 
 Each pane has a border box. Click inside a pane to focus it. The top border is the tab bar: click a tab chip to select it, click `+` to create a PTY tab, click `‹` or `›` to scroll overflowing tabs, or wheel over the bar to scroll tab chips while keeping the active tab visible.
 
 The status bar lists screens for the active workspace. Click a screen segment to select it. Click the trailing `+` to create a screen.
+
+When a screen overflows horizontally, the open space in the status bar becomes a continuous viewport track. Click it to animate to that position, or drag it for direct movement. Horizontal wheel events over the pane region pan by one sixth of the viewport. Screens without horizontal overflow continue forwarding those events to the active surface.
 
 A workspace-row or tab-chip press arms the stable identity from the hit target
 that was actually rendered. Its matching release completes that same action
@@ -35,7 +37,9 @@ Wheel over a PTY pane focuses that pane first. When the inner app enables termin
 
 ## Resize
 
-Drag pane borders to resize the matching split. Dragging a corner adjusts both intersecting split axes. The ratio is clamped from 0.05 to 0.95. Outer edges that do not correspond to a split do not change layout.
+Drag pane borders to resize the matching split. Dragging a corner adjusts both intersecting split axes. Ordinary split ratios are clamped from 0.05 to 0.95. Outer edges that do not correspond to a split do not change layout.
+
+On a horizontally scrollable screen, drag either side of a column divider to resize the column on its left. Drag the final column's right border to resize that column. Column widths are clamped from one tenth through one full viewport. Splits inside each column remain independently resizable. One continuous divider drag is coalesced into one `Ctrl-b U` layout-undo entry.
 
 Drag a rail border to resize that rail for the current TUI session. Dragging the workspace rail leaves compact mode and sets its full-width override. The configured base widths come from `machine_sidebar.width`, `sidebar.width`, and `sidebar.compact_width`; each rail honors its own `max_width`. With both rails visible, resizing one preserves the other rail's width while leaving at least 40 columns for pane content.
 

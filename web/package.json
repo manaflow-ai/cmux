@@ -5,9 +5,11 @@
   "private": true,
   "scripts": {
     "dev": "exec bash scripts/dev-local.sh",
-    "build": "bun tools/generate-managed-iroh-relay-catalog.ts --check && next build && bun tools/build-docs-search.mjs",
-    "vercel-build": "bun tools/generate-managed-iroh-relay-catalog.ts --check && VERCEL_PREVIEW_COMMENTS_ENABLED=0 next build && bun tools/build-docs-search.mjs",
+    "build": "bun tools/generate-managed-iroh-relay-catalog.ts --check && bun tools/build-docs-search.mjs && next build",
+    "vercel-build": "bun tools/generate-managed-iroh-relay-catalog.ts --check && bun tools/build-docs-search.mjs && VERCEL_PREVIEW_COMMENTS_ENABLED=0 next build",
     "search:index": "bun tools/build-docs-search.mjs",
+    "subrouter:migrate-legacy": "bun scripts/subrouter/migrate-legacy-tenants.ts",
+    "testflight:backfill-legacy-ownership": "bun scripts/stripe/backfill-pro-testflight-legacy-ownership.ts",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",
     "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",
@@ -26,6 +28,7 @@
     "db:url": "bash scripts/db-local.sh url",
     "start": "next start",
     "test": "bash scripts/run-tests.sh",
+    "test:social-images": "bash scripts/test-social-image-delivery.sh",
     "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
     "typecheck": "tsgo --noEmit",
     "lint": "eslint"

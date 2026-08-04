@@ -1,0 +1,161 @@
+import { describe, expect, test } from "bun:test";
+import { GET } from "../app/api/cli/config/route";
+
+type CliConfigEnvKey =
+  | "NEXT_PUBLIC_STACK_API_URL"
+  | "NEXT_PUBLIC_STACK_PROJECT_ID"
+  | "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY"
+  | "SUBROUTER_HOSTED_URL"
+  | "SUBROUTER_STACK_TENANT_DELETE_TOKEN"
+  | "VERCEL_ENV";
+
+const testEnvironment = {
+  NEXT_PUBLIC_STACK_API_URL: "https://stack.example.test/api/v1",
+  NEXT_PUBLIC_STACK_PROJECT_ID: "test-stack-project-id",
+  NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "test-stack-publishable-key",
+  SUBROUTER_HOSTED_URL: "https://subrouter.example.test",
+  SUBROUTER_STACK_TENANT_DELETE_TOKEN:
+    "0123456789abcdef0123456789abcdef-test",
+  VERCEL_ENV: "preview",
+} satisfies Record<CliConfigEnvKey, string>;
+
+async function withCliConfigEnvironment(
+  overrides: Partial<Record<CliConfigEnvKey, string | undefined>>,
+  run: () => Promise<void>,
+): Promise<void> {
+  const entries = Object.entries(overrides) as Array<
+    [CliConfigEnvKey, string | undefined]
+  >;
+  const originalValues = new Map(
+    entries.map(([key]) => [key, process.env[key]]),
+  );
+
+  try {
+    for (const [key, value] of entries) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    await run();
+  } finally {
+    for (const [key, value] of originalValues) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
+describe("CLI config route", () => {
+  test("publishes native Stack Auth and hosted Subrouter configuration", async () => {
+    await withCliConfigEnvironment(testEnvironment, async () => {
+      const response = GET(new Request("https://cmux.com/api/cli/config"));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        version: 2,
+        auth: {
+          apiUrl: testEnvironment.NEXT_PUBLIC_STACK_API_URL,
+          projectId: testEnvironment.NEXT_PUBLIC_STACK_PROJECT_ID,
+          publishableClientKey:
+            testEnvironment.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
+          confirmUrl: "https://cmux.com/handler/cli-auth-confirm",
+        },
+        subrouter: {
+          url: testEnvironment.SUBROUTER_HOSTED_URL,
+          exchangeUrl: "https://cmux.com/api/subrouter/exchange",
+        },
+      });
+    });
+  });
+
+  test("keeps CLI approval on the origin that issued the Stack login code", async () => {
+    await withCliConfigEnvironment(testEnvironment, async () => {
+      const response = GET(
+        new Request("http://127.0.0.1:4152/api/cli/config"),
+      );
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.auth.confirmUrl).toBe(
+        "http://127.0.0.1:4152/handler/cli-auth-confirm",
+      );
+      expect(body.subrouter.exchangeUrl).toBe(
+        "http://127.0.0.1:4152/api/subrouter/exchange",
+      );
+    });
+  });
+
+  test("defaults non-production deployments to staging Subrouter", async () => {
+    for (const deploymentEnvironment of [undefined, "development", "preview"]) {
+      await withCliConfigEnvironment(
+        {
+          ...testEnvironment,
+          SUBROUTER_HOSTED_URL: undefined,
+          VERCEL_ENV: deploymentEnvironment,
+        },
+        async () => {
+          const response = GET(new Request("https://preview.example/api/cli/config"));
+          expect(response.status).toBe(200);
+          expect((await response.json()).subrouter.url).toBe(
+            "https://staging.sr.cmux.com",
+          );
+        },
+      );
+    }
+  });
+
+  test("defaults production deployments to production Subrouter", async () => {
+    await withCliConfigEnvironment(
+      {
+        ...testEnvironment,
+        SUBROUTER_HOSTED_URL: undefined,
+        VERCEL_ENV: "production",
+      },
+      async () => {
+        const response = GET(new Request("https://cmux.com/api/cli/config"));
+        expect(response.status).toBe(200);
+        expect((await response.json()).subrouter.url).toBe(
+          "https://sr.cmux.com",
+        );
+      },
+    );
+  });
+
+  test("returns 503 instead of advertising incomplete Stack configuration", async () => {
+    await withCliConfigEnvironment(
+      {
+        ...testEnvironment,
+        NEXT_PUBLIC_STACK_PROJECT_ID: undefined,
+        NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: undefined,
+        SUBROUTER_STACK_TENANT_DELETE_TOKEN: undefined,
+      },
+      async () => {
+        const response = GET(new Request("https://cmux.com/api/cli/config"));
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({
+          error: "cli_auth_unavailable",
+        });
+      },
+    );
+  });
+
+  test("returns 503 instead of advertising an insecure hosted Subrouter", async () => {
+    await withCliConfigEnvironment(
+      {
+        ...testEnvironment,
+        SUBROUTER_HOSTED_URL: "http://subrouter.example.test",
+      },
+      async () => {
+        const response = GET(new Request("https://cmux.com/api/cli/config"));
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({
+          error: "cli_auth_unavailable",
+        });
+      },
+    );
+  });
+});

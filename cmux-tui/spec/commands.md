@@ -1,6 +1,10 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v9 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies private protocol-v10 commands for cmux frontends and raw
+SDK adapters. Application code should use
+[`cmux.protocol/1`](resource-api-v1.md).
+
+Implemented commands match protocol v10 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -63,9 +67,15 @@ object{
   active_pane:Id,
   zoomed_pane:Id|null,
   layout:Layout,
+  viewport_base_width?:float32,
+  viewport_splits?:array<object{split:Id,width:float32}>,
   panes:array<Pane>
 }
 ```
+
+Servers advertising `viewport-splits-v1` include `viewport_splits` when a screen uses horizontal viewport columns. Each entry marks a right split whose second child is appended to a horizontal virtual canvas. `width` is the second child's width as a fraction of each frontend's viewport. Ordinary screens omit the field. Clients that do not implement the capability may ignore it and render the split's fallback ratio.
+
+Servers advertising `viewport-column-resize-v1` include `viewport_base_width` when horizontal viewport layout is active. It is the width of the first column as a fraction of the frontend viewport. A missing value defaults to `1.0`.
 
 `Layout`:
 
@@ -132,7 +142,7 @@ Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `
 
 `resize-surface` requires both fields and clamps each to `1..10000`, matching tmux's window bounds. Every live control connection enters the same shared reducer. Attached clients retain the report until release; an unattached one-shot report is removed when its connection closes. A disconnected client id is rejected.
 
-`set-client-sizing` controls tmux-style `ignore-size` participation. A normal request supplies `client` and `enabled`. Supplying `exclusive:true` with an enabled client atomically includes only that client. Omitting `client` with `enabled:true` atomically includes all clients. Ignored clients keep reporting; if every attached client is ignored, all ignored reports participate as tmux's global fallback.
+`set-client-sizing` controls tmux-style `ignore-size` participation independently for each terminal surface. Every request supplies `surface`. A normal request also supplies `client` and `enabled`. Supplying `exclusive:true` with an enabled client atomically includes only that client on the requested surface. Omitting `client` with `enabled:true` atomically includes all clients on that surface. Ignored clients keep reporting; if every attached client on one surface is ignored, that surface alone falls back to all of its ignored reports.
 
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
@@ -182,7 +192,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -204,10 +214,42 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
-The current server reports protocol `9` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, and protocol 9 before decoding stack layouts or sending `new-pane`.
+The current server reports protocol `10` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, and protocol 10 before using per-surface client sizing.
+
+### shutdown-daemon
+
+| Field | Value |
+| --- | --- |
+| name | `shutdown-daemon` |
+| status | implemented |
+| since | protocol 9 |
+| authority | local-admin |
+
+Gracefully hands the durable session to a replacement daemon. `pid` and `generation` must match the latest `identify` result. A successful response is queued before shutdown begins.
+
+Params:
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pid` | `uint32` | required | Exact process from `identify` |
+| `generation` | `string` | required | Exact daemon boot generation from `identify` |
+| `force` | `boolean` | `false` | Requires `daemon-handoff-force-v1`; bypasses native-browser ownership only |
+
+Result: `object{accepted:true,pid:uint32,generation:string}`.
+
+The identity fence and trusted-local authority apply even when `force` is true. A stale process or generation is rejected, so reconnecting the same socket path cannot redirect a recovery command to another daemon.
+
+Errors include stale identity, non-local transport, another native-browser owner when unforced, and an existing handoff.
+
+Example:
+
+```json
+{"id":2,"cmd":"shutdown-daemon","pid":12345,"generation":"boot-uuid","force":true}
+{"id":2,"ok":true,"data":{"accepted":true,"pid":12345,"generation":"boot-uuid"}}
+```
 
 ### ping
 
@@ -237,7 +279,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":9}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10}}
 ```
 
 ### set-client-info
@@ -248,7 +290,7 @@ Example:
 | status | implemented |
 | since | protocol 6 additive extension |
 
-Labels the requesting control connection. Repeated calls are idempotent. An omitted field preserves its current value; supplied `name` and `kind` values are clamped to 64 Unicode characters by the server.
+Labels the requesting control connection and advertises client capabilities. Repeated calls are idempotent. An omitted field preserves its current value; supplied `name` and `kind` values are clamped to 64 Unicode characters by the server. A supplied `capabilities` array adds recognized capabilities to the connection's set; advertised capabilities cannot be withdrawn during that connection, and unknown capabilities are ignored.
 
 Params:
 
@@ -256,6 +298,7 @@ Params:
 | --- | --- | --- | --- |
 | `name` | `string` | default unchanged | Control characters are replaced with spaces; first 64 characters are retained |
 | `kind` | `string` | default unchanged | Control characters are replaced with spaces; first 64 characters are retained |
+| `capabilities` | `array<string>` | default unchanged | Additive client features understood by the server |
 
 Result: `object{}`.
 
@@ -274,7 +317,7 @@ CLI mapping:
 Example:
 
 ```json
-{"id":3,"cmd":"set-client-info","name":"lawrences-iphone","kind":"web"}
+{"id":3,"cmd":"set-client-info","name":"lawrences-iphone","kind":"tui","capabilities":["browser-pointer-frame-guard-v1"]}
 {"id":3,"ok":true,"data":{}}
 ```
 
@@ -286,7 +329,7 @@ Example:
 | status | implemented |
 | since | protocol 6 additive extension |
 
-Returns all current Unix and WebSocket control connections in ascending client-id order. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface.
+Returns all current Unix and WebSocket control connections in ascending client-id order. `self` identifies the requesting connection. `connected_seconds` is elapsed monotonic whole seconds. `attached` contains unique surface ids, and each corresponding `sizes` entry has null dimensions until that connection requests `resize-surface` for the attached surface. Protocol v10 reports `size_participating` on each size entry because one client may participate on one terminal and be excluded on another.
 
 Params: none.
 
@@ -295,12 +338,17 @@ Result:
 ```text
 array<object{
   client:uint64,
-  transport:"unix"|"ws",
+  transport:"local"|"unix"|"ws",
   name:string|null,
   kind:string|null,
   connected_seconds:uint64,
   attached:array<Id>,
-  sizes:array<object{surface:Id,cols:uint16|null,rows:uint16|null}>,
+  sizes:array<object{
+    surface:Id,
+    cols:uint16|null,
+    rows:uint16|null,
+    size_participating:boolean
+  }>,
   self:boolean
 }>
 ```
@@ -313,7 +361,7 @@ CLI mapping:
 | --- | --- |
 | Verb | `list-clients` |
 | Flags | none |
-| Plain stdout | one line per client: `<client> <transport> <name-or-> <kind-or-> connected=<n>s attached=<ids-or-> sizes=<sizes-or-> self=<bool>` |
+| Plain stdout | one line per client: `<client> <transport> <name-or-> <kind-or-> connected=<n>s attached=<ids-or-> sizes=<surface>:<cols>x<rows>:sizing=<bool> self=<bool>` |
 | JSON stdout | exact result array |
 | Exit codes | common |
 
@@ -321,7 +369,47 @@ Example:
 
 ```json
 {"id":4,"cmd":"list-clients"}
-{"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36}],"self":true}]}
+{"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36,"size_participating":true}],"self":true}]}
+```
+
+### set-client-sizing
+
+| Field | Value |
+| --- | --- |
+| name | `set-client-sizing` |
+| status | implemented |
+| since | protocol 9; per-surface request shape protocol 10 |
+
+Changes one client's size participation on one terminal surface. The `surface` field is always required. `exclusive:true` requires `enabled:true` and a client with a reported size on that surface. Omitting `client` with `enabled:true` restores all clients on that surface.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Existing terminal surface |
+| `client` | `uint64` | optional only when restoring all | Attached or reporting client for this surface |
+| `enabled` | `boolean` | required | Include or exclude the client |
+| `exclusive` | `boolean` | default `false` | Valid only with `client` and `enabled:true` |
+
+Result: `object{}`.
+
+Errors include `unknown surface <id>`, `client <id> is not attached to surface <id>`, `client <id> has no reported size for surface <id>`, and invalid exclusive or disabled-all combinations.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `set-client-sizing` |
+| Flags | `--surface <id> --enabled <true-or-false> [--client <id>]` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":5,"cmd":"set-client-sizing","surface":7,"client":1,"enabled":true,"exclusive":true}
+{"id":5,"ok":true,"data":{}}
 ```
 
 ### detach-client
@@ -553,12 +641,14 @@ Params:
 Result:
 
 ```text
-object{layout:Layout,panes:array<object{pane:Id,surfaces:array<Id>}>}
+object{layout:Layout,viewport_base_width?:float32,viewport_splits?:array<object{split:Id,width:float32}>,panes:array<object{pane:Id,surfaces:array<Id>}>}
 ```
 
 Errors: `unknown screen <id>`, `no active screen`, `bad request: ...`.
 
 CLI mapping: verb `export-layout`; flags `[--screen <id>]`; plain stdout and JSON stdout both print the exact result object.
+
+The result is an identity-bearing runtime snapshot for inspection. Its `layout` is not the declarative `layout` input accepted by `apply-layout`.
 
 ### apply-layout
 
@@ -695,6 +785,103 @@ Example:
 {"id":4,"ok":true,"data":{"text":"$ ls\nREADME.md\n"}}
 ```
 
+### clear-history
+
+| Field | Value |
+| --- | --- |
+| name | `clear-history` |
+| status | implemented |
+| since | protocol 9 with `clear-history-v1` |
+
+On a primary screen with OSC 133 prompt metadata, clears retained scrollback and complete visible rows before the active prompt inside the terminal emulator. The prompt, edit buffer, and cursor remain in place, and no bytes are written to the child process. Without prompt metadata, only retained scrollback is cleared, preserving the visible grid and cursor. The authoritative server terminal and attached frontend mirrors receive the same VT erase sequence.
+
+The command fails without changing history, the visible grid, or the cursor when active input extends into retained history or exact preservation cannot be proven. If the terminal stream ends inside an incomplete VT sequence, the server waits for a bounded interval and then fails without mutation unless the sequence completes. Repeated requests against the same unchanged stream share that interval. After it expires, only new PTY output permits a fresh interval.
+
+Clients must require `identify.capabilities` to contain `clear-history-v1` before sending this command.
+
+When the alternate screen is active, the command leaves both screens untouched. If `fallback_key` is present, the server encodes that structured key from its authoritative terminal keyboard modes and writes the encoded bytes to the PTY. If the active keyboard mode cannot represent the key, the command fails without writing bytes. If `fallback_key` is absent, the alternate-screen request succeeds as a no-op. Clients must require both `clear-history-v1` and `clear-history-key-v1` before sending `fallback_key`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Must identify a live PTY surface |
+| `fallback_key` | `TerminalKeyInput \| null` | default null | Requires `clear-history-key-v1`; ignored on the primary screen |
+
+`TerminalKeyInput` preserves the frontend key event so the server can apply its current Kitty keyboard and terminal mode state:
+
+| Field | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `key` | `TerminalKey` | required | One of the symbolic values below |
+| `mods` | `TerminalModifiers` | required | Exact active modifier state |
+| `consumed_mods` | `TerminalModifiers` | required | Must be a subset of `mods` |
+| `composing` | `boolean` | default false | Whether the key belongs to an uncommitted composition sequence |
+| `utf8` | `string` | required | At most 4 KiB of UTF-8 and contains no control characters |
+| `unshifted_codepoint` | `string \| null` | default null | Exactly one Unicode scalar when present |
+| `shifted_codepoint` | `string \| null` | default null | Shifted logical identity; exactly one Unicode scalar when present |
+| `base_layout_codepoint` | `string \| null` | default null | Explicit PC-101 base-layout identity; exactly one Unicode scalar when present |
+| `action` | `"press" \| "release" \| "repeat" \| null` | default null | Key action when known |
+| `macos_option_as_alt` | `boolean` | required | `false` is valid only when Alt is active and consumed |
+
+`TerminalModifiers` contains six required booleans: `shift`, `control`, `alt`, `super`, `caps_lock`, and `num_lock`. Unknown fields are rejected.
+
+`TerminalKey` accepts these exact kebab-case values:
+
+```text
+unidentified backquote backslash bracket-left bracket-right comma
+digit0 digit1 digit2 digit3 digit4 digit5 digit6 digit7 digit8 digit9 equal
+a b c d e f g h i j k l m n o p q r s t u v w x y z
+minus period quote semicolon slash backspace enter space tab delete end home insert
+page-down page-up arrow-down arrow-left arrow-right arrow-up
+numpad0 numpad1 numpad2 numpad3 numpad4 numpad5 numpad6 numpad7 numpad8 numpad9
+numpad-add numpad-backspace numpad-comma numpad-decimal numpad-divide numpad-enter
+numpad-equal numpad-multiply numpad-subtract numpad-up numpad-down numpad-right
+numpad-left numpad-begin numpad-home numpad-end numpad-insert numpad-delete
+numpad-page-up numpad-page-down escape
+f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 f13 f14 f15 f16 f17 f18 f19 f20
+```
+
+Result: empty object.
+
+Failed `clear-history` responses include the response-envelope `error_delivery` field. Clients may
+retry or preserve the input lane after `"known-not-delivered"`. They must quarantine the affected
+input lane after `"ambiguous"` because fallback input may have reached the PTY.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface <id>` | Surface id does not exist |
+| `browser surface does not support PTY/VT socket commands` | Surface is a browser |
+| `active terminal input extends into retained history` | The prompt or active input cannot be preserved exactly |
+| `terminal output did not reach a safe clear-history boundary` | An incomplete VT sequence did not finish before the bounded wait expired |
+| `terminal keyboard mode cannot encode clear-history fallback key` | The alternate-screen fallback key is not representable in the active keyboard mode |
+| `bad request: ...` | Missing `surface` or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `clear-history` |
+| Flags | `--surface <id>` |
+| Plain stdout | none |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":5,"cmd":"clear-history","surface":1}
+{"id":5,"ok":true,"data":{}}
+```
+
+Alternate-screen key fallback:
+
+```json
+{"id":6,"cmd":"clear-history","surface":1,"fallback_key":{"key":"k","mods":{"shift":false,"control":false,"alt":false,"super":true,"caps_lock":false,"num_lock":false},"consumed_mods":{"shift":false,"control":false,"alt":false,"super":false,"caps_lock":false,"num_lock":false},"composing":false,"utf8":"","unshifted_codepoint":"k","shifted_codepoint":null,"base_layout_codepoint":"k","action":"press","macos_option_as_alt":true}}
+{"id":6,"ok":true,"data":{}}
+```
+
 ### sidebar-plugin
 
 | Field | Value |
@@ -739,7 +926,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns a one-shot base64 VT replay for a PTY surface, including the current screen, styles, cursor, modes, palette, keyboard protocol state, charsets, and tabstops. Replaying this data into a fresh Ghostty VT terminal reproduces the surface state at the time of the snapshot.
+Returns a one-shot base64 VT replay for a PTY surface, including the current screen, styles, cursor, modes, palette, keyboard protocol state, charsets, tabstops, Kitty image-number aliases, resource limits, and per-screen automatic image-ID cursors. Apply `data` through `replay_cursor_offset`, install the replay cursors, apply the remaining `data`, restore `kitty_image_aliases`, then install the steady-state cursors before live output.
 
 Params:
 
@@ -750,7 +937,7 @@ Params:
 Result:
 
 ```text
-object{cols:uint16,rows:uint16,data:Base64}
+object{cols:uint16,rows:uint16,data:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState}
 ```
 
 Errors:
@@ -1074,13 +1261,13 @@ Example:
 | status | implemented |
 | since | protocol 9 |
 
-Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, the first pane stays full-height on the left while the remaining panes form a right-side stack whose focused member expands. The new surface inherits the active surface working directory of `pane` when available.
+Creates a PTY pane after the current panes in creation order, focuses it, and reapplies the default automatic layout inside the horizontal viewport column containing `pane`. A screen without horizontal viewport columns is one implicit column, preserving the original whole-screen behavior. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, the first pane stays full-height on the left while the remaining panes form a right-side stack whose focused member expands. The new surface inherits the active surface working directory of `pane` when available.
 
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `pane` | `Id` | required | Pane whose screen receives the new pane |
+| `pane` | `Id` | required | Pane whose horizontal column receives the new pane |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 
@@ -1113,6 +1300,169 @@ Example:
 ```json
 {"id":10,"cmd":"new-pane","pane":2}
 {"id":10,"ok":true,"data":{"surface":14}}
+```
+
+### new-pane-right
+
+| Field | Value |
+| --- | --- |
+| name | `new-pane-right` |
+| status | implemented |
+| since | protocol 9 additive capability `viewport-splits-v1` |
+
+Creates and focuses one PTY column immediately to the right of the horizontal viewport column containing `pane`. Supporting frontends keep each existing column at its independent viewport-relative width and insert the new pane at `width` times the viewport width. The default is two thirds. The shared split tree stores equivalent proportional fallback ratios for clients that ignore viewport metadata. The new surface inherits the active surface working directory of `pane` when available.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Pane whose screen receives the new pane |
+| `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
+| `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
+| `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+
+Result:
+
+```text
+object{surface:Id}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `pane <id> has no workspace` | Target pane is not in a screen |
+| `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
+| `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `new-pane-right` |
+| Flags | `--pane <id> [--width <fraction>] [--cols <n> --rows <n>]` |
+| Plain stdout | new surface id followed by newline |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":11,"cmd":"new-pane-right","pane":2}
+{"id":11,"ok":true,"data":{"surface":15}}
+```
+
+### set-viewport-pane-width
+
+| Field | Value |
+| --- | --- |
+| name | `set-viewport-pane-width` |
+| status | implemented |
+| since | protocol 9 additive capability `viewport-column-resize-v1` |
+
+Sets the width of the horizontal viewport column containing `pane`. Every pane nested inside that column keeps its internal split ratios. The command updates proportional fallback ratios for clients that ignore viewport metadata.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Must belong to a screen with viewport columns |
+| `width` | `float32` | required | Finite value from 0.1 through 1.0 |
+| `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
+
+Result: empty object.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `viewport pane width must be between 0.1 and 1.0` | `width` is non-finite or outside the supported range |
+| `pane <id> has no resizable viewport column` | Pane is unknown or its screen has no viewport columns |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+Invalid widths return `error_code:"viewport-width-out-of-range"`. A missing pane or a pane outside a viewport layout returns `error_code:"viewport-column-not-found"`.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `set-viewport-pane-width` |
+| Flags | `--pane <id> --width <fraction>` |
+| Plain stdout | empty |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":12,"cmd":"set-viewport-pane-width","pane":15,"width":0.5}
+{"id":12,"ok":true,"data":{}}
+```
+
+### undo-layout
+
+| Field | Value |
+| --- | --- |
+| name | `undo-layout` |
+| status | implemented |
+| since | protocol 9 additive capability `layout-undo-v1` |
+
+Undoes the latest structural layout entry on the screen containing `pane`. History is owned by that screen, capped at 32 entries, and kept in memory only. Resize samples carrying the same connection-scoped `transaction` coalesce. A new transaction, another connection, or a request without a transaction starts a new undo entry. Pane creation, split and column resize, swap, zoom, and automatic-layout changes are undoable. A direct pane close clears that screen's history because the closed process cannot be recreated.
+
+If the entry created panes, the first request returns a confirmation preview. The server advances to a unique confirmation revision and binds it to the exact ordered surface membership of every pane in `closes_panes`. The client must show the consequence, then resend that revision with `confirm_close:true`. A later structural change, tab addition, tab removal, tab reorder, tab move, or newer preview invalidates the confirmation. A rejected or stale confirmation closes nothing.
+
+Clients must reject the response unless it contains exactly one complete result variant. The applied variant requires `undone:true`, `screen`, and `revision`, with `confirmation_required` either absent or false. The preview variant requires `undone:false`, `confirmation_required:true`, `screen`, `revision`, and an array of valid pane ids in `closes_panes`. Missing fields, contradictory outcome flags, invalid ids, and non-array `closes_panes` values are protocol errors.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Selects the screen whose history is used |
+| `revision` | `uint64` | default null | Required for a confirmed pane-closing undo; must equal the preview revision |
+| `confirm_close` | `boolean` | default false | Must be true to commit an undo that closes panes |
+
+Result:
+
+```text
+object{undone:true,screen:Id,revision:uint64}
+| object{undone:false,confirmation_required:true,screen:Id,revision:uint64,closes_panes:array<Id>}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown pane <id>` | `pane` is not in a live screen |
+| `no layout change to undo` | The selected screen has no undo entry |
+| `confirmed layout undo requires the preview revision` | `confirm_close` is true without `revision` |
+| `layout revision conflict: expected <n>, current <n>` | The confirmation revision is stale or incorrect |
+| `tabs in pane <id> changed since the undo confirmation` | A pane's surface membership differs from the preview |
+| `layout changed before undo could commit` | The layout changed after validation and before commit |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+Expected failures also include a machine-readable response `error_code`.
+`layout-undo-unavailable` means the screen has no undo entry.
+`layout-undo-stale` means a previously valid entry or confirmation can no
+longer commit. Other failures omit `error_code`.
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `undo-layout` |
+| Flags | `--pane <id> [--revision <n> --confirm-close]` |
+| Plain stdout | undo line, or confirmation instructions with the revision and closing pane ids |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Examples:
+
+```json
+{"id":13,"cmd":"undo-layout","pane":15}
+{"id":13,"ok":true,"data":{"undone":false,"confirmation_required":true,"screen":3,"revision":8,"closes_panes":[15]}}
+{"id":14,"cmd":"undo-layout","pane":15,"revision":8,"confirm_close":true}
+{"id":14,"ok":true,"data":{"undone":true,"screen":3,"revision":9}}
 ```
 
 ### split
@@ -1196,6 +1546,7 @@ Errors:
 | --- | --- |
 | `bad dir "<value>" (want "right" or "down")` | `dir` is not allowed |
 | `unknown pane/split <id>` | Pane is unknown or no ancestor split has `dir` |
+| `split <id> ratio ... width must be between 0.1 and 1` | The projected viewport split cannot represent the clamped ratio |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1225,7 +1576,7 @@ Example:
 | status | implemented |
 | since | protocol 8 |
 
-Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged.
+Sets the ratio of exactly one canonical split node. The server clamps the supplied ratio to `0.05..0.95`. The split id and every unrelated node remain unchanged. A compatibility split representing a horizontal viewport column also preserves the column width invariant `0.1..1.0`.
 
 Params:
 
@@ -1233,6 +1584,7 @@ Params:
 | --- | --- | --- | --- |
 | `split` | `Id` | required | Stable split id from `list-workspaces` or `export-layout` |
 | `ratio` | `float32` | required | Clamped to `0.05..0.95` |
+| `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
 Result: `object{}`.
 
@@ -1241,7 +1593,10 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown split <id>` | No live split node has the id |
+| `split <id> ratio ... width must be between 0.1 and 1` | The live viewport split would require an unsupported column width; layout remains unchanged |
 | `bad request: ...` | Missing fields or wrong JSON type |
+
+Missing targets return `error_code:"layout-ratio-target-missing"`. Unsupported viewport widths return `error_code:"layout-ratio-out-of-range"`.
 
 CLI mapping:
 
@@ -2403,7 +2758,7 @@ Example:
 | since | protocol 5 |
 | `mode`, `cols`, `rows` fields | protocol 7 additive extensions |
 
-Attaches the connection to a PTY surface stream. In protocol v5, the server first sends a `vt-state` event for the current surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
+Attaches the connection to a PTY or browser surface stream. In protocol v5, the server first sends a `vt-state` event for the current PTY surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
 
 Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output | colors-changed)* -> detached`. A v6 `resized` attach event carries a fresh replay and requires clients to discard the old mirror and replace it from that replay. The additive `vt-state.colors` field contains effective colors plus `cursor_style` and `cursor_blink` captured with the snapshot, and `colors-changed` reports later `set-default-colors` updates without changing the replay/output ordering contract. The Ghostty VT replay does not emit DECSCUSR, so clients must apply these cursor fields after replaying `data`; current per-surface DECSCUSR state takes precedence over Ghostty configuration defaults. Clients that support only protocol 5 or older must refuse protocol v6 attach streams rather than treating `resized` as a normal resize. The v6 field name `replay` could not be verified against this branch's code.
 
@@ -2411,11 +2766,13 @@ Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
+Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | Must identify a live PTY surface |
+| `surface` | `Id` | required | Must identify a live PTY or negotiated browser surface |
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
@@ -2431,7 +2788,7 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown surface <id>` | Surface id does not exist |
-| `browser panes are not supported over attach yet` | Surface is a browser |
+| `browser attach requires client capability browser-pointer-frame-guard-v1; ...` | The client did not advertise guarded pointer support |
 | `bad attach mode <mode>` | `mode` is not `"bytes"` or `"render"` |
 | `attach-surface cols and rows must be supplied together` | Only one initial dimension is supplied |
 | `render attach requires protocol 7` | Server does not implement render mode |
@@ -2461,7 +2818,7 @@ Render mode example:
 
 ```json
 {"id":29,"cmd":"attach-surface","surface":1,"mode":"render"}
-{"event":"render-state","surface":1,"size":{"cols":3,"rows":1},"cursor":{"x":2,"y":0,"style":"block","blink":true,"visible":true,"color":null},"default_fg":"#d8d9da","default_bg":"#131415","scrollback_rows":0,"rows":[{"row":0,"runs":[{"text":"$ x","fg":null,"bg":null,"attrs":0}]}]}
+{"event":"render-state","surface":1,"size":{"cols":3,"rows":1},"cursor":{"x":2,"y":0,"style":"block","blink":true,"visible":true,"color":null},"default_fg":"#d8d9da","default_bg":"#131415","scrollback_rows":0,"history_epoch":1,"rows":[{"row":0,"runs":[{"text":"$ x","fg":null,"bg":null,"attrs":0}]}]}
 {"id":29,"ok":true,"data":{}}
 ```
 
@@ -2490,10 +2847,10 @@ The inclusive `count` bound is `0 <= count <= 65,535`.
 Result:
 
 ```text
-object{rows:array<Row>,start:uint32,total:uint32}
+object{rows:array<Row>,start:uint32,total:uint32,epoch:uint64}
 ```
 
-The response `start` is `min(request.start,total)`. `rows` contains at most `count` entries and stops at `total`; `count:0` returns an empty page. `total` is the scrollback row count captured with the page and excludes the live viewport.
+The response `start` is `min(request.start,total)`. `rows` contains at most `count` entries and stops at `total`; `count:0` returns an empty page. `total` is the scrollback row count captured with the page and excludes the live viewport. `epoch` matches the `history_epoch` render field captured in the same retained-history coordinate space.
 
 Indexes are not durable identities. Eviction shifts surviving indexes toward zero, and resize reflow can change row boundaries and `total`. The request does not move the shared viewport. See [`render.md`](render.md#scrollback) for the full eviction, consistency, and reflow contract.
 
@@ -2521,7 +2878,7 @@ Example:
 
 ```json
 {"id":5,"cmd":"read-scrollback","surface":1,"start":40,"count":2}
-{"id":5,"ok":true,"data":{"rows":[{"row":0,"runs":[{"text":"cargo test","fg":null,"bg":null,"attrs":0}]},{"row":1,"runs":[{"text":"ok","fg":"#00ff00","bg":null,"attrs":1}]}],"start":40,"total":83}}
+{"id":5,"ok":true,"data":{"rows":[{"row":0,"runs":[{"text":"cargo test","fg":null,"bg":null,"attrs":0}]},{"row":1,"runs":[{"text":"ok","fg":"#00ff00","bg":null,"attrs":1}]}],"start":40,"total":83,"epoch":17}}
 ```
 
 ### wait-for
@@ -2911,7 +3268,19 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Reports agent state for a surface. This is a telemetry command and must not change focus. Reports with `source:"hook"` have hook authority and override detector-derived state. Reports with `source:"socket"` override detector-derived state but are lower priority than a newer hook report.
+Reports agent state for a durable terminal surface without changing focus. A
+successful report commits the same public agent projection used by
+`agent.report`, advances the resource revision, and publishes one agent change
+to `session.events`. The server generates an internal mutation identity for
+this raw command.
+
+Each live terminal has at most one current agent projection. Hook reports have
+authority over socket reports. A socket report received after a hook retains
+the hook value while still advancing the resource revision and publishing that
+retained value. Restart restores the current projection. Closing the terminal
+deletes it, so historical reports cannot recreate an agent. Browser surfaces,
+surfaces without durable terminal identity, and terminal-less default reports
+are rejected.
 
 Params:
 
@@ -2933,6 +3302,8 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | `unknown surface <id>` | Surface id does not exist |
+| `surface <id> is not a terminal` | Surface is a browser |
+| `surface <id> has no durable resource identity` | Surface is not durably registered |
 | `bad state <state>` | State is not allowed |
 | `bad source <source>` | Source is not allowed |
 | `bad request: ...` | Missing fields or wrong JSON type |
@@ -3028,3 +3399,9 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 | Unknown fields | Unknown request fields are ignored by serde | Reject unknown fields or define extension slots |
 
 Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future result expansion may add `{pane,screen,workspace}` only behind a newer protocol version.
+
+`viewport-splits-v1` is additive within protocol v9. Clients must require the capability before sending `new-pane-right` or interpreting `Screen.viewport_splits`.
+
+`viewport-column-resize-v1` is additive within protocol v9. Clients must require the capability before sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width`.
+
+`layout-undo-v1` is additive within protocol v9. Clients must require the capability before sending `undo-layout`. A binding must preserve both result variants and must not set `confirm_close` without the exact revision returned by the confirmation preview.

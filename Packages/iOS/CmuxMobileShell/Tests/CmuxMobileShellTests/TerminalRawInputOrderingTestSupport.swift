@@ -20,12 +20,23 @@ actor RoutingTerminalInputRecorder {
     private var inFlightCount = 0
     private var maximumInFlightCount = 0
     private var holdFirstInput = false
+    private var holdAllInputs = false
+    private var rejectInputAtIndex: Int?
     private var firstInputHeld = false
     private var firstInputContinuation: CheckedContinuation<Void, Never>?
     private var firstInputReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var heldInputContinuations: [CheckedContinuation<Void, Never>] = []
 
     func setHoldFirstInput(_ hold: Bool) {
         holdFirstInput = hold
+    }
+
+    func setHoldAllInputs(_ hold: Bool) {
+        holdAllInputs = hold
+    }
+
+    func setRejectInput(at index: Int?) {
+        rejectInputAtIndex = index
     }
 
     func awaitFirstInputReached() async {
@@ -39,7 +50,15 @@ actor RoutingTerminalInputRecorder {
         continuation?.resume()
     }
 
-    func record(surfaceID: String, text: String) async {
+    func releaseAllInputs() {
+        let continuations = heldInputContinuations
+        heldInputContinuations = []
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    func record(surfaceID: String, text: String) async -> Int {
         let index = inputs.count
         inputs.append(RoutingTerminalInputRecord(surfaceID: surfaceID, text: text))
         inFlightCount += 1
@@ -51,12 +70,19 @@ actor RoutingTerminalInputRecorder {
             for waiter in reachedWaiters { waiter.resume() }
             await withCheckedContinuation { firstInputContinuation = $0 }
         }
+        if holdAllInputs {
+            await withCheckedContinuation {
+                heldInputContinuations.append($0)
+            }
+        }
         inFlightCount -= 1
+        return index
     }
 
     func recordedInputs() -> [RoutingTerminalInputRecord] { inputs }
     func recordedInFlightCount() -> Int { inFlightCount }
     func recordedMaximumInFlightCount() -> Int { maximumInFlightCount }
+    func shouldReject(index: Int) -> Bool { rejectInputAtIndex == index }
 }
 
 extension RoutingHostRouter {
@@ -68,8 +94,20 @@ extension RoutingHostRouter {
         await terminalInputRecorder.awaitFirstInputReached()
     }
 
+    func setHoldAllTerminalInputs(_ hold: Bool) async {
+        await terminalInputRecorder.setHoldAllInputs(hold)
+    }
+
+    func setRejectTerminalInput(at index: Int?) async {
+        await terminalInputRecorder.setRejectInput(at: index)
+    }
+
     func releaseFirstTerminalInput() async {
         await terminalInputRecorder.releaseFirstInput()
+    }
+
+    func releaseAllTerminalInputs() async {
+        await terminalInputRecorder.releaseAllInputs()
     }
 
     func recordedTerminalInputs() async -> [RoutingTerminalInputRecord] {
@@ -86,7 +124,17 @@ extension RoutingHostRouter {
 
     func terminalInputResponse(_ info: RequestInfo) async -> Data? {
         let surfaceID = info.surfaceID ?? ""
-        await terminalInputRecorder.record(surfaceID: surfaceID, text: info.text ?? "")
+        let index = await terminalInputRecorder.record(
+            surfaceID: surfaceID,
+            text: info.text ?? ""
+        )
+        if await terminalInputRecorder.shouldReject(index: index) {
+            return try? Self.errorFrame(
+                id: info.id,
+                code: "terminal_input_failed",
+                message: "terminal input rejected"
+            )
+        }
         return try? Self.resultFrame(id: info.id, result: [
             "workspace_id": Self.workspaceID,
             "surface_id": surfaceID,

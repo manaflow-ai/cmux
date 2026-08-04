@@ -292,7 +292,9 @@ mod tests {
             base: Style::default(),
             dim: Style::default(),
             active: Style::default().add_modifier(Modifier::BOLD),
+            header: Style::default(),
             border: Style::default(),
+            border_symbol: "│",
             rail: Color::Cyan,
         };
         terminal

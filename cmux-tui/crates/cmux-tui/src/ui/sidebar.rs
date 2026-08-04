@@ -238,7 +238,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
             frame,
             area,
             y,
-            messages.new_vm,
+            messages.new_machine,
             app.machine_sidebar_focused() && rail_selection == MachineRailSelection::NewVm,
             palette,
         );

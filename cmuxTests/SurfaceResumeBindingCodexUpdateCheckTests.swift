@@ -140,7 +140,7 @@ import Testing
             autoResume: true
         )
 
-        let startupInput = try #require(binding.remoteStartupInputWithLauncherScript())
+        let startupInput = try #require(binding.remoteStartupInput())
 
         #expect(
             startupInput.contains("'resume' 'remote-startup-session' -c check_for_update_on_startup=false '--model'"),
