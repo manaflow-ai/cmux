@@ -15,10 +15,10 @@ struct OnboardingAgentsView: View {
                 title: title,
                 message: L10n.string(
                     "mobile.onboarding.agents.body",
-                    defaultValue: "Follow every agent session from your phone."
+                    defaultValue: "Track every workspace from your phone."
                 ),
                 visual: OnboardingScreenshot(
-                    content: .agentSession,
+                    content: .workspaces,
                     accessibilityLabel: title
                 )
             )

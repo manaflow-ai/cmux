@@ -107,10 +107,14 @@ import UIKit
 
     @Test @MainActor func deviceFrameUsesFullResolutionProductArtwork() async throws {
         let frame = await OnboardingScreenshot.deviceFrameImage()
-        let pixels = try #require(frame.cgImage)
+        let framePixels = try #require(frame.cgImage)
+        let mask = await OnboardingScreenshot.screenMaskImage()
+        let maskPixels = try #require(mask.cgImage)
 
-        #expect(pixels.width == 1_470)
-        #expect(pixels.height == 3_000)
+        #expect(framePixels.width == 1_470)
+        #expect(framePixels.height == 3_000)
+        #expect(maskPixels.width == 1_320)
+        #expect(maskPixels.height == 2_868)
     }
 
     @Test func screenshotAppearanceMatchesTheSystemColorScheme() {

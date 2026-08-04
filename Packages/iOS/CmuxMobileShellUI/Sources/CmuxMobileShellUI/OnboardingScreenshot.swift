@@ -3,11 +3,12 @@ import Foundation
 import SwiftUI
 import UIKit
 
-/// Full-height production captures presented inside the same iPhone product
-/// frame used by the App Store screenshot pipeline.
+/// Full-height Simulator captures from the production workspace list and
+/// notification feed preview entrypoints, presented inside the same iPhone
+/// product frame used by the App Store screenshot pipeline.
 struct OnboardingScreenshot: View {
     enum Content: String, CaseIterable {
-        case agentSession = "agent-session"
+        case workspaces
         case notifications
 
         var accessibilityIdentifier: String {
@@ -23,12 +24,14 @@ struct OnboardingScreenshot: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.locale) private var locale
     @State private var deviceFrame: UIImage?
+    @State private var screenMask: UIImage?
     @State private var screenshot: UIImage?
 
     var body: some View {
         OnboardingIPhoneScreenshotFrame(
             preferredHeight: preferredFrameHeight,
-            deviceFrame: deviceFrame
+            deviceFrame: deviceFrame,
+            screenMask: screenMask
         ) {
             ZStack {
                 Color(.systemBackground)
@@ -52,20 +55,23 @@ struct OnboardingScreenshot: View {
         .task(id: resourceName) {
             screenshot = nil
             deviceFrame = nil
+            screenMask = nil
             let loadedScreenshot = await Self.image(
                 content: content,
                 language: language,
                 appearance: appearance
             )
             let loadedDeviceFrame = await Self.deviceFrameImage()
+            let loadedScreenMask = await Self.screenMaskImage()
             guard !Task.isCancelled else { return }
             screenshot = loadedScreenshot
             deviceFrame = loadedDeviceFrame
+            screenMask = loadedScreenMask
         }
     }
 
     private var imagesAreReady: Bool {
-        screenshot != nil && deviceFrame != nil
+        screenshot != nil && deviceFrame != nil && screenMask != nil
     }
 
     private var preferredFrameHeight: CGFloat {
@@ -111,6 +117,11 @@ struct OnboardingScreenshot: View {
     }
 
     @MainActor
+    static func screenMaskImage() async -> UIImage {
+        await cachedImage(resourceName: screenMaskResourceName)
+    }
+
+    @MainActor
     private static func cachedImage(resourceName: String) async -> UIImage {
         let cacheKey = resourceName as NSString
         if let cachedImage = screenshotCache.object(forKey: cacheKey) {
@@ -146,7 +157,7 @@ struct OnboardingScreenshot: View {
 
     @MainActor private static let screenshotCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 1 + Content.allCases.count
+        cache.countLimit = 2 + Content.allCases.count
             * OnboardingScreenshotLanguage.allCases.count
             * OnboardingScreenshotAppearance.allCases.count
         return cache
@@ -154,15 +165,14 @@ struct OnboardingScreenshot: View {
 
     private static let deviceFrameResourceName =
         "Onboarding-iPhone-17-Pro-Max-Silver"
+    private static let screenMaskResourceName =
+        "Onboarding-iPhone-17-Pro-Max-Screen-Mask"
 
     private static func resourceName(
         content: Content,
         language: OnboardingScreenshotLanguage,
         appearance: OnboardingScreenshotAppearance
     ) -> String {
-        if content == .agentSession {
-            return "Onboarding-agent-session"
-        }
         let baseName = "Onboarding-\(content.rawValue)-\(language.rawValue)"
         switch appearance {
         case .light:
@@ -176,16 +186,19 @@ struct OnboardingScreenshot: View {
 private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
     let preferredHeight: CGFloat
     let deviceFrame: UIImage?
+    let screenMask: UIImage?
     let screen: Screen
     private let metrics = OnboardingIPhoneProductFrameMetrics()
 
     init(
         preferredHeight: CGFloat,
         deviceFrame: UIImage?,
+        screenMask: UIImage?,
         @ViewBuilder screen: () -> Screen
     ) {
         self.preferredHeight = preferredHeight
         self.deviceFrame = deviceFrame
+        self.screenMask = screenMask
         self.screen = screen()
     }
 
@@ -194,8 +207,31 @@ private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
             preferredHeight: preferredHeight,
             metrics: metrics
         ) {
-            screen
+            OnboardingMaskedDeviceScreen(mask: screenMask) {
+                screen
+            }
             OnboardingDeviceFrameImage(image: deviceFrame)
+        }
+    }
+}
+
+private struct OnboardingMaskedDeviceScreen<Screen: View>: View {
+    let mask: UIImage?
+    let screen: Screen
+
+    init(mask: UIImage?, @ViewBuilder screen: () -> Screen) {
+        self.mask = mask
+        self.screen = screen()
+    }
+
+    var body: some View {
+        screen.mask {
+            if let mask {
+                Image(uiImage: mask)
+                    .resizable()
+            } else {
+                Color.clear
+            }
         }
     }
 }
