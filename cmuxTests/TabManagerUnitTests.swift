@@ -806,31 +806,23 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 
     func testCancellingLastWindowCloseRespawnsAHistoryFreeTerminal() throws {
-        let originalAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            AppDelegate.shared = originalAppDelegate
-        }
-
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let oldPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
         let oldSurface = oldPanel.surface
         let replayFile = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cancelled-close-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: replayFile) }
         try Data("old scrollback".utf8).write(to: replayFile)
         oldPanel.ownedSessionScrollbackReplayFileURL = replayFile
 
-        XCTAssertTrue(appDelegate.armLastTerminalChildExitRecovery(
+        let recovery = try XCTUnwrap(manager.lastTerminalChildExitRecoveryAction(
             tabId: workspace.id,
             surfaceId: panelId,
             runtimeSurface: oldSurface
         ))
-        XCTAssertTrue(appDelegate.recoverLastTerminalChildExitAfterCancelledClose())
+        recovery()
 
         let replacement = try XCTUnwrap(workspace.terminalPanel(for: panelId))
         XCTAssertFalse(replacement.surface === oldSurface)

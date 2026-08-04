@@ -1083,12 +1083,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didBootstrapInitialMainWindow = false
     var isTerminatingApp = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
-    private struct LastTerminalChildExitRecovery {
-        let tabId: UUID
-        let surfaceId: UUID
-        let runtimeSurfaceIdentity: ObjectIdentifier
-    }
-    private var lastTerminalChildExitRecovery: LastTerminalChildExitRecovery?
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
 #endif
@@ -2026,22 +2020,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func prepareForConfirmedAppTermination() {
-        lastTerminalChildExitRecovery = nil
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         // The hard AppKit watchdog is armed immediately before the terminate
         // reply, after any owned asynchronous cleanup has finished. This keeps
         // the will-terminate gauntlet bounded without cutting rollback short.
-    }
-
-    private var treatsCurrentBuildAsDevForQuitConfirmation: Bool {
-#if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_FORCE_QUIT_CONFIRMATION"] == "1" {
-            return false
-        }
-#endif
-        return BuildFlavor.current == .dev
     }
 
     private func presentQuitConfirmationAlert(
@@ -2081,7 +2065,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Reset so that the next quit attempt can show the dialog again.
             isTerminatingApp = false
             clearMarkedRemoteTmuxKills()
-            _ = recoverLastTerminalChildExitAfterCancelledClose()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
         }
         if shouldQuit {
@@ -2119,7 +2102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !quitConfirmationStore.shouldShowConfirmation(
             isQuitWarningConfirmed: isQuitWarningConfirmed,
             hasDirtyWorkspaces: hasDirtyWorkspaces,
-            isDevBuild: treatsCurrentBuildAsDevForQuitConfirmation
+            isDevBuild: buildFlavor == .dev
         ) {
             prepareForConfirmedAppTermination()
             closeAllWebInspectorsBeforeAppTeardown()
@@ -9152,8 +9135,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
-        controller.shouldClose = { [weak self] in
-            let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
+        controller.shouldClose = { [weak self, weak controller] in
+            let onCancel = controller?.takePendingCloseCancellationAction()
+            let shouldClose = self?.handleMainTerminalWindowShouldClose(onCancel: onCancel) ?? true
             if !shouldClose {
                 self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
                 // Close CANCELLED (a genuine veto, not a confirmed quit): clear any
@@ -13141,12 +13125,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func handleQuitShortcutWarning() -> Bool {
-        guard activeQuitConfirmationAlertPresenter == nil else { return true }
+    private func handleQuitShortcutWarning(onCancel: (() -> Void)? = nil) -> Bool {
+        guard activeQuitConfirmationAlertPresenter == nil else {
+            onCancel?()
+            return true
+        }
         if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
-            isDevBuild: treatsCurrentBuildAsDevForQuitConfirmation
+            isDevBuild: BuildFlavor.current == .dev
         ) {
             NSApp.terminate(nil)
             return true
@@ -13160,11 +13147,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if response == .alertFirstButtonReturn {
                 // Mark as confirmed so applicationShouldTerminate does not show a
                 // second alert when NSApp.terminate re-enters the delegate callback.
-                self?.lastTerminalChildExitRecovery = nil
                 self?.isQuitWarningConfirmed = true
                 NSApp.terminate(nil)
             } else {
-                _ = self?.recoverLastTerminalChildExitAfterCancelledClose()
+                onCancel?()
             }
         }
         return true
@@ -16763,12 +16749,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
+    private func handleMainTerminalWindowShouldClose(onCancel: (() -> Void)?) -> Bool {
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
         if isRunningUnderXCTest(ProcessInfo.processInfo.environment) { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
-        _ = handleQuitShortcutWarning()
+        _ = handleQuitShortcutWarning(onCancel: onCancel)
         return false
     }
 
@@ -16919,7 +16905,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspaceForMainActor(tabId: tabId)
     }
 
-    func closeMainWindowContainingTabId(_ tabId: UUID, recordHistory: Bool = true) {
+    func closeMainWindowContainingTabId(
+        _ tabId: UUID,
+        recordHistory: Bool = true,
+        onCancelled: (() -> Void)? = nil
+    ) {
 #if DEBUG
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
@@ -16935,61 +16925,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return
         }
+        let cancellationAction = existingWindowDock(forWindowId: context.windowId)?.panels.isEmpty == false
+            ? nil
+            : onCancelled
+        mainWindowControllers.first(where: { $0.window === window })?
+            .setPendingCloseCancellationAction(cancellationAction)
         window.performClose(nil)
-    }
-
-    @discardableResult
-    func armLastTerminalChildExitRecovery(
-        tabId: UUID,
-        surfaceId: UUID,
-        runtimeSurface: TerminalSurface
-    ) -> Bool {
-        lastTerminalChildExitRecovery = nil
-        guard mainWindowContexts.count == 1,
-              let context = contextContainingTabId(tabId),
-              context.tabManager.tabs.count == 1,
-              existingWindowDock(forWindowId: context.windowId)?.panels.isEmpty != false,
-              let workspace = context.tabManager.tabs.first,
-              workspace.id == tabId,
-              workspace.panels.count == 1,
-              workspace.terminalPanel(for: surfaceId)?.surface === runtimeSurface else {
-            return false
-        }
-
-        lastTerminalChildExitRecovery = LastTerminalChildExitRecovery(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            runtimeSurfaceIdentity: ObjectIdentifier(runtimeSurface)
-        )
-        return true
-    }
-
-    /// Replaces the exited terminal instead of reviving its renderer. A fresh
-    /// `TerminalSurface` has no scrollback or child-exit frame to repaint.
-    @discardableResult
-    func recoverLastTerminalChildExitAfterCancelledClose() -> Bool {
-        guard let recovery = lastTerminalChildExitRecovery else { return false }
-        lastTerminalChildExitRecovery = nil
-
-        guard mainWindowContexts.count == 1,
-              let context = contextContainingTabId(recovery.tabId),
-              context.tabManager.tabs.count == 1,
-              existingWindowDock(forWindowId: context.windowId)?.panels.isEmpty != false,
-              let workspace = context.tabManager.tabs.first,
-              workspace.id == recovery.tabId,
-              workspace.panels.count == 1,
-              let panel = workspace.terminalPanel(for: recovery.surfaceId),
-              ObjectIdentifier(panel.surface) == recovery.runtimeSurfaceIdentity else {
-            return false
-        }
-
-        return workspace.respawnTerminalSurface(
-            panelId: recovery.surfaceId,
-            command: nil,
-            focus: true,
-            replayScrollback: nil,
-            replayFileURL: nil
-        ) != nil
     }
 
     @discardableResult
