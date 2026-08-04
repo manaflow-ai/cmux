@@ -5,7 +5,7 @@ import Foundation
 ///
 /// Command-click routing deliberately resolves again, so terminal output changing
 /// under a stationary pointer cannot open stale data.
-struct WordPathHoverCacheKey: Equatable {
+struct WordPathHoverCacheKey: Equatable, Sendable {
     let surfaceID: UUID
     let surfaceGeneration: UInt64
     let renderedFrameGeneration: UInt64

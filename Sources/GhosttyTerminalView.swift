@@ -3630,38 +3630,43 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
 
-    private enum WordPathResolutionSource: String {
+    private enum WordPathResolutionSource: String, Sendable {
         case quicklook
         case snapshot
     }
 
-    private struct WordPathResolution {
+    private struct WordPathResolution: Sendable {
         let path: String
         let source: WordPathResolutionSource
         let rawToken: String
     }
 
-    private struct WordPathQuicklookSnapshot {
+    private struct WordPathQuicklookSnapshot: Sendable {
         let word: String?
         let viewportOffsetStart: Int
         let viewportOffsetLength: Int
     }
 
+    private struct WordPathVisibleLineSnapshot: Sendable {
+        let line: String
+        let column: Int
+    }
+
+    private struct WordPathResolutionSnapshot: Sendable {
+        let workingDirectory: String
+        let point: WordPathVisibleLineSnapshot?
+        let quicklookWord: String?
+        let viewport: WordPathVisibleLineSnapshot?
+    }
+
+    private struct WordPathHoverResolutionRequest: Sendable {
+        let key: WordPathHoverCacheKey
+        let snapshot: WordPathResolutionSnapshot
+    }
+
     private struct WordPathHoverCacheEntry {
         let key: WordPathHoverCacheKey
         let resolution: WordPathResolution?
-    }
-
-    private func makeWordPathResolution(
-        path: String,
-        source: WordPathResolutionSource,
-        rawToken: String
-    ) -> WordPathResolution {
-        WordPathResolution(
-            path: path,
-            source: source,
-            rawToken: rawToken
-        )
     }
 
     static func focusLog(_ message: String) {
@@ -3710,6 +3715,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverRenderedFrameRefreshTask: Task<Void, Never>?
     private var wordPathHoverRenderedFrameGeneration: UInt64 = 0
     private var wordPathHoverRefreshPoint: NSPoint?
+    private var wordPathHoverResolutionTask: Task<Void, Never>?
+    private var wordPathHoverResolutionTaskKey: WordPathHoverCacheKey?
+    private var pendingWordPathHoverResolutionRequest: WordPathHoverResolutionRequest?
+    private var wordPathHoverResolutionTaskGeneration: UInt64 = 0
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
@@ -6597,72 +6606,160 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         at point: NSPoint? = nil,
         usesHoverWorkingDirectory: Bool = false
     ) -> WordPathResolution? {
-        guard let surface = surface else { return nil }
+        guard let snapshot = wordPathResolutionSnapshot(
+            at: point,
+            usesHoverWorkingDirectory: usesHoverWorkingDirectory
+        ) else { return nil }
+        return Self.resolveWordPathSnapshot(snapshot)
+    }
 
-        guard let termSurface = terminalSurface,
-              let container = terminalLinkOpenContainer(for: termSurface),
-              !container.terminalLinkIsRemoteTerminal(termSurface.id) else {
+    private func wordPathResolutionSnapshot(
+        at point: NSPoint?,
+        usesHoverWorkingDirectory: Bool
+    ) -> WordPathResolutionSnapshot? {
+        guard let surface,
+              let terminalSurface,
+              let container = terminalLinkOpenContainer(for: terminalSurface),
+              !container.terminalLinkIsRemoteTerminal(terminalSurface.id) else {
             return nil
         }
 
-        let cwd = usesHoverWorkingDirectory
-            ? container.terminalLinkHoverWorkingDirectory(for: termSurface.id)
-            : container.terminalLinkWorkingDirectory(for: termSurface.id)
-        guard let cwd else {
-            return nil
+        let workingDirectory = usesHoverWorkingDirectory
+            ? container.terminalLinkHoverWorkingDirectory(for: terminalSurface.id)
+            : container.terminalLinkWorkingDirectory(for: terminalSurface.id)
+        guard let workingDirectory else { return nil }
+
+        let resolvedPoint = preferredPointerPoint(from: point)
+        let quicklook = wordPathQuicklookSnapshot(surface: surface)
+        var pointSnapshot: WordPathVisibleLineSnapshot?
+        var viewportSnapshot: WordPathVisibleLineSnapshot?
+
+        if let panel = wordPathSnapshotTerminalPanel(
+            container: container,
+            sourcePanelId: terminalSurface.id
+        ) {
+            let size = ghostty_surface_size(surface)
+            let rows = max(Int(size.rows), 1)
+            let columns = max(Int(size.columns), 1)
+            let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
+                terminalPanel: panel,
+                lineLimit: max(200, rows * 4)
+            ) ?? ""
+            let visibleLines = visibleText.visibleLines(rows: rows)
+            let rowOffset = max(0, rows - visibleLines.count)
+
+            if let resolvedPoint {
+                let resolvedCellWidth = cellSize.width > 0
+                    ? cellSize.width
+                    : CGFloat(size.cell_width_px)
+                let resolvedCellHeight = cellSize.height > 0
+                    ? cellSize.height
+                    : CGFloat(size.cell_height_px)
+                if resolvedCellWidth > 0, resolvedCellHeight > 0 {
+                    let xInset = max(
+                        0,
+                        (bounds.width - (CGFloat(columns) * resolvedCellWidth)) / 2
+                    )
+                    let yInset = max(
+                        0,
+                        (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2
+                    )
+                    let yFromTop = bounds.height - resolvedPoint.y
+                    let rowFromTop = max(
+                        0,
+                        min(rows - 1, Int((yFromTop - yInset) / resolvedCellHeight))
+                    )
+                    let visibleRow = rowFromTop - rowOffset
+                    if visibleRow >= 0, visibleRow < visibleLines.count {
+                        let column = max(
+                            0,
+                            min(
+                                columns - 1,
+                                Int((resolvedPoint.x - xInset) / resolvedCellWidth)
+                            )
+                        )
+                        pointSnapshot = WordPathVisibleLineSnapshot(
+                            line: visibleLines[visibleRow],
+                            column: column
+                        )
+                    }
+                }
+            }
+
+            if let quicklook, quicklook.viewportOffsetLength > 0 {
+                let rowFromTop = max(
+                    0,
+                    min(rows - 1, quicklook.viewportOffsetStart / columns)
+                )
+                let visibleRow = rowFromTop - rowOffset
+                if visibleRow >= 0, visibleRow < visibleLines.count {
+                    viewportSnapshot = WordPathVisibleLineSnapshot(
+                        line: visibleLines[visibleRow],
+                        column: max(
+                            0,
+                            min(columns - 1, quicklook.viewportOffsetStart % columns)
+                        )
+                    )
+                }
+            }
         }
 
-        let snapshotPoint = preferredPointerPoint(from: point)
-        let pointSnapshotResolution = snapshotPoint.flatMap {
-            resolveVisibleWordPath(
-                at: $0,
-                cwd: cwd,
-                container: container,
-                sourcePanelId: termSurface.id
+        return WordPathResolutionSnapshot(
+            workingDirectory: workingDirectory,
+            point: pointSnapshot,
+            quicklookWord: quicklook?.word,
+            viewport: viewportSnapshot
+        )
+    }
+
+    nonisolated private static func resolveWordPathSnapshot(
+        _ snapshot: WordPathResolutionSnapshot
+    ) -> WordPathResolution? {
+        let resolver = TerminalPathResolver(fileExists: { path in
+            guard !Task.isCancelled else { return false }
+            return FileManager.default.fileExists(atPath: path)
+        })
+
+        func resolveVisibleLine(
+            _ visibleLine: WordPathVisibleLineSnapshot?
+        ) -> WordPathResolution? {
+            guard let visibleLine,
+                  let resolution = resolver.resolveVisibleLinePath(
+                      visibleLine.line,
+                      column: visibleLine.column,
+                      cwd: snapshot.workingDirectory
+                  ) else {
+                return nil
+            }
+            return WordPathResolution(
+                path: resolution.path,
+                source: .snapshot,
+                rawToken: resolution.rawToken
             )
         }
 
-        if let quicklookSnapshot = wordPathQuicklookSnapshot(surface: surface) {
-            var quicklookResolution: WordPathResolution?
-            if let quicklookWord = quicklookSnapshot.word,
-               let resolvedPath = TerminalPathResolver().resolveQuicklookPath(quicklookWord, cwd: cwd) {
-                quicklookResolution = makeWordPathResolution(
-                    path: resolvedPath,
+        let pointResolution = resolveVisibleLine(snapshot.point)
+        let quicklookResolution = snapshot.quicklookWord.flatMap { quicklookWord in
+            resolver.resolveQuicklookPath(
+                quicklookWord,
+                cwd: snapshot.workingDirectory
+            ).map {
+                WordPathResolution(
+                    path: $0,
                     source: .quicklook,
                     rawToken: quicklookWord
                 )
             }
-
-            var viewportResolution: WordPathResolution?
-            if quicklookSnapshot.viewportOffsetLength > 0 {
-                viewportResolution = resolveVisibleWordPathFromViewportOffset(
-                    quicklookSnapshot.viewportOffsetStart,
-                    cwd: cwd,
-                    container: container,
-                    sourcePanelId: termSurface.id
-                )
-            }
-
-            if let viewportResolution {
-                // The pointer-anchored snapshot is the only source tied directly to the
-                // actual click location. Prefer it over quicklook and viewport offsets,
-                // which can lag or target a sibling entry in multi-column `ls` output.
-                if let pointSnapshotResolution {
-                    return pointSnapshotResolution
-                }
-                return viewportResolution
-            }
-
-            if let pointSnapshotResolution {
-                return pointSnapshotResolution
-            }
-
-            if let quicklookResolution {
-                return quicklookResolution
-            }
         }
+        let viewportResolution = resolveVisibleLine(snapshot.viewport)
 
-        return pointSnapshotResolution
+        // The pointer-anchored snapshot is the only source tied directly to the
+        // actual click location. Prefer it over quicklook and viewport offsets,
+        // which can lag or target a sibling entry in multi-column `ls` output.
+        if let viewportResolution {
+            return pointResolution ?? viewportResolution
+        }
+        return pointResolution ?? quicklookResolution
     }
 
     private func wordPathQuicklookSnapshot(surface: ghostty_surface_t) -> WordPathQuicklookSnapshot? {
@@ -6802,18 +6899,106 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func cachedWordPathHoverResolution(at point: NSPoint?) -> WordPathResolution? {
         guard let key = wordPathHoverCacheKey(at: point) else {
             cachedWordPathHover = nil
+            cancelWordPathHoverResolution()
             return nil
         }
         if let cachedWordPathHover, cachedWordPathHover.key == key {
             return cachedWordPathHover.resolution
         }
+        if wordPathHoverResolutionTaskKey == key,
+           wordPathHoverResolutionTask?.isCancelled == false {
+            return nil
+        }
+        if pendingWordPathHoverResolutionRequest?.key == key {
+            return nil
+        }
 
-        let resolution = resolveWordUnderCursorPath(
+        cachedWordPathHover = nil
+        guard let snapshot = wordPathResolutionSnapshot(
             at: point,
             usesHoverWorkingDirectory: true
+        ) else {
+            cancelWordPathHoverResolution()
+            cachedWordPathHover = WordPathHoverCacheEntry(key: key, resolution: nil)
+            return nil
+        }
+        enqueueWordPathHoverResolution(
+            WordPathHoverResolutionRequest(key: key, snapshot: snapshot)
         )
+        return nil
+    }
+
+    private func enqueueWordPathHoverResolution(_ request: WordPathHoverResolutionRequest) {
+        if wordPathHoverResolutionTaskKey == request.key,
+           wordPathHoverResolutionTask?.isCancelled == false {
+            return
+        }
+        guard let task = wordPathHoverResolutionTask else {
+            startWordPathHoverResolution(request)
+            return
+        }
+
+        // Keep at most one filesystem probe running. A canceled probe can be
+        // blocked inside a mounted filesystem call, so retain it until it exits
+        // and replace only the single pending request with the newest snapshot.
+        pendingWordPathHoverResolutionRequest = request
+        task.cancel()
+    }
+
+    private func startWordPathHoverResolution(_ request: WordPathHoverResolutionRequest) {
+        precondition(wordPathHoverResolutionTask == nil)
+        wordPathHoverResolutionTaskGeneration &+= 1
+        let generation = wordPathHoverResolutionTaskGeneration
+        wordPathHoverResolutionTaskKey = request.key
+
+        let filesystemTask = Task.detached(priority: .utility) {
+            Self.resolveWordPathSnapshot(request.snapshot)
+        }
+        wordPathHoverResolutionTask = Task { @MainActor [weak self, filesystemTask] in
+            let resolution = await withTaskCancellationHandler {
+                await filesystemTask.value
+            } onCancel: {
+                filesystemTask.cancel()
+            }
+            let shouldApply = !Task.isCancelled
+            self?.finishWordPathHoverResolution(
+                generation: generation,
+                key: request.key,
+                resolution: resolution,
+                shouldApply: shouldApply
+            )
+        }
+    }
+
+    private func finishWordPathHoverResolution(
+        generation: UInt64,
+        key: WordPathHoverCacheKey,
+        resolution: WordPathResolution?,
+        shouldApply: Bool
+    ) {
+        guard generation == wordPathHoverResolutionTaskGeneration else { return }
+        wordPathHoverResolutionTask = nil
+        wordPathHoverResolutionTaskKey = nil
+
+        if let pendingRequest = pendingWordPathHoverResolutionRequest {
+            pendingWordPathHoverResolutionRequest = nil
+            startWordPathHoverResolution(pendingRequest)
+            return
+        }
+
+        guard shouldApply,
+              wordPathHoverRenderedFrameObserver != nil,
+              let point = wordPathHoverRefreshPoint,
+              wordPathHoverCacheKey(at: point) == key else {
+            return
+        }
         cachedWordPathHover = WordPathHoverCacheEntry(key: key, resolution: resolution)
-        return resolution
+        setWordPathHoverActive(resolution != nil)
+    }
+
+    private func cancelWordPathHoverResolution() {
+        pendingWordPathHoverResolutionRequest = nil
+        wordPathHoverResolutionTask?.cancel()
     }
 
     private func wordPathHoverCacheKey(at point: NSPoint?) -> WordPathHoverCacheKey? {
@@ -6870,6 +7055,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func invalidateWordPathHoverResolution(clearContainer: Bool = false) {
         cachedWordPathHover = nil
+        cancelWordPathHoverResolution()
         if clearContainer {
             wordPathHoverRefreshPoint = nil
             stopWordPathHoverRenderedFrameObservation()
@@ -6998,100 +7184,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )?.id
     }
 #endif
-
-    private func resolveVisibleWordPathFromViewportOffset(
-        _ viewportOffsetStart: Int,
-        cwd: String,
-        container: any TerminalLinkOpenContainer,
-        sourcePanelId: UUID
-    ) -> WordPathResolution? {
-        guard let panel = wordPathSnapshotTerminalPanel(
-            container: container,
-            sourcePanelId: sourcePanelId
-        ),
-              let surface else {
-            return nil
-        }
-
-        let size = ghostty_surface_size(surface)
-        let rows = max(Int(size.rows), 1)
-        let cols = max(Int(size.columns), 1)
-        let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
-            terminalPanel: panel,
-            lineLimit: max(200, rows * 4)
-        ) ?? ""
-        let visibleLines = visibleText.visibleLines(rows: rows)
-        let rowOffset = max(0, rows - visibleLines.count)
-        let rowFromTop = max(0, min(rows - 1, viewportOffsetStart / cols))
-        let visibleRow = rowFromTop - rowOffset
-        guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
-
-        let column = max(0, min(cols - 1, viewportOffsetStart % cols))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
-            visibleLines[visibleRow],
-            column: column,
-            cwd: cwd
-        ) else {
-            return nil
-        }
-
-        return makeWordPathResolution(
-            path: resolution.path,
-            source: .snapshot,
-            rawToken: resolution.rawToken
-        )
-    }
-
-    private func resolveVisibleWordPath(
-        at point: NSPoint,
-        cwd: String,
-        container: any TerminalLinkOpenContainer,
-        sourcePanelId: UUID
-    ) -> WordPathResolution? {
-        guard let panel = wordPathSnapshotTerminalPanel(
-            container: container,
-            sourcePanelId: sourcePanelId
-        ),
-              let surface else {
-            return nil
-        }
-
-        let size = ghostty_surface_size(surface)
-        let rows = max(Int(size.rows), 1)
-        let cols = max(Int(size.columns), 1)
-        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
-        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
-        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
-
-        let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
-            terminalPanel: panel,
-            lineLimit: max(200, rows * 4)
-        ) ?? ""
-        let visibleLines = visibleText.visibleLines(rows: rows)
-        let rowOffset = max(0, rows - visibleLines.count)
-        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
-        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
-
-        let yFromTop = bounds.height - point.y
-        let rowFromTop = max(0, min(rows - 1, Int((yFromTop - yInset) / resolvedCellHeight)))
-        let visibleRow = rowFromTop - rowOffset
-        guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
-
-        let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
-            visibleLines[visibleRow],
-            column: column,
-            cwd: cwd
-        ) else {
-            return nil
-        }
-
-        return makeWordPathResolution(
-            path: resolution.path,
-            source: .snapshot,
-            rawToken: resolution.rawToken
-        )
-    }
 
     @discardableResult
     private func handleCommandClickRelease(
