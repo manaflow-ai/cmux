@@ -22,7 +22,12 @@ struct Args {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    let arguments = env::args().skip(1).collect::<Vec<_>>();
+    if arguments.iter().any(|argument| matches!(argument.as_str(), "-h" | "--help")) {
+        println!("Usage: cmux-tui-hook --source <agent> --event <native-event>");
+        return ExitCode::SUCCESS;
+    }
+    match parse_args(arguments).and_then(run) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-tui-hook: {error:#}");
@@ -31,8 +36,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> anyhow::Result<()> {
-    let args = parse_args(env::args().skip(1))?;
+fn run(args: Args) -> anyhow::Result<()> {
     let socket = match env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
         Some(socket) => PathBuf::from(socket),
         None => {
@@ -63,10 +67,6 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {
             }
             "--event" if native_event.is_none() => {
                 native_event = Some(values.next().context("--event requires a value")?);
-            }
-            "-h" | "--help" => {
-                println!("Usage: cmux-tui-hook --source <agent> --event <native-event>");
-                return Err(anyhow!("help requested"));
             }
             _ => bail!("unknown or duplicate argument {argument:?}"),
         }
