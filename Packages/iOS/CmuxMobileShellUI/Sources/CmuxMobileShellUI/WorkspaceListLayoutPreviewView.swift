@@ -268,6 +268,11 @@ public struct WorkspaceListLayoutPreviewView: View {
         let workspaces = (0..<count).map { index -> MobileWorkspacePreview in
             let groupIndex = index / 4
             let inGroup = groupIndex < groupCount
+            let macDeviceID = inGroup && !groupIndex.isMultiple(of: 2)
+                ? "preview-studio" : "preview-macbook-pro"
+            let macDisplayName = macDeviceID == "preview-studio"
+                ? "Studio Display Bench With A Very Long Name" : "MacBook Pro"
+            let macInstanceTag = macDeviceID == "preview-studio" ? "stable" : "nightly"
             let groupID = inGroup
                 ? MobileWorkspaceGroupPreview.ID(rawValue: "seed-group-\(groupIndex)") : nil
             let id = MobileWorkspacePreview.ID(rawValue: "workspace-seed-\(index)")
@@ -275,15 +280,17 @@ public struct WorkspaceListLayoutPreviewView: View {
                 groups.append(
                     MobileWorkspaceGroupPreview(
                         id: groupID,
+                        macDeviceID: macDeviceID,
+                        macInstanceTag: macInstanceTag,
                         name: "Group \(groupIndex + 1)",
                         anchorWorkspaceID: id
                     )
                 )
             }
-            return MobileWorkspacePreview(
+            var workspace = MobileWorkspacePreview(
                 id: id,
-                macDeviceID: "preview-macbook-pro",
-                macDisplayName: "MacBook Pro",
+                macDeviceID: macDeviceID,
+                macDisplayName: macDisplayName,
                 name: "\(seedNames[index % seedNames.count]) \(index)",
                 groupID: groupID,
                 previewText: seedPreviews[index % seedPreviews.count],
@@ -297,6 +304,8 @@ public struct WorkspaceListLayoutPreviewView: View {
                     ),
                 ]
             )
+            workspace.macInstanceTag = macInstanceTag
+            return workspace
         }
         return (workspaces, groups)
     }
