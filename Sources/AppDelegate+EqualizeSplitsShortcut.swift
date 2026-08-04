@@ -5,33 +5,30 @@ extension AppDelegate {
     /// Fixed incremental movement used by the directional pane resize actions.
     private static let paneResizeStep: CGFloat = 20
 
-    private static let paneShareShortcuts: [(
-        action: KeyboardShortcutSettings.Action,
-        axis: PaneAxis,
-        share: CGFloat
-    )] = [
-        (.setPaneWidth25Percent, .width, 0.25),
-        (.setPaneWidth50Percent, .width, 0.5),
-        (.setPaneWidth75Percent, .width, 0.75),
-        (.setPaneHeight25Percent, .height, 0.25),
-        (.setPaneHeight50Percent, .height, 0.5),
-        (.setPaneHeight75Percent, .height, 0.75),
+    private static let paneShareShortcutActions: [KeyboardShortcutSettings.Action] = [
+        .setPaneWidthRatioByNumber,
+        .setPaneHeightRatioByNumber,
     ]
 
     /// Routes configured exact pane-share shortcuts.
     func handlePaneShareShortcut(event: NSEvent) -> Bool {
-        let actions = Self.paneShareShortcuts.map { $0.action }
+        let actions = Self.paneShareShortcutActions
         guard let action = preferredMatchingShortcutAction(event: event, actions: actions),
               !explicitShortcutOverrideShouldPreemptImplicitDefault(
                 event: event,
                 matchedAction: action,
                 actionFamily: actions
               ),
-              let route = Self.paneShareShortcuts.first(where: { $0.action == action }) else {
+              let numerator = routableNumberedConfiguredShortcutDigit(
+                event: event,
+                action: action
+              ),
+              let ratio = PaneShareRatio(focusedParts: numerator, siblingParts: 1) else {
             return false
         }
 
-        performPaneShareShortcut(axis: route.axis, share: route.share, event: event)
+        let axis: PaneAxis = action == .setPaneWidthRatioByNumber ? .width : .height
+        performPaneShareShortcut(axis: axis, share: ratio.share, event: event)
         return true
     }
 

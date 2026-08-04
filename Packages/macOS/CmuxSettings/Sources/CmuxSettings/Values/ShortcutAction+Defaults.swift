@@ -105,15 +105,10 @@ extension ShortcutAction {
             // Configurable but initially unbound to avoid conflicting with
             // terminal bindings and pane-navigation shortcuts.
             return nil
-        case .setPaneWidth25Percent: return ShortcutStroke(key: "1", command: true, option: true)
-        case .setPaneWidth50Percent: return ShortcutStroke(key: "2", command: true, option: true)
-        case .setPaneWidth75Percent: return ShortcutStroke(key: "3", command: true, option: true)
-        case .setPaneHeight25Percent:
+        case .setPaneWidthRatioByNumber:
+            return ShortcutStroke(key: "1", command: true, option: true)
+        case .setPaneHeightRatioByNumber:
             return ShortcutStroke(key: "1", command: true, shift: true, option: true)
-        case .setPaneHeight50Percent:
-            return ShortcutStroke(key: "2", command: true, shift: true, option: true)
-        case .setPaneHeight75Percent:
-            return ShortcutStroke(key: "3", command: true, shift: true, option: true)
         case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
         case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
         case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)

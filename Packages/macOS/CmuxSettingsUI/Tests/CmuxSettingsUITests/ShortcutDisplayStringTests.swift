@@ -26,43 +26,48 @@ struct ShortcutDisplayStringTests {
         // Regression for https://github.com/manaflow-ai/cmux/issues/5189:
         // a rebound numbered shortcut must display the whole ⌃1…9 range, not ⌃1.
         let rebound = shortcut(key: "1", control: true)
-        #expect(shortcutDisplayString(rebound, numbered: true) == "⌃1…9")
+        #expect(shortcutDisplayString(rebound, numberedRange: 1...9) == "⌃1…9")
     }
 
     @Test func numberedCommandDigitRendersAsRange() {
         let defaultWorkspace = shortcut(key: "1", command: true)
-        #expect(shortcutDisplayString(defaultWorkspace, numbered: true) == "⌘1…9")
+        #expect(shortcutDisplayString(defaultWorkspace, numberedRange: 1...9) == "⌘1…9")
     }
 
     @Test func numberedRangeIgnoresWhichDigitWasRecorded() {
         // The stored digit is normalized to a placeholder; any 1…9 digit
         // stands in for the whole family, so the display is digit-agnostic.
         let recordedWithFive = shortcut(key: "5", option: true)
-        #expect(shortcutDisplayString(recordedWithFive, numbered: true) == "⌥1…9")
+        #expect(shortcutDisplayString(recordedWithFive, numberedRange: 1...9) == "⌥1…9")
+    }
+
+    @Test func paneRatioFamilyRendersItsLimitedRange() {
+        let paneRatio = shortcut(key: "1", command: true, option: true)
+        #expect(shortcutDisplayString(paneRatio, numberedRange: 1...6) == "⌥⌘1…6")
     }
 
     @Test func nonNumberedShortcutKeepsItsLiteralKey() {
         // Other actions that happen to bind a digit must keep the literal key.
         let cmdOne = shortcut(key: "1", command: true)
-        #expect(shortcutDisplayString(cmdOne, numbered: false) == "⌘1")
+        #expect(shortcutDisplayString(cmdOne, numberedRange: nil) == "⌘1")
 
         let closeTab = shortcut(key: "w", command: true)
-        #expect(shortcutDisplayString(closeTab, numbered: false) == "⌘W")
+        #expect(shortcutDisplayString(closeTab, numberedRange: nil) == "⌘W")
     }
 
     @Test func numberedNonDigitKeyFallsBackToLiteral() {
         // A numbered action whose binding holds a non-1…9 key is not an active
         // range (the app-target parser rejects it), so the row must show the
         // literal key, never a false ⌃1…9 range. Verified by Codex review.
-        #expect(shortcutDisplayString(shortcut(key: "a", control: true), numbered: true) == "⌃A")
+        #expect(shortcutDisplayString(shortcut(key: "a", control: true), numberedRange: 1...9) == "⌃A")
     }
 
     @Test func numberedZeroAndOutOfRangeDigitsFallBackToLiteral() {
-        #expect(shortcutDisplayString(shortcut(key: "0", command: true), numbered: true) == "⌘0")
+        #expect(shortcutDisplayString(shortcut(key: "0", command: true), numberedRange: 1...9) == "⌘0")
     }
 
     @Test func unboundRendersAsNone() {
-        #expect(shortcutDisplayString(.unbound, numbered: true) == "None")
-        #expect(shortcutDisplayString(.unbound, numbered: false) == "None")
+        #expect(shortcutDisplayString(.unbound, numberedRange: 1...9) == "None")
+        #expect(shortcutDisplayString(.unbound, numberedRange: nil) == "None")
     }
 }

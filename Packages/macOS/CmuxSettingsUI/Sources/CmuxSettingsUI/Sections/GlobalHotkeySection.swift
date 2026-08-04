@@ -89,7 +89,7 @@ public struct GlobalHotkeySection: View {
                 isLast: true,
                 title: String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows"),
                 subtitle: nil,
-                placeholder: shortcutModel.formatPlaceholder(effective: effective, numbered: false),
+                placeholder: shortcutModel.formatPlaceholder(effective: effective, numberedRange: nil),
                 chordsEnabled: false,
                 hasPendingRejection: shortcutModel.hasPendingRejection(for: hotkeyAction),
                 firstStrokeRequiresModifier: true,

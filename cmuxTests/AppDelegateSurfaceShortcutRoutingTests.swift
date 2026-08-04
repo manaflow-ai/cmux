@@ -445,21 +445,35 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         )
     }
 
-    @Test func paneShareShortcutsSetFocusedPaneToThreeQuartersByAxis() throws {
-        try assertPaneShareShortcut(
-            action: .setPaneWidth75Percent,
-            key: "3",
-            keyCode: 20,
-            modifiers: [.command, .option],
-            orientation: .horizontal
-        )
-        try assertPaneShareShortcut(
-            action: .setPaneHeight75Percent,
-            key: "3",
-            keyCode: 20,
-            modifiers: [.command, .option, .shift],
-            orientation: .vertical
-        )
+    @Test func paneShareShortcutFamiliesApplyOneThroughSixRatiosByAxis() throws {
+        let digitKeys: [(key: String, keyCode: UInt16)] = [
+            ("1", 18),
+            ("2", 19),
+            ("3", 20),
+            ("4", 21),
+            ("5", 23),
+            ("6", 22),
+        ]
+        for (index, digitKey) in digitKeys.enumerated() {
+            let focusedParts = index + 1
+            let expectedShare = CGFloat(focusedParts) / CGFloat(focusedParts + 1)
+            try assertPaneShareShortcut(
+                action: .setPaneWidthRatioByNumber,
+                key: digitKey.key,
+                keyCode: digitKey.keyCode,
+                modifiers: [.command, .option],
+                orientation: .horizontal,
+                expectedFocusedShare: expectedShare
+            )
+            try assertPaneShareShortcut(
+                action: .setPaneHeightRatioByNumber,
+                key: digitKey.key,
+                keyCode: digitKey.keyCode,
+                modifiers: [.command, .option, .shift],
+                orientation: .vertical,
+                expectedFocusedShare: expectedShare
+            )
+        }
     }
 
     private func assertPaneShareShortcut(
@@ -467,7 +481,8 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         key: String,
         keyCode: UInt16,
         modifiers: NSEvent.ModifierFlags,
-        orientation: SplitOrientation
+        orientation: SplitOrientation,
+        expectedFocusedShare: CGFloat
     ) throws {
         try withTemporaryShortcut(action: action) {
             let appDelegate = try #require(AppDelegate.shared)
@@ -502,7 +517,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                 Issue.record("Expected a split")
                 return
             }
-            #expect(abs(split.dividerPosition - 0.25) < 0.0001)
+            #expect(abs(split.dividerPosition - (1 - expectedFocusedShare)) < 0.0001)
             #expect(workspace.focusedPanelId == secondPanel.id)
         }
     }

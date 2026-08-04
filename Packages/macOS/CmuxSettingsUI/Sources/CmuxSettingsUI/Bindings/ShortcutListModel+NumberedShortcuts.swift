@@ -1,23 +1,24 @@
 import CmuxSettings
 
 extension ShortcutListModel {
-    /// Normalizes a numbered action's digit to the persisted `1` placeholder.
+    /// Normalizes a numbered action's digit to its persisted lower-bound placeholder.
     func normalizedNumberedShortcutIfNeeded(
         _ shortcut: StoredShortcut,
         for action: ShortcutAction
     ) -> StoredShortcut? {
-        guard action.usesNumberedDigitMatching else {
+        guard let numberedDigitRange = action.numberedDigitRange else {
             return shortcut
         }
         let digitStroke = shortcut.second ?? shortcut.first
-        guard isNumberedDigitKey(digitStroke.key) else {
+        guard let digit = Int(digitStroke.key), numberedDigitRange.contains(digit) else {
             return nil
         }
+        let placeholder = String(numberedDigitRange.lowerBound)
         if let second = shortcut.second {
             return StoredShortcut(
                 first: shortcut.first,
                 second: ShortcutStroke(
-                    key: "1",
+                    key: placeholder,
                     command: second.command,
                     shift: second.shift,
                     option: second.option,
@@ -28,7 +29,7 @@ extension ShortcutListModel {
         }
         return StoredShortcut(
             first: ShortcutStroke(
-                key: "1",
+                key: placeholder,
                 command: shortcut.first.command,
                 shift: shortcut.first.shift,
                 option: shortcut.first.option,

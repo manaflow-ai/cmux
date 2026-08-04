@@ -9,8 +9,16 @@ public struct ShortcutDisplayFormatter: Sendable {
     /// Creates a shortcut display formatter.
     public init() {}
 
-    /// The range label shown for numbered workspace/surface shortcut families.
+    /// The range label shown for numbered workspace and surface shortcut families.
     public var numberedDigitRangeHint: String { "1…9" }
+
+    /// Formats the language-neutral label for a numbered shortcut range.
+    ///
+    /// - Parameter range: The inclusive digit range represented by one binding.
+    /// - Returns: A compact range such as `"1…6"`.
+    public func numberedDigitRangeHint(for range: ClosedRange<Int>) -> String {
+        "\(range.lowerBound)…\(range.upperBound)"
+    }
 
     /// Formats a stored shortcut, optionally treating digits `1...9` as a range placeholder.
     ///
@@ -19,19 +27,33 @@ public struct ShortcutDisplayFormatter: Sendable {
     ///   - numbered: Whether `1...9` digits should render as ``numberedDigitRangeHint``.
     /// - Returns: A localized display string for the shortcut.
     public func displayString(_ shortcut: StoredShortcut, numbered: Bool = false) -> String {
+        displayString(shortcut, numberedRange: numbered ? 1...9 : nil)
+    }
+
+    /// Formats a stored shortcut with an optional numbered-family range.
+    ///
+    /// - Parameters:
+    ///   - shortcut: The stored shortcut to display.
+    ///   - numberedRange: The inclusive digit range represented by the stored placeholder.
+    /// - Returns: A localized display string for the shortcut.
+    public func displayString(
+        _ shortcut: StoredShortcut,
+        numberedRange: ClosedRange<Int>?
+    ) -> String {
         if shortcut.isUnbound {
             return String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
         }
-        if numbered {
+        if let numberedRange {
+            let rangeHint = numberedDigitRangeHint(for: numberedRange)
             if let second = shortcut.second {
-                if isNumberedDigitKey(second.key) {
+                if isNumberedDigitKey(second.key, in: numberedRange) {
                     return displayString(shortcut.first)
                         + " "
                         + modifierDisplayString(second)
-                        + numberedDigitRangeHint
+                        + rangeHint
                 }
-            } else if isNumberedDigitKey(shortcut.first.key) {
-                return modifierDisplayString(shortcut.first) + numberedDigitRangeHint
+            } else if isNumberedDigitKey(shortcut.first.key, in: numberedRange) {
+                return modifierDisplayString(shortcut.first) + rangeHint
             }
         }
         if let second = shortcut.second {
@@ -152,6 +174,17 @@ public struct ShortcutDisplayFormatter: Sendable {
     public func isNumberedDigitKey(_ key: String) -> Bool {
         guard let digit = Int(key) else { return false }
         return (1...9).contains(digit)
+    }
+
+    /// Whether a key token is a valid placeholder inside a numbered shortcut range.
+    ///
+    /// - Parameters:
+    ///   - key: The stored key token to check.
+    ///   - range: The inclusive digit range supported by the action.
+    /// - Returns: `true` when `key` is a digit contained in `range`.
+    public func isNumberedDigitKey(_ key: String, in range: ClosedRange<Int>) -> Bool {
+        guard let digit = Int(key) else { return false }
+        return range.contains(digit)
     }
 
     private func functionKeyDisplayString(for key: String) -> String? {

@@ -16,10 +16,10 @@ extension KeyboardShortcutSettings {
                 reserved.append(StoredShortcut(first: shortcut.firstStroke))
                 continue
             }
-            if action.usesNumberedDigitMatching {
+            if let numberedDigitRange = action.numberedDigitRange {
                 let stroke = shortcut.firstStroke
                 reserved.append(
-                    contentsOf: (1...9).map { digit in
+                    contentsOf: numberedDigitRange.map { digit in
                         StoredShortcut(
                             key: String(digit),
                             command: stroke.command,

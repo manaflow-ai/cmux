@@ -143,12 +143,11 @@ extension KeyboardShortcutSettings.Action {
         "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
     }
 
+    var numberedDigitRange: ClosedRange<Int>? {
+        CmuxSettings.ShortcutAction(rawValue: rawValue)?.numberedDigitRange
+    }
+
     var usesNumberedDigitMatching: Bool {
-        switch self {
-        case .selectSurfaceByNumber, .selectWorkspaceByNumber:
-            return true
-        default:
-            return false
-        }
+        numberedDigitRange != nil
     }
 }

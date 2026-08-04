@@ -126,18 +126,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case growPaneUp
     /// Grows the focused pane toward its bottom edge.
     case growPaneDown
-    /// Sets the focused pane's width share to one quarter.
-    case setPaneWidth25Percent
-    /// Sets the focused pane's width share to one half.
-    case setPaneWidth50Percent
-    /// Sets the focused pane's width share to three quarters.
-    case setPaneWidth75Percent
-    /// Sets the focused pane's height share to one quarter.
-    case setPaneHeight25Percent
-    /// Sets the focused pane's height share to one half.
-    case setPaneHeight50Percent
-    /// Sets the focused pane's height share to three quarters.
-    case setPaneHeight75Percent
+    /// Sets the focused pane's width to the pressed digit's `n:1` ratio.
+    case setPaneWidthRatioByNumber
+    /// Sets the focused pane's height to the pressed digit's `n:1` ratio.
+    case setPaneHeightRatioByNumber
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"
@@ -228,22 +220,25 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 }
 
 extension ShortcutAction {
-    /// Whether this action binds the whole `1…9` digit range through a
-    /// single stored placeholder.
+    /// The digit range bound through this action's single stored placeholder.
     ///
-    /// ``selectSurfaceByNumber`` and ``selectWorkspaceByNumber`` are special:
-    /// one binding (with the digit normalized to `"1"`) stands in for the
-    /// entire `⌘1`–`⌘9` / `⌃1`–`⌃9` family. UI that displays the binding
-    /// should render it as `⌃1…9` (the range) rather than the literal
-    /// single-digit `⌃1`, and recording any digit `1`–`9` rebinds the whole
-    /// range. All other actions match a single concrete keystroke.
-    public var usesNumberedDigitMatching: Bool {
+    /// Numbered workspace and surface selection use `1...9`, while pane-ratio
+    /// shortcuts use `1...6`. Recording any digit inside the action's range
+    /// rebinds the whole family and normalizes the stored key to the lower bound.
+    public var numberedDigitRange: ClosedRange<Int>? {
         switch self {
         case .selectSurfaceByNumber, .selectWorkspaceByNumber:
-            return true
+            return 1...9
+        case .setPaneWidthRatioByNumber, .setPaneHeightRatioByNumber:
+            return 1...6
         default:
-            return false
+            return nil
         }
+    }
+
+    /// Whether this action binds a digit range through one stored placeholder.
+    public var usesNumberedDigitMatching: Bool {
+        numberedDigitRange != nil
     }
 
     /// Whether the recorder may accept a shortcut whose first stroke has no modifier.

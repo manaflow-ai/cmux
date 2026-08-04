@@ -144,8 +144,7 @@ enum KeyboardShortcutSettings {
         case resetWorkspaceTerminalFontSize
         case equalizeSplits
         case growPaneLeft, growPaneRight, growPaneUp, growPaneDown
-        case setPaneWidth25Percent, setPaneWidth50Percent, setPaneWidth75Percent
-        case setPaneHeight25Percent, setPaneHeight50Percent, setPaneHeight75Percent
+        case setPaneWidthRatioByNumber, setPaneHeightRatioByNumber
         case splitBrowserRight
         case splitBrowserDown
 
@@ -311,18 +310,16 @@ enum KeyboardShortcutSettings {
             case .growPaneRight: return String(localized: "shortcut.growPaneRight.label", defaultValue: "Grow Pane Right")
             case .growPaneUp: return String(localized: "shortcut.growPaneUp.label", defaultValue: "Grow Pane Up")
             case .growPaneDown: return String(localized: "shortcut.growPaneDown.label", defaultValue: "Grow Pane Down")
-            case .setPaneWidth25Percent:
-                return String(localized: "shortcut.setPaneWidth25Percent.label", defaultValue: "Set Pane Width to 25%")
-            case .setPaneWidth50Percent:
-                return String(localized: "shortcut.setPaneWidth50Percent.label", defaultValue: "Set Pane Width to 50%")
-            case .setPaneWidth75Percent:
-                return String(localized: "shortcut.setPaneWidth75Percent.label", defaultValue: "Set Pane Width to 75%")
-            case .setPaneHeight25Percent:
-                return String(localized: "shortcut.setPaneHeight25Percent.label", defaultValue: "Set Pane Height to 25%")
-            case .setPaneHeight50Percent:
-                return String(localized: "shortcut.setPaneHeight50Percent.label", defaultValue: "Set Pane Height to 50%")
-            case .setPaneHeight75Percent:
-                return String(localized: "shortcut.setPaneHeight75Percent.label", defaultValue: "Set Pane Height to 75%")
+            case .setPaneWidthRatioByNumber:
+                return String(
+                    localized: "shortcut.setPaneWidthRatioByNumber.label",
+                    defaultValue: "Set Pane Width Ratio 1:1–6:1"
+                )
+            case .setPaneHeightRatioByNumber:
+                return String(
+                    localized: "shortcut.setPaneHeightRatioByNumber.label",
+                    defaultValue: "Set Pane Height Ratio 1:1–6:1"
+                )
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
             case .toggleCanvasLayout: return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
@@ -529,18 +526,10 @@ enum KeyboardShortcutSettings {
             case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: true, option: false, control: true)
             case .growPaneLeft, .growPaneRight, .growPaneUp, .growPaneDown:
                 return .unbound
-            case .setPaneWidth25Percent:
+            case .setPaneWidthRatioByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: true, control: false)
-            case .setPaneWidth50Percent:
-                return StoredShortcut(key: "2", command: true, shift: false, option: true, control: false)
-            case .setPaneWidth75Percent:
-                return StoredShortcut(key: "3", command: true, shift: false, option: true, control: false)
-            case .setPaneHeight25Percent:
+            case .setPaneHeightRatioByNumber:
                 return StoredShortcut(key: "1", command: true, shift: true, option: true, control: false)
-            case .setPaneHeight50Percent:
-                return StoredShortcut(key: "2", command: true, shift: true, option: true, control: false)
-            case .setPaneHeight75Percent:
-                return StoredShortcut(key: "3", command: true, shift: true, option: true, control: false)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:
@@ -736,9 +725,9 @@ enum KeyboardShortcutSettings {
             }
             return KeyboardShortcutSettings.shortcutsConflict(
                 proposedShortcut,
-                proposedUsesNumberedDigitMatching: proposedAction.usesNumberedDigitMatching,
+                proposedNumberedDigitRange: proposedAction.numberedDigitRange,
                 configuredShortcut,
-                configuredUsesNumberedDigitMatching: usesNumberedDigitMatching
+                configuredNumberedDigitRange: numberedDigitRange
             )
         }
 
@@ -796,7 +785,8 @@ enum KeyboardShortcutSettings {
                 )
             case .globalSearch:
                 return .accepted(shortcut)
-            case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+            case .selectSurfaceByNumber, .selectWorkspaceByNumber,
+                 .setPaneWidthRatioByNumber, .setPaneHeightRatioByNumber:
                 return resolvedNumberedDigitShortcut(shortcut)
             default:
                 return .accepted(shortcut)
@@ -807,14 +797,16 @@ enum KeyboardShortcutSettings {
             _ shortcut: StoredShortcut
         ) -> RecordedShortcutResolution {
             let digitSource = shortcut.secondStroke ?? shortcut.firstStroke
-            guard let digit = Int(digitSource.key), (1...9).contains(digit) else {
+            guard let numberedDigitRange,
+                  let digit = Int(digitSource.key),
+                  numberedDigitRange.contains(digit) else {
                 return .rejected(.numberedShortcutRequiresDigit)
             }
             var normalized = shortcut
             if shortcut.hasChord {
-                normalized.chordKey = "1"
+                normalized.chordKey = String(numberedDigitRange.lowerBound)
             } else {
-                normalized.key = "1"
+                normalized.key = String(numberedDigitRange.lowerBound)
             }
             return .accepted(normalized)
         }
@@ -871,26 +863,29 @@ enum KeyboardShortcutSettings {
 
     private enum ShortcutConflictMatchMode {
         case exact
-        case numberedDigitFamily
+        case numberedDigitFamily(ClosedRange<Int>)
     }
 
     private static func shortcutsConflict(
         _ proposedShortcut: StoredShortcut,
-        proposedUsesNumberedDigitMatching: Bool,
+        proposedNumberedDigitRange: ClosedRange<Int>?,
         _ configuredShortcut: StoredShortcut,
-        configuredUsesNumberedDigitMatching: Bool
+        configuredNumberedDigitRange: ClosedRange<Int>?
     ) -> Bool {
         guard !proposedShortcut.isUnbound, !configuredShortcut.isUnbound else {
             return false
         }
 
+        let proposedMode = proposedNumberedDigitRange.map(ShortcutConflictMatchMode.numberedDigitFamily) ?? .exact
+        let configuredMode = configuredNumberedDigitRange.map(ShortcutConflictMatchMode.numberedDigitFamily) ?? .exact
+
         switch (proposedShortcut.hasChord, configuredShortcut.hasChord) {
         case (false, false):
             return shortcutStrokeMatchersConflict(
                 proposedShortcut.firstStroke,
-                mode: proposedUsesNumberedDigitMatching ? .numberedDigitFamily : .exact,
+                mode: proposedMode,
                 configuredShortcut.firstStroke,
-                mode: configuredUsesNumberedDigitMatching ? .numberedDigitFamily : .exact
+                mode: configuredMode
             )
         case (true, true):
             guard strokesConflict(proposedShortcut.firstStroke, configuredShortcut.firstStroke),
@@ -900,21 +895,21 @@ enum KeyboardShortcutSettings {
             }
             return shortcutStrokeMatchersConflict(
                 proposedSecond,
-                mode: proposedUsesNumberedDigitMatching ? .numberedDigitFamily : .exact,
+                mode: proposedMode,
                 configuredSecond,
-                mode: configuredUsesNumberedDigitMatching ? .numberedDigitFamily : .exact
+                mode: configuredMode
             )
         case (true, false):
             return shortcutStrokeMatchersConflict(
                 proposedShortcut.firstStroke,
                 mode: .exact,
                 configuredShortcut.firstStroke,
-                mode: configuredUsesNumberedDigitMatching ? .numberedDigitFamily : .exact
+                mode: configuredMode
             )
         case (false, true):
             return shortcutStrokeMatchersConflict(
                 proposedShortcut.firstStroke,
-                mode: proposedUsesNumberedDigitMatching ? .numberedDigitFamily : .exact,
+                mode: proposedMode,
                 configuredShortcut.firstStroke,
                 mode: .exact
             )
@@ -930,20 +925,23 @@ enum KeyboardShortcutSettings {
         switch (lhsMode, rhsMode) {
         case (.exact, .exact):
             return strokesConflict(lhs, rhs)
-        case (.numberedDigitFamily, .numberedDigitFamily):
-            return numberedDigitStrokeConflict(lhs, rhs)
-        case (.numberedDigitFamily, .exact):
-            return numberedDigitStrokeConflictsWithExactStroke(lhs, rhs)
-        case (.exact, .numberedDigitFamily):
-            return numberedDigitStrokeConflictsWithExactStroke(rhs, lhs)
+        case let (.numberedDigitFamily(lhsRange), .numberedDigitFamily(rhsRange)):
+            return numberedDigitStrokeConflict(lhs, range: lhsRange, rhs, range: rhsRange)
+        case let (.numberedDigitFamily(range), .exact):
+            return numberedDigitStroke(lhs, range: range, conflictsWithExactStroke: rhs)
+        case let (.exact, .numberedDigitFamily(range)):
+            return numberedDigitStroke(rhs, range: range, conflictsWithExactStroke: lhs)
         }
     }
 
-    private static func numberedDigitStrokeConflictsWithExactStroke(
+    private static func numberedDigitStroke(
         _ numberedStroke: ShortcutStroke,
-        _ exactStroke: ShortcutStroke
+        range: ClosedRange<Int>,
+        conflictsWithExactStroke exactStroke: ShortcutStroke
     ) -> Bool {
-        guard isNumberedDigitStroke(numberedStroke), isNumberedDigitStroke(exactStroke) else {
+        guard isNumberedDigitStroke(numberedStroke, in: range),
+              let exactDigit = Int(exactStroke.key),
+              range.contains(exactDigit) else {
             return false
         }
         return numberedStroke.command == exactStroke.command &&
@@ -952,17 +950,27 @@ enum KeyboardShortcutSettings {
             numberedStroke.control == exactStroke.control
     }
 
-    private static func numberedDigitStrokeConflict(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {
-        guard isNumberedDigitStroke(lhs), isNumberedDigitStroke(rhs) else { return false }
+    private static func numberedDigitStrokeConflict(
+        _ lhs: ShortcutStroke,
+        range lhsRange: ClosedRange<Int>,
+        _ rhs: ShortcutStroke,
+        range rhsRange: ClosedRange<Int>
+    ) -> Bool {
+        guard isNumberedDigitStroke(lhs, in: lhsRange),
+              isNumberedDigitStroke(rhs, in: rhsRange),
+              lhsRange.overlaps(rhsRange) else { return false }
         return lhs.command == rhs.command &&
             lhs.shift == rhs.shift &&
             lhs.option == rhs.option &&
             lhs.control == rhs.control
     }
 
-    private static func isNumberedDigitStroke(_ stroke: ShortcutStroke) -> Bool {
+    private static func isNumberedDigitStroke(
+        _ stroke: ShortcutStroke,
+        in range: ClosedRange<Int>
+    ) -> Bool {
         guard let digit = Int(stroke.key) else { return false }
-        return (1...9).contains(digit)
+        return range.contains(digit)
     }
 
     private static func strokesConflict(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {

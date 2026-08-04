@@ -20,8 +20,8 @@ struct ShortcutConflictTests {
         // digit is normalized to the "1" placeholder before comparison.
         #expect(
             numberedAwareStrokesConflict(
-                stroke("1", option: true, control: true), numbered: true,
-                stroke("5", option: true, control: true), numbered: false
+                stroke("1", option: true, control: true), numberedRange: 1...9,
+                stroke("5", option: true, control: true), numberedRange: nil
             )
         )
     }
@@ -31,8 +31,8 @@ struct ShortcutConflictTests {
         // numbered ⌃⌥1…9 family.
         #expect(
             numberedAwareStrokesConflict(
-                stroke("5", option: true, control: true), numbered: false,
-                stroke("1", option: true, control: true), numbered: true
+                stroke("5", option: true, control: true), numberedRange: nil,
+                stroke("1", option: true, control: true), numberedRange: 1...9
             )
         )
     }
@@ -40,14 +40,23 @@ struct ShortcutConflictTests {
     @Test func twoNumberedFamiliesConflictOnlyWhenModifiersMatch() {
         #expect(
             numberedAwareStrokesConflict(
-                stroke("1", control: true), numbered: true,
-                stroke("1", control: true), numbered: true
+                stroke("1", control: true), numberedRange: 1...9,
+                stroke("1", control: true), numberedRange: 1...6
             )
         )
         #expect(
             !numberedAwareStrokesConflict(
-                stroke("1", control: true), numbered: true,
-                stroke("1", command: true), numbered: true
+                stroke("1", control: true), numberedRange: 1...9,
+                stroke("1", command: true), numberedRange: 1...6
+            )
+        )
+    }
+
+    @Test func limitedNumberedFamilyDoesNotConflictOutsideItsRange() {
+        #expect(
+            !numberedAwareStrokesConflict(
+                stroke("1", command: true, option: true), numberedRange: 1...6,
+                stroke("7", command: true, option: true), numberedRange: nil
             )
         )
     }
@@ -56,8 +65,8 @@ struct ShortcutConflictTests {
         // ⌃T is not part of the digit family, so no collision.
         #expect(
             !numberedAwareStrokesConflict(
-                stroke("1", control: true), numbered: true,
-                stroke("t", control: true), numbered: false
+                stroke("1", control: true), numberedRange: 1...9,
+                stroke("t", control: true), numberedRange: nil
             )
         )
     }
@@ -65,14 +74,14 @@ struct ShortcutConflictTests {
     @Test func exactBindingsUseLiteralEquality() {
         #expect(
             numberedAwareStrokesConflict(
-                stroke("w", command: true), numbered: false,
-                stroke("w", command: true), numbered: false
+                stroke("w", command: true), numberedRange: nil,
+                stroke("w", command: true), numberedRange: nil
             )
         )
         #expect(
             !numberedAwareStrokesConflict(
-                stroke("w", command: true), numbered: false,
-                stroke("e", command: true), numbered: false
+                stroke("w", command: true), numberedRange: nil,
+                stroke("e", command: true), numberedRange: nil
             )
         )
     }

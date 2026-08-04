@@ -29,9 +29,9 @@ extension ShortcutListModel {
                 }
                 return ShortcutBindingConflict(
                     proposed: shortcut,
-                    proposedUsesNumberedDigitMatching: action.usesNumberedDigitMatching,
+                    proposedNumberedDigitRange: action.numberedDigitRange,
                     configured: systemWideShortcut,
-                    configuredUsesNumberedDigitMatching: false
+                    configuredNumberedDigitRange: nil
                 ).exists
             },
             explicitlyConfiguredShortcut: explicitlyConfiguredShortcut(for:),
@@ -47,10 +47,9 @@ extension ShortcutListModel {
                 }
                 return ShortcutBindingConflict(
                     proposed: proposed,
-                    proposedUsesNumberedDigitMatching: action.usesNumberedDigitMatching,
+                    proposedNumberedDigitRange: action.numberedDigitRange,
                     configured: configured,
-                    configuredUsesNumberedDigitMatching:
-                        configuredAction.usesNumberedDigitMatching
+                    configuredNumberedDigitRange: configuredAction.numberedDigitRange
                 ).exists
             }
         )

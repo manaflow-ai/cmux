@@ -7,18 +7,23 @@ private let shortcutFormatter = ShortcutDisplayFormatter()
 /// settings UI, mirroring the legacy app-target `displayedShortcutString`
 /// so the package recorder is visually identical to the historical control.
 ///
-/// When `numbered` is `true` the binding represents the whole `1…9` digit
-/// family (see ``ShortcutAction/usesNumberedDigitMatching``): the key glyph
-/// is replaced with the range `1…9` so the row reads `⌃1…9` instead of the
-/// literal single digit `⌃1`. Pass `ShortcutAction.usesNumberedDigitMatching`
-/// for the action whose binding is being rendered.
+/// When `numberedRange` is present, the binding represents that whole digit
+/// family (see ``ShortcutAction/numberedDigitRange``): the key glyph is
+/// replaced with the range so the row reads `⌃1…6` instead of the literal
+/// single digit `⌃1`. Pass the action's ``ShortcutAction/numberedDigitRange``.
 ///
 /// ```swift
-/// shortcutDisplayString(StoredShortcut(first: .init(key: "1", control: true)), numbered: true)
-/// // "⌃1…9"
+/// shortcutDisplayString(
+///     StoredShortcut(first: .init(key: "1", control: true)),
+///     numberedRange: 1...6
+/// )
+/// // "⌃1…6"
 /// ```
-func shortcutDisplayString(_ shortcut: StoredShortcut, numbered: Bool) -> String {
-    shortcutFormatter.displayString(shortcut, numbered: numbered)
+func shortcutDisplayString(
+    _ shortcut: StoredShortcut,
+    numberedRange: ClosedRange<Int>?
+) -> String {
+    shortcutFormatter.displayString(shortcut, numberedRange: numberedRange)
 }
 
 /// The `1…9` range glyph shown for numbered-digit bindings. A

@@ -83,12 +83,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.growPaneRight`
 - `shortcuts.bindings.growPaneUp`
 - `shortcuts.bindings.growPaneDown`
-- `shortcuts.bindings.setPaneWidth25Percent`
-- `shortcuts.bindings.setPaneWidth50Percent`
-- `shortcuts.bindings.setPaneWidth75Percent`
-- `shortcuts.bindings.setPaneHeight25Percent`
-- `shortcuts.bindings.setPaneHeight50Percent`
-- `shortcuts.bindings.setPaneHeight75Percent`
+- `shortcuts.bindings.setPaneWidthRatioByNumber` (`cmd+opt+1…6`; digit `n` applies `n:1`)
+- `shortcuts.bindings.setPaneHeightRatioByNumber` (`cmd+opt+shift+1…6`; digit `n` applies `n:1`)
 
 ## Canvas
 

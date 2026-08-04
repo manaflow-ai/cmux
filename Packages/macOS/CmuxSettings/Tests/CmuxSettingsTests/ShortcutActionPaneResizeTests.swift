@@ -17,25 +17,23 @@ struct ShortcutActionPaneResizeTests {
         #expect(action.displayName.hasPrefix("Grow Pane "))
     }
 
-    @Test func exactShareActionsUseQuarterShortcutsAndPaneGroup() {
-        let cases: [(ShortcutAction, String, Bool)] = [
-            (.setPaneWidth25Percent, "1", false),
-            (.setPaneWidth50Percent, "2", false),
-            (.setPaneWidth75Percent, "3", false),
-            (.setPaneHeight25Percent, "1", true),
-            (.setPaneHeight50Percent, "2", true),
-            (.setPaneHeight75Percent, "3", true),
+    @Test func ratioFamiliesUseNumberedShortcutsAndPaneGroup() {
+        let cases: [(ShortcutAction, Bool)] = [
+            (.setPaneWidthRatioByNumber, false),
+            (.setPaneHeightRatioByNumber, true),
         ]
 
-        for (action, key, shift) in cases {
+        for (action, shift) in cases {
             #expect(action.defaultStroke == ShortcutStroke(
-                key: key,
+                key: "1",
                 command: true,
                 shift: shift,
                 option: true
             ))
+            #expect(action.numberedDigitRange == 1...6)
+            #expect(action.usesNumberedDigitMatching)
             #expect(action.group == .panes)
-            #expect(action.displayName.contains("Pane"))
+            #expect(action.displayName.contains("1:1–6:1"))
         }
     }
 }

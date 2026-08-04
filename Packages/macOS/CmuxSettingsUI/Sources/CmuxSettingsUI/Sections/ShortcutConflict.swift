@@ -3,11 +3,9 @@ import CmuxSettings
 /// Whether two shortcut first-strokes collide, accounting for numbered-digit
 /// families.
 ///
-/// A numbered binding (``ShortcutAction/usesNumberedDigitMatching``) stands in
-/// for the whole `⌃1`…`⌃9` family, so at runtime it consumes *every* digit with
-/// its modifiers. It therefore conflicts with any same-modifier digit binding —
-/// whether that's another numbered family or an exact `⌃5`. Mirrors the legacy
-/// app-target `shortcutsConflict` family logic.
+/// A numbered binding (``ShortcutAction/numberedDigitRange``) stands in for an
+/// action-specific digit range. It conflicts with same-modifier exact digits
+/// inside that range and with another numbered family whose range overlaps.
 ///
 /// This must be checked with the *family* semantics rather than a raw
 /// `ShortcutStroke` equality: the recorder normalizes a recorded numbered digit
@@ -17,32 +15,38 @@ import CmuxSettings
 ///
 /// - Parameters:
 ///   - lhs: The first stroke of one binding.
-///   - lhsNumbered: Whether `lhs` belongs to a numbered-digit action.
+///   - lhsNumberedRange: The numbered range consumed by `lhs`, if any.
 ///   - rhs: The first stroke of the other binding.
-///   - rhsNumbered: Whether `rhs` belongs to a numbered-digit action.
+///   - rhsNumberedRange: The numbered range consumed by `rhs`, if any.
 /// - Returns: `true` when the two bindings would fire on an overlapping keystroke.
 func numberedAwareStrokesConflict(
     _ lhs: ShortcutStroke,
-    numbered lhsNumbered: Bool,
+    numberedRange lhsNumberedRange: ClosedRange<Int>?,
     _ rhs: ShortcutStroke,
-    numbered rhsNumbered: Bool
+    numberedRange rhsNumberedRange: ClosedRange<Int>?
 ) -> Bool {
     let lhs = lhs.canonicalized()
     let rhs = rhs.canonicalized()
-    let lhsFamily = lhsNumbered && isNumberedDigitKey(lhs.key)
-    let rhsFamily = rhsNumbered && isNumberedDigitKey(rhs.key)
-    if lhsFamily || rhsFamily {
-        // A 1…9 family consumes every digit with its modifiers, so a collision
-        // requires both sides to be digit-keyed with the same modifiers. A
-        // non-digit binding (e.g. ⌃⌥T) never collides with the digit family.
-        guard isNumberedDigitKey(lhs.key), isNumberedDigitKey(rhs.key) else { return false }
-        return sameModifiers(lhs, rhs)
+    guard sameModifiers(lhs, rhs) else { return false }
+
+    let lhsDigit = Int(lhs.key)
+    let rhsDigit = Int(rhs.key)
+    let lhsFamily = lhsNumberedRange.flatMap { range in
+        lhsDigit.map(range.contains) == true ? range : nil
     }
-    // Exact match on key + modifiers, ignoring `keyCode`: the same logical
-    // keystroke can be stored with or without a resolved virtual key code (e.g.
-    // recorded vs. hand-written cmux.json), so a full `ShortcutStroke` equality
-    // would miss those collisions.
-    return lhs.key == rhs.key && sameModifiers(lhs, rhs)
+    let rhsFamily = rhsNumberedRange.flatMap { range in
+        rhsDigit.map(range.contains) == true ? range : nil
+    }
+    switch (lhsFamily, rhsFamily) {
+    case let (lhsRange?, rhsRange?):
+        return lhsRange.overlaps(rhsRange)
+    case let (lhsRange?, nil):
+        return rhsDigit.map(lhsRange.contains) == true
+    case let (nil, rhsRange?):
+        return lhsDigit.map(rhsRange.contains) == true
+    case (nil, nil):
+        return lhs.key == rhs.key
+    }
 }
 
 private func sameModifiers(_ lhs: ShortcutStroke, _ rhs: ShortcutStroke) -> Bool {

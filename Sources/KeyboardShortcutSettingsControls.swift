@@ -32,6 +32,7 @@ struct ShortcutRecorderValidationPresentation: Equatable {
 
         self.message = Self.message(
             for: attempt.reason,
+            action: action,
             canSwap: canSwap,
             shortcutForAction: shortcutForAction
         )
@@ -63,6 +64,7 @@ struct ShortcutRecorderValidationPresentation: Equatable {
 
     private static func message(
         for reason: KeyboardShortcutSettings.ShortcutRecordingRejection,
+        action: KeyboardShortcutSettings.Action,
         canSwap: Bool,
         shortcutForAction: (KeyboardShortcutSettings.Action) -> StoredShortcut
     ) -> String {
@@ -95,9 +97,15 @@ struct ShortcutRecorderValidationPresentation: Equatable {
                 defaultValue: "This keystroke is reserved by macOS."
             )
         case .numberedShortcutRequiresDigit:
-            return String(
-                localized: "shortcut.recorder.error.numberedShortcutRequiresDigit",
-                defaultValue: "Use a digit from 1 through 9."
+            let range = action.numberedDigitRange ?? 1...9
+            let format = String(
+                localized: "shortcut.recorder.error.numberedShortcutRequiresDigitRange",
+                defaultValue: "Use a digit from %lld through %lld."
+            )
+            return String.localizedStringWithFormat(
+                format,
+                Int64(range.lowerBound),
+                Int64(range.upperBound)
             )
         case .systemWideHotkeyRequiresModifier:
             return String(
