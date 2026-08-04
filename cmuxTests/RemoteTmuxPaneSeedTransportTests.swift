@@ -58,6 +58,7 @@ import Testing
         #expect(fixture.connection.sentWindowSizes[9]?.0 == 242)
         #expect(fixture.connection.sentWindowSizes[9]?.1 == 62)
         #expect(fixture.connection.windowClaimParityRearmsSpent.isEmpty)
+        #expect(fixture.connection.snapshot().recentEvents.last == "client-detached")
     }
 
     @Test func laggingControlOutputCursorCannotReplayCapturedReconnectOutput() throws {
