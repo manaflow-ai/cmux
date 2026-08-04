@@ -1,3 +1,4 @@
+#if os(iOS) && DEBUG
 import SwiftUI
 
 /// Workspace title button used by the Labs bottom-sheet switcher.
@@ -33,3 +34,4 @@ struct WorkspaceDetailTitleButton: View, Equatable {
         ).cap
     }
 }
+#endif

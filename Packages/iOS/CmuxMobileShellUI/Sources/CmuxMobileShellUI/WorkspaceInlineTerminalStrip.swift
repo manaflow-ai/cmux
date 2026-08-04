@@ -1,3 +1,4 @@
+#if os(iOS) && DEBUG
 import CMUXMobileCore
 import CmuxMobileShellModel
 import SwiftUI
@@ -47,3 +48,4 @@ struct WorkspaceInlineTerminalStrip: View {
         }
     }
 }
+#endif

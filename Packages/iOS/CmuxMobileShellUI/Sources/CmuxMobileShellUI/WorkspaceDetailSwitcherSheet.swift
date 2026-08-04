@@ -1,3 +1,4 @@
+#if os(iOS) && DEBUG
 import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
@@ -65,3 +66,4 @@ struct WorkspaceDetailSwitcherSheet: View {
         .accessibilityIdentifier("MobileWorkspaceSwitcherSheet")
     }
 }
+#endif

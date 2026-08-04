@@ -193,8 +193,6 @@ public final class MobileDisplaySettings {
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
 
-    /// Production builds always use the shipping workspace-detail layout.
-    var workspaceDetailLabVariant: WorkspaceDetailLabVariant? { nil }
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.

@@ -67,10 +67,12 @@ struct WorkspaceDetailView: View {
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
+    #if DEBUG
     /// Labs switcher-sheet lifecycle. Actions that open another presentation
     /// wait for `onDismiss` instead of racing two sheets in one update.
     @State var isWorkspaceSwitcherSheetPresented = false
     @State var pendingWorkspaceSwitcherSheetAction: WorkspaceDetailSheetAction?
+    #endif
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -130,9 +132,11 @@ struct WorkspaceDetailView: View {
         #if os(iOS)
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+            #if DEBUG
             .safeAreaInset(edge: .top, spacing: 0) {
                 workspaceDetailLabTopInset
             }
+            #endif
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
             .toolbar { workspaceDetailToolbar }
@@ -166,12 +170,14 @@ struct WorkspaceDetailView: View {
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
+            #if DEBUG
             .sheet(
                 isPresented: $isWorkspaceSwitcherSheetPresented,
                 onDismiss: completeWorkspaceSwitcherSheetAction
             ) {
                 workspaceDetailSwitcherSheet
             }
+            #endif
             .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
                 WorkspaceChangesSheet(
                     store: store,
@@ -215,7 +221,11 @@ struct WorkspaceDetailView: View {
             }
         }
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
+            #if DEBUG
             workspaceDetailTitleToolbarControl
+            #else
+            workspaceTitleToolbarMenu
+            #endif
         }
         if let selectedTerminalID,
            store.isAlternateScreen(surfaceID: selectedTerminalID),
@@ -239,7 +249,11 @@ struct WorkspaceDetailView: View {
             }
         }
         ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+            #if DEBUG
             workspaceDetailTrailingToolbarControl
+            #else
+            toolbarTrailingCluster
+            #endif
         }
     }
 
@@ -616,9 +630,9 @@ struct WorkspaceDetailView: View {
             terminalTheme: store.activeTerminalTheme
         )
         .equatable()
-        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
-        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
+        .syncingTerminalPickerRows(terminalPickerLiveMembership) { includeTitleChanges in
+            syncTerminalPickerRows(includeTitleChanges: includeTitleChanges)
+        }
     }
 
     #if canImport(UIKit)

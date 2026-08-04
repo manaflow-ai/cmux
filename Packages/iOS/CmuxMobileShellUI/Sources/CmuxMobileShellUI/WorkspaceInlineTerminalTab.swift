@@ -1,3 +1,4 @@
+#if os(iOS) && DEBUG
 import CMUXMobileCore
 import CmuxMobileShellModel
 import SwiftUI
@@ -40,3 +41,4 @@ struct WorkspaceInlineTerminalTab: View {
         .accessibilityIdentifier("MobileInlineTerminalTab-\(row.id.rawValue)")
     }
 }
+#endif

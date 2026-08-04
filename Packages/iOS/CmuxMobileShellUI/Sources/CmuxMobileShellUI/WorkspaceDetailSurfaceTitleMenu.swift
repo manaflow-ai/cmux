@@ -1,3 +1,4 @@
+#if os(iOS) && DEBUG
 import SwiftUI
 
 /// Labs title control that can expose terminal content and workspace actions in one menu.
@@ -73,3 +74,4 @@ struct WorkspaceDetailSurfaceTitleMenu: View, Equatable {
         )
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if os(iOS) && DEBUG
 /// Debug-only workspace-detail chrome experiments exposed through CMUX Labs.
 enum WorkspaceDetailLabVariant: String, CaseIterable, Identifiable, Sendable {
     case titleSwitcher = "title-switcher"
@@ -23,3 +24,4 @@ enum WorkspaceDetailLabVariant: String, CaseIterable, Identifiable, Sendable {
         }
     }
 }
+#endif

@@ -1,4 +1,5 @@
 import CmuxMobileShellModel
+import SwiftUI
 
 struct TerminalPickerMenuRow: Identifiable, Equatable {
     let id: MobileTerminalPreview.ID
@@ -16,6 +17,32 @@ struct TerminalPickerMenuMembership: Equatable {
 
     init(_ rows: [TerminalPickerMenuRow]) {
         ids = rows.map(\.id)
+    }
+}
+
+/// Keeps native picker snapshots current without rebuilding an open menu for
+/// terminal-title-only churn.
+private struct TerminalPickerRowsSyncModifier: ViewModifier {
+    let membership: TerminalPickerMenuMembership
+    let synchronize: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .simultaneousGesture(TapGesture().onEnded { synchronize(true) })
+            .onAppear { synchronize(true) }
+            .onChange(of: membership) { _, _ in synchronize(false) }
+    }
+}
+
+extension View {
+    func syncingTerminalPickerRows(
+        _ membership: TerminalPickerMenuMembership,
+        synchronize: @escaping (Bool) -> Void
+    ) -> some View {
+        modifier(TerminalPickerRowsSyncModifier(
+            membership: membership,
+            synchronize: synchronize
+        ))
     }
 }
 

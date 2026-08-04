@@ -4,8 +4,23 @@ import UIKit
 import XCTest
 
 final class cmuxUITests: XCTestCase {
+    private var workspaceDetailLabDefaultsSuiteName: String?
+
     override func setUpWithError() throws {
+        try super.setUpWithError()
         continueAfterFailure = false
+        guard name.contains("WorkspaceDetailLabs") else { return }
+        let suiteName = "dev.cmux.uitests.workspace-detail-labs.\(UUID().uuidString)"
+        workspaceDetailLabDefaultsSuiteName = suiteName
+        resetWorkspaceDetailLabDefaults(suiteName: suiteName)
+    }
+
+    override func tearDownWithError() throws {
+        if let suiteName = workspaceDetailLabDefaultsSuiteName {
+            resetWorkspaceDetailLabDefaults(suiteName: suiteName)
+            workspaceDetailLabDefaultsSuiteName = nil
+        }
+        try super.tearDownWithError()
     }
 
     func testMockHostInstanceTagFollowsTargetBuildScope() {
@@ -3026,6 +3041,8 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceDetailLabsRenderFiveLiveRedesigns() throws {
+        let app = launchWorkspaceDetailLabsApp()
+        defer { app.terminate() }
         let variants = [
             "title-switcher",
             "terminal-focus",
@@ -3035,13 +3052,8 @@ final class cmuxUITests: XCTestCase {
         ]
 
         for variant in variants {
-            let app = launchWorkspaceDetailDelayedTerminalPreviewApp(
-                environment: ["CMUX_UITEST_WORKSPACE_DETAIL_LABS": "1"],
-                launchArguments: [
-                    "-cmux.mobile.debug.workspaceDetailLabVariant.v1",
-                    variant,
-                ]
-            )
+            selectWorkspaceDetailLabVariant(variant, in: app)
+            openWorkspaceDetailLabPreview(in: app)
             let title = workspaceTitleElement(in: app)
             XCTAssertTrue(title.waitForExistence(timeout: 4), "\(variant): missing title control")
 
@@ -3053,11 +3065,13 @@ final class cmuxUITests: XCTestCase {
                 XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].exists)
                 XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
                 XCTAssertTrue(app.buttons["MobileWorkspaceTitleCloseMenuItem"].exists)
+                tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-labs-tests"], in: app)
             case "terminal-focus":
                 XCTAssertFalse(app.buttons["MobileTerminalDropdown"].exists)
                 XCTAssertTrue(app.buttons["MobileWorkspaceLabOverflowMenu"].waitForExistence(timeout: 4))
                 tap(title, in: app)
                 assertTerminalMenuItemExists("terminal-labs-tests", in: app)
+                tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-labs-tests"], in: app)
             case "switcher-sheet":
                 XCTAssertTrue(app.buttons["MobileWorkspaceLabQuickNewTerminalButton"].waitForExistence(timeout: 4))
                 tap(title, in: app)
@@ -3068,6 +3082,7 @@ final class cmuxUITests: XCTestCase {
                 XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].exists)
                 XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
                 XCTAssertTrue(app.buttons["MobileWorkspaceTitleCloseMenuItem"].exists)
+                tap(app.buttons["Done"], in: app)
             case "inline-tabs":
                 XCTAssertTrue(
                     app.descendants(matching: .any)["MobileInlineTerminalStrip"].waitForExistence(timeout: 4)
@@ -3089,25 +3104,14 @@ final class cmuxUITests: XCTestCase {
             attachment.name = "workspace-detail-lab-\(variant)"
             attachment.lifetime = .keepAlways
             add(attachment)
-            app.terminate()
+            returnFromWorkspaceDetailLabPreview(in: app)
         }
     }
 
     @MainActor
     func testWorkspaceDetailLabsSettingsSelectsAllFiveWithoutRestart() throws {
-        let app = launchApp(mockData: false, environment: [
-            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
-        ])
+        let app = launchWorkspaceDetailLabsApp()
         defer { app.terminate() }
-
-        tap(app.buttons["MobileWorkspaceSettingsMenu"], in: app)
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileSettingsView"].waitForExistence(timeout: 4)
-        )
-        tap(app.buttons["MobileSettingsWorkspaceDetailLab"], in: app)
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileWorkspaceDetailLab"].waitForExistence(timeout: 4)
-        )
 
         for variant in [
             "title-switcher",
@@ -3116,14 +3120,16 @@ final class cmuxUITests: XCTestCase {
             "inline-tabs",
             "title-stepper",
         ] {
-            let row = app.descendants(matching: .any)[
-                "MobileWorkspaceDetailLabVariant-\(variant)"
-            ]
-            tap(row, in: app)
-            XCTAssertTrue(row.isSelected, "\(variant) must select without relaunching the app")
+            selectWorkspaceDetailLabVariant(variant, in: app)
+            openWorkspaceDetailLabPreview(in: app)
+            assertWorkspaceDetailLabChrome(variant, in: app)
+            returnFromWorkspaceDetailLabPreview(in: app)
         }
 
         let baseline = app.descendants(matching: .any)["MobileWorkspaceDetailLabBaseline"]
+        for _ in 0..<6 where !baseline.isHittable {
+            app.swipeDown()
+        }
         tap(baseline, in: app)
         XCTAssertTrue(baseline.isSelected)
     }
@@ -4771,6 +4777,99 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
         return app
+    }
+
+    private func resetWorkspaceDetailLabDefaults(suiteName: String) {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_DEBUG_DISPLAY_SETTINGS_SUITE": suiteName,
+            "CMUX_DEBUG_RESET_DISPLAY_SETTINGS": "1",
+        ]
+        app.launch()
+        app.terminate()
+    }
+
+    @MainActor
+    private func launchWorkspaceDetailLabsApp() -> XCUIApplication {
+        guard let suiteName = workspaceDetailLabDefaultsSuiteName else {
+            XCTFail("Workspace Detail Labs tests require an isolated display-settings suite")
+            return XCUIApplication()
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_DEBUG_DISPLAY_SETTINGS_SUITE": suiteName,
+        ])
+        tap(app.buttons["MobileWorkspaceSettingsMenu"], in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsView"].waitForExistence(timeout: 4)
+        )
+        tap(app.buttons["MobileSettingsWorkspaceDetailLab"], in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceDetailLab"].waitForExistence(timeout: 4)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceDetailLabBaseline"].isSelected,
+            "The isolated Labs defaults domain must begin at the baseline"
+        )
+        return app
+    }
+
+    @MainActor
+    private func selectWorkspaceDetailLabVariant(_ variant: String, in app: XCUIApplication) {
+        let row = app.descendants(matching: .any)[
+            "MobileWorkspaceDetailLabVariant-\(variant)"
+        ]
+        for _ in 0..<6 where !row.isHittable {
+            app.swipeUp()
+        }
+        tap(row, in: app)
+        XCTAssertTrue(row.isSelected, "\(variant) must select without relaunching the app")
+    }
+
+    @MainActor
+    private func openWorkspaceDetailLabPreview(in app: XCUIApplication) {
+        tap(app.buttons["MobileWorkspaceDetailLabOpenPreview"], in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceDetailLabPreview"]
+                .waitForExistence(timeout: 4)
+        )
+    }
+
+    @MainActor
+    private func assertWorkspaceDetailLabChrome(_ variant: String, in app: XCUIApplication) {
+        switch variant {
+        case "title-switcher":
+            XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 4))
+            XCTAssertFalse(app.buttons["MobileTerminalDropdown"].exists)
+            XCTAssertFalse(app.buttons["MobileWorkspaceLabOverflowMenu"].exists)
+        case "terminal-focus":
+            XCTAssertTrue(app.buttons["MobileWorkspaceLabOverflowMenu"].waitForExistence(timeout: 4))
+        case "switcher-sheet":
+            XCTAssertTrue(app.buttons["MobileWorkspaceLabQuickNewTerminalButton"].waitForExistence(timeout: 4))
+        case "inline-tabs":
+            XCTAssertTrue(
+                app.descendants(matching: .any)["MobileInlineTerminalStrip"]
+                    .waitForExistence(timeout: 4)
+            )
+        case "title-stepper":
+            XCTAssertTrue(
+                app.descendants(matching: .any)["MobileWorkspaceTerminalStepper"]
+                    .waitForExistence(timeout: 4)
+            )
+        default:
+            XCTFail("Unhandled workspace detail Labs variant: \(variant)")
+        }
+    }
+
+    @MainActor
+    private func returnFromWorkspaceDetailLabPreview(in app: XCUIApplication) {
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceDetailLab"].waitForExistence(timeout: 4)
+        )
     }
 
     @MainActor

@@ -2,7 +2,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-#if os(iOS)
+#if os(iOS) && DEBUG
 extension WorkspaceDetailView {
     @ViewBuilder
     var workspaceDetailTitleToolbarControl: some View {
@@ -26,11 +26,9 @@ extension WorkspaceDetailView {
                 labelStyle: .workspaceFirst
             )
             .equatable()
-            .simultaneousGesture(TapGesture().onEnded {
-                syncTerminalPickerRows(includeTitleChanges: true)
-            })
-            .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-            .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
+            .syncingTerminalPickerRows(terminalPickerLiveMembership) { includeTitleChanges in
+                syncTerminalPickerRows(includeTitleChanges: includeTitleChanges)
+            }
         case .some(.terminalFocus):
             WorkspaceDetailSurfaceTitleMenu(
                 titleValue: workspaceTitleMenuValue(
@@ -48,11 +46,9 @@ extension WorkspaceDetailView {
                 labelStyle: .terminalFirst
             )
             .equatable()
-            .simultaneousGesture(TapGesture().onEnded {
-                syncTerminalPickerRows(includeTitleChanges: true)
-            })
-            .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-            .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
+            .syncingTerminalPickerRows(terminalPickerLiveMembership) { includeTitleChanges in
+                syncTerminalPickerRows(includeTitleChanges: includeTitleChanges)
+            }
         case .some(.switcherSheet):
             WorkspaceDetailTitleButton(
                 titleValue: workspaceTitleMenuValue(
@@ -79,11 +75,9 @@ extension WorkspaceDetailView {
                 labelStyle: .workspaceFirst
             )
             .equatable()
-            .simultaneousGesture(TapGesture().onEnded {
-                syncTerminalPickerRows(includeTitleChanges: true)
-            })
-            .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-            .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
+            .syncingTerminalPickerRows(terminalPickerLiveMembership) { includeTitleChanges in
+                syncTerminalPickerRows(includeTitleChanges: includeTitleChanges)
+            }
         }
     }
 
@@ -113,11 +107,9 @@ extension WorkspaceDetailView {
                     terminalTheme: store.activeTerminalTheme
                 )
                 .equatable()
-                .simultaneousGesture(TapGesture().onEnded {
-                    syncTerminalPickerRows(includeTitleChanges: true)
-                })
-                .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-                .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
+                .syncingTerminalPickerRows(terminalPickerLiveMembership) { includeTitleChanges in
+                    syncTerminalPickerRows(includeTitleChanges: includeTitleChanges)
+                }
             }
             .frame(width: shouldShowChatToggle ? 96 : 44, height: 44, alignment: .trailing)
         case .some(.switcherSheet):

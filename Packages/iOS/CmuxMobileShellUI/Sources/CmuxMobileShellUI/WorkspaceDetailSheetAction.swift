@@ -1,3 +1,4 @@
+#if os(iOS) && DEBUG
 import CmuxMobileShellModel
 
 /// Deferred action performed after the Labs switcher sheet finishes dismissing.
@@ -15,3 +16,4 @@ enum WorkspaceDetailSheetAction: Equatable {
     case toggleReadState
     case closeWorkspace
 }
+#endif

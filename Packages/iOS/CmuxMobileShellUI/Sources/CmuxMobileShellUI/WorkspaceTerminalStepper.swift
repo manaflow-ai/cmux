@@ -1,3 +1,4 @@
+#if os(iOS) && DEBUG
 import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
@@ -41,3 +42,4 @@ struct WorkspaceTerminalStepper: View, Equatable {
         .accessibilityIdentifier("MobileWorkspaceTerminalStepper")
     }
 }
+#endif

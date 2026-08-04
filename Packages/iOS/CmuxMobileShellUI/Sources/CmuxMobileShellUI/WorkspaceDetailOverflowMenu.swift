@@ -1,3 +1,4 @@
+#if os(iOS) && DEBUG
 import CMUXMobileCore
 import CmuxMobileSupport
 import SwiftUI
@@ -21,7 +22,7 @@ struct WorkspaceDetailOverflowMenu: View, Equatable {
             TerminalPickerMenuContent(
                 value: terminalValue,
                 actions: terminalActions,
-                mode: .utilitiesOnly
+                mode: .withoutTerminals
             )
             WorkspaceTitleMenuContent(
                 value: workspaceValue,
@@ -39,3 +40,4 @@ struct WorkspaceDetailOverflowMenu: View, Equatable {
         .accessibilityIdentifier("MobileWorkspaceLabOverflowMenu")
     }
 }
+#endif

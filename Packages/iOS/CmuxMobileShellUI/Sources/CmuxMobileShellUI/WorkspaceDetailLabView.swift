@@ -59,6 +59,27 @@ struct WorkspaceDetailLabView: View {
             defaultValue: "Workspace Detail Lab"
         ))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    WorkspaceDetailLabPreviewView()
+                } label: {
+                    Label(
+                        L10n.string(
+                            "mobile.settings.workspaceDetailLab.openPreview",
+                            defaultValue: "Open Live Preview"
+                        ),
+                        systemImage: "play.rectangle"
+                    )
+                    .labelStyle(.iconOnly)
+                }
+                .accessibilityLabel(L10n.string(
+                    "mobile.settings.workspaceDetailLab.openPreview",
+                    defaultValue: "Open Live Preview"
+                ))
+                .accessibilityIdentifier("MobileWorkspaceDetailLabOpenPreview")
+            }
+        }
         .accessibilityIdentifier("MobileWorkspaceDetailLab")
     }
 
