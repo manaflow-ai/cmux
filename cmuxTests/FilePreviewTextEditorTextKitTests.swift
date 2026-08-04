@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -31,6 +32,41 @@ import Testing
 @MainActor
 @Suite("File preview editor TextKit backing", .serialized)
 struct FilePreviewTextEditorTextKitTests {
+    @Test("text file previews show a visible line-number gutter")
+    func editorShowsLineNumberGutter() throws {
+        let panel = TextEditingPanelSpy(textContent: "first line\nsecond line\nthird line")
+        let hostingView = NSHostingView(rootView: FilePreviewTextEditor(
+            panel: panel,
+            isVisibleInUI: true,
+            themeBackgroundColor: .textBackgroundColor,
+            themeForegroundColor: .textColor,
+            drawsBackground: true,
+            wordWrap: false
+        ))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        hostingView.layoutSubtreeIfNeeded()
+
+        let textView = try #require(panel.attachedTextView)
+        let scrollView = try #require(textView.enclosingScrollView)
+        #expect(scrollView.documentView === textView)
+        #expect(scrollView.hasVerticalRuler)
+        #expect(scrollView.rulersVisible)
+        let ruler = try #require(scrollView.verticalRulerView)
+        #expect(ruler.ruleThickness > 0)
+    }
+
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
     func editorIsPureTextKit1() {
         let textView = SavingTextView.makeFilePreviewTextView()
@@ -382,11 +418,18 @@ struct FilePreviewTextEditorTextKitTests {
         )
     }
 
-    private final class TextEditingPanelSpy: FilePreviewTextEditingPanel {
-        var textContent = ""
+    private final class TextEditingPanelSpy: ObservableObject, FilePreviewTextEditingPanel {
+        var textContent: String
         var saveCount = 0
+        var attachedTextView: NSTextView?
 
-        func attachTextView(_: NSTextView) {}
+        init(textContent: String = "") {
+            self.textContent = textContent
+        }
+
+        func attachTextView(_ textView: NSTextView) {
+            attachedTextView = textView
+        }
         func retryPendingFocus() {}
         func updateTextContent(_ nextContent: String) {
             textContent = nextContent
