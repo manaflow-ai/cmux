@@ -76,7 +76,11 @@ enum MarkdownPanelFileLinkResolver {
         relativeToMarkdownFile markdownFilePath: String
     ) -> [String] {
         let markdownDir = (markdownFilePath as NSString).deletingLastPathComponent
-        return [(markdownDir as NSString).appendingPathComponent(relativePath)]
+        let pwd = FileManager.default.currentDirectoryPath
+        return [
+            (markdownDir as NSString).appendingPathComponent(relativePath),
+            (pwd as NSString).appendingPathComponent(relativePath)
+        ]
     }
 
     private static func webKitCoercedRelativePath(from url: URL, scheme: String) -> String? {
