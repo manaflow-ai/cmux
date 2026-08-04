@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
+/* cmux-tui mux protocol 10, IR 8462a89af3c207527421db18a02257e35ba90bac6777f11be254b07e53a08133. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350" as const;
+export const SDK_IR_SHA256 = "8462a89af3c207527421db18a02257e35ba90bac6777f11be254b07e53a08133" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -361,6 +361,16 @@ export const COMMAND_METADATA = {
       "PTY surfaces only."
     ]
   },
+  "create-surface-with-receipt": {
+    "authority": "control",
+    "since": 10,
+    "capability": "creation-receipts-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Repeating one origin and receipt with identical fields returns the original creation result."
+    ]
+  },
   "create-terminal": {
     "authority": "control",
     "since": 7,
@@ -381,6 +391,17 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "detach-attached-view": {
+    "authority": "frontend",
+    "since": 10,
+    "capability": "view-attachment-detach-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The command closes only the named view stream and releases its size contribution.",
+      "A retired lease returns outcome:superseded."
+    ]
   },
   "detach-client": {
     "authority": "control",
@@ -673,6 +694,16 @@ export const COMMAND_METADATA = {
       "PTY surfaces only; row indexes are snapshot-relative and not durable."
     ]
   },
+  "release-attached-view-size": {
+    "authority": "frontend",
+    "since": 10,
+    "capability": "view-attachment-lease-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The attach stream remains live for cached rendering."
+    ]
+  },
   "release-surface-size": {
     "authority": "control",
     "since": 7,
@@ -770,6 +801,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "A stored hook report outranks later socket reports until another hook report or surface close."
+    ]
+  },
+  "resize-attached-view": {
+    "authority": "frontend",
+    "since": 10,
+    "capability": "view-attachment-lease-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The lease must belong to this connection and surface.",
+      "A retired lease returns outcome:superseded without changing replacement views."
     ]
   },
   "resize-surface": {
@@ -1632,6 +1674,50 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AttachedViewOutcomeResult": {
+    "additional_properties": false,
+    "fields": {
+      "outcome": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ViewAttachmentOutcome"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AttachedViewResizeResult": {
+    "additional_properties": false,
+    "fields": {
+      "accepted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "outcome": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ViewAttachmentOutcome"
+        }
+      },
+      "reservation_id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -3999,6 +4085,156 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ResourceSelectors": {
+    "additional_properties": false,
+    "fields": {
+      "agent": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "browser": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "client": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "frontend_projection": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "machine": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "notification": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pairing_request": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pane": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screen": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "sidebar_view": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "split": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "stream": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "tab": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "RunResult": {
     "additional_properties": false,
     "fields": {
@@ -5160,6 +5396,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "ViewAttachmentOutcome": {
+    "kind": "enum",
+    "values": [
+      "applied",
+      "passive",
+      "superseded"
+    ]
   },
   "VtStateResult": {
     "additional_properties": false,
@@ -6410,6 +6654,143 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "CopyResult"
     }
   },
+  "create-surface-with-receipt": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "operation is one of new-tab, run-command, new-browser-tab, new-workspace, new-screen, new-pane, new-pane-right, split-right, or split-down.",
+        "Each operation admits only its documented selector and option fields.",
+        "cols and rows must be supplied together."
+      ],
+      "fields": {
+        "argv": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "cols": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "cwd": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "operation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "receipt": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "rows": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "selector_fallbacks": {
+          "default": [],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ResourceSelectors"
+            },
+            "kind": "array"
+          }
+        },
+        "selectors": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ResourceSelectors"
+          }
+        },
+        "url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "width": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "float32"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "create-terminal": {
     "request": {
       "additional_properties": false,
@@ -6634,6 +7015,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "WorkspaceMutationResult"
+    }
+  },
+  "detach-attached-view": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "lease": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AttachedViewOutcomeResult"
     }
   },
   "detach-client": {
@@ -7727,6 +8136,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "ReadScrollbackResult"
     }
   },
+  "release-attached-view-size": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "lease": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AttachedViewOutcomeResult"
+    }
+  },
   "release-surface-size": {
     "request": {
       "additional_properties": false,
@@ -8047,6 +8484,62 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ReportAgentResult"
+    }
+  },
+  "resize-attached-view": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cols": {
+          "constraints": [
+            {
+              "clamped_maximum": 10000,
+              "clamped_minimum": 1
+            }
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "lease": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "rows": {
+          "constraints": [
+            {
+              "clamped_maximum": 10000,
+              "clamped_minimum": 1
+            }
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AttachedViewResizeResult"
     }
   },
   "resize-surface": {

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
+/* cmux-tui mux protocol 10, IR 8462a89af3c207527421db18a02257e35ba90bac6777f11be254b07e53a08133. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -28,6 +28,16 @@ export type AppliedPane = {
 export type ApplyLayoutResult = {
   "panes": Array<AppliedPane>;
   "screen": Id;
+};
+
+export type AttachedViewOutcomeResult = {
+  "outcome": ViewAttachmentOutcome;
+};
+
+export type AttachedViewResizeResult = {
+  "accepted": boolean;
+  "outcome": ViewAttachmentOutcome;
+  "reservation_id": (bigint) | null;
 };
 
 export type Base64 = string;
@@ -425,6 +435,25 @@ export type ResolveTerminalResult = {
   "workspace_key": string;
 };
 
+export type ResourceSelectors = {
+  "agent"?: (string) | null;
+  "browser"?: (string) | null;
+  "client"?: (string) | null;
+  "frontend_projection"?: (string) | null;
+  "machine"?: (string) | null;
+  "notification"?: (string) | null;
+  "pairing_request"?: (string) | null;
+  "pane"?: (string) | null;
+  "screen"?: (string) | null;
+  "session"?: (string) | null;
+  "sidebar_view"?: (string) | null;
+  "split"?: (string) | null;
+  "stream"?: (string) | null;
+  "tab"?: (string) | null;
+  "terminal"?: (string) | null;
+  "workspace"?: (string) | null;
+};
+
 export type RunResult = {
   "pane": Id;
   "screen": Id;
@@ -582,6 +611,8 @@ export type Tree = {
   "workspace_revision"?: bigint;
   "workspaces": Array<Workspace>;
 };
+
+export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
 
 export type VtStateResult = {
   "cols": number;

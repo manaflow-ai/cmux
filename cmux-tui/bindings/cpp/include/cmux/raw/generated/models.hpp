@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350";
+inline constexpr std::string_view kProtocolIrSha256 = "8462a89af3c207527421db18a02257e35ba90bac6777f11be254b07e53a08133";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -22,6 +22,8 @@ enum class AgentSource;
 enum class AgentState;
 struct AppliedPane;
 struct ApplyLayoutResult;
+struct AttachedViewOutcomeResult;
+struct AttachedViewResizeResult;
 struct Base64;
 struct BrowserFrame;
 struct CellPixelFailure;
@@ -81,6 +83,7 @@ enum class RenderUnderline;
 struct ReportAgentResult;
 struct ResizeSurfaceResult;
 struct ResolveTerminalResult;
+struct ResourceSelectors;
 struct RunResult;
 struct Screen;
 struct SetCellPixelsResult;
@@ -101,6 +104,7 @@ struct TerminalPlacement;
 struct TerminalRecord;
 struct TerminalRegistryEvent;
 struct Tree;
+enum class ViewAttachmentOutcome;
 struct VtStateResult;
 struct WaitForResult;
 struct Workspace;
@@ -130,8 +134,10 @@ struct CloseSurfaceRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
 struct CopyRequest;
+struct CreateSurfaceWithReceiptRequest;
 struct CreateTerminalRequest;
 struct CreateWorkspaceRequest;
+struct DetachAttachedViewRequest;
 struct DetachClientRequest;
 struct ExportLayoutRequest;
 struct FocusDirectionRequest;
@@ -164,6 +170,7 @@ struct ProcessInfoRequest;
 struct PutFrontendProjectionRequest;
 struct ReadScreenRequest;
 struct ReadScrollbackRequest;
+struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
@@ -173,6 +180,7 @@ struct RenameScreenRequest;
 struct RenameSurfaceRequest;
 struct RenameWorkspaceRequest;
 struct ReportAgentRequest;
+struct ResizeAttachedViewRequest;
 struct ResizeSurfaceRequest;
 struct ResolveTerminalRequest;
 struct RunRequest;
@@ -364,6 +372,24 @@ struct AttachSurfaceRequest {
     Field<std::uint16_t> rows{};
     Id surface{};
     friend bool operator==(const AttachSurfaceRequest&, const AttachSurfaceRequest&) = default;
+};
+
+enum class ViewAttachmentOutcome {
+    applied,
+    passive,
+    superseded,
+};
+
+struct AttachedViewOutcomeResult {
+    ViewAttachmentOutcome outcome{};
+    friend bool operator==(const AttachedViewOutcomeResult&, const AttachedViewOutcomeResult&) = default;
+};
+
+struct AttachedViewResizeResult {
+    bool accepted{};
+    ViewAttachmentOutcome outcome{};
+    std::optional<std::uint64_t> reservation_id{};
+    friend bool operator==(const AttachedViewResizeResult&, const AttachedViewResizeResult&) = default;
 };
 
 struct Base64 {
@@ -856,6 +882,43 @@ struct CopyResult {
     friend bool operator==(const CopyResult&, const CopyResult&) = default;
 };
 
+struct ResourceSelectors {
+    Field<std::string> agent{};
+    Field<std::string> browser{};
+    Field<std::string> client{};
+    Field<std::string> frontend_projection{};
+    Field<std::string> machine{};
+    Field<std::string> notification{};
+    Field<std::string> pairing_request{};
+    Field<std::string> pane{};
+    Field<std::string> screen{};
+    Field<std::string> session{};
+    Field<std::string> sidebar_view{};
+    Field<std::string> split{};
+    Field<std::string> stream{};
+    Field<std::string> tab{};
+    Field<std::string> terminal{};
+    Field<std::string> workspace{};
+    friend bool operator==(const ResourceSelectors&, const ResourceSelectors&) = default;
+};
+
+struct CreateSurfaceWithReceiptRequest {
+    Field<std::vector<std::string>> argv{};
+    Field<std::uint16_t> cols{};
+    Field<std::string> cwd{};
+    std::string operation{};
+    std::string origin{};
+    Field<Id> pane{};
+    std::string receipt{};
+    Field<std::uint16_t> rows{};
+    std::optional<std::vector<ResourceSelectors>> selector_fallbacks{};
+    Field<ResourceSelectors> selectors{};
+    Field<std::string> url{};
+    Field<float> width{};
+    Field<Id> workspace{};
+    friend bool operator==(const CreateSurfaceWithReceiptRequest&, const CreateSurfaceWithReceiptRequest&) = default;
+};
+
 struct CreateTerminalRequest {
     Field<std::vector<std::string>> argv{};
     Field<std::uint16_t> cols{};
@@ -886,6 +949,12 @@ struct CreateWorkspaceRequest {
 struct DeadPane {
     Id id{};
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
+};
+
+struct DetachAttachedViewRequest {
+    std::string lease{};
+    Id surface{};
+    friend bool operator==(const DetachAttachedViewRequest&, const DetachAttachedViewRequest&) = default;
 };
 
 struct DetachClientRequest {
@@ -1564,6 +1633,12 @@ struct ReadScrollbackResult {
     friend bool operator==(const ReadScrollbackResult&, const ReadScrollbackResult&) = default;
 };
 
+struct ReleaseAttachedViewSizeRequest {
+    std::string lease{};
+    Id surface{};
+    friend bool operator==(const ReleaseAttachedViewSizeRequest&, const ReleaseAttachedViewSizeRequest&) = default;
+};
+
 struct ReleaseSurfaceSizeRequest {
     Id surface{};
     friend bool operator==(const ReleaseSurfaceSizeRequest&, const ReleaseSurfaceSizeRequest&) = default;
@@ -1722,6 +1797,14 @@ struct ReportAgentResult {
     AgentState state{};
     Id surface{};
     friend bool operator==(const ReportAgentResult&, const ReportAgentResult&) = default;
+};
+
+struct ResizeAttachedViewRequest {
+    std::uint16_t cols{};
+    std::string lease{};
+    std::uint16_t rows{};
+    Id surface{};
+    friend bool operator==(const ResizeAttachedViewRequest&, const ResizeAttachedViewRequest&) = default;
 };
 
 struct ResizeSurfaceRequest {
@@ -2302,6 +2385,18 @@ struct Codec<ApplyLayoutResult> {
 };
 
 template <>
+struct Codec<AttachedViewOutcomeResult> {
+    static Result<Json> encode(const AttachedViewOutcomeResult& value);
+    static Result<AttachedViewOutcomeResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AttachedViewResizeResult> {
+    static Result<Json> encode(const AttachedViewResizeResult& value);
+    static Result<AttachedViewResizeResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<Base64> {
     static Result<Json> encode(const Base64& value);
     static Result<Base64> decode(const Json& value);
@@ -2656,6 +2751,12 @@ struct Codec<ResolveTerminalResult> {
 };
 
 template <>
+struct Codec<ResourceSelectors> {
+    static Result<Json> encode(const ResourceSelectors& value);
+    static Result<ResourceSelectors> decode(const Json& value);
+};
+
+template <>
 struct Codec<RunResult> {
     static Result<Json> encode(const RunResult& value);
     static Result<RunResult> decode(const Json& value);
@@ -2773,6 +2874,12 @@ template <>
 struct Codec<Tree> {
     static Result<Json> encode(const Tree& value);
     static Result<Tree> decode(const Json& value);
+};
+
+template <>
+struct Codec<ViewAttachmentOutcome> {
+    static Result<Json> encode(const ViewAttachmentOutcome& value);
+    static Result<ViewAttachmentOutcome> decode(const Json& value);
 };
 
 template <>
@@ -2950,6 +3057,12 @@ struct Codec<CopyRequest> {
 };
 
 template <>
+struct Codec<CreateSurfaceWithReceiptRequest> {
+    static Result<Json> encode(const CreateSurfaceWithReceiptRequest& value);
+    static Result<CreateSurfaceWithReceiptRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CreateTerminalRequest> {
     static Result<Json> encode(const CreateTerminalRequest& value);
     static Result<CreateTerminalRequest> decode(const Json& value);
@@ -2959,6 +3072,12 @@ template <>
 struct Codec<CreateWorkspaceRequest> {
     static Result<Json> encode(const CreateWorkspaceRequest& value);
     static Result<CreateWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DetachAttachedViewRequest> {
+    static Result<Json> encode(const DetachAttachedViewRequest& value);
+    static Result<DetachAttachedViewRequest> decode(const Json& value);
 };
 
 template <>
@@ -3154,6 +3273,12 @@ struct Codec<ReadScrollbackRequest> {
 };
 
 template <>
+struct Codec<ReleaseAttachedViewSizeRequest> {
+    static Result<Json> encode(const ReleaseAttachedViewSizeRequest& value);
+    static Result<ReleaseAttachedViewSizeRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ReleaseSurfaceSizeRequest> {
     static Result<Json> encode(const ReleaseSurfaceSizeRequest& value);
     static Result<ReleaseSurfaceSizeRequest> decode(const Json& value);
@@ -3205,6 +3330,12 @@ template <>
 struct Codec<ReportAgentRequest> {
     static Result<Json> encode(const ReportAgentRequest& value);
     static Result<ReportAgentRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ResizeAttachedViewRequest> {
+    static Result<Json> encode(const ResizeAttachedViewRequest& value);
+    static Result<ResizeAttachedViewRequest> decode(const Json& value);
 };
 
 template <>

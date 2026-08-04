@@ -46,6 +46,16 @@
       "size": 942
     },
     {
+      "path": "AttachedViewOutcomeResult.java",
+      "sha256": "87ebc317264038b895e72b442631b1bebf64ff7ee754823dc71345aa96912ea4",
+      "size": 2069
+    },
+    {
+      "path": "AttachedViewResizeResult.java",
+      "sha256": "f772496cb4c4e1a3a10a6cc963ce0da854ebf6c2eab494116cfc1c58fd8b2131",
+      "size": 3611
+    },
+    {
       "path": "Authority.java",
       "sha256": "fc01e4b9773129763f6ecc065046e2793716f06ad248cf12a12d51a98f29982a",
       "size": 422
@@ -272,8 +282,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "de0a2a553db5edba17b4b28c472059e9403dd407b4ea0d93ca3e2d59114f5ce2",
-      "size": 21994
+      "sha256": "bd8ef9abff95f95b5781123f87e691ce4d4f40936ca76f8328f316a75ea68d33",
+      "size": 23094
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -299,6 +309,11 @@
       "path": "CopyResultMode.java",
       "sha256": "e2543ef2d7ec3a891ce114e220711ab624d729c371e0e0bbbb2ee59e5e77f911",
       "size": 930
+    },
+    {
+      "path": "CreateSurfaceWithReceiptRequest.java",
+      "sha256": "f36044cd30f7420b8b3ed854389ad34a6d80f8a0c174bc29fbffe459e5f71a4d",
+      "size": 10332
     },
     {
       "path": "CreateTerminalRequest.java",
@@ -344,6 +359,11 @@
       "path": "DeltaStreamEvent.java",
       "sha256": "9d68d517c7ed2b02c67d7af1411089a9587bb52633de04653d514df28518ea9b",
       "size": 145
+    },
+    {
+      "path": "DetachAttachedViewRequest.java",
+      "sha256": "caebc2c0bee7862b2784264305106ceaec9a357ca4c747056450dc80dedd0be7",
+      "size": 2767
     },
     {
       "path": "DetachClientRequest.java",
@@ -422,8 +442,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "7fca834f19533a0fb525d2bbac09930f5aad1a018035d60035b8ce170a1d9664",
-      "size": 21326
+      "sha256": "6f2a055235f2a0e8b71273a9110ad4209b17d0abad9c9aa6ef2152b4064dd32a",
+      "size": 22396
     },
     {
       "path": "GetCellPixelsRequest.java",
@@ -737,7 +757,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "fa738484567eb60411b02de02f126c89473a8a9ab7d1bce1a10b9b8d4a1b7423",
+      "sha256": "1901903abc519f40f05de2cda5cb5c6688a6c6414f84d6ec5fedc9d9fcb33372",
       "size": 3967
     },
     {
@@ -779,6 +799,11 @@
       "path": "ReadScrollbackResult.java",
       "sha256": "a0cb7c51adc7de08e1e8ad0fd4f42be2ecc8e6afbe738205af9253a190a6c5b5",
       "size": 3892
+    },
+    {
+      "path": "ReleaseAttachedViewSizeRequest.java",
+      "sha256": "c1702edcb3b799556160255d068b92cb246162947e1920649f2019c217ff210f",
+      "size": 2823
     },
     {
       "path": "ReleaseSurfaceSizeRequest.java",
@@ -891,6 +916,11 @@
       "size": 4005
     },
     {
+      "path": "ResizeAttachedViewRequest.java",
+      "sha256": "10aeba6c15c2d959a20cd18a908c5aac57c3c305e49cd259dfba3e57f83bdaa4",
+      "size": 3977
+    },
+    {
       "path": "ResizeSurfaceRequest.java",
       "sha256": "198e1aabd3fe1888904b6593851847da840e1c4a2b9519096874c59d8ee9d198",
       "size": 3256
@@ -914,6 +944,11 @@
       "path": "ResolveTerminalResult.java",
       "sha256": "a6781f0fa2b2dc0ab0468fe09e3d234be775145bcd88918e93834630b027fd4b",
       "size": 9221
+    },
+    {
+      "path": "ResourceSelectors.java",
+      "sha256": "4e2e6307894a450e4a2ffbbc5f27c795be5ec759abaa895aa14f1a18f4fffac9",
+      "size": 11972
     },
     {
       "path": "RunRequest.java",
@@ -1236,6 +1271,11 @@
       "size": 991
     },
     {
+      "path": "ViewAttachmentOutcome.java",
+      "sha256": "85d28a1a2fc077c11ec292cc7f387e8794aa3dc22e141da7c760722f3c8e7170",
+      "size": 963
+    },
+    {
       "path": "VtStateEvent.java",
       "sha256": "32984fa6573b5d89371f1c5de476773ad2258c265156b69ecaabf8946bd78d54",
       "size": 6406
@@ -1312,7 +1352,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350",
+  "ir_sha256": "8462a89af3c207527421db18a02257e35ba90bac6777f11be254b07e53a08133",
   "language": "java",
   "mux_protocol": 10,
   "schema_version": 2

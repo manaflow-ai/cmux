@@ -210,7 +210,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, while `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -232,7 +232,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":10,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
 The current server reports protocol `10` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, and protocol 10 before using per-surface client sizing.
@@ -2396,6 +2396,67 @@ CLI mapping:
 | JSON stdout | exact result object |
 | Exit codes | common |
 
+### resize-attached-view
+
+| Field | Value |
+| --- | --- |
+| name | `resize-attached-view` |
+| status | implemented |
+| since | protocol 10 with `view-attachment-lease-v1` |
+
+Reports the cell grid for one exact attach stream. The opaque lease binds the
+request to its connection, surface, and stream, so delayed resize requests
+cannot mutate a replacement view. The geometry-owning lease can resize the
+terminal. Other leases retain passive sizes for later promotion.
+
+Params: `surface:Id`, `lease:string`, `cols:uint16`, and `rows:uint16` are
+required. Dimensions are clamped to `1..10000`.
+
+Result:
+
+```text
+object{accepted:bool,reservation_id:uint64|null,outcome:"applied"|"passive"|"superseded"}
+```
+
+### release-attached-view-size
+
+| Field | Value |
+| --- | --- |
+| name | `release-attached-view-size` |
+| status | implemented |
+| since | protocol 10 with `view-attachment-lease-v1` |
+
+Removes one attachment's geometry contribution while retaining its stream for
+cached rendering. A retired lease returns `outcome:"superseded"`.
+
+Params: required `surface:Id` and `lease:string`.
+
+Result:
+
+```text
+object{outcome:"applied"|"passive"|"superseded"}
+```
+
+### detach-attached-view
+
+| Field | Value |
+| --- | --- |
+| name | `detach-attached-view` |
+| status | implemented |
+| since | protocol 10 with `view-attachment-detach-v1` |
+
+Closes one leased attach stream and synchronously removes its size
+participation. The terminal, its other placements, and other client views stay
+live. Repeating a completed detach returns `outcome:"superseded"`.
+
+Params: required `surface:Id` and `lease:string`.
+
+Result:
+
+```text
+object{outcome:"applied"|"superseded"}
+```
+
 ### focus-pane
 
 | Field | Value |
@@ -2815,6 +2876,13 @@ Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
+When both peers negotiate `view-attachment-lease-v1` through `identify` and
+`set-client-info`, the response includes an opaque `lease`. The lease names
+this exact connection-local attach stream. Use it with
+`resize-attached-view` and `release-attached-view-size`. When both peers also
+negotiate `view-attachment-detach-v1`, use `detach-attached-view` to close the
+stream without disconnecting or affecting another view of the terminal.
+
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
 Params:
@@ -2829,7 +2897,7 @@ Params:
 Result:
 
 ```text
-object{}
+object{lease?:string}
 ```
 
 Errors:
@@ -3042,6 +3110,37 @@ Example:
 {"id":103,"cmd":"run","argv":["/bin/zsh","-l"],"new_workspace":true,"key":"workspace-019c","name":"cloud"}
 {"id":103,"ok":true,"data":{"surface":32,"pane":5,"screen":6,"workspace":7}}
 ```
+
+### create-surface-with-receipt
+
+| Field | Value |
+| --- | --- |
+| name | `create-surface-with-receipt` |
+| status | implemented |
+| since | protocol 10 with `creation-receipts-v1` |
+
+Executes one destination-creating frontend intent behind a durable receipt.
+The frontend chooses `origin` and `receipt` before sending the request. A retry
+with identical semantics returns the original `surface` with `replayed:true`;
+reusing the pair for different semantics fails. This prevents lost responses
+and concurrent tree refreshes from duplicating or retargeting a creation.
+
+`operation` is `new-tab`, `run-command`, `new-browser-tab`, `new-workspace`,
+`new-screen`, `new-pane`, `new-pane-right`, `split-right`, or `split-down`.
+Stable `selectors` identify the primary destination. Up to seven ordered
+`selector_fallbacks` require `creation-selector-fallbacks-v1` and are resolved
+inside the same commit. Numeric `pane` and `workspace` fields are compatibility
+fallbacks. Operation-specific options are `argv`, `cwd`, `url`, `width`,
+`cols`, and `rows`.
+
+Result:
+
+```text
+object{surface:Id,replayed:bool}
+```
+
+This connection-scoped primitive has no ordinary CLI verb. Interactive
+frontends use it through the raw SDK or remote-session adapter.
 
 ### send-key
 

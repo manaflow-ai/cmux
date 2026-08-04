@@ -216,6 +216,11 @@ class TerminalLifecycle(str, Enum):
     EXITED = 'exited'
     TOMBSTONED = 'tombstoned'
 
+class ViewAttachmentOutcome(str, Enum):
+    APPLIED = 'applied'
+    PASSIVE = 'passive'
+    SUPERSEDED = 'superseded'
+
 
 @dataclass(frozen=True)
 class AgentRecord:
@@ -239,6 +244,20 @@ class ApplyLayoutResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ApplyLayoutResult'
     screen: Id
     panes: List[AppliedPane]
+
+
+@dataclass(frozen=True)
+class AttachedViewOutcomeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AttachedViewOutcomeResult'
+    outcome: ViewAttachmentOutcome
+
+
+@dataclass(frozen=True)
+class AttachedViewResizeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AttachedViewResizeResult'
+    accepted: bool
+    outcome: ViewAttachmentOutcome
+    reservation_id: Union[int, None]
 
 
 @dataclass(frozen=True)
@@ -725,6 +744,27 @@ class ResolveTerminalResult:
 
 
 @dataclass(frozen=True)
+class ResourceSelectors:
+    __cmux_schema_path__: ClassVar[str] = 'types/ResourceSelectors'
+    pane: Union[str, None, MissingType] = field(default=MISSING)
+    screen: Union[str, None, MissingType] = field(default=MISSING)
+    workspace: Union[str, None, MissingType] = field(default=MISSING)
+    split: Union[str, None, MissingType] = field(default=MISSING)
+    client: Union[str, None, MissingType] = field(default=MISSING)
+    agent: Union[str, None, MissingType] = field(default=MISSING)
+    browser: Union[str, None, MissingType] = field(default=MISSING)
+    frontend_projection: Union[str, None, MissingType] = field(default=MISSING)
+    machine: Union[str, None, MissingType] = field(default=MISSING)
+    notification: Union[str, None, MissingType] = field(default=MISSING)
+    pairing_request: Union[str, None, MissingType] = field(default=MISSING)
+    session: Union[str, None, MissingType] = field(default=MISSING)
+    sidebar_view: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[str, None, MissingType] = field(default=MISSING)
+    tab: Union[str, None, MissingType] = field(default=MISSING)
+    terminal: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class RunResult:
     __cmux_schema_path__: ClassVar[str] = 'types/RunResult'
     surface: Id
@@ -1156,6 +1196,24 @@ class CopyRequest:
 
 
 @dataclass(frozen=True)
+class CreateSurfaceWithReceiptRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-surface-with-receipt/request'
+    operation: str
+    origin: str
+    receipt: str
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    argv: Union[List[str], None, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    selector_fallbacks: Union[List[ResourceSelectors], MissingType] = field(default=MISSING)
+    selectors: Union[ResourceSelectors, None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CreateTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/create-terminal/request'
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
@@ -1182,6 +1240,13 @@ class CreateWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class DetachAttachedViewRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/detach-attached-view/request'
+    surface: Id
+    lease: str
 
 
 @dataclass(frozen=True)
@@ -1421,6 +1486,13 @@ class ReadScrollbackRequest:
 
 
 @dataclass(frozen=True)
+class ReleaseAttachedViewSizeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/release-attached-view-size/request'
+    surface: Id
+    lease: str
+
+
+@dataclass(frozen=True)
 class ReleaseSurfaceSizeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/release-surface-size/request'
     surface: Id
@@ -1488,6 +1560,15 @@ class ReportAgentRequest:
     state: AgentState
     source: AgentReportSource
     session: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ResizeAttachedViewRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/resize-attached-view/request'
+    surface: Id
+    cols: int
+    lease: str
+    rows: int
 
 
 @dataclass(frozen=True)
@@ -2244,9 +2325,12 @@ __all__ = [
     'TerminalKey',
     'TerminalKeyAction',
     'TerminalLifecycle',
+    'ViewAttachmentOutcome',
     'AgentRecord',
     'AppliedPane',
     'ApplyLayoutResult',
+    'AttachedViewOutcomeResult',
+    'AttachedViewResizeResult',
     'BrowserFrame',
     'CellPixelFailure',
     'CellPixelResize',
@@ -2298,6 +2382,7 @@ __all__ = [
     'ReportAgentResult',
     'ResizeSurfaceResult',
     'ResolveTerminalResult',
+    'ResourceSelectors',
     'RunResult',
     'Screen',
     'SetCellPixelsResult',
@@ -2343,8 +2428,10 @@ __all__ = [
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
     'CopyRequest',
+    'CreateSurfaceWithReceiptRequest',
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
+    'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
     'FocusDirectionRequest',
@@ -2376,6 +2463,7 @@ __all__ = [
     'PutFrontendProjectionRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
+    'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
@@ -2385,6 +2473,7 @@ __all__ = [
     'RenameSurfaceRequest',
     'RenameWorkspaceRequest',
     'ReportAgentRequest',
+    'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
     'RunRequest',
