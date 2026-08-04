@@ -238,27 +238,15 @@ final class SidebarRowTextView: NSTextField {
 
     override var isFlipped: Bool { true }
 
-    private struct LinkHitLayout {
-        let attributedString: NSAttributedString
-        let textRectSize: NSSize
-        let lineBreakMode: NSLineBreakMode
-        let maximumNumberOfLines: Int
-        let storage: NSTextStorage
-        let layoutManager: NSLayoutManager
-        let textContainer: NSTextContainer
-
-        func matches(
-            attributedString candidate: NSAttributedString,
-            textRectSize candidateTextRectSize: NSSize,
-            lineBreakMode candidateLineBreakMode: NSLineBreakMode,
-            maximumNumberOfLines candidateMaximumNumberOfLines: Int
-        ) -> Bool {
-            textRectSize == candidateTextRectSize
-                && lineBreakMode == candidateLineBreakMode
-                && maximumNumberOfLines == candidateMaximumNumberOfLines
-                && attributedString.isEqual(to: candidate)
-        }
-    }
+    private typealias LinkHitLayout = (
+        attributedString: NSAttributedString,
+        textRectSize: NSSize,
+        lineBreakMode: NSLineBreakMode,
+        maximumNumberOfLines: Int,
+        storage: NSTextStorage,
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer
+    )
 
     init(lines: Int) {
         super.init(frame: .zero)
@@ -350,12 +338,10 @@ final class SidebarRowTextView: NSTextField {
 
     private func linkHitLayout(textRectSize: NSSize) -> LinkHitLayout {
         if let cachedLinkHitLayout,
-           cachedLinkHitLayout.matches(
-               attributedString: attributedStringValue,
-               textRectSize: textRectSize,
-               lineBreakMode: lineBreakMode,
-               maximumNumberOfLines: maximumNumberOfLines
-           ) {
+           cachedLinkHitLayout.textRectSize == textRectSize,
+           cachedLinkHitLayout.lineBreakMode == lineBreakMode,
+           cachedLinkHitLayout.maximumNumberOfLines == maximumNumberOfLines,
+           cachedLinkHitLayout.attributedString.isEqual(to: attributedStringValue) {
             return cachedLinkHitLayout
         }
 
@@ -368,7 +354,7 @@ final class SidebarRowTextView: NSTextField {
         layoutManager.addTextContainer(textContainer)
         storage.addLayoutManager(layoutManager)
 
-        let layout = LinkHitLayout(
+        let layout: LinkHitLayout = (
             attributedString: attributedStringValue,
             textRectSize: textRectSize,
             lineBreakMode: lineBreakMode,
