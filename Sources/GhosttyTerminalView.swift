@@ -3545,37 +3545,6 @@ class GhosttyApp {
 // MainWindowRouteRetiring. The process-wide instances live in the
 // transitional GhosttyApp composition statics below.
 
-/// Core Image filter that cuts a pane-local terminal fill out of the shared window backdrop.
-private final class TerminalSharedBackdropCutoutFilter: CIFilter {
-    private static let filterInputKeys = [kCIInputImageKey, kCIInputBackgroundImageKey]
-    private static let filterOutputKeys = [kCIOutputImageKey]
-
-    /// The mask image supplied by AppKit for the cutout view.
-    @objc dynamic var inputImage: CIImage?
-
-    /// The already-rendered shared backdrop behind the terminal surface.
-    @objc dynamic var inputBackgroundImage: CIImage?
-
-    /// Input keys advertised to AppKit's Core Image compositing pipeline.
-    override var inputKeys: [String] {
-        Self.filterInputKeys
-    }
-
-    /// Output keys advertised to AppKit's Core Image compositing pipeline.
-    override var outputKeys: [String] {
-        Self.filterOutputKeys
-    }
-
-    /// The backdrop image with the cutout mask removed.
-    override var outputImage: CIImage? {
-        guard let inputImage, let inputBackgroundImage else { return nil }
-        return CIBlendKernel.destinationOut.apply(
-            foreground: inputImage,
-            background: inputBackgroundImage
-        )
-    }
-}
-
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
 // TerminalSurfaceFocusPlacement moved to CmuxTerminalCore (SurfaceRegistry/).
@@ -8195,7 +8164,7 @@ final class GhosttySurfaceScrollView: NSView {
         static let lineWidth = PanelOverlayRingMetrics.lineWidth
     }
 
-    private var sharedBackdropCutoutView: NSView?
+    private let sharedBackdropCutoutView: TerminalSharedBackdropCutoutView
     private let backgroundView: TerminalPaneBackgroundView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
@@ -8462,6 +8431,7 @@ final class GhosttySurfaceScrollView: NSView {
         #endif
 
         self.surfaceView = surfaceView
+        sharedBackdropCutoutView = TerminalSharedBackdropCutoutView(frame: .zero)
         backgroundView = TerminalPaneBackgroundView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -8504,6 +8474,7 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         backgroundView.terminalSurfaceView = surfaceView
         backgroundView.terminalScrollView = scrollView
+        addSubview(sharedBackdropCutoutView)
         addSubview(backgroundView)
         addSubview(scrollView)
         mobileViewportBorderOverlayView.isHidden = true
@@ -8939,9 +8910,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
-        if let sharedBackdropCutoutView {
-            _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
-        }
+        _ = setFrameIfNeeded(sharedBackdropCutoutView, to: bounds)
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
@@ -9306,7 +9275,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let layer = backgroundView.layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        synchronizeSharedBackdropCutout(visible: clearsSharedWindowBackdrop)
+        sharedBackdropCutoutView.setClearingSharedBackdrop(clearsSharedWindowBackdrop)
         layer.backgroundColor = color.cgColor
         layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
@@ -9316,36 +9285,6 @@ final class GhosttySurfaceScrollView: NSView {
         if !mobileViewportBorderOverlayView.isHidden {
             mobileViewportBorderOverlayView.needsDisplay = true
         }
-    }
-
-    /// Keeps the shared-backdrop cutout view present only while a pane-local fill needs it.
-    private func synchronizeSharedBackdropCutout(visible: Bool) {
-        if visible {
-            let cutoutView = sharedBackdropCutoutView ?? makeSharedBackdropCutoutView()
-            _ = setFrameIfNeeded(cutoutView, to: bounds)
-            return
-        }
-
-        sharedBackdropCutoutView?.removeFromSuperview()
-        sharedBackdropCutoutView = nil
-    }
-
-    /// Creates the Core Image filtered view that subtracts pane-local fills from shared backdrop.
-    ///
-    /// AppKit requires `layerUsesCoreImageFilters` to be configured before display, so the
-    /// cutout view is created lazily only when a pane-local OSC background override needs it.
-    private func makeSharedBackdropCutoutView() -> NSView {
-        let sharedBackdropCutoutFilter = TerminalSharedBackdropCutoutFilter()
-        sharedBackdropCutoutFilter.name = "terminalSharedBackdropCutout"
-        let cutoutView = NSView(frame: bounds)
-        cutoutView.wantsLayer = true
-        cutoutView.layerUsesCoreImageFilters = true
-        cutoutView.compositingFilter = sharedBackdropCutoutFilter
-        cutoutView.layer?.backgroundColor = NSColor.white.cgColor
-        cutoutView.layer?.isOpaque = true
-        addSubview(cutoutView, positioned: .below, relativeTo: backgroundView)
-        sharedBackdropCutoutView = cutoutView
-        return cutoutView
     }
 
     func setInactiveOverlay(color: NSColor, opacity: CGFloat, visible: Bool) {

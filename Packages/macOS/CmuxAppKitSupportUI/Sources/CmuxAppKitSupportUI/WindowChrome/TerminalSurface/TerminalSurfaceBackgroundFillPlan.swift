@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxFoundation
 
 /// Resolved background painting decision for one terminal surface.
 public struct TerminalSurfaceBackgroundFillPlan {
@@ -67,7 +68,13 @@ public struct TerminalSurfaceBackgroundFillPlan {
         let resolvedColor = (surfaceBackgroundColor ?? defaultBackgroundColor)
             .withAlphaComponent(WindowAppearanceSnapshot.clampedOpacity(backgroundOpacity))
         let owner: TerminalSurfaceBackgroundFillOwner
-        let usesPaneLocalSurfaceFill = surfaceBackgroundColor != nil &&
+        // Ghostty's public color-change action reports both OSC 11 and OSC 111 as
+        // an RGB value. Treat its configured-default RGB as reset semantics so the
+        // shared translucent/blurred backdrop regains ownership after OSC 111.
+        let hasPaneLocalSurfaceOverride = surfaceBackgroundColor.map {
+            $0.hexString() != defaultBackgroundColor.hexString()
+        } ?? false
+        let usesPaneLocalSurfaceFill = hasPaneLocalSurfaceOverride &&
             renderingMode.usesWindowHostBackdrop &&
             !usesBonsplitPaneBackdrop
         if !renderingMode.usesWindowHostBackdrop {
