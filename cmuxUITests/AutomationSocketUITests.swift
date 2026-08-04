@@ -225,6 +225,76 @@ final class AutomationSocketUITests: XCTestCase {
         XCTAssertEqual(typedTitles.first, "$iterate-pr")
     }
 
+    func testPaneAgentFooterPersistsAcrossScrollbackAndClears() throws {
+        let launchConfiguration = configuredApp(mode: "allowAll")
+        launchConfiguration.launchArguments += ["-NSAppSleepDisabled", "YES"]
+        launchConfiguration.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchConfiguration.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        launchConfiguration.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        launchConfiguration.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        let appLogPath = try launchAppThroughLaunchServices(
+            configuration: launchConfiguration
+        )
+        let app = XCUIApplication(bundleIdentifier: defaultsDomain)
+        defer {
+            app.terminate()
+            try? FileManager.default.removeItem(atPath: appLogPath)
+        }
+
+        XCTAssertTrue(
+            ensureRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for pane footer test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics()) " +
+                "log=\(readLogSuffix(appLogPath))"
+        )
+
+        let workspace = try XCTUnwrap(
+            socketResult(
+                method: "workspace.create",
+                params: ["title": "Pane footer XCUITest", "focus": true]
+            ),
+            "Expected workspace.create to succeed"
+        )
+        let surfaceID = try XCTUnwrap(
+            workspace["surface_id"] as? String,
+            "Expected created surface id"
+        )
+        let footer = app.otherElements["PaneAgentFooter-\(surfaceID)"]
+        XCTAssertFalse(footer.exists, "A pane without agent metadata must not reserve footer space")
+
+        try sendTerminalCommand(
+            "printf '\\033]699;agent=claude;context=34%%\\033\\\\'",
+            surfaceID: surfaceID
+        )
+
+        XCTAssertTrue(
+            footer.waitForExistence(timeout: 8.0),
+            "OSC 699 agent metadata should create a persistent pane footer"
+        )
+        XCTAssertEqual(footer.label, "claude [34%]")
+
+        try sendTerminalCommand("seq 1 200", surfaceID: surfaceID)
+        XCTAssertTrue(footer.exists, "The pane footer must remain anchored while terminal output scrolls")
+        XCTAssertEqual(footer.label, "claude [34%]")
+
+        try sendTerminalCommand(
+            "printf '\\033]699;\\033\\\\'",
+            surfaceID: surfaceID
+        )
+        let footerRemoved = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: footer
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [footerRemoved], timeout: 8.0),
+            .completed,
+            "An empty OSC 699 payload should dismiss the pane footer"
+        )
+    }
+
     private func configuredApp(mode: String) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-\(modeKey)", mode]
@@ -379,6 +449,100 @@ final class AutomationSocketUITests: XCTestCase {
             return nil
         }
         return envelope["result"] as? [String: Any]
+    }
+
+    private func sendTerminalCommand(_ command: String, surfaceID: String) throws {
+        _ = try XCTUnwrap(
+            socketResult(
+                method: "surface.send_text",
+                params: ["surface_id": surfaceID, "text": command]
+            ),
+            "Expected surface.send_text to accept \(command)"
+        )
+        _ = try XCTUnwrap(
+            socketResult(
+                method: "surface.send_key",
+                params: ["surface_id": surfaceID, "key": "enter"]
+            ),
+            "Expected surface.send_key to submit \(command)"
+        )
+    }
+
+    private func launchAppThroughLaunchServices(
+        configuration: XCUIApplication
+    ) throws -> String {
+        let logPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pane-footer-\(launchTag).log")
+            .path
+        _ = FileManager.default.createFile(atPath: logPath, contents: nil)
+
+        var arguments = [
+            "-n",
+            "-g",
+            "--stdout", logPath,
+            "--stderr", logPath,
+        ]
+        for (key, value) in configuration.launchEnvironment.sorted(by: { $0.key < $1.key }) {
+            arguments += ["--env", "\(key)=\(value)"]
+        }
+        arguments.append(try resolveAppBundlePath())
+        arguments.append("--args")
+        arguments.append(contentsOf: configuration.launchArguments)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = arguments
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "AutomationSocketUITests",
+                code: Int(process.terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "LaunchServices failed to open cmux. status=\(process.terminationStatus) " +
+                        "log=\(readLogSuffix(logPath))"
+                ]
+            )
+        }
+        return logPath
+    }
+
+    private func resolveAppBundlePath() throws -> String {
+        let testBundle = Bundle(for: Self.self)
+        let productsDirectory = testBundle.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let configuration = productsDirectory.lastPathComponent.lowercased()
+        let productNames = configuration.contains("release")
+            ? ["cmux", "cmux DEV"]
+            : ["cmux DEV", "cmux"]
+        let bundlePaths = productNames.map { productName in
+            productsDirectory
+                .appendingPathComponent("\(productName).app")
+                .path
+        }
+        if let bundlePath = bundlePaths.first(where: FileManager.default.fileExists(atPath:)) {
+            return bundlePath
+        }
+        throw NSError(
+            domain: "AutomationSocketUITests",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "App bundle not found at \(bundlePaths.joined(separator: " or ")). " +
+                    "testBundle=\(testBundle.bundleURL.path)"
+            ]
+        )
+    }
+
+    private func readLogSuffix(_ path: String) -> String {
+        guard let log = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return "<unavailable>"
+        }
+        return String(log.suffix(2_000))
     }
 
     private func waitForTextBoxFixture(
