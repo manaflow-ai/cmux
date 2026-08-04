@@ -595,6 +595,27 @@ mod performance_tests {
     }
 
     #[test]
+    fn explicit_wake_is_observable_even_before_a_waiter_sleeps() {
+        let kernel = JournalKernel {
+            state: Mutex::new(JournalFanoutState {
+                epoch: 7,
+                requested_epoch: 0,
+                head_sequence: 0,
+                records: VecDeque::new(),
+                record_bytes: 0,
+                available: true,
+                database_reader_count: 0,
+            }),
+            changed: Condvar::new(),
+            enabled: true,
+            producers: RwLock::new(HashMap::new()),
+        };
+        let observed = kernel.epoch();
+        kernel.wake_waiters();
+        assert_ne!(kernel.wait(observed, Duration::ZERO), observed);
+    }
+
+    #[test]
     fn journal_fanout_batches_are_bounded_before_publication() {
         let mut records = VecDeque::new();
         let mut record_bytes = 0;
