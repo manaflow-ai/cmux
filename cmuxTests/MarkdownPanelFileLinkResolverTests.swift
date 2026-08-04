@@ -181,7 +181,9 @@ enum MarkdownPanelFileLinkResolver {
 
 @MainActor
 extension MarkdownWebRenderer.Coordinator {
-    override convenience init() {
+    // The defaulted argument avoids overriding NSObject.init() while keeping
+    // the legacy test call sites source-compatible.
+    convenience init(testing _: Void = ()) {
         let fileManager = FileManager.default
         self.init(
             fileLinkResolver: CmuxPanes.MarkdownPanelFileLinkResolver(
