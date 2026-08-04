@@ -1762,8 +1762,13 @@ impl SurfaceHandle {
                     .supports_capability(cmux_tui_core::server::VIEW_ATTACHMENT_LEASE_CAPABILITY)
                 {
                     let Some(lease) = session.attachment_lease(surface.id) else {
+                        // The surface handle can outlive the attachment that
+                        // authorized this resize. Treat that lifecycle race as
+                        // superseded, exactly like the server does for a
+                        // retired lease token.
+                        surface.clear_reported_size();
                         report(None);
-                        anyhow::bail!("surface {} has no attachment lease", surface.id);
+                        return Ok(false);
                     };
                     request = json!({
                         "cmd": "resize-attached-view",
@@ -2543,19 +2548,16 @@ mod tests {
 
     use super::{
         Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
-        test_remote_session_with_view_attachment_leases,
-        test_remote_surface_with_missing_attachment_lease,
         test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
-        test_remote_transport_error,
+        test_remote_session_with_view_attachment_leases,
+        test_remote_surface_with_missing_attachment_lease, test_remote_transport_error,
     };
 
     #[test]
     fn releasing_a_missing_remote_attachment_lease_is_idempotent() {
         let session = test_remote_session_with_view_attachment_leases();
 
-        session
-            .release_surface_size(77)
-            .expect("a missing lease is already released");
+        session.release_surface_size(77).expect("a missing lease is already released");
     }
 
     #[test]
