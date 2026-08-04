@@ -16,25 +16,33 @@ import Darwin
 class BrowserFixtureSocketTestCase: XCTestCase {
     private(set) var socketPath = ""
     private var diagnosticsPath = ""
+    private var appLogPath = ""
     private var launchTag = ""
-    private(set) var app: XCUIApplication?
+    private var appProcess: Process?
+    private var appLogHandle: FileHandle?
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        socketPath = "/tmp/cmux-debug-\(UUID().uuidString).sock"
-        diagnosticsPath = "/tmp/cmux-ui-test-browser-fixtures-\(UUID().uuidString).json"
-        launchTag = "ui-tests-browser-\(UUID().uuidString.prefix(8))"
+        let launchToken = String(UUID().uuidString.prefix(8))
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+        socketPath = temporaryDirectory.appendingPathComponent("cmux-bf-\(launchToken).sock").path
+        diagnosticsPath = temporaryDirectory.appendingPathComponent("cmux-bf-\(launchToken).json").path
+        appLogPath = temporaryDirectory.appendingPathComponent("cmux-bf-\(launchToken).log").path
+        launchTag = "ui-tests-browser-\(launchToken)"
         try? FileManager.default.removeItem(atPath: socketPath)
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        try? FileManager.default.removeItem(atPath: appLogPath)
         try? FileManager.default.removeItem(atPath: taggedSocketPath())
     }
 
     override func tearDown() {
-        app?.terminate()
-        app = nil
+        terminateAppProcess()
+        try? appLogHandle?.close()
+        appLogHandle = nil
         try? FileManager.default.removeItem(atPath: socketPath)
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
+        try? FileManager.default.removeItem(atPath: appLogPath)
         try? FileManager.default.removeItem(atPath: taggedSocketPath())
         super.tearDown()
     }
@@ -42,50 +50,88 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     // MARK: - Launch
 
     @discardableResult
-    func launchApp(additionalLaunchArguments: [String] = []) throws -> XCUIApplication {
-        let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += [
+    func launchApp(additionalLaunchArguments: [String] = []) throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try resolveAppBinaryPath())
+        process.arguments = [
             "-socketControlMode", "allowAll",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ] + additionalLaunchArguments
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
-        // Debug launches require a tag outside reload.sh; provide one in UITests so CI
-        // does not fail with "Application ... does not have a process ID".
-        app.launchEnvironment["CMUX_TAG"] = launchTag
-        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
-            app.launchEnvironment["PATH"] = path
-        }
-        self.app = app
-        // On headless CI runners (no GUI session), XCUIApplication.launch()
-        // blocks ~60s then fails with "Failed to activate application
-        // (current state: Running Background)". Mark this as an expected
-        // failure so the test can continue: these tests are socket-driven and
-        // browser webviews mount in the app windows regardless of activation.
-        let activationOptions = XCTExpectedFailure.Options()
-        activationOptions.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: activationOptions) {
-            app.launch()
-        }
-        if app.state != .runningForeground {
-            XCTAssertTrue(
-                app.state == .runningBackground,
-                "Expected app to be running for browser fixture test. state=\(app.state.rawValue)"
-            )
-        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_UI_TEST_MODE"] = "1"
+        environment["CMUX_SOCKET_ENABLE"] = "1"
+        environment["CMUX_SOCKET_MODE"] = "allowAll"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        environment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        environment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        // Direct Debug launches still need an isolated tag and socket identity.
+        environment["CMUX_TAG"] = launchTag
+        process.environment = environment
+        _ = FileManager.default.createFile(atPath: appLogPath, contents: nil)
+        let logHandle = try FileHandle(forWritingTo: URL(fileURLWithPath: appLogPath))
+        appLogHandle = logHandle
+        process.standardOutput = logHandle
+        process.standardError = logHandle
+        try process.run()
+        appProcess = process
         XCTAssertTrue(
             waitForSocketPong(timeout: 12.0),
-            "Expected socket ping at \(socketPath). diagnostics=\(loadDiagnostics())"
+            "Expected socket ping at \(socketPath). processRunning=\(process.isRunning) diagnostics=\(loadDiagnostics()) appLog=\(appLogTail())"
         )
-        return app
+        return process
     }
 
+    private func resolveAppBinaryPath() throws -> String {
+        let testBundle = Bundle(for: BrowserFixtureSocketTestCase.self)
+        let productsDirectory = testBundle.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let configuration = productsDirectory.lastPathComponent.lowercased()
+        let productNames = configuration.contains("release")
+            ? ["cmux", "cmux DEV"]
+            : ["cmux DEV", "cmux"]
+        let binaryPaths = productNames.map { productName in
+            productsDirectory
+                .appendingPathComponent("\(productName).app")
+                .appendingPathComponent("Contents/MacOS/\(productName)")
+                .path
+        }
+        if let binaryPath = binaryPaths.first(where: FileManager.default.isExecutableFile(atPath:)) {
+            return binaryPath
+        }
+        throw NSError(
+            domain: "BrowserFixtureSocketTestCase",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "App binary not found at \(binaryPaths.joined(separator: " or "))"
+            ]
+        )
+    }
+
+    private func terminateAppProcess() {
+        guard let process = appProcess else { return }
+        appProcess = nil
+        guard process.isRunning else { return }
+        process.terminate()
+        for _ in 0..<50 where process.isRunning {
+            usleep(100_000)
+        }
+        if process.isRunning {
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+    }
+
+    private func appLogTail(maximumLength: Int = 2_000) -> String {
+        guard let contents = try? String(contentsOfFile: appLogPath, encoding: .utf8) else {
+            return "<missing>"
+        }
+        return String(contents.suffix(maximumLength))
+    }
 
     // MARK: - V2 socket helpers
 
@@ -308,7 +354,9 @@ class BrowserFixtureSocketTestCase: XCTestCase {
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
             .joined(separator: "-")
-        return "/tmp/cmux-debug-\(slug).sock"
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-debug-\(slug).sock")
+            .path
     }
 
     private func loadDiagnostics() -> [String: String] {
@@ -669,12 +717,41 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
 
         try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#space-button"])
         try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "Space"])
-        let canonicalSpaceKeyDown = try evalBool(
-            "window.__cmuxLog.filter(e => e.type === 'keydown' && e.target === '#space-button' && e.key === ' ' && e.code === 'Space').length === 1",
+        let canonicalNamedSpaceSequence = try evalBool(
+            """
+            (() => {
+              const events = window.__cmuxLog.filter(e => e.target === '#space-button').slice(-3);
+              return events.length === 3
+                && events[0].type === 'keydown' && events[0].key === ' ' && events[0].code === 'Space'
+                && events[1].type === 'keyup' && events[1].key === ' ' && events[1].code === 'Space'
+                && events[2].type === 'click';
+            })()
+            """,
             surfaceID: sid
         )
-        XCTAssertTrue(canonicalSpaceKeyDown, "Space should emit exactly one canonical keydown")
+        XCTAssertTrue(
+            canonicalNamedSpaceSequence,
+            "Named Space should emit canonical keydown/keyup events and activate the button"
+        )
         XCTAssertEqual(try evalString("document.getElementById('space-status').textContent", surfaceID: sid), "PASS")
+
+        try socketResult(method: "browser.press", params: ["surface_id": sid, "key": " "])
+        let canonicalRawSpaceSequence = try evalBool(
+            """
+            (() => {
+              const events = window.__cmuxLog.filter(e => e.target === '#space-button').slice(-3);
+              return events.length === 3
+                && events[0].type === 'keydown' && events[0].key === ' ' && events[0].code === 'Space'
+                && events[1].type === 'keyup' && events[1].key === ' ' && events[1].code === 'Space'
+                && events[2].type === 'click';
+            })()
+            """,
+            surfaceID: sid
+        )
+        XCTAssertTrue(
+            canonicalRawSpaceSequence,
+            "Raw Space RPC should preserve the DOM key, emit a canonical pair, and activate the button"
+        )
 
         try socketResult(method: "browser.keydown", params: ["surface_id": sid, "key": " "])
         try socketResult(method: "browser.keyup", params: ["surface_id": sid, "key": " "])
