@@ -411,6 +411,29 @@ struct WorkstreamTaskToolTodoTests {
         #expect(latestTodos(store)?.map(\.id) == firstIds)
     }
 
+    /// A result can report failure in its own body without the event-level
+    /// error flag; applying it would desynchronize the checklist for good.
+    @Test("A result reporting success:false never mutates the checklist")
+    func unsuccessfulResultIsNotApplied() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        createTask(store, "s1", subject: "real", id: "1")
+        store.ingest(toolCall(
+            "s1",
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"deleted"}"#,
+            response: #"{"success":false,"message":"task not found"}"#
+        ))
+        #expect(latestTodos(store)?.map(\.content) == ["real"])
+
+        store.ingest(toolCall(
+            "s1",
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"completed"}"#,
+            response: #"{"success":false}"#
+        ))
+        #expect(latestTodos(store)?.first?.state == .pending)
+    }
+
     @Test("Non-task tool calls stay tool telemetry")
     func otherToolsUnaffected() {
         let store = WorkstreamStore(ringCapacity: 50)

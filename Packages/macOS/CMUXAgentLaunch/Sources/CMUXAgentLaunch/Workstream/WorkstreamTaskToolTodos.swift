@@ -92,6 +92,10 @@ struct WorkstreamTaskToolTodos: Sendable {
         guard !isError else { return .ignored }
         let input = jsonObject(from: toolInputJSON)
         let response = jsonObject(from: toolResponseJSON)
+        // A result can report failure in its own body without the event-level
+        // error flag being set (a task that vanished, a rejected dependency).
+        // Applying such a delta would desynchronize the checklist for good.
+        if let succeeded = response?["success"] as? Bool, !succeeded { return .ignored }
         // Claude nests the task under "task"; tolerate a flat result too.
         let resultTask = (response?["task"] as? [String: Any]) ?? response
 
