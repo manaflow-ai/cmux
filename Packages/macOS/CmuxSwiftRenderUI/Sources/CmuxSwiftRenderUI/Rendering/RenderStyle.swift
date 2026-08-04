@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSwiftRender
 import SwiftUI
 
 /// Strips syntax decoration from a captured modifier token before resolving it.
@@ -74,6 +75,37 @@ func dslColorTokenIsVisible(_ rawToken: String?) -> Bool {
         return false
     }
     return true
+}
+
+/// Gradient colors after applying the same invalid-stop fallback as rendering.
+func dslResolvedGradient(_ tokens: [String]) -> (colors: [Color], isVisible: Bool) {
+    let resolved = tokens.compactMap { token -> (color: Color, isVisible: Bool)? in
+        guard let color = dslColor(cleanRenderToken(token)) else { return nil }
+        return (color, dslColorTokenIsVisible(token))
+    }
+    let colors = resolved.map(\.color)
+    return (
+        colors: colors.count >= 2 ? colors : (colors + [.clear, .clear]),
+        isVisible: resolved.contains(where: \.isVisible)
+    )
+}
+
+/// Border values after applying the renderer's secondary/one-point defaults.
+func dslResolvedBorder(
+    _ modifier: RenderModifier
+) -> (color: Color, width: CGFloat, isVisible: Bool) {
+    let token = cleanRenderToken(modifier.firstValue)
+    let resolvedColor = dslColor(token)
+    let width = modifier.value("width")
+        .map { cleanRenderToken($0) ?? $0 }
+        .flatMap(Double.init)
+        ?? 1
+    return (
+        color: resolvedColor ?? .secondary,
+        width: CGFloat(width),
+        isVisible: width > 0
+            && (resolvedColor == nil || dslColorTokenIsVisible(token))
+    )
 }
 
 /// Resolves a font token (or explicit size) to a magnification-aware font spec.

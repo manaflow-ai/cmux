@@ -213,6 +213,76 @@ struct CustomSidebarValidationTests {
         }
     }
 
+    @Test("visibility-removing modifiers produce empty-render warnings")
+    func warnsAboutFullyTransparentOutput() throws {
+        let directory = try temporaryDirectory()
+        let sources = [
+            "opacity": """
+            Text("Hidden")
+                .opacity(0)
+            """,
+            "mask": """
+            Text("Hidden")
+                .mask {
+                    Rectangle()
+                        .fill(.clear)
+                }
+            """,
+        ]
+
+        for (name, source) in sources {
+            let fileURL = directory.appendingPathComponent("\(name).swift")
+            try source.write(to: fileURL, atomically: true, encoding: .utf8)
+
+            let entry = validator.validate(fileURL: fileURL)
+
+            #expect(entry.errorMessage == nil)
+            #expect(
+                entry.warningMessages == ["Sidebar rendered no visible content."],
+                "Expected \(name) to suppress all rendered output"
+            )
+        }
+    }
+
+    @Test("gradient visibility follows resolved renderer stops")
+    func validatesResolvedGradientVisibility() throws {
+        let directory = try temporaryDirectory()
+        let emptyURL = directory.appendingPathComponent("empty-gradient.swift")
+        try """
+        LinearGradient(colors: [], startPoint: .top, endPoint: .bottom)
+            .frame(width: 20, height: 20)
+        """.write(to: emptyURL, atomically: true, encoding: .utf8)
+        let visibleURL = directory.appendingPathComponent("visible-gradient.swift")
+        try """
+        LinearGradient(colors: [.red, .blue], startPoint: .top, endPoint: .bottom)
+            .frame(width: 20, height: 20)
+        """.write(to: visibleURL, atomically: true, encoding: .utf8)
+
+        let emptyEntry = validator.validate(fileURL: emptyURL)
+        let visibleEntry = validator.validate(fileURL: visibleURL)
+
+        #expect(
+            emptyEntry.warningMessages == ["Sidebar rendered no visible content."]
+        )
+        #expect(visibleEntry.warningMessages.isEmpty)
+    }
+
+    @Test("a visible border around an empty framed container counts as output")
+    func acceptsVisibleBorderDecoration() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("border.swift")
+        try """
+        VStack {}
+            .frame(width: 20, height: 20)
+            .border(.red, width: 1)
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == nil)
+        #expect(entry.warningMessages.isEmpty)
+    }
+
     @Test("mask and context menu children do not count as visible output")
     func ignoresNonDrawingModifierChildren() throws {
         let directory = try temporaryDirectory()
@@ -319,6 +389,72 @@ struct CustomSidebarValidationTests {
 
         #expect(entry.errorMessage == nil)
         #expect(entry.warningMessages == ["Sidebar rendered no visible content."])
+    }
+
+    @Test("warns when only a PR array renders and optional PR data is absent")
+    func warnsWhenPullRequestArrayRemovalEmptiesRender() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("prs.swift")
+        try """
+        VStack {
+            ForEach(workspaces) { workspace in
+                ForEach(workspace.prs) { pullRequest in
+                    Text(pullRequest.label)
+                }
+            }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == nil)
+        #expect(
+            entry.warningMessages
+                == [
+                    "Sidebar rendered no visible content when optional workspace data was absent.",
+                ]
+        )
+    }
+
+    @Test("changed-field detection includes stable keys with empty values")
+    func tracksChangedStableWorkspaceFields() {
+        let richFields: [String: SwiftValue] = [
+            "prs": .array([.object(["number": .int(412)])]),
+        ]
+        let comparisonFields: [String: SwiftValue] = [
+            "prs": .array([]),
+        ]
+
+        #expect(
+            changedWorkspaceFieldNames(
+                between: richFields,
+                and: comparisonFields
+            ) == ["prs"]
+        )
+    }
+
+    @Test("ignored modifiers cannot masquerade as optional-data output")
+    func warnsWhenOptionalDataOnlyChangesIgnoredModifier() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("ignored.swift")
+        try """
+        VStack {
+            ForEach(workspaces) { workspace in
+                Text("Fixed")
+                    .custom(workspace.branch)
+            }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == nil)
+        #expect(
+            entry.warningMessages
+                == [
+                    "Sidebar output did not change when its referenced optional workspace data was removed.",
+                ]
+        )
     }
 
     @Test("deep validation helpers walk rendered output iteratively")
