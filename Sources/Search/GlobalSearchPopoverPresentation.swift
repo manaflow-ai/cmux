@@ -10,11 +10,6 @@ final class GlobalSearchPopoverPresentation {
         @escaping @MainActor () -> Void
     ) -> DebounceCancellation
 
-    private enum SelectionUpdate: Equatable {
-        case reset
-        case preserveCurrentHit
-    }
-
     var query = "" {
         didSet {
             guard isPresented, query != oldValue else { return }
@@ -127,7 +122,7 @@ final class GlobalSearchPopoverPresentation {
 
     private func scheduleSearch(
         _ nextQuery: String,
-        selectionUpdate: SelectionUpdate
+        selectionUpdate: GlobalSearchPopoverSelectionUpdate
     ) {
         cancelSearchWork()
         let generation = searchWorkGeneration
@@ -158,7 +153,7 @@ final class GlobalSearchPopoverPresentation {
     private func startSearch(
         _ trimmedQuery: String,
         generation: Int,
-        selectionUpdate: SelectionUpdate
+        selectionUpdate: GlobalSearchPopoverSelectionUpdate
     ) {
         guard isPresented,
               searchWorkGeneration == generation else {
