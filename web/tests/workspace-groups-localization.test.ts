@@ -24,6 +24,10 @@ const translatedLocales = [
 ] as const;
 const anchorKeys = ["anchorNew", "anchorClose"] as const;
 const untranslatedActionLabels = ["Ungroup Workspaces", "Delete Group"] as const;
+// These Khmer native menu entries currently use their English localizations.
+const localesUsingEnglishNativeActionLabels = new Set<
+  (typeof translatedLocales)[number]
+>(["km"]);
 
 type WorkspaceGroupCatalog = {
   docs?: {
@@ -51,7 +55,11 @@ describe("workspace group documentation localization", () => {
       }
 
       for (const label of untranslatedActionLabels) {
-        expect(workspaceGroups?.anchorClose).not.toContain(label);
+        if (localesUsingEnglishNativeActionLabels.has(locale)) {
+          expect(workspaceGroups?.anchorClose).toContain(label);
+        } else {
+          expect(workspaceGroups?.anchorClose).not.toContain(label);
+        }
       }
     });
   }
