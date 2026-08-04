@@ -1552,7 +1552,7 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
     }
 
-    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() {
+    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() async {
         let manager = TabManager()
         // Start with a non-terminal placeholder so this fixture never creates a
         // native Ghostty surface that could race the synthetic handle below.
@@ -1621,7 +1621,10 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
         XCTAssertNil(terminalPanel.surface.surface)
 
-        wait(for: [nativeFreeStarted], timeout: 3.0)
+        // The coordinator first admits the request through a Swift task. Suspend
+        // the main actor so that task can run; XCTest's synchronous wait starves
+        // inherited main-actor work and can only time out.
+        await fulfillment(of: [nativeFreeStarted], timeout: 3.0)
     }
 
     func testCloseCurrentTabSpamWithConfirmationDisabledClosesEveryRequestedWorkspace() {
