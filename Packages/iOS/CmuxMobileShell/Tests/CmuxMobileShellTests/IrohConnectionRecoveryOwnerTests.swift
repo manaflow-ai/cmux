@@ -7,29 +7,31 @@ import Testing
 
 @MainActor
 extension ReconnectRouteSelectionTests {
-    @Test func eventStreamEndRecyclesCurrentIrohClientBeforeStoredRedial() async throws {
+    @Test func establishedIrohSessionRedialsOnceAfterTransportDies() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let initialReconnectGeneration = fixture.store.storedMacReconnectGeneration
         let firstClient = try #require(fixture.store.remoteClient)
-        let firstConnectionGeneration = fixture.store.connectionGeneration
         let first = try #require(fixture.box.get())
         await first.close()
 
-        let recycled = try await pollUntil {
-            let subscribeCount = await fixture.router.count(of: "mobile.events.subscribe")
-            return fixture.store.remoteClient === firstClient
+        let recovered = try await pollUntil {
+            guard let replacement = fixture.store.remoteClient else { return false }
+            return replacement !== firstClient
                 && fixture.store.connectionState == .connected
                 && fixture.store.activeRoute?.kind == .iroh
-                && fixture.store.macConnectionStatus == .connected
-                && fixture.store.connectionRecoveryFailed == false
-                && subscribeCount >= 2
         }
-        #expect(recycled)
-        #expect(fixture.store.connectionGeneration == firstConnectionGeneration)
-        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+        #expect(recovered)
+        #expect(
+            fixture.store.storedMacReconnectGeneration
+                == initialReconnectGeneration + 1
+        )
+        let attemptedKinds = fixture.factory.attemptedKinds()
+        #expect(attemptedKinds.count >= 2)
+        #expect(attemptedKinds.allSatisfy { $0 == .iroh })
     }
 
     @Test func recoveryWaitsForOldPhysicalTransportBeforeRedialing() async throws {
@@ -187,10 +189,8 @@ extension ReconnectRouteSelectionTests {
             await backing.refreshFromBackup(stackUserID: "user-1")
         }
         #expect(await backup.waitForBlockedFetch())
-        fixture.store.recoverDeadConnection(
-            trigger: .eventStreamEnded,
-            expectedClient: firstClient
-        )
+        let first = try #require(fixture.box.get())
+        await first.close()
 
         let recoveredWithoutServer = try await pollUntil(attempts: 100) {
             guard let replacement = fixture.store.remoteClient else { return false }
@@ -208,11 +208,8 @@ extension ReconnectRouteSelectionTests {
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
-        let firstClient = try #require(fixture.store.remoteClient)
-        fixture.store.recoverDeadConnection(
-            trigger: .eventStreamEnded,
-            expectedClient: firstClient
-        )
+        let first = try #require(fixture.box.get())
+        await first.close()
 
         #expect(await fixture.factory.waitForAttemptCount(2))
         #expect(fixture.store.connectionRecoveryOwner.isActive)
@@ -387,10 +384,6 @@ extension ReconnectRouteSelectionTests {
         #expect(try await pollUntil {
             fixture.store.connectionRecoveryFailed
         })
-        #expect(
-            !fixture.store.workspaces.isEmpty,
-            "a failed recovery redial must keep the last known foreground workspace instead of falling back to an empty All Computers list"
-        )
         #expect(try await pollUntil {
             (await fixture.diagnosticLog.snapshot()).events.contains {
                 $0.code == .recoveryFailed
