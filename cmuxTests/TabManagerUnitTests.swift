@@ -3421,6 +3421,10 @@ final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
         XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 0)
 
         workspace.focusPanel(leftPanelId)
+        // Focus itself is synchronous, but the notification dismissal it triggers rides the
+        // `.ghosttyDidFocusSurface` broadcast, which `FocusSurfaceBroadcaster` never delivers
+        // synchronously. Settle before asserting the dismissal side effects.
+        drainMainQueue()
 
         // Focus lands synchronously, but the dismissal it triggers rides the
         // `.ghosttyDidFocusSurface` broadcast: `FocusSurfaceBroadcaster` defers the post to a
