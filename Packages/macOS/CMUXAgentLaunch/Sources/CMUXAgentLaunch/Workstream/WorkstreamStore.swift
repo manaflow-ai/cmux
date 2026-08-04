@@ -463,7 +463,9 @@ public final class WorkstreamStore {
                 isError: false
             )
             guard case .list(let todos) = outcome else {
-                return (.todos, .todos([]))
+                // An unparseable payload is not an authoritative empty plan;
+                // publishing one would retire every row this workstream owns.
+                return (.toolUse, .toolUse(toolName: "TodoWrite", toolInputJSON: toolInput))
             }
             return (.todos, .todos(todos))
         case .notification:

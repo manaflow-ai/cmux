@@ -322,6 +322,69 @@ struct WorkstreamTaskToolTodoTests {
         #expect(store.ownedTaskIds(forWorkstream: "s1") == ["a", "b"])
     }
 
+    /// Positional ids would hand one task's identity — and the checklist row
+    /// and attachments bound to it — to a different task after a removal.
+    @Test("Whole-list entries without ids keep identity across reorder and removal")
+    func idlessSnapshotsUseContentDerivedIdentity() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"content":"alpha"},{"content":"beta"},{"content":"gamma"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        let first = latestTodos(store) ?? []
+        let betaId = first.first { $0.content == "beta" }?.id
+
+        // Remove the head and reorder: "beta" must keep the same identity.
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"content":"gamma"},{"content":"beta"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        let second = latestTodos(store) ?? []
+        #expect(second.first { $0.content == "beta" }?.id == betaId)
+        #expect(second.map(\.content) == ["gamma", "beta"])
+    }
+
+    /// Cancelled work is neither pending nor done; counting it as pending
+    /// would overstate the remaining work in the progress readout.
+    @Test("Cancelled whole-list entries are dropped, not shown as pending")
+    func cancelledEntriesAreDropped() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"a","content":"live"},{"id":"b","content":"dropped","status":"cancelled"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        #expect(latestTodos(store)?.map(\.content) == ["live"])
+    }
+
+    /// An unparseable payload must not read as "the agent cleared its plan",
+    /// which would retire every row this workstream owns.
+    @Test("An unparseable TodoWrite payload leaves the checklist alone")
+    func unparseableTodoWriteDoesNotClear() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        store.ingest(toolCall(
+            "s1",
+            tool: "TodoWrite",
+            input: #"{"todos":[{"id":"a","content":"first"}]}"#,
+            response: #"{"ok":true}"#
+        ))
+        #expect(latestTodos(store)?.count == 1)
+
+        store.ingest(WorkstreamEvent(
+            sessionId: "s1",
+            hookEventName: .todoWrite,
+            source: "opencode",
+            toolInputJSON: #"{"unrelated":1}"#
+        ))
+        #expect(store.items.last?.kind == .toolUse)
+        #expect(latestTodos(store)?.count == 1)
+    }
+
     @Test("Non-task tool calls stay tool telemetry")
     func otherToolsUnaffected() {
         let store = WorkstreamStore(ringCapacity: 50)

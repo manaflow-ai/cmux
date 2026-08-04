@@ -246,6 +246,35 @@ private func taskState(in dict: [String: Any]) -> WorkstreamTaskTodo.State? {
     }
 }
 
+/// Whether a whole-list entry names a task that is no longer outstanding work.
+///
+/// OpenCode's Todo schema permits `cancelled`. It is neither pending nor done,
+/// and showing it as pending would overstate remaining work in the checklist
+/// progress readout, so it is dropped from the snapshot instead.
+private func isCancelledTask(_ dict: [String: Any]) -> Bool {
+    switch taskRawStatus(in: dict) {
+    case "cancelled", "canceled", "abandoned": return true
+    default: return false
+    }
+}
+
+/// A stable identity for a whole-list entry that carries no id of its own.
+///
+/// Derived from the entry's text rather than its position: OpenCode's
+/// `todo.updated` payload has no ids, and keying on array index would let a
+/// removal or reorder hand one task's identity — and the attachments and row
+/// the checklist merge binds to it — to a different task. Two entries with
+/// identical text still collapse, which is a far smaller error than
+/// transplanting user data between tasks.
+private func contentDerivedTaskId(_ content: String) -> String {
+    var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+    for byte in content.utf8 {
+        hash ^= UInt64(byte)
+        hash = hash &* 0x100_0000_01b3
+    }
+    return "content-\(String(hash, radix: 16))"
+}
+
 /// Parses the whole-list `TodoWrite` shape (`{"todos":[…]}` or a bare array).
 ///
 /// - Returns: The parsed list, or `nil` when the payload carried no list at
@@ -264,11 +293,12 @@ func parseWorkstreamTodoWriteSnapshot(_ json: String?) -> [WorkstreamTaskTodo]? 
     } else {
         return nil
     }
-    return raw.enumerated().compactMap { idx, element in
+    return raw.compactMap { element in
         guard let dict = element as? [String: Any],
+              !isCancelledTask(dict),
               let content = taskContent(in: dict) else { return nil }
         return WorkstreamTaskTodo(
-            id: taskId(in: dict) ?? "todo\(idx)",
+            id: taskId(in: dict) ?? contentDerivedTaskId(content),
             content: content,
             state: taskState(in: dict) ?? .pending
         )
