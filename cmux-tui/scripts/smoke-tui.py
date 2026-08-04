@@ -215,7 +215,10 @@ if pid == 0:
     os.environ["HOME"] = tmpdir.name
     os.environ["CMUX_MUX_CDP_URL"] = "http://127.0.0.1:1/"
     os.environ.pop("NO_COLOR", None)
-    os.execv(BIN, [BIN, "--session", SESSION, "--socket", SOCK])
+    # The smoke process owns every terminal it creates. Keep them in-process
+    # so a failed assertion or forced teardown cannot leave durable terminal
+    # hosts after TemporaryDirectory removes the test state.
+    os.execv(BIN, [BIN, "--session", SESSION, "--socket", SOCK, "--ephemeral"])
 
 # Set a real window size
 import fcntl, termios, struct
