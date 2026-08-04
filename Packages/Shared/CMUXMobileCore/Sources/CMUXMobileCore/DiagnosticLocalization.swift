@@ -3,9 +3,11 @@ import Foundation
 /// Resolves diagnostic copy from the shared package's locale catalog.
 struct DiagnosticLocalization: Sendable {
     let locale: Locale
+    private let bundle: Bundle
 
     init(locale: Locale = .current) {
         self.locale = locale
+        self.bundle = Self.bundle(for: locale)
     }
 
     func string(
@@ -15,8 +17,23 @@ struct DiagnosticLocalization: Sendable {
         String(
             localized: key,
             defaultValue: defaultValue,
-            bundle: .module,
+            bundle: bundle,
             locale: locale
         )
+    }
+
+    private static func bundle(for locale: Locale) -> Bundle {
+        let identifiers = [
+            locale.identifier,
+            locale.language.languageCode?.identifier,
+        ].compactMap { $0 }
+        for identifier in identifiers {
+            guard let path = Bundle.module.path(
+                forResource: identifier,
+                ofType: "lproj"
+            ), let bundle = Bundle(path: path) else { continue }
+            return bundle
+        }
+        return .module
     }
 }
