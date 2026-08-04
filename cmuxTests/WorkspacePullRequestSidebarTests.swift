@@ -663,7 +663,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() throws {
+    func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() async throws {
         let defaults = UserDefaults.standard
         let sidebarSettings = SidebarCatalogSection()
         let hideAllDetailsKey = sidebarSettings.hideAllDetails.userDefaultsKey
@@ -692,6 +692,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshotForTesting()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         workspace.updatePanelDirectory(
