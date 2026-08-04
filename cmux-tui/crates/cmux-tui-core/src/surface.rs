@@ -1204,6 +1204,10 @@ pub struct PtyTerminalRuntime {
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
     runtime: Mutex<PtyRuntime>,
+    /// Explicit lifecycle authority for this process. Session content may
+    /// survive a daemon replacement through a durable host; daemon-owned
+    /// auxiliaries must terminate with the backend that created them.
+    lifetime: PtyLifetime,
     supports_clear_history_key_fallback: AtomicBool,
     host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
     #[cfg(unix)]
@@ -1274,11 +1278,18 @@ enum PtyRuntime {
     ExitedHosted,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PtyLifetime {
+    SessionOwned,
+    DaemonOwned,
+}
+
 #[cfg(unix)]
 struct HostedSurfaceLaunch {
     attachment: crate::terminal_host_runtime::HostAttachment,
     kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
     terminate_on_error: bool,
+    lifetime: PtyLifetime,
     terminal_public_id: Option<TerminalPublicId>,
     resource_identity: Option<TabResourceIdentity>,
 }
@@ -1883,6 +1894,7 @@ impl Surface {
             mux,
             None,
             None,
+            PtyLifetime::DaemonOwned,
             cell_pixels,
         )
     }
@@ -1899,6 +1911,7 @@ impl Surface {
             mux,
             None,
             Some(TabResourceIdentity::terminal(None)?),
+            PtyLifetime::SessionOwned,
             cell_pixels,
         )
     }
@@ -1917,6 +1930,7 @@ impl Surface {
             mux,
             terminal_id,
             identity,
+            PtyLifetime::SessionOwned,
             cell_pixels,
         )
     }
@@ -1936,6 +1950,7 @@ impl Surface {
             mux,
             None,
             resource_identity,
+            PtyLifetime::SessionOwned,
             cell_pixels,
         )
     }
@@ -1946,6 +1961,7 @@ impl Surface {
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
         resource_identity: Option<TabResourceIdentity>,
+        lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
         let terminal_public_id = resource_identity
@@ -1964,7 +1980,9 @@ impl Surface {
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
             .unwrap_or_default();
         #[cfg(unix)]
-        if let Some(root) = opts.terminal_host_root.clone() {
+        if lifetime == PtyLifetime::SessionOwned
+            && let Some(root) = opts.terminal_host_root.clone()
+        {
             let default_colors = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let attachment = match terminal_id {
                 Some(terminal_id) => {
@@ -1993,6 +2011,7 @@ impl Surface {
                     attachment,
                     kitty_reservation,
                     terminate_on_error: true,
+                    lifetime,
                     terminal_public_id,
                     resource_identity,
                 },
@@ -2091,6 +2110,7 @@ impl Surface {
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Local { writer, master, killer }),
+                lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(
                     supports_clear_history_key_fallback,
                 ),
@@ -2377,9 +2397,14 @@ impl Surface {
             mut attachment,
             kitty_reservation,
             terminate_on_error,
+            lifetime,
             terminal_public_id,
             resource_identity,
         } = launch;
+        anyhow::ensure!(
+            lifetime == PtyLifetime::SessionOwned,
+            "daemon-owned PTYs cannot use durable terminal hosts"
+        );
         if let Some(identity) = resource_identity.as_ref() {
             let content_id = terminal_public_id_from_resource_identity(
                 identity,
@@ -2453,6 +2478,7 @@ impl Surface {
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::Hosted(Box::new(attachment))),
+                lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(
                     supports_clear_history_key_fallback,
                 ),
@@ -3139,6 +3165,7 @@ impl Surface {
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
+                lifetime: PtyLifetime::SessionOwned,
                 terminal_public_id: Some(terminal_public_id),
                 resource_identity: Some(resource_identity),
             },
@@ -3173,6 +3200,7 @@ impl Surface {
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
+                lifetime: PtyLifetime::SessionOwned,
                 terminal_public_id: Some(terminal_public_id),
                 resource_identity: None,
             },
@@ -3286,6 +3314,7 @@ impl Surface {
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
                 runtime: Mutex::new(PtyRuntime::ExitedHosted),
+                lifetime: PtyLifetime::SessionOwned,
                 supports_clear_history_key_fallback: AtomicBool::new(false),
                 host_identity: Some(identity),
                 host_exit_record_path: None,
@@ -3398,6 +3427,42 @@ impl Surface {
         resource_identity: Option<TabResourceIdentity>,
         cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_for_test_with_lifetime_at_cell_pixels(
+            id,
+            opts,
+            mux,
+            resource_identity,
+            PtyLifetime::SessionOwned,
+            cell_pixels,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn spawn_auxiliary_for_test_at_cell_pixels(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_for_test_with_lifetime_at_cell_pixels(
+            id,
+            opts,
+            mux,
+            None,
+            PtyLifetime::DaemonOwned,
+            cell_pixels,
+        )
+    }
+
+    #[cfg(test)]
+    fn spawn_for_test_with_lifetime_at_cell_pixels(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        resource_identity: Option<TabResourceIdentity>,
+        lifetime: PtyLifetime,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
         let terminal_public_id = resource_identity
             .as_ref()
             .map(|identity| {
@@ -3470,6 +3535,7 @@ impl Surface {
                     }),
                     killer: Box::new(TestChildKiller),
                 }),
+                lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(false),
                 host_identity: None,
                 #[cfg(unix)]
@@ -4782,6 +4848,14 @@ impl Surface {
             Surface::Pty(_) => self.kill(),
             Surface::Browser(browser) => browser.kill(),
         }
+    }
+
+    pub(crate) fn shutdown_for_daemon(&self) {
+        if self.as_pty().is_some_and(|pty| pty.lifetime == PtyLifetime::DaemonOwned) {
+            self.kill();
+            return;
+        }
+        self.disconnect_for_daemon_shutdown();
     }
 
     pub(crate) fn persist_host_workspace(&self, workspace_key: &str) -> anyhow::Result<()> {

@@ -5430,11 +5430,10 @@ impl Mux {
         };
         #[cfg(test)]
         let surface = if self.test_surface_runtime {
-            Surface::spawn_for_test_with_resource_identity_at_cell_pixels(
+            Surface::spawn_auxiliary_for_test_at_cell_pixels(
                 id,
                 opts,
                 Arc::downgrade(self),
-                None,
                 cell_pixels,
             )?
         } else {
@@ -7283,7 +7282,7 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
         for surface in surfaces {
-            surface.disconnect_for_daemon_shutdown();
+            surface.shutdown_for_daemon();
         }
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
@@ -13953,7 +13952,7 @@ impl Drop for Mux {
     fn drop(&mut self) {
         if let Ok(state) = self.state.get_mut() {
             for surface in unique_surface_runtimes(state) {
-                surface.disconnect_for_daemon_shutdown();
+                surface.shutdown_for_daemon();
             }
         }
         if let Ok(runtime) = self.browser_runtime.get_mut()

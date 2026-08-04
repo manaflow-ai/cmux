@@ -33,9 +33,8 @@ impl HeadlessServer {
         let socket = dir.join("mux.sock");
         let state = dir.join("state");
         // A headless fixture must never inherit the developer's real plugin
-        // configuration. Backend sidebar plugins are durable auxiliary
-        // resources, so starting one here would outlive the terminal-only
-        // cleanup below and leak a user-configured process from the test.
+        // configuration. Server-owned plugins are configured explicitly by
+        // the tests that exercise them.
         let config = dir.join("config.json");
         if let Some(contents) = config_contents {
             fs::write(&config, contents).unwrap();
@@ -1097,7 +1096,7 @@ fn explicit_attach_registers_a_full_session_tui_client() {
 
 #[cfg(unix)]
 #[test]
-fn graceful_shutdown_stops_server_owned_sidebar_terminal_host() {
+fn graceful_shutdown_stops_server_owned_sidebar_process() {
     let mut server = HeadlessServer::start_with_config(
         "sidebar-host-shutdown",
         Some(r#"{"sidebar":{"plugin":{"command":["/bin/cat"]}}}"#),
@@ -1123,42 +1122,49 @@ fn graceful_shutdown_stops_server_owned_sidebar_terminal_host() {
     .expect("sidebar plugin PID");
 
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
-    let mut records = cmux_tui_core::terminal_host_runtime::load_terminal_host_records(&host_root)
+    let records = cmux_tui_core::terminal_host_runtime::load_terminal_host_records(&host_root)
         .expect("load sidebar terminal-host record");
-    assert_eq!(records.len(), 1, "sidebar plugin owns exactly one terminal host");
-    let (record_path, record) = records.pop().unwrap();
-    let host_pid = record.host_pid;
+    let used_durable_host = !records.is_empty();
+    let mut owned_pids = vec![plugin_pid];
+    owned_pids.extend(records.iter().map(|(_, record)| record.host_pid));
 
     let server_pid = libc::pid_t::try_from(server.child.id()).unwrap();
     // SAFETY: this PID is the live child owned by the test fixture.
     assert_eq!(unsafe { libc::kill(server_pid, libc::SIGINT) }, 0);
     let server_stopped = wait_for_child_exit(&mut server.child, Duration::from_secs(10));
-    let owned_processes_stopped =
-        wait_for_processes_to_exit(&[plugin_pid, host_pid], Duration::from_secs(5));
+    let owned_processes_stopped = wait_for_processes_to_exit(&owned_pids, Duration::from_secs(5));
 
-    // Keep the intentionally red regression leak-free. The captured process
-    // groups and record all belong to this fixture's private state root.
+    // Keep lifecycle regressions leak-free. Every captured process group and
+    // record belongs to this fixture's private state root.
     if !owned_processes_stopped {
-        signal_test_process_group(plugin_pid, libc::SIGTERM);
-        signal_test_process_group(host_pid, libc::SIGTERM);
-        if !wait_for_processes_to_exit(&[plugin_pid, host_pid], Duration::from_secs(2)) {
-            signal_test_process_group(plugin_pid, libc::SIGKILL);
-            signal_test_process_group(host_pid, libc::SIGKILL);
+        for pid in &owned_pids {
+            signal_test_process_group(*pid, libc::SIGTERM);
+        }
+        if !wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)) {
+            for pid in &owned_pids {
+                signal_test_process_group(*pid, libc::SIGKILL);
+            }
             assert!(
-                wait_for_processes_to_exit(&[plugin_pid, host_pid], Duration::from_secs(2)),
+                wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)),
                 "fixture could not reap its isolated sidebar processes"
             );
         }
-        let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
-            &record_path,
-            &record,
-        );
+        for (record_path, record) in &records {
+            let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
+                record_path,
+                record,
+            );
+        }
     }
 
     assert!(server_stopped, "SIGINT did not complete graceful server shutdown");
     assert!(
+        !used_durable_host,
+        "server-owned sidebar process entered the durable terminal-host registry"
+    );
+    assert!(
         owned_processes_stopped,
-        "graceful shutdown left its server-owned sidebar terminal host alive"
+        "graceful shutdown left its server-owned sidebar process alive"
     );
 }
 
