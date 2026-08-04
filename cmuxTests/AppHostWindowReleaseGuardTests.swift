@@ -1,5 +1,5 @@
 import AppKit
-import XCTest
+import Testing
 
 /// Guards the process-wide window-release guard installed by
 /// `CmuxTestWindowReleaseGuard.m`.
@@ -12,7 +12,10 @@ import XCTest
 /// initializers so every window created in the test process defaults to
 /// `isReleasedWhenClosed == false`, making test-teardown `close()` calls safe
 /// regardless of whether the individual test remembered to set the flag.
-final class AppHostWindowReleaseGuardTests: XCTestCase {
+@MainActor
+@Suite(.serialized)
+struct AppHostWindowReleaseGuardTests {
+    @Test
     func testCodeCreatedWindowDefaultsToNotReleasedWhenClosed() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
@@ -20,14 +23,19 @@ final class AppHostWindowReleaseGuardTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        XCTAssertFalse(
-            window.isReleasedWhenClosed,
+        #expect(
+            !window.isReleasedWhenClosed,
             "Test-process windows must not be released on close: ARC already owns them, " +
             "and the extra release crashes the app host in the post-test pool drain"
+        )
+        #expect(
+            window.animationBehavior == .none,
+            "Test-process windows must disable appearance animations that can outlive the window"
         )
         window.close()
     }
 
+    @Test
     func testPanelInheritsGuardedDefault() {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 80, height: 60),
@@ -35,10 +43,12 @@ final class AppHostWindowReleaseGuardTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        XCTAssertFalse(panel.isReleasedWhenClosed)
+        #expect(!panel.isReleasedWhenClosed)
+        #expect(panel.animationBehavior == .none)
         panel.close()
     }
 
+    @Test
     func testClosedWindowSurvivesAutoreleasePoolDrain() {
         weak var weakWindow: NSWindow?
         autoreleasepool {
@@ -54,6 +64,6 @@ final class AppHostWindowReleaseGuardTests: XCTestCase {
             // killed the host: close() consumed ARC's +1, and the pool drain
             // below released a deallocated window.
         }
-        XCTAssertNil(weakWindow, "window should deallocate exactly once, with no lingering references")
+        #expect(weakWindow == nil, "window should deallocate exactly once, with no lingering references")
     }
 }
