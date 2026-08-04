@@ -4841,15 +4841,6 @@ final class cmuxUITests: XCTestCase {
             )
         }
 
-        let readyMilliseconds = Int(
-            Date().timeIntervalSince(startedAt) * 1_000
-        )
-        let shellState = terminalSurface.exists ? "terminal" : "workspace-list"
-        print(
-            "CMUX_LIFECYCLE_READY phase=\(phase) "
-                + "shell=\(shellState) ready_ms=\(readyMilliseconds)"
-        )
-
         if requiresTerminalWithoutTap {
             XCTAssertTrue(
                 terminalSurface.exists,
@@ -4886,6 +4877,39 @@ final class cmuxUITests: XCTestCase {
             in: app,
             file: file,
             line: line
+        )
+
+        // Rendered terminal rows are retained across transport loss, so their
+        // presence cannot prove this shell is live. The status pill is backed by
+        // `macConnectionStatus` and exists for every non-connected state; it is
+        // removed only after the current RPC connection has a validated terminal
+        // event subscription.
+        let connectionStatus = app.descendants(matching: .any)[
+            "MobileTerminalMacConnectionStatus"
+        ]
+        let connectedExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: connectionStatus
+        )
+        let connectedResult = XCTWaiter.wait(
+            for: [connectedExpectation],
+            timeout: 20
+        )
+        XCTAssertEqual(
+            connectedResult,
+            .completed,
+            "\(phase) must reach a live terminal connection; status: \(connectionStatus.label)",
+            file: file,
+            line: line
+        )
+        guard connectedResult == .completed else { return }
+
+        let readyMilliseconds = Int(
+            Date().timeIntervalSince(startedAt) * 1_000
+        )
+        print(
+            "CMUX_LIFECYCLE_READY phase=\(phase) "
+                + "shell=terminal connection=connected ready_ms=\(readyMilliseconds)"
         )
     }
 
