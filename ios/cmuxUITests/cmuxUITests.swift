@@ -149,7 +149,32 @@ final class cmuxUITests: XCTestCase {
             let initialAdditionalFrames = additionalContent.map(\.frame)
             visual.swipeUp()
 
+            func waitForOriginalFrame(
+                _ element: XCUIElement,
+                originalFrame: CGRect
+            ) {
+                let settledFrame = waitForFrame(of: element, timeout: 2) { frame in
+                    abs(frame.minX - originalFrame.minX) <= 0.5
+                        && abs(frame.minY - originalFrame.minY) <= 0.5
+                        && abs(frame.maxX - originalFrame.maxX) <= 0.5
+                        && abs(frame.maxY - originalFrame.maxY) <= 0.5
+                }
+                XCTAssertNotNil(
+                    settledFrame,
+                    "Onboarding content did not return to its original frame after a vertical swipe",
+                    file: file,
+                    line: line
+                )
+            }
+
+            waitForOriginalFrame(title, originalFrame: initialTitleFrame)
+            waitForOriginalFrame(visual, originalFrame: initialVisualFrame)
+            for (element, initialFrame) in zip(additionalContent, initialAdditionalFrames) {
+                waitForOriginalFrame(element, originalFrame: initialFrame)
+            }
+
             XCTAssertEqual(title.frame.minY, initialTitleFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(title.frame.maxY, initialTitleFrame.maxY, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(visual.frame.minY, initialVisualFrame.minY, accuracy: 0.5, file: file, line: line)
             XCTAssertEqual(visual.frame.maxY, initialVisualFrame.maxY, accuracy: 0.5, file: file, line: line)
             for (element, initialFrame) in zip(additionalContent, initialAdditionalFrames) {

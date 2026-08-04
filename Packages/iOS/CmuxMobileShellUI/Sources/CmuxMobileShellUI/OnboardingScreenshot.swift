@@ -232,6 +232,10 @@ private struct OnboardingIPhoneFrameLayout: Layout {
         subviews: Subviews,
         cache: inout ()
     ) -> CGSize {
+        precondition(
+            subviews.count == 1,
+            "OnboardingIPhoneFrameLayout requires exactly one screen subview"
+        )
         let width = finite(proposal.width)
         let height = finite(proposal.height)
 
@@ -269,6 +273,10 @@ private struct OnboardingIPhoneFrameLayout: Layout {
         subviews: Subviews,
         cache: inout ()
     ) {
+        precondition(
+            subviews.count == 1,
+            "OnboardingIPhoneFrameLayout requires exactly one screen subview"
+        )
         guard let screen = subviews.first else { return }
         let horizontalInset = bounds.width
             * metrics.screenInsetFraction
