@@ -4913,6 +4913,93 @@ mod tests {
         (session, received_requests)
     }
 
+    struct EnsureInitialTreeWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        list_requests: usize,
+    }
+
+    impl RemoteMessageWriter for EnsureInitialTreeWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => {
+                    self.list_requests += 1;
+                    if self.list_requests == 1 {
+                        json!({"workspaces": []})
+                    } else {
+                        json!({
+                            "workspaces": [{
+                                "id": 1,
+                                "active": true,
+                                "screens": [{
+                                    "id": 2,
+                                    "active": true,
+                                    "active_pane": 3,
+                                    "layout": {"type": "leaf", "pane": 3},
+                                    "panes": [{
+                                        "id": 3,
+                                        "active_tab": 0,
+                                        "tabs": [{"surface": 4, "kind": "pty"}],
+                                    }],
+                                }],
+                            }],
+                        })
+                    }
+                }
+                Some("new-workspace") => json!({"surface": 4}),
+                command => {
+                    return Err(io::Error::other(format!(
+                        "unexpected ensure-initial command {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn ensure_initial_populates_remote_cache_after_creating_first_workspace() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(EnsureInitialTreeWriter {
+            session: session_slot.clone(),
+            list_requests: 0,
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert_eq!(
+            session.tree().active_surface(),
+            Some(4),
+            "startup returned before the client could route input to its created terminal"
+        );
+    }
+
     #[test]
     fn provider_guard_fails_before_writing_to_an_older_remote_server() {
         let session =
