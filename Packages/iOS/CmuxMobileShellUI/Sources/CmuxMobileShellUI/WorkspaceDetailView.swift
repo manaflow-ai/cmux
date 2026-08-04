@@ -18,6 +18,13 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
+    static func reconnectAction(
+        connectionRequiresReauth: Bool,
+        reconnect: @escaping () -> Void
+    ) -> (() -> Void)? {
+        connectionRequiresReauth ? nil : reconnect
+    }
+
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
@@ -323,10 +330,9 @@ struct WorkspaceDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
-        // With the fullscreen overlay gone, the disconnected terminal stays
-        // visible; block interaction so keystrokes aren't silently dropped by
-        // the disconnected drain path. The pill and toast overlays attach
-        // after this modifier and stay tappable.
+        // The disconnected terminal stays visible; block interaction so
+        // keystrokes aren't silently dropped by the disconnected drain path.
+        // The status pill attaches after this modifier and stays tappable.
         .allowsHitTesting(!terminalInputIsBlocked)
         #if os(iOS)
         // Hit-testing only blocks new touches: a terminal focused before the
@@ -345,26 +351,19 @@ struct WorkspaceDetailView: View {
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {
+            // The terminal's only connection chrome: last-known content stays
+            // visible and scrollable underneath while the pill shows the
+            // reconnect progress (or offers Reconnect once attempts stop).
             MobileMacConnectionStatusPill(
                 host: host,
-                // Flag off keeps the raw per-workspace status (legacy
-                // byte-for-byte); flag on folds in foreground recovery so
-                // the pill matches the toast capsule and input gating.
-                status: toasts.isEnabled ? effectiveConnectionStatus : connectionStatus,
-                reconnect: toasts.isEnabled ? { reconnectToWorkspaceMac() } : nil
+                status: effectiveConnectionStatus,
+                reconnect: Self.reconnectAction(
+                    connectionRequiresReauth: store.connectionRequiresReauth,
+                    reconnect: { reconnectToWorkspaceMac() }
+                )
             )
                 .padding(.top, 10)
                 .padding(.leading, 10)
-        }
-        .overlay {
-            // Show a reconnecting/offline state instead of a black terminal.
-            if !toasts.isEnabled && connectionStatus != .connected {
-                TerminalDisconnectedOverlay(
-                    status: connectionStatus,
-                    host: host,
-                    theme: store.activeTerminalTheme
-                ) { reconnectToWorkspaceMac() }
-            }
         }
         #if os(iOS) && DEBUG
         // DEBUG/UI-test-only store-side composer probe.
@@ -418,35 +417,20 @@ struct WorkspaceDetailView: View {
 
     private func reconnectToWorkspaceMac() {
         Task {
-            if toasts.isEnabled {
-                await store.reconnectToMac(
-                    macDeviceID: workspace.macDeviceID,
-                    instanceTag: workspace.macInstanceTag
-                )
-                return
-            }
-            // Flag off is byte-for-byte legacy: the fullscreen overlay's
-            // Reconnect keeps the original sequence, including switchToMac's
-            // already-foreground fast path and aggregate recovery.
-            if let macDeviceID = workspace.macDeviceID,
-               !macDeviceID.isEmpty,
-               await store.switchToMac(
-                   macDeviceID: macDeviceID,
-                   instanceTag: workspace.macInstanceTag
-               ) {
-                return
-            }
-            await store.reconnectOrRefresh()
+            await store.reconnectToMac(
+                macDeviceID: workspace.macDeviceID,
+                instanceTag: workspace.macInstanceTag
+            )
         }
     }
 
     /// Same-client foreground recovery flips the store's recovery flags while
-    /// `workspace.macConnectionStatus` stays `.connected`; the flag-on pill
-    /// reflects the recovery, matching the presenter's derivation. Input
-    /// gating deliberately does NOT use this (see `terminalInputIsBlocked`):
-    /// a probe's "Reconnecting" display coexists with a working keyboard.
-    /// Hidden retained details keep their raw status: the guard only applies
-    /// to the selected workspace on the foreground connection.
+    /// `workspace.macConnectionStatus` stays `.connected`; the pill reflects
+    /// the recovery. Input gating deliberately does NOT use this (see
+    /// `terminalInputIsBlocked`): a probe's "Reconnecting" display coexists
+    /// with a working keyboard. Hidden retained details keep their raw
+    /// status: the guard only applies to the selected workspace on the
+    /// foreground connection.
     private var effectiveConnectionStatus: MobileMacConnectionStatus {
         if store.selectedWorkspaceID == workspace.id,
            store.selectedWorkspaceUsesForegroundConnection {
@@ -468,7 +452,6 @@ struct WorkspaceDetailView: View {
     /// actually failed. Internal so the +Surfaces chrome-return refocus can
     /// share the same policy.
     var terminalInputIsBlocked: Bool {
-        guard toasts.isEnabled else { return false }
         if connectionStatus != .connected {
             return true
         }

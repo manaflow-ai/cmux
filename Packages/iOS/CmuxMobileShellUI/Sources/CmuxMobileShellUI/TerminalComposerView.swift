@@ -45,6 +45,14 @@ struct TerminalComposerView: View {
     /// whenever the field's content changes (the only driver of this view's height);
     /// the host measures the ideal height via `sizeThatFits` and animates the band.
     let requestHeightRemeasure: () -> Void
+    /// Routes explicit composer focus through the surface's input-session owner.
+    let requestInputFocus: () -> Void
+    /// Mirrors user-driven SwiftUI responder changes into that same owner.
+    let inputFocusChanged: (Bool) -> Void
+    /// PhotosPicker lifecycle facts consumed by the surface input session.
+    let photoPickerWillPresent: () -> Void
+    let photoPickerDidPresent: () -> Void
+    let photoPickerDidDismiss: () -> Void
     @FocusState private var isFieldFocused: Bool
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
     /// each batch is encoded and staged so re-picking the same image fires again.
@@ -69,10 +77,24 @@ struct TerminalComposerView: View {
     /// `state` it reads (mic button enabled/listening) automatically.
     @State private var dictation = ComposerDictationController()
 
-    init(store: CMUXMobileShellStore, terminalID: String, requestHeightRemeasure: @escaping () -> Void) {
+    init(
+        store: CMUXMobileShellStore,
+        terminalID: String,
+        requestHeightRemeasure: @escaping () -> Void,
+        requestInputFocus: @escaping () -> Void,
+        inputFocusChanged: @escaping (Bool) -> Void,
+        photoPickerWillPresent: @escaping () -> Void,
+        photoPickerDidPresent: @escaping () -> Void,
+        photoPickerDidDismiss: @escaping () -> Void
+    ) {
         self.store = store
         self.terminalID = terminalID
         self.requestHeightRemeasure = requestHeightRemeasure
+        self.requestInputFocus = requestInputFocus
+        self.inputFocusChanged = inputFocusChanged
+        self.photoPickerWillPresent = photoPickerWillPresent
+        self.photoPickerDidPresent = photoPickerDidPresent
+        self.photoPickerDidDismiss = photoPickerDidDismiss
     }
 
     /// Single-line height of the round attach button beside the field. It stays
@@ -170,7 +192,7 @@ struct TerminalComposerView: View {
             // pending request, so the field shows WITHOUT summoning the keyboard
             // — iMessage's input bar, visible but unfocused until tapped.
             if store.consumePendingComposerFocusRequest(for: terminalID) {
-                focusField()
+                requestInputFocus()
             }
         }
         .onDisappear {
@@ -202,6 +224,7 @@ struct TerminalComposerView: View {
             dictation.cancel()
         }
         .onChange(of: isFieldFocused) { _, focused in
+            inputFocusChanged(focused)
             // Mirror the field's focus into the store so a terminal switch knows
             // whether the user was mid-compose (and should keep the keyboard up
             // on the incoming composer) or merely looking at the default-open
@@ -225,14 +248,14 @@ struct TerminalComposerView: View {
         .onChange(of: store.composerFocusRequest) { _, _ in
             // The surface asked the field to take focus without re-presenting the
             // composer — the reveal-after-hide case, where the chrome and draft are
-            // already back but the terminal proxy holds first responder. Driving
-            // `@FocusState` here keeps it the single source of truth (the surface
-            // never touches the hosted UITextField directly). Consuming the keyed
-            // handshake guards the focus: an outgoing composer observing the same
+            // already back but the terminal proxy holds first responder. The keyed
+            // token carries intent to the surface input-session owner; `@FocusState`
+            // mirrors the resulting UIKit responder fact. Consuming the handshake
+            // guards focus: an outgoing composer observing the same
             // token during a terminal switch does not match the request's target,
             // leaves it armed for the incoming mount, and must not focus itself.
             guard store.consumePendingComposerFocusRequest(for: terminalID) else { return }
-            focusField()
+            requestInputFocus()
         }
     }
 
@@ -279,7 +302,7 @@ struct TerminalComposerView: View {
                     accessibilityIdentifier: "MobileComposerAttach",
                     accessibilityLabel: L10n.string("mobile.composer.attach", defaultValue: "Attach Photo")
                 ) {
-                    isPickerPresented = true
+                    presentPhotoPicker()
                 }
 
                 micButton
@@ -304,6 +327,12 @@ struct TerminalComposerView: View {
                     .textInputAutocapitalization(.sentences)
                     .autocorrectionDisabled(false)
                     .focused($isFieldFocused)
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            guard !dictation.locksComposerField else { return }
+                            requestInputFocus()
+                        }
+                    )
                     // Lock the field while dictation owns the text (`.listening`
                     // or `.stopping`). Every recognition callback rewrites the
                     // field as base + transcript, so an edit the user made
@@ -366,6 +395,13 @@ struct TerminalComposerView: View {
             guard !items.isEmpty else { return }
             stagePickedItems(items)
         }
+        .onChange(of: isPickerPresented) { _, isPresented in
+            if isPresented {
+                photoPickerDidPresent()
+            } else {
+                photoPickerDidDismiss()
+            }
+        }
     }
 
     /// Mic button for on-device voice dictation, beside the attach button on the
@@ -391,6 +427,14 @@ struct TerminalComposerView: View {
         ) {
             toggleDictation()
         }
+    }
+
+    /// Record the modal boundary before changing the PhotosPicker binding. The
+    /// surface input session synchronously resigns its actual terminal/composer
+    /// owner; SwiftUI then mirrors that responder change through `@FocusState`.
+    private func presentPhotoPicker() {
+        photoPickerWillPresent()
+        isPickerPresented = true
     }
 
     /// Toggle voice dictation. On start the current text is captured as the merge
@@ -420,17 +464,6 @@ struct TerminalComposerView: View {
             }
             .padding(.leading, controlHeight + 8)
             .padding(.trailing, 12)
-        }
-    }
-
-    /// Focus the field one runloop after appearing. Setting `@FocusState` inline
-    /// in `onAppear` is unreliable (the field may not be in the window yet);
-    /// deferring lets it take first responder from the terminal input proxy
-    /// while that keyboard is still up, so the keyboard hands over in place
-    /// instead of dropping and re-animating.
-    private func focusField() {
-        Task { @MainActor in
-            isFieldFocused = true
         }
     }
 

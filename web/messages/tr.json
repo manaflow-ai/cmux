@@ -867,6 +867,8 @@
       "concepts": "Kavramlar",
       "anchorTitle": "Bağlantı (anchor) çalışma alanı",
       "anchorDesc": "Her grup, bağlantı (anchor) adı verilen tam olarak bir çalışma alanına aittir. Kenar çubuğundaki grup başlığı, bağlantının temsilidir; onun için ayrı bir satır yoktur. Başlık adı alanına tıklamak bağlantının panellerini odaklar; çevron simgesine tıklamak ise daraltmayı açıp kapatır.",
+      "anchorNew": "Bir grubun bağlantısı, grup oluşturulurken her zaman tamamen yeni bir çalışma alanıdır; bir seçimi gruplamak veya grup oluşturmak mevcut çalışma alanlarınızdan hiçbirini bağlantı konumuna yükseltmez. (Bağlantı daha sonra kapatıldığında grubun kalan ilk üyesi yükseltilir; aşağıya bakın.) Bağlantının çalışma dizini, bir seçim gruplanırken seçilen ilk çalışma alanından; --cwd olmadan CLI üzerinden oluşturulurken ise etkin çalışma alanından devralınır.",
+      "anchorClose": "Bağlantı çalışma alanı kapatıldığında yalnızca o çalışma alanı kapanır ve grubun kalan ilk üyesi (grup sıralamasında hâlâ bulunanlar arasındaki en erken üye) yeni bağlantı konumuna yükseltilir; böylece grup ve diğer üyeleri bozulmadan kalır (yükseltilen üye daha sonra grup adını başlık olarak gösterir). Bağlantı grubun tek çalışma alanıysa grup kaldırılır. Bir grubu gruplanmamış çalışma alanlarına dönüştürmek için Çalışma alanlarını gruptan çıkar seçeneğini; gruptaki tüm çalışma alanlarını kapatmak için Grubu sil seçeneğini kullanın.",
       "identityTitle": "Grup kimliği",
       "identityDesc": "Bir grubun adı, bir simgesi (bir SF Symbol, varsayılan olarak folder.fill) ve isteğe bağlı bir özel rengi vardır. Bunlar bağlantı çalışma alanının kendi özelleştirmelerinden bağımsızdır. Bağlantının rengi ve simgesi oluşturma sırasında gruptan alınır, ancak sonrasında farklılaşabilirler.",
       "pinningTitle": "Sabitleme",
@@ -3522,7 +3524,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin."
+    "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
+    "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
+    "signedOutSignIn": "Oturum aç"
   },
   "platforms": {
     "macos": "macOS",
@@ -3599,6 +3603,37 @@
       "primaryCta": ".deb dosyasını indir",
       "requirements": "Debian veya Ubuntu · x64",
       "installBody": "Debian paketini indirin ve paket yöneticinizle kurun. Kullanıcı başına kurulum ve uygulama içi güncellemeler için taşınabilir ZIP'i seçin."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "cmux Pro’ya hoş geldin 🎉",
+      "fallbackName": "arkadaşımız",
+      "greeting": "Merhaba {name},",
+      "thanks": "cmux Pro’ya katıldığın için teşekkürler! Pro deneyiminin tamamını geliştirmeye devam ediyoruz, bulut erişimi de yakında geliyor.",
+      "cloudStatus": "Bulut erişimi kullanıma açıldığında, abone olduğun ay sayısına göre hesabına kullanım kredileri ekleyeceğiz.",
+      "currentBenefit": "Bu sırada Pro avantajın, iOS’ta cmux’a erken erişimdir. Aşağıdaki bağlantıdan kaydolduğunda Apple, kayıt tamamlandıktan sonra TestFlight davetini gönderecek.",
+      "testflightLink": "TestFlight’a kaydol: {url}",
+      "testflightLinkLabel": "TestFlight’a kaydol",
+      "signoff": "Aramıza katılmana sevindik!\ncmux ekibi"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro etkin",
+    "title": "cmux Pro’ya hoş geldin",
+    "body": "Pro özellikleri hâlâ geliştiriliyor. Bulut erişimi yakında geliyor ve abone kaldığın her ay için kullanım kredisi birikecek. Pro şu anda TestFlight üzerinden cmux iOS erişimini içeriyor.",
+    "done": "Kontrol paneline git",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS uygulaması",
+        "body": "cmux’ı telefonunda kullan.",
+        "action": "iOS betasına katıl"
+      },
+      "billing": {
+        "title": "Planını yönet",
+        "body": "Planını, faturalarını ve iptal seçeneklerini görüntüle.",
+        "action": "Planı yönet"
+      }
     }
   }
 }

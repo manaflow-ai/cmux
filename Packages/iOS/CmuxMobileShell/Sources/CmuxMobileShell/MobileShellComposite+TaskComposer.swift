@@ -77,6 +77,7 @@ extension MobileShellComposite {
             ].contains(code?.lowercased() ?? ""):
                 return .failure(.unsupported)
             case .requestTimedOut,
+                 .connectAttemptGated,
                  .rpcError("request_timeout", _):
                 return .failure(.timedOut)
             case .authorizationFailed,

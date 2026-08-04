@@ -867,6 +867,8 @@
       "concepts": "核心概念",
       "anchorTitle": "锚点工作区",
       "anchorDesc": "每个分组都恰好由一个称为锚点的工作区拥有。侧边栏中的分组标题栏就是锚点的呈现形式——锚点没有单独的行。点击标题名称区域会聚焦到锚点的面板；点击箭头则切换折叠状态。",
+      "anchorNew": "分组的锚点在创建时始终是一个全新的工作区；无论是对所选工作区进行分组还是创建分组，都不会将现有工作区中的任何一个提升为锚点。（之后关闭锚点时，确实会提升分组中第一个仍保留的成员，见下文。）对所选工作区进行分组时，锚点的工作目录继承自第一个选中的工作区；通过 CLI 创建且未指定 --cwd 时，则继承自当前工作区。",
+      "anchorClose": "关闭锚点工作区时，只会关闭该工作区，并将分组中第一个仍保留的成员（按照分组顺序仍存在的成员中最靠前的一个）提升为新锚点，因此分组及其其他成员会保持不变（被提升的成员随后会在标题栏中显示分组名称）。当锚点是分组中唯一的工作区时，分组会被移除。要将分组展开为未分组的工作区，请使用取消工作区分组；要关闭分组中的所有工作区，请使用删除分组。",
       "identityTitle": "分组标识",
       "identityDesc": "一个分组拥有名称、图标（一个 SF Symbol，默认为 folder.fill）以及一个可选的自定义颜色。这些与锚点工作区自身的自定义设置相互独立。锚点的颜色和图标在创建时取自分组，但之后两者可以各自变化。",
       "pinningTitle": "固定",
@@ -3524,7 +3526,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "目前无法使用结算功能。请稍后再试。"
+    "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
+    "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
+    "signedOutSignIn": "登录"
   },
   "platforms": {
     "macos": "macOS",
@@ -3601,6 +3605,37 @@
       "primaryCta": "下载 .deb",
       "requirements": "Debian 或 Ubuntu · x64",
       "installBody": "下载 Debian 软件包并使用软件包管理器安装。若需按用户安装和应用内更新，请选择便携版 ZIP。"
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "欢迎加入 cmux Pro 🎉",
+      "fallbackName": "朋友",
+      "greeting": "你好，{name}！",
+      "thanks": "感谢你加入 cmux Pro！完整的 Pro 体验仍在完善中，Cloud 访问也即将推出。",
+      "cloudStatus": "Cloud 访问上线后，我们会根据你的订阅月数向账户添加使用额度。",
+      "currentBenefit": "在此期间，你的 Pro 权益是抢先体验 cmux iOS 版。请通过下方链接注册，注册完成后 Apple 会发送 TestFlight 邀请。",
+      "testflightLink": "注册 TestFlight：{url}",
+      "testflightLinkLabel": "注册 TestFlight",
+      "signoff": "很高兴有你加入！\ncmux 团队"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro 已启用",
+    "title": "欢迎加入 cmux Pro",
+    "body": "Pro 功能仍在开发中。Cloud 访问即将推出，订阅期间每个月都会累积使用额度。目前，Pro 包含通过 TestFlight 访问 cmux iOS 版的权益。",
+    "done": "前往控制面板",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS App",
+        "body": "在手机上使用 cmux。",
+        "action": "加入 iOS 测试版"
+      },
+      "billing": {
+        "title": "管理你的方案",
+        "body": "查看方案、账单和取消选项。",
+        "action": "管理方案"
+      }
     }
   }
 }

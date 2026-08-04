@@ -33,6 +33,11 @@ const requiredRelayProductionEnv = {
   CMUX_RELAY_TOKEN_RATE_LIMIT_ID: "relay-token-rule",
 };
 
+const requiredSubrouterDeploymentEnv = {
+  SUBROUTER_ENFORCE_STACK_PERMISSIONS: "0",
+  SUBROUTER_ALLOWED_TEAM_IDS: "test-team",
+};
+
 describe("client config env validation", () => {
   test("allows local builds with VERCEL set but no deployment environment", () => {
     const result = importEnv({
@@ -45,6 +50,18 @@ describe("client config env validation", () => {
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
   });
 
+  test("rejects the retired annual Pro price override at startup", () => {
+    const result = importEnv({
+      ...requiredEnv,
+      STRIPE_PRO_YEARLY_PRICE_ID: "price_grandfathered_240",
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "STRIPE_PRO_YEARLY_PRICE_ID is retired; use STRIPE_PRO_YEARLY_288_PRICE_ID",
+    );
+  });
+
   test("allows explicit Vercel production deployments with all rate-limit ids unset", () => {
     // Rate limiting is opt-in: production deploys must survive every
     // rate-limit id being deleted from the environment.
@@ -54,6 +71,7 @@ describe("client config env validation", () => {
       ...baseEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...relayEnv,
     });
@@ -69,6 +87,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
@@ -94,6 +113,7 @@ describe("client config env validation", () => {
       VERCEL: "1",
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
@@ -108,6 +128,7 @@ describe("client config env validation", () => {
       VERCEL: "1",
       VERCEL_ENV: "development",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
@@ -127,6 +148,7 @@ describe("client config env validation", () => {
       CMUX_IROH_GRANT_SIGNING_KID: requiredIrohProductionEnv.CMUX_IROH_GRANT_SIGNING_KID,
       CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON:
         requiredIrohProductionEnv.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON,
+      ...requiredSubrouterDeploymentEnv,
       ...requiredRelayProductionEnv,
     });
 
@@ -142,6 +164,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
     });
 
     expect(result.exitCode).toBe(0);
@@ -156,6 +179,7 @@ describe("client config env validation", () => {
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
       CMUX_IROH_RATE_LIMIT_ID: "iroh-rule",
+      ...requiredSubrouterDeploymentEnv,
     });
 
     expect(result.exitCode).not.toBe(0);
@@ -171,6 +195,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
     });
 
     expect(result.exitCode).not.toBe(0);
@@ -233,6 +258,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredRelayProductionEnv,
       CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: "1",
       CMUX_IROH_MINT_URL: "http://localhost:49152/api/relay-token",

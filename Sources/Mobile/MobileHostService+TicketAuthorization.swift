@@ -115,7 +115,7 @@ extension MobileHostService {
             // complete topic set is installed atomically, so ticket-scoping one
             // topic here would also disable unrelated terminal live events.
             return nil
-        case "mobile.events.unsubscribe":
+        case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
         case "mobile.host.status":
             return nil

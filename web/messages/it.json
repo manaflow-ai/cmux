@@ -867,6 +867,8 @@
       "concepts": "Concetti",
       "anchorTitle": "Workspace di ancoraggio",
       "anchorDesc": "Ogni gruppo è di proprietà di esattamente un workspace chiamato ancoraggio. L'intestazione del gruppo nella barra laterale è la rappresentazione dell'ancoraggio — non c'è una riga separata per esso. Cliccando sull'area del nome dell'intestazione si mettono a fuoco i pannelli dell'ancoraggio; cliccando sul chevron si alterna la compressione.",
+      "anchorNew": "L'ancoraggio di un gruppo è sempre un workspace completamente nuovo al momento della creazione; né il raggruppamento di una selezione né la creazione di un gruppo promuovono mai uno dei workspace esistenti ad ancoraggio. (La chiusura successiva dell'ancoraggio promuove invece il primo membro rimasto del gruppo; vedi sotto.) La directory di lavoro dell'ancoraggio viene ereditata dal primo workspace selezionato quando si raggruppa una selezione, oppure dal workspace attivo quando si crea tramite CLI senza --cwd.",
+      "anchorClose": "La chiusura del workspace di ancoraggio chiude solo quel workspace e promuove il primo membro rimasto del gruppo (quello che compare per primo tra quelli ancora presenti nell'ordine del gruppo) a nuovo ancoraggio, lasciando intatti il gruppo e gli altri membri (il membro promosso mostra quindi il nome del gruppo come intestazione). Quando l'ancoraggio è l'unico workspace del gruppo, il gruppo viene rimosso. Per trasformare un gruppo in workspace non raggruppati usa Separa aree di lavoro; per chiudere tutti i workspace di un gruppo usa Elimina gruppo.",
       "identityTitle": "Identità del gruppo",
       "identityDesc": "Un gruppo ha un nome, un'icona (un SF Symbol, predefinito folder.fill) e un colore personalizzato opzionale. Questi sono indipendenti dalle personalizzazioni proprie del workspace di ancoraggio. Il colore e l'icona dell'ancoraggio vengono inizializzati dal gruppo alla creazione, ma possono divergere in seguito.",
       "pinningTitle": "Fissaggio",
@@ -3524,7 +3526,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "La fatturazione non è disponibile al momento. Riprova più tardi."
+    "billingUnavailable": "La fatturazione non è disponibile al momento. Riprova più tardi.",
+    "signedOutNotice": "Non hai effettuato l'accesso. Accedi per vedere il piano attuale o ripristinare un acquisto esistente.",
+    "signedOutSignIn": "Accedi"
   },
   "platforms": {
     "macos": "macOS",
@@ -3601,6 +3605,37 @@
       "primaryCta": "Scarica .deb",
       "requirements": "Debian o Ubuntu · x64",
       "installBody": "Scarica il pacchetto Debian e installalo con il gestore pacchetti. Scegli lo ZIP portatile per un’installazione per utente e gli aggiornamenti nell’app."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Benvenuto in cmux Pro 🎉",
+      "fallbackName": "amico",
+      "greeting": "Ciao {name},",
+      "thanks": "Grazie per esserti unito a cmux Pro! Stiamo ancora completando l’esperienza Pro e l’accesso al cloud è in arrivo.",
+      "cloudStatus": "Quando lanceremo l’accesso al cloud, aggiungeremo al tuo account crediti di utilizzo in base al numero di mesi di abbonamento.",
+      "currentBenefit": "Nel frattempo, il tuo vantaggio Pro è l’accesso anticipato a cmux su iOS. Registrati tramite il link qui sotto e Apple ti invierà l’invito TestFlight una volta completata la registrazione.",
+      "testflightLink": "Registrati a TestFlight: {url}",
+      "testflightLinkLabel": "Registrati a TestFlight",
+      "signoff": "Siamo felici di averti con noi!\nIl team di cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro è attivo",
+    "title": "Benvenuto in cmux Pro",
+    "body": "Le funzionalità Pro sono ancora in fase di sviluppo. L’accesso al cloud arriverà presto, con crediti di utilizzo accumulati per ogni mese di abbonamento. Al momento, Pro include l’accesso a cmux per iOS tramite TestFlight.",
+    "done": "Vai alla dashboard",
+    "steps": {
+      "iosApp": {
+        "title": "App cmux per iOS",
+        "body": "Usa cmux sul tuo telefono.",
+        "action": "Partecipa alla beta iOS"
+      },
+      "billing": {
+        "title": "Gestisci il tuo piano",
+        "body": "Consulta il tuo piano, le fatture e le opzioni di annullamento.",
+        "action": "Gestisci piano"
+      }
     }
   }
 }

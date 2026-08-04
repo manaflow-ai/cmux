@@ -279,6 +279,23 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {
+        guard isCompatible(instanceTag: instanceTag) else { return }
+        try await inner.authorizeUserTailscaleRoutes(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            routes: routes
+        )
+    }
+
     /// Legacy rows remain visible long enough to be claimed by an
     /// authenticated tagged instance. Live route adoption still fails closed
     /// in ``MobileMacBuildCompatibilityPolicy/allows(instanceTag:)``.

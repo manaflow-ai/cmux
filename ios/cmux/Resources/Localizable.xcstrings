@@ -2092,6 +2092,23 @@
         }
       }
     },
+    "mobile.connection.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile sync connection is retrying"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル同期接続を再試行しています"
+          }
+        }
+      }
+    },
     "mobile.computers.role.foreground": {
       "extractionState": "manual",
       "localizations": {
@@ -2394,6 +2411,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ping 非対応"
+          }
+        }
+      }
+    },
+    "mobile.connection.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile sync connection is retrying"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル同期接続を再試行しています"
           }
         }
       }
@@ -4455,6 +4489,227 @@
         }
       }
     },
+    "mobile.onboarding.connect.method.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動接続"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.method.automaticDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended. Finds your Mac with no setup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推奨。設定なしでMacを見つけます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.method.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.method.tailscaleDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses your Tailscale network. Scan the pairing code on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleネットワークを使用します。Macに表示されるペアリングコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.scanTailscaleCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan Pairing Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングコードをスキャン"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.tailscaleTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect over Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleで接続"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.tailscaleBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect over your Tailscale network. Scan the pairing code shown on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscaleネットワーク経由で接続します。Macに表示されるペアリングコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Method"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続方法"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Connect"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動接続"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.automaticFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connects to your Mac automatically over an end-to-end encrypted connection, directly or through cmux relays. No setup needed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンドツーエンドで暗号化された接続でMacに自動接続します（直接またはcmuxリレー経由）。設定は不要です。"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.scanCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan Pairing Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングコードをスキャン"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.tailscaleFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connects over your Tailscale network first. Scan the Tailscale pairing code shown on your Mac once (cmux Settings → Pair iPhone) to enable it for that Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まずTailscaleネットワーク経由で接続します。有効にするには、Macに表示されるTailscaleペアリングコードを一度スキャンしてください（cmux設定 → iPhoneをペアリング）。"
+          }
+        }
+      }
+    },
     "mobile.settings.notifications": {
       "extractionState": "manual",
       "localizations": {
@@ -5373,6 +5628,23 @@
         }
       }
     },
+    "mobile.pairing.guidance.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A connection attempt is already in progress. Give it a moment to finish; retry only if this computer stays disconnected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでに接続処理が進行中です。完了まで少しお待ちください。接続されないままの場合のみ再試行してください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.guidance.routeCleanupBlocked": {
       "extractionState": "manual",
       "localizations": {
@@ -5573,6 +5845,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータが応答しませんでした。ホストとポートを確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.connectAttemptGated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already reconnecting to this computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータには再接続中です。"
           }
         }
       }
@@ -13532,6 +13821,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンピュータ"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.statusLine.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.statusLine.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中…"
           }
         }
       }

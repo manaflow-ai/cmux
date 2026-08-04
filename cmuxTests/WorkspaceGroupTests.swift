@@ -924,7 +924,7 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.allSatisfy { $0.groupId == nil })
     }
 
-    @Test func pinnedWorkspaceCannotJoinGroupViaCreate() {
+    @Test func pinnedWorkspaceCanJoinGroupViaCreate() {
         let manager = makeTabManager()
         let pinnedWs = manager.tabs[0]
         manager.setPinned(pinnedWs, pinned: true)
@@ -935,7 +935,7 @@ struct WorkspaceGroupTests {
             childWorkspaceIds: [pinnedWs.id, unpinnedWs.id]
         )
         #expect(groupId != nil)
-        #expect(pinnedWs.groupId == nil)
+        #expect(pinnedWs.groupId == groupId)
         #expect(unpinnedWs.groupId == groupId)
     }
 
