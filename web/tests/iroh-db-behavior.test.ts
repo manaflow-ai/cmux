@@ -1279,6 +1279,12 @@ describe("Iroh trust broker database behavior", () => {
 
     expect(pageCounts).toEqual([128, 128, 45]);
     expect(bindingIds.size).toBe(301);
+    const complete = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      now: new Date(NOW.getTime() + 302_000),
+    }));
+    expect(complete.bindings).toHaveLength(301);
+    expect(complete.accountRevision).toBe(registration.accountRevision);
   });
 
   dbTest("enforces the UDP port range for each direct-address family", async () => {
@@ -1423,7 +1429,7 @@ describe("Iroh trust broker database behavior", () => {
       now: NOW,
     }))).toEqual({ revoked: false, accountRevision: 1 });
 
-    let concurrentDiscovery: ReturnType<typeof Effect.runPromise> | undefined;
+    let concurrentSnapshot: ReturnType<typeof Effect.runPromise> | undefined;
     await requiredSql().begin(async (revocationSql) => {
       await revocationSql`
         select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${userId}`}, 0))
@@ -1441,17 +1447,17 @@ describe("Iroh trust broker database behavior", () => {
             updated_at = ${NOW}
         where user_id = ${userId}
       `;
-      concurrentDiscovery = Effect.runPromise(repo.discoveryPage({
+      concurrentSnapshot = Effect.runPromise(repo.discoverySnapshot({
         userId,
         now: NOW,
-        pageSize: 256,
       }));
       await waitForAdvisoryLockWaiter();
     });
-    if (!concurrentDiscovery) throw new Error("concurrent discovery was not started");
-    const afterConcurrentRevoke = await concurrentDiscovery;
+    if (!concurrentSnapshot) throw new Error("concurrent discovery was not started");
+    const afterConcurrentRevoke = await concurrentSnapshot;
     expect(afterConcurrentRevoke).toMatchObject({
       lanDiscoveryGeneration: 3,
+      accountRevision: 2,
       bindings: [],
     });
     const otherAfter = await Effect.runPromise(repo.discoveryPage({
