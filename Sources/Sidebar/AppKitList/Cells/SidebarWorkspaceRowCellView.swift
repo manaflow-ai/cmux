@@ -43,7 +43,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let remoteTargetView = SidebarRowTextView(lines: 1)
     private let remoteStatusView = SidebarRowTextView(lines: 1)
     private let remoteReconnectButton = NSButton()
-    private var metadataRows: [SidebarRowIconTextLine] = []
+    private let metadataListView = SidebarMetadataVirtualListView()
     private let metadataToggleButton = SidebarRowLinkButton()
     private var markdownBlocks: [SidebarRowTextView] = []
     private let markdownToggleButton = SidebarRowLinkButton()
@@ -220,6 +220,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         remoteReconnectButton.target = self
         remoteReconnectButton.action = #selector(didClickReconnect)
         contentContainer.addSubview(remoteReconnectButton)
+        contentContainer.addSubview(metadataListView)
         contentContainer.addSubview(metadataToggleButton)
         contentContainer.addSubview(markdownToggleButton)
         contentContainer.addSubview(logLine)
@@ -700,36 +701,24 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
         let allEntries = model.settings.visibleAuxiliaryDetails.showsMetadata
             ? model.snapshot.metadataEntries : []
-        let visible = model.isMetadataExpanded ? allEntries : Array(allEntries.prefix(3))
-        Self.pool(&metadataRows, count: visible.count, parent: contentContainer) { SidebarRowIconTextLine() }
-        for (index, entry) in visible.enumerated() {
-            // Legacy parity: on the selected row an explicit entry color
-            // yields to the selected foreground — otherwise agent-status
-            // tints (blue "Running") vanish into the blue selection
-            // highlight. Explicit colors only apply on unselected rows.
-            let explicitColor = entry.color.flatMap { NSColor(hex: $0) }
-            let entryColor: NSColor
-            if model.isActive {
-                entryColor = explicitColor != nil
-                    ? palette.selectedForeground(1.0)
-                    : palette.secondary(0.95).withAlphaComponent(0.84)
-            } else {
-                entryColor = explicitColor ?? .secondaryLabelColor
-            }
-            metadataRows[index].configureMetadataEntry(
-                entry,
-                model: model,
-                color: entryColor
-            ) { [weak self] url in
-                self?.actions?.commands.updateSelection()
-                self?.actions?.onOpenStatusURL(url)
-            }
+        let visible = model.settings.metadataCollapsePolicy.visibleEntries(
+            allEntries,
+            isExpanded: model.isMetadataExpanded
+        )
+        metadataListView.configure(
+            entries: visible,
+            model: model
+        ) { [weak self] url in
+            self?.actions?.commands.updateSelection()
+            self?.actions?.onOpenStatusURL(url)
         }
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         let toggleColor = model.isActive
             ? palette.secondary(0.9)
             : NSColor.secondaryLabelColor.withAlphaComponent(0.9)
-        metadataToggleButton.isHidden = allEntries.count <= 3
+        metadataToggleButton.isHidden = !model.settings.metadataCollapsePolicy.showsExpansionToggle(
+            entryCount: allEntries.count
+        )
         if !metadataToggleButton.isHidden {
             metadataToggleButton.configure(
                 title: model.isMetadataExpanded
@@ -1189,10 +1178,17 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             y += lineHeight
         }
 
-        for row in metadataRows where !row.isHidden {
+        if !metadataListView.isHidden {
             y += 2
-            let height = row.measuredHeight(width: contentWidth)
-            if apply { row.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
+            let height = metadataListView.measuredHeight(width: contentWidth)
+            if apply {
+                metadataListView.frame = NSRect(
+                    x: leading,
+                    y: y,
+                    width: contentWidth,
+                    height: height
+                )
+            }
             y += height
         }
         if !metadataToggleButton.isHidden {

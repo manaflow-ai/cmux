@@ -171,6 +171,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "sidebarAppearance": [
+                    "metadataCollapseLimit": SettingCatalog().sidebarAppearance.metadataCollapseLimit.defaultValue,
                     "matchTerminalBackground": false,
                     "tintColor": SidebarTintDefaults().hex,
                     "lightModeTintColor": NSNull(),

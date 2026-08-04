@@ -1878,6 +1878,9 @@
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         },
+        "sidebarAppearance": {
+          "metadataCollapseLimit": "Number of custom metadata entries shown before collapsing. Set to 0 or null to always show all entries."
+        },
         "fileExplorer": {
           "description": "Right-sidebar file explorer (file tree) settings.",
           "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."

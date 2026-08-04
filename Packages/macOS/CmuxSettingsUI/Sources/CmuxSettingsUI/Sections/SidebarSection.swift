@@ -31,7 +31,8 @@ public struct SidebarSection: View {
     @State var showAgentActivity: DefaultsValueModel<Bool>
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
-    @State private var showMetadata: DefaultsValueModel<Bool>
+    @State var showMetadata: DefaultsValueModel<Bool>
+    @State var metadataCollapseLimit: DefaultsValueModel<Int>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
@@ -61,6 +62,7 @@ public struct SidebarSection: View {
         _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
         _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
+        _metadataCollapseLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.metadataCollapseLimit))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
@@ -95,6 +97,7 @@ public struct SidebarSection: View {
             loadingSpinnerPosition,
             notificationBadgePosition,
             showMetadata,
+            metadataCollapseLimit,
             rightMaxWidth,
             rememberedRightMaxWidth,
         ]
@@ -482,6 +485,9 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            metadataCollapseLimitRow
         }
     }
 

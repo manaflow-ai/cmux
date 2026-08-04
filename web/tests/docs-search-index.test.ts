@@ -95,13 +95,14 @@ describe("docs search index", () => {
     }
   });
 
-  test("localizes the notification preview schema description in every locale", async () => {
+  test("localizes sidebar schema descriptions in every locale", async () => {
     for (const locale of routing.locales) {
       const messages = (await import(`../messages/${locale}.json`)).default as {
         docs: {
           configuration: {
             schemaDescriptions: {
               sidebar: { notificationMessageLineLimit?: string };
+              sidebarAppearance: { metadataCollapseLimit?: string };
             };
           };
         };
@@ -110,6 +111,10 @@ describe("docs search index", () => {
       expect(
         messages.docs.configuration.schemaDescriptions.sidebar
           .notificationMessageLineLimit,
+      ).toBeTruthy();
+      expect(
+        messages.docs.configuration.schemaDescriptions.sidebarAppearance
+          .metadataCollapseLimit,
       ).toBeTruthy();
     }
   });

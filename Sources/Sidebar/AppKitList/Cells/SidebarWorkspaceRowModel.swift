@@ -52,9 +52,9 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// global inside the cell where nothing observes it.
     let todoControlsEnabled: Bool
     /// Parity with legacy SidebarMetadataRows / markdown blocks: collapsed
-    /// shows 3 entries / 1 block with a Show more toggle; expansion state is
-    /// container-owned so the toggle re-measures heights through the normal
-    /// apply pass.
+    /// metadata uses the configured entry limit, while markdown shows one block;
+    /// expansion state is container-owned so the toggle re-measures heights
+    /// through the normal apply pass.
     let isMetadataExpanded: Bool
     let isMarkdownExpanded: Bool
 

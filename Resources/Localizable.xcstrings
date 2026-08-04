@@ -152799,6 +152799,381 @@
         }
       }
     },
+    "settings.app.metadataCollapseLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حد طي البيانات الوصفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ograničenje sklapanja metapodataka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grænse for sammenfoldning af metadata"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einklappgrenze für Metadaten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metadata Collapse Limit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Límite de contracción de metadatos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite de repli des métadonnées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite di riduzione dei metadati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メタデータの折りたたみ件数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដែនកំណត់ការបង្រួមទិន្នន័យមេតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메타데이터 접기 제한"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grense for sammenfolding av metadata"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit zwijania metadanych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite de recolhimento de metadados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лимит сворачивания метаданных"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขีดจำกัดการยุบข้อมูลเมตา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meta veri daraltma sınırı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ліміт згортання метаданих"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元数据折叠限制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中繼資料收合限制"
+          }
+        }
+      }
+    },
+    "settings.app.metadataCollapseLimit.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد إدخالات البيانات الوصفية المخصصة المعروضة قبل «إظهار المزيد». اضبطه على 0 لعرض جميع الإدخالات دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Broj prilagođenih unosa metapodataka prikazanih prije „Prikaži više“. Postavite na 0 da se svi unosi uvijek prikazuju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antallet af brugerdefinerede metadataelementer, der vises før \"Vis mere\". Angiv 0 for altid at vise alle elementer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anzahl der benutzerdefinierten Metadateneinträge vor „Mehr anzeigen“. Auf 0 setzen, um immer alle Einträge anzuzeigen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Number of custom metadata entries shown before Show more. Set to 0 to always show all entries."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Número de entradas de metadatos personalizados que se muestran antes de «Mostrar más». Establécelo en 0 para mostrar siempre todas las entradas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre d’entrées de métadonnées personnalisées affichées avant « Afficher plus ». Définissez 0 pour toujours afficher toutes les entrées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Numero di voci di metadati personalizzati mostrate prima di “Mostra altro”. Imposta 0 per mostrare sempre tutte le voci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「さらに表示」の前に表示するカスタムメタデータの件数です。0 にすると常にすべて表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនធាតុទិន្នន័យមេតាផ្ទាល់ខ្លួនដែលបង្ហាញមុន «បង្ហាញបន្ថែម»។ កំណត់ជា 0 ដើម្បីបង្ហាញធាតុទាំងអស់ជានិច្ច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘더 보기’ 앞에 표시할 사용자 지정 메타데이터 항목 수입니다. 항상 모든 항목을 표시하려면 0으로 설정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antall egendefinerte metadataoppføringer som vises før «Vis mer». Sett til 0 for alltid å vise alle oppføringer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liczba niestandardowych wpisów metadanych wyświetlanych przed „Pokaż więcej”. Ustaw 0, aby zawsze wyświetlać wszystkie wpisy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Número de entradas de metadados personalizados exibidas antes de “Mostrar mais”. Defina como 0 para sempre exibir todas as entradas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Количество пользовательских записей метаданных перед «Показать ещё». Укажите 0, чтобы всегда показывать все записи."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนรายการข้อมูลเมตาที่กำหนดเองที่แสดงก่อน “แสดงเพิ่มเติม” ตั้งค่าเป็น 0 เพื่อแสดงรายการทั้งหมดเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Daha fazla göster”den önce gösterilen özel meta veri girdilerinin sayısı. Tüm girdileri her zaman göstermek için 0 olarak ayarlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кількість користувацьких записів метаданих перед «Показати більше». Установіть 0, щоб завжди показувати всі записи."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“显示更多”前显示的自定义元数据条目数。设为 0 可始终显示所有条目。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「顯示更多」前顯示的自訂中繼資料項目數。設為 0 可一律顯示所有項目。"
+          }
+        }
+      }
+    },
+    "settings.app.metadataCollapseLimit.unlimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير محدود"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neograničeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubegrænset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbegrenzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlimited"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin límite"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Illimité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Illimitato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無制限"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានដែនកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "무제한"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubegrenset"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez limitu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ilimitado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без ограничений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่จำกัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sınırsız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без обмежень"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无限制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無限制"
+          }
+        }
+      }
+    },
     "settings.app.notificationMessageLineLimit": {
       "extractionState": "manual",
       "localizations": {
@@ -191231,6 +191606,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "sidebarAppearance.matchTerminalBackground transparent background material terminal sync 終端機 shell 回捲 捲動列 螢幕 • %@ Match"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.sidebarAppearance.metadata-collapse-limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries بيانات وصفية طي حد إظهار المزيد غير محدود الكل حالات إدخالات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries metapodaci sklapanje ograničenje prikaži više neograničeno svi statusi unosi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries metadata sammenfoldning grænse vis mere ubegrænset alle statusser elementer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries Metadaten einklappen Grenze mehr anzeigen unbegrenzt alle Status Einträge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries metadatos contraer límite mostrar más sin límite todos estados entradas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries métadonnées repli limite afficher plus illimité tous statuts entrées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries metadati riduzione limite mostra altro illimitato tutti stati voci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries メタデータ 折りたたみ 件数 さらに表示 無制限 すべて ステータス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries ទិន្នន័យមេតា បង្រួម ដែនកំណត់ បង្ហាញបន្ថែម គ្មានដែនកំណត់ ទាំងអស់ ស្ថានភាព ធាតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries 메타데이터 접기 제한 더 보기 무제한 모두 상태 항목"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries metadata sammenfolding grense vis mer ubegrenset alle statuser oppføringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries metadane zwijanie limit pokaż więcej bez limitu wszystkie statusy wpisy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries metadados recolhimento limite mostrar mais ilimitado todos status entradas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries метаданные сворачивание лимит показать ещё без ограничений все статусы записи"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries ข้อมูลเมตา ยุบ ขีดจำกัด แสดงเพิ่มเติม ไม่จำกัด ทั้งหมด สถานะ รายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries meta veri daraltma sınır daha fazla göster sınırsız tüm durumlar girdiler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries метадані згортання ліміт показати більше без обмежень усі статуси записи"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries 元数据 折叠 限制 显示更多 无限制 全部 状态 条目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries 中繼資料 收合 限制 顯示更多 無限制 全部 狀態 項目"
           }
         }
       }

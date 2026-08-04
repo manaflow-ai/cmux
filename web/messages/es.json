@@ -987,6 +987,9 @@
           "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
+        "sidebarAppearance": {
+          "metadataCollapseLimit": "Número de entradas de metadatos personalizados que se muestran antes de contraerlas. Establécelo en 0 o null para mostrar siempre todas las entradas."
+        },
         "fileExplorer": {
           "description": "Ajustes del explorador de archivos (árbol de archivos) de la barra lateral derecha.",
           "doubleClickAction": "Qué hace al hacer doble clic (o presionar Return en un resultado de búsqueda) sobre un archivo en el explorador de archivos. `preview` abre la vista previa integrada de archivos de cmux (comportamiento predeterminado e histórico). `defaultEditor` abre con la app predeterminada de macOS para ese tipo de archivo. `preferredEditor` abre con el comando `app.preferredEditor`, con fallback a la app predeterminada cuando no está configurado. Solo aplica a archivos; los directorios siempre se expanden/contraen, y los exploradores de archivos no locales (remotos) siempre abren la vista previa de cmux."
