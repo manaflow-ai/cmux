@@ -2122,11 +2122,30 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     @MainActor
     func testPersistentPTYBootstrapReinstallsOldDaemonMissingPTYCapability() async throws {
+        let fileManager = FileManager.default
+        let fakeGoDirectory = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-fake-go-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: fakeGoDirectory, withIntermediateDirectories: true)
+        let fakeGoURL = fakeGoDirectory.appendingPathComponent("go", isDirectory: false)
+        try Data().write(to: fakeGoURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeGoURL.path)
+
         let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
         let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
+        let previousPath = getenv("PATH").map { String(cString: $0) }
         setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", "1", 1)
         unsetenv("CMUX_REMOTE_DAEMON_BINARY")
+        // The production path resolves `go` before calling the injected process runner. Own that
+        // discovery dependency as part of the fixture; CI runners are not required to install Go,
+        // and the scripted runner below writes the fake build output without executing this file.
+        let testPath = [fakeGoDirectory.path, previousPath]
+            .compactMap { $0 }
+            .joined(separator: ":")
+        setenv("PATH", testPath, 1)
         defer {
+            try? fileManager.removeItem(at: fakeGoDirectory)
             if let previousAllowLocalBuild {
                 setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", previousAllowLocalBuild, 1)
             } else {
@@ -2136,6 +2155,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 setenv("CMUX_REMOTE_DAEMON_BINARY", previousDaemonBinary, 1)
             } else {
                 unsetenv("CMUX_REMOTE_DAEMON_BINARY")
+            }
+            if let previousPath {
+                setenv("PATH", previousPath, 1)
+            } else {
+                unsetenv("PATH")
             }
         }
 
