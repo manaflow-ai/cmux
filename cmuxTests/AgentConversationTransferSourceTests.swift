@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import Foundation
 import SQLite3
 import Testing
