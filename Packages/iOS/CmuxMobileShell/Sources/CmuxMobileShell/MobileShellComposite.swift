@@ -8,6 +8,7 @@ public import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import CmuxMobileTransport
 public import Foundation
+internal import Dispatch
 import Observation
 internal import OSLog
 
@@ -963,9 +964,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Identifies the fetch generation that owns ``stateSyncFetchTask``, so a
     /// cancelled predecessor's deferred cleanup cannot clear its replacement.
     var stateSyncFetchGeneration = UUID()
-    /// Number of deadline-abandoned reconnect dials that have not yet
+    /// Number of deadline-abandoned recovery operations that have not yet
     /// resolved. Bounds automatic retry scheduling (see
-    /// ``registerAbandonedReconnectDial(_:)``).
+    /// ``registerAbandonedRecoveryOperation(_:)``).
     var abandonedReconnectDialCount = 0
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
@@ -2268,7 +2269,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func reconnectActiveMacOutcome(
         stackUserID: String?,
-        refreshBackupBeforeDial: Bool = true
+        refreshBackupBeforeDial: Bool = true,
+        deadlineUptimeNanoseconds: UInt64? = nil
     ) async -> StoredMacReconnectOutcome {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
@@ -2306,8 +2308,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // generation claim above remains synchronous, preserving serialization
         // while the unstructured operation can be abandoned if an FFI dial
         // ignores cancellation.
-        let deadlineNanoseconds = runtime?.reconnectAttemptDeadlineNanoseconds
-            ?? 30_000_000_000
+        let nowUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+        let absoluteDeadline = deadlineUptimeNanoseconds
+            ?? nowUptimeNanoseconds &+
+                (runtime?.reconnectAttemptDeadlineNanoseconds
+                    ?? 30_000_000_000)
+        let deadlineNanoseconds = absoluteDeadline > nowUptimeNanoseconds
+            ? absoluteDeadline - nowUptimeNanoseconds
+            : 0
         let race = await Self.raceAgainstDeadline(
             nanoseconds: deadlineNanoseconds
         ) { [weak self] in
@@ -2317,7 +2325,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 generation: generation
             ) ?? .superseded
         }
-        registerAbandonedReconnectDial(race.abandoned)
+        registerAbandonedRecoveryOperation(race.abandoned)
         if race.wasCancelled {
             finishStoredMacReconnectAttempt(generation: generation)
             return .superseded

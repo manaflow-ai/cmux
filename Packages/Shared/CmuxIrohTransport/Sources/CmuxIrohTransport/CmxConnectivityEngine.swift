@@ -519,10 +519,9 @@ public actor CmxConnectivityEngine {
         let supervisor = supervisor
         let protocolConfiguration = protocolConfiguration
         let diagnosticLog = diagnosticLog
-        let clock = clock
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
-            buildSession: { request in
+            buildRetirableSession: { request, retirement in
                 let endpoint = try await supervisor.activeEndpoint()
                 let context = try await contextProvider.context(for: request)
                 let session = try CmxIrohClientSession(
@@ -541,6 +540,7 @@ public actor CmxConnectivityEngine {
                     protocolConfiguration: protocolConfiguration
                 )
                 do {
+                    try await retirement.register(session)
                     try await session.connect()
                     return session
                 } catch {
@@ -551,8 +551,7 @@ public actor CmxConnectivityEngine {
             handleSnapshot: { [weak self] snapshot in
                 await self?.peerDidChange(snapshot)
             },
-            diagnosticLog: diagnosticLog,
-            clock: clock
+            diagnosticLog: diagnosticLog
         )
         peers[peerID] = peer
         orderedPeerIDs.append(peerID)

@@ -35,19 +35,26 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
     func handOffLateCandidateToRegistry(
         task: Task<any CmxByteTransport, any Error>,
     ) async {
-        await registry.handOffPhysicalCleanup(lease: lease) {
+        let lateCleanup = Task.detached {
             do {
                 let candidate = try await task.value
-                if let cancellationCloseTask =
-                    await cancellationClose?.task() {
-                    await cancellationCloseTask.value
-                }
                 await candidate.close()
-            } catch {
-                if let cancellationCloseTask =
-                    await cancellationClose?.task() {
-                    await cancellationCloseTask.value
-                }
+            } catch {}
+        }
+        await registry.trackPostCloseCleanup {
+            await lateCleanup.value
+        }
+
+        // The cancellation close is the physical route milestone. The
+        // cancelled connect task may ignore Swift cancellation forever, but a
+        // late result is generation-rejected and closed by `lateCleanup`.
+        if let cancellationCloseTask = await cancellationClose?.task() {
+            await registry.handOffPhysicalCleanup(lease: lease) {
+                await cancellationCloseTask.value
+            }
+        } else {
+            await registry.handOffPhysicalCleanup(lease: lease) {
+                await lateCleanup.value
             }
         }
     }

@@ -5,6 +5,7 @@ public import CmuxMobileRPC
 public import CmuxMobileShellModel
 public import CmuxMobileTransport
 public import Foundation
+internal import Dispatch
 internal import OSLog
 
 private let mobileShellLog = Logger(
@@ -199,7 +200,11 @@ extension MobileShellComposite {
         let attempt = preclaimedAttempt ?? connectionRecoveryOwner.begin(
             trigger: trigger.description,
             sourceConnectionGeneration: connectionGeneration,
-            probing: probeCurrentConnection
+            probing: probeCurrentConnection,
+            deadlineUptimeNanoseconds:
+                DispatchTime.now().uptimeNanoseconds &+
+                (runtime?.reconnectAttemptDeadlineNanoseconds
+                    ?? 30_000_000_000)
         )
         guard let attempt else { return }
         diagnosticLog?.record(DiagnosticEvent(
@@ -219,8 +224,21 @@ extension MobileShellComposite {
 
                 if probeCurrentConnection, let expectedClient {
                     let epochAtProbeStart = self.foregroundResumeEpoch
+                    guard let probeDeadline = self.remainingRecoveryNanoseconds(
+                        for: attempt
+                    ) else {
+                        self.settleTimedOutConnectionRecovery(
+                            attempt,
+                            stackUserID: stackUserID
+                        )
+                        return
+                    }
                     let healthy = await self.reloadWorkspaceListFromMac(
-                        timeoutNanoseconds: self.runtime?.livenessProbeTimeoutNanoseconds
+                        timeoutNanoseconds: min(
+                            self.runtime?.livenessProbeTimeoutNanoseconds
+                                ?? 3_000_000_000,
+                            probeDeadline
+                        )
                     )
                     guard !Task.isCancelled,
                           self.connectionRecoveryOwner.isCurrent(attempt),
@@ -278,7 +296,33 @@ extension MobileShellComposite {
                     // and transferred its lease to tracked cleanup. Physical
                     // QUIC cleanup must not sit in front of the reconnect
                     // deadline: a dead FFI stream can ignore cancellation.
-                    await expectedClient.disconnect()
+                    guard let retirementDeadline = self.remainingRecoveryNanoseconds(
+                        for: attempt
+                    ) else {
+                        self.settleTimedOutConnectionRecovery(
+                            attempt,
+                            stackUserID: stackUserID
+                        )
+                        return
+                    }
+                    let retirement = await Self.raceAgainstDeadline(
+                        nanoseconds: retirementDeadline
+                    ) {
+                        await expectedClient.disconnect()
+                        return true
+                    }
+                    self.registerAbandonedRecoveryOperation(
+                        retirement.abandoned
+                    )
+                    guard retirement.value == true else {
+                        if retirement.didTimeOut {
+                            self.settleTimedOutConnectionRecovery(
+                                attempt,
+                                stackUserID: stackUserID
+                            )
+                        }
+                        return
+                    }
                     guard !Task.isCancelled,
                           self.connectionRecoveryOwner.isCurrent(attempt) else { return }
                     MobileDebugLog.anchormux(
@@ -301,7 +345,9 @@ extension MobileShellComposite {
                 // the same wedge protection without a second race here.
                 let reconnectOutcome = await self.reconnectActiveMacOutcome(
                     stackUserID: stackUserID,
-                    refreshBackupBeforeDial: false
+                    refreshBackupBeforeDial: false,
+                    deadlineUptimeNanoseconds:
+                        attempt.deadlineUptimeNanoseconds
                 )
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
@@ -311,6 +357,34 @@ extension MobileShellComposite {
                     connectionGeneration: self.connectionGeneration
                 ) else { return }
                 self.applyConnectionRecoveryOwnerState()
+                if reconnectOutcome.didConnect,
+                   self.connectionRecoveryOwner.isValidatingReplacement {
+                    guard let validationDeadline =
+                            self.remainingRecoveryNanoseconds(for: attempt) else {
+                        self.settleTimedOutConnectionRecovery(
+                            attempt,
+                            stackUserID: stackUserID
+                        )
+                        return
+                    }
+                    let validation = await Self.raceAgainstDeadline(
+                        nanoseconds: validationDeadline
+                    ) { @MainActor [weak self] in
+                        guard let self else { return false }
+                        return await self.connectionRecoveryOwner
+                            .waitForValidationSettlement(attempt)
+                    }
+                    self.registerAbandonedRecoveryOperation(
+                        validation.abandoned
+                    )
+                    if validation.didTimeOut {
+                        self.settleTimedOutConnectionRecovery(
+                            attempt,
+                            stackUserID: stackUserID
+                        )
+                    }
+                    self.applyConnectionRecoveryOwnerState()
+                }
             } onCancel: {
                 MobileDebugLog.anchormux(
                     "connection.recovery cancelled trigger=\(trigger.description) attempt=\(attempt.id.uuidString)"
@@ -371,6 +445,37 @@ extension MobileShellComposite {
         guard connectionRecoveryOwner.fail(attempt) else { return false }
         recordConnectionRecoveryFailed(failure)
         return true
+    }
+
+    private func remainingRecoveryNanoseconds(
+        for attempt: MobileConnectionRecoveryOwner.Attempt
+    ) -> UInt64? {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard now < attempt.deadlineUptimeNanoseconds else { return nil }
+        return attempt.deadlineUptimeNanoseconds - now
+    }
+
+    private func settleTimedOutConnectionRecovery(
+        _ attempt: MobileConnectionRecoveryOwner.Attempt,
+        stackUserID: String?
+    ) {
+        guard failConnectionRecovery(attempt, failure: .timedOut) else {
+            return
+        }
+        // A timed-out probe or replacement is not usable ownership. Detach it
+        // synchronously so late subscription callbacks fail their generation
+        // guards, then let the normal disconnect path retire it parent-first.
+        if remoteClient != nil {
+            connectionState = .disconnected
+            macConnectionStatus = .unavailable
+            clearRemoteConnectionContext()
+        }
+        if Self.shouldRecordReconnectBackoff(
+            abandonedDialCount: abandonedReconnectDialCount
+        ), let accountID = stackUserID ?? identityProvider?.currentUserID {
+            recordTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
+        applyConnectionRecoveryOwnerState()
     }
 
     @discardableResult
@@ -958,7 +1063,9 @@ extension MobileShellComposite {
     /// tasks across automatic retries. On resolution, if the shell is still
     /// signed in and disconnected, the automatic retry loop is re-armed
     /// (covers the case where retries were paused at the ceiling).
-    func registerAbandonedReconnectDial(_ task: Task<StoredMacReconnectOutcome, Never>?) {
+    func registerAbandonedRecoveryOperation<Value: Sendable>(
+        _ task: Task<Value, Never>?
+    ) {
         guard let task else { return }
         abandonedReconnectDialCount += 1
         Task { @MainActor [weak self] in

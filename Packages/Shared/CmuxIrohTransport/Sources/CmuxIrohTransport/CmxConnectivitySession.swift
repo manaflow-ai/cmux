@@ -18,6 +18,13 @@ protocol CmxConnectivitySession: Sendable {
     func observedSelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath>
     func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent>
     func close() async
+    /// Waits only for child-handle and diagnostic cleanup after parent close.
+    /// Connectivity admission and owner handoff must never await this milestone.
+    func waitForPostCloseCleanup() async
 }
 
 extension CmxIrohClientSession: CmxConnectivitySession {}
+
+extension CmxConnectivitySession {
+    func waitForPostCloseCleanup() async {}
+}

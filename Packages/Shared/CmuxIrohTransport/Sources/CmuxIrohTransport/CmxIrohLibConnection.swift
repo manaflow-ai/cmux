@@ -135,15 +135,17 @@ struct CmxIrohLibConnection:
     @concurrent
     func close(errorCode: UInt64, reason: String) async {
         let code = Int64(exactly: errorCode) ?? Int64.max
+        // Native connection close is synchronous and locally wakes every child
+        // operation. It must precede actor-isolated diagnostic bookkeeping.
+        try? driver.close(
+            errorCode: code,
+            reason: Data(reason.utf8.prefix(1_024))
+        )
         await closeAttributionStore.recordTentative(CmxIrohConnectionCloseAttribution(
             initiator: .local,
             applicationErrorCode: code,
             failureKind: .cancelled
         ))
-        try? driver.close(
-            errorCode: code,
-            reason: Data(reason.utf8.prefix(1_024))
-        )
     }
 
     private static func stream(_ stream: BiStream) -> CmxIrohBidirectionalStream {

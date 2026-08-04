@@ -1912,6 +1912,7 @@ actor MobileHostConnection {
     private var orderedRequestWorkerTasksBySurfaceKey: [String: Task<Void, Never>] = [:]
     private var orderedRequestRunningFrameByteCountsBySurfaceKey: [String: Int] = [:]
     private var receiveTask: Task<Void, Never>?
+    private var postCloseCleanupTask: Task<Void, Never>?
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
     private var didDecodeFirstFrame = false
@@ -2077,9 +2078,14 @@ actor MobileHostConnection {
         }
         MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
-        await independentEventWriter?.close()
+        let independentEventWriterToClose = independentEventWriter
+        // The transport owns the parent Iroh connection. Its close
+        // acknowledgement releases host admission before child stream reset.
         await transport.close()
         await onClose(id)
+        postCloseCleanupTask = Task {
+            await independentEventWriterToClose?.close()
+        }
     }
 
     private func handleReceive(data: Data) async {

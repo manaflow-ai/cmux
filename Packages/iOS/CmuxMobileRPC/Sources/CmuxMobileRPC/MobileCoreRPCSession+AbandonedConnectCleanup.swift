@@ -4,36 +4,36 @@ import Foundation
 extension MobileCoreRPCSession {
     func abandonConnectionTask(_ connecting: ConnectingTask) async {
         let cleanupID = UUID()
-        let cleanupTask = Task.detached {
+        let lateCleanupTask = Task.detached {
             do {
                 let candidate = try await connecting.task.value
-                if let cancellationCloseTask =
-                    await connecting.cancellationClose.task() {
-                    await cancellationCloseTask.value
-                }
                 await candidate.close()
-            } catch {
-                if let cancellationCloseTask =
-                    await connecting.cancellationClose.task() {
-                    await cancellationCloseTask.value
-                }
+            } catch {}
+        }
+        await connectAttemptRegistry.trackPostCloseCleanup {
+            await lateCleanupTask.value
+        }
+        let routeCleanupTask = Task {
+            if let cancellationCloseTask =
+                await connecting.cancellationClose.task() {
+                await cancellationCloseTask.value
+            } else {
+                await lateCleanupTask.value
             }
         }
-        let registrationTask = Task {
-            [connectAttemptRegistry] in
-            await connectAttemptRegistry.handOffPhysicalCleanup(
-                lease: connecting.lease
-            ) {
-                await cleanupTask.value
-            }
-        }
-        abandonedConnectionCleanupTasks[cleanupID] = registrationTask
+        abandonedConnectionCleanupTasks[cleanupID] = routeCleanupTask
         // Teardown cannot return while the cancelled dial still owns the
         // active route lease. Transfer that exact physical lifetime first;
-        // the registry then admits one bounded recovery without waiting for
-        // a cancellation-ignoring connect or close to settle.
-        await registrationTask.value
-        abandonedConnectionCleanupTasks[cleanupID] = nil
+        // the late task result is tracked separately and consumes no admission.
+        await connectAttemptRegistry.handOffPhysicalCleanup(
+            lease: connecting.lease
+        ) {
+            await routeCleanupTask.value
+        }
+        Task { [weak self] in
+            await routeCleanupTask.value
+            await self?.abandonedConnectionCleanupDidFinish(cleanupID)
+        }
     }
 
     func closeUninstalledConnectedCandidate(

@@ -112,6 +112,64 @@ extension ReconnectRouteSelectionTests {
         #expect(owner.isCurrent(replacementAttempt))
     }
 
+    @Test func definitiveFailurePreservesTheProbeAbsoluteDeadline() throws {
+        let owner = MobileConnectionRecoveryOwner()
+        defer { owner.cancel() }
+        let generation = UUID()
+        let deadline: UInt64 = 123_456_789
+        let probe = try #require(owner.begin(
+            trigger: "foreground",
+            sourceConnectionGeneration: generation,
+            probing: true,
+            deadlineUptimeNanoseconds: deadline
+        ))
+        let redial = try #require(owner.supersedeProbeWithRedial(
+            trigger: "liveness",
+            sourceConnectionGeneration: generation
+        ))
+
+        #expect(probe.deadlineUptimeNanoseconds == deadline)
+        #expect(redial.deadlineUptimeNanoseconds == deadline)
+    }
+
+    @Test func recoveryDeadlineIncludesReplacementSubscriptionValidation()
+        async throws {
+        let fixture = try await makeRecoveryOwnerFixture(
+            reconnectAttemptDeadlineNanoseconds: 3_000_000_000
+        )
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(
+            stackUserID: "user-1"
+        ))
+        #expect(await fixture.router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 1
+        ))
+        await fixture.router.holdSubscribeRequest(number: 2)
+        let firstClient = try #require(fixture.store.remoteClient)
+        let firstTransport = try #require(fixture.box.get())
+
+        await firstTransport.close()
+
+        #expect(await fixture.router.waitForCount(
+            of: "mobile.events.subscribe",
+            atLeast: 2
+        ))
+        #expect(try await pollUntil(attempts: 1_000) {
+            fixture.store.connectionRecoveryFailed
+                && !fixture.store.isRecoveringConnection
+                && fixture.store.remoteClient == nil
+                && fixture.store.connectionState == .disconnected
+        })
+        #expect(fixture.store.remoteClient !== firstClient)
+
+        await fixture.router.releaseAllHeld()
+        for _ in 0 ..< 20 { await Task.yield() }
+        #expect(fixture.store.connectionRecoveryFailed)
+        #expect(fixture.store.remoteClient == nil)
+    }
+
     @Test func cancelProbingReturnsOwnerToIdle() throws {
         let owner = MobileConnectionRecoveryOwner()
         defer { owner.cancel() }
@@ -559,7 +617,8 @@ extension ReconnectRouteSelectionTests {
     private func makeRecoveryOwnerFixture(
         backup: (any PairedMacBackingUp)? = nil,
         heldConnectAttempts: Set<Int> = [],
-        firstTransportCloseGate: LivenessTransportCloseGate? = nil
+        firstTransportCloseGate: LivenessTransportCloseGate? = nil,
+        reconnectAttemptDeadlineNanoseconds: UInt64 = 30_000_000_000
     ) async throws -> RecoveryOwnerFixture {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -587,12 +646,15 @@ extension ReconnectRouteSelectionTests {
         } else {
             pairedStore = inner
         }
-        let store = MobileShellComposite(
-            runtime: LivenessTestRuntime(
+        var runtime = LivenessTestRuntime(
                 transportFactory: factory,
                 now: { clock.now },
                 supportedRouteKinds: [.iroh, .tailscale]
-            ),
+        )
+        runtime.reconnectAttemptDeadlineNanoseconds =
+            reconnectAttemptDeadlineNanoseconds
+        let store = MobileShellComposite(
+            runtime: runtime,
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
