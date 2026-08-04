@@ -28,11 +28,12 @@ extension NSTextField {
 /// asymmetric cell insets.
 @MainActor
 final class SidebarRowUnreadBadgeView: NSView {
-    private var textLine: CTLine?
+    private var textOutline: CGPath?
     private var textInkBounds: CGRect = .zero
     private var textAdvance: CGFloat = 0
     private var textLineHeight: CGFloat = 0
     private var fillColor: NSColor = .clear
+    private var textColor: NSColor = .clear
 
     override var isFlipped: Bool { false }
 
@@ -71,20 +72,46 @@ final class SidebarRowUnreadBadgeView: NSView {
         var ascent: CGFloat = 0
         var descent: CGFloat = 0
         var leading: CGFloat = 0
-        textLine = line
         textAdvance = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
         textLineHeight = ascent + descent + leading
-        textInkBounds = CTLineGetBoundsWithOptions(line, [.useGlyphPathBounds])
-        if textInkBounds.isEmpty || textInkBounds.isNull {
-            textInkBounds = CGRect(
-                x: 0,
-                y: -descent,
-                width: textAdvance,
-                height: ascent + descent
-            )
-        }
+        textOutline = Self.makeTextOutline(line: line, font: font as CTFont)
+        textInkBounds = textOutline?.boundingBoxOfPath ?? .zero
         self.fillColor = fillColor
+        self.textColor = textColor
         needsDisplay = true
+    }
+
+    private static func makeTextOutline(line: CTLine, font: CTFont) -> CGPath? {
+        let outline = CGMutablePath()
+        var appendedGlyph = false
+
+        for case let run as CTRun in CTLineGetGlyphRuns(line) as NSArray {
+            let glyphCount = CTRunGetGlyphCount(run)
+            var glyphs = Array(repeating: CGGlyph(), count: glyphCount)
+            var positions = Array(repeating: CGPoint.zero, count: glyphCount)
+            glyphs.withUnsafeMutableBufferPointer { buffer in
+                CTRunGetGlyphs(run, CFRange(location: 0, length: 0), buffer.baseAddress!)
+            }
+            positions.withUnsafeMutableBufferPointer { buffer in
+                CTRunGetPositions(run, CFRange(location: 0, length: 0), buffer.baseAddress!)
+            }
+
+            for index in 0..<glyphCount {
+                guard let glyphPath = CTFontCreatePathForGlyph(font, glyphs[index], nil) else {
+                    continue
+                }
+                outline.addPath(
+                    glyphPath,
+                    transform: CGAffineTransform(
+                        translationX: positions[index].x,
+                        y: positions[index].y
+                    )
+                )
+                appendedGlyph = true
+            }
+        }
+
+        return appendedGlyph ? outline : nil
     }
 
     func fittingSize(horizontalPadding: CGFloat, minimumHeight: CGFloat) -> NSSize {
@@ -102,7 +129,7 @@ final class SidebarRowUnreadBadgeView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard let textLine, let context = NSGraphicsContext.current?.cgContext else { return }
+        guard let textOutline, let context = NSGraphicsContext.current?.cgContext else { return }
 
         // Single digits occupy a square and therefore render as circles.
         // Wider counts expand horizontally into capsules without changing
@@ -115,16 +142,17 @@ final class SidebarRowUnreadBadgeView: NSView {
             yRadius: badgeRect.height / 2
         ).fill()
 
-        // CTLine's glyph-path bounds exclude advance-width side bearings and
-        // the font's asymmetric line box. Centering that visible ink fixes the
-        // low-looking digit in small Retina badges.
+        // Measure and fill the same outline. Drawing the separately hinted
+        // CTLine can snap a narrow digit to a different Retina pixel than the
+        // path bounds used to center it.
         context.saveGState()
-        context.textMatrix = .identity
-        context.textPosition = CGPoint(
+        context.translateBy(
             x: badgeRect.midX - textInkBounds.midX,
             y: badgeRect.midY - textInkBounds.midY
         )
-        CTLineDraw(textLine, context)
+        textColor.setFill()
+        context.addPath(textOutline)
+        context.fillPath()
         context.restoreGState()
     }
 }
