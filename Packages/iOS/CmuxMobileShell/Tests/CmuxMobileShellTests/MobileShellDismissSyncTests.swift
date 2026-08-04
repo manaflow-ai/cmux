@@ -81,7 +81,12 @@ import UserNotifications
         let foregroundRouter = RoutingHostRouter()
         let secondaryRouter = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: foregroundRouter)
-        try installSecondaryClient(on: store, macDeviceID: "mac-secondary", router: secondaryRouter)
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "mac-secondary",
+            router: secondaryRouter,
+            supportedHostCapabilities: ["notification.dismiss.v1"]
+        )
 
         await store.dismissNotification(ids: [" n-secondary "], macDeviceID: "mac-secondary")
 
@@ -106,7 +111,12 @@ import UserNotifications
             (id: "n-secondary", macDeviceID: "mac-secondary"),
             (id: "n-other", macDeviceID: "mac-other"),
         ])
-        try installSecondaryClient(on: store, macDeviceID: "mac-secondary", router: secondaryRouter)
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "mac-secondary",
+            router: secondaryRouter,
+            supportedHostCapabilities: ["notification.dismiss.v1"]
+        )
 
         await store.flushPendingNotificationDismisses(macDeviceID: "mac-secondary")
 
@@ -128,6 +138,75 @@ import UserNotifications
         #expect(foregroundDismisses.isEmpty)
         #expect(store.pendingDismissQueue.pendingDismisses.map(\.id) == ["n-missing"])
         #expect(store.pendingDismissQueue.pendingDismisses.map(\.macDeviceID) == ["mac-missing"])
+    }
+
+    @Test func syncSkipsNotificationMethodsMissingFromForegroundCapabilities() async throws {
+        let router = RoutingHostRouter()
+        let queue = PendingNotificationDismissQueue(
+            defaults: UserDefaults(suiteName: "dismiss-queue-\(UUID().uuidString)")!
+        )
+        queue.enqueue([(id: "n-old-host", macDeviceID: nil)])
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            pendingDismissQueue: queue,
+            hostCapabilities: []
+        )
+        let client = try #require(store.remoteClient)
+
+        store.scheduleNotificationReconcile(client: client)
+        await store.notificationReconcileTask?.value
+
+        let notificationMethods = await router.recordedMethods().filter {
+            $0.hasPrefix("notification.")
+        }
+        #expect(notificationMethods.isEmpty)
+        #expect(queue.pendingIDs == ["n-old-host"])
+    }
+
+    @Test func syncUsesNotificationMethodsAdvertisedByForegroundHost() async throws {
+        let router = RoutingHostRouter()
+        let queue = PendingNotificationDismissQueue(
+            defaults: UserDefaults(suiteName: "dismiss-queue-\(UUID().uuidString)")!
+        )
+        queue.enqueue([(id: "n-current-host", macDeviceID: nil)])
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            pendingDismissQueue: queue,
+            hostCapabilities: [
+                "notification.dismiss.v1",
+                "notification.reconcile.v1",
+            ]
+        )
+        let client = try #require(store.remoteClient)
+
+        store.scheduleNotificationReconcile(client: client)
+        await store.notificationReconcileTask?.value
+
+        let notificationMethods = await router.recordedMethods().filter {
+            $0.hasPrefix("notification.")
+        }
+        #expect(notificationMethods == ["notification.dismiss", "notification.reconcile"])
+        #expect(queue.pendingIDs.isEmpty)
+    }
+
+    @Test func dismissForSecondaryWithoutCapabilityStaysQueued() async throws {
+        let foregroundRouter = RoutingHostRouter()
+        let secondaryRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: foregroundRouter)
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "mac-secondary",
+            router: secondaryRouter,
+            supportedHostCapabilities: []
+        )
+
+        await store.dismissNotification(ids: ["n-legacy"], macDeviceID: "mac-secondary")
+
+        let notificationMethods = await secondaryRouter.recordedMethods().filter {
+            $0.hasPrefix("notification.")
+        }
+        #expect(notificationMethods.isEmpty)
+        #expect(store.pendingDismissQueue.pendingIDs == ["n-legacy"])
     }
 
     @Test func setsBadgeToAuthoritativeTotal() {

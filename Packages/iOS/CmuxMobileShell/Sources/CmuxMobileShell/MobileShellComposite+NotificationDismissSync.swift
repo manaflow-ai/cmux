@@ -47,7 +47,9 @@ extension MobileShellComposite {
         macDeviceID: String?
     ) async {
         let ids = dismisses.map(\.id)
-        guard let client = notificationDismissClient(for: macDeviceID) else { return }
+        guard let target = notificationDismissTarget(for: macDeviceID),
+              target.capabilities.contains(Self.notificationDismissCapability)
+        else { return }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.dismiss",
@@ -56,15 +58,20 @@ extension MobileShellComposite {
                     "client_id": clientID,
                 ]
             )
-            _ = try await client.sendRequest(request)
+            _ = try await target.client.sendRequest(request)
             pendingDismissQueue.remove(dismisses)
         } catch {
             mobileShellLog.error("notification dismiss sync failed count=\(ids.count, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
     }
 
-    private func notificationDismissClient(for macDeviceID: String?) -> MobileCoreRPCClient? {
-        guard let macDeviceID, !macDeviceID.isEmpty else { return remoteClient }
+    private func notificationDismissTarget(
+        for macDeviceID: String?
+    ) -> (client: MobileCoreRPCClient, capabilities: Set<String>)? {
+        guard let macDeviceID, !macDeviceID.isEmpty else {
+            guard let remoteClient else { return nil }
+            return (remoteClient, supportedHostCapabilities)
+        }
         // Dismiss records are device-scoped (push payloads carry no instance
         // tag). Route only when the owning build is unambiguous ACROSS STORED
         // pairings: the emitting build may be offline while a sibling is the
@@ -74,11 +81,12 @@ extension MobileShellComposite {
         }
         guard storedSiblings.count <= 1 else { return nil }
         if foregroundMacDeviceID == macDeviceID, let remoteClient {
-            return remoteClient
+            return (remoteClient, supportedHostCapabilities)
         }
-        return secondaryMacSubscriptions
-            .first { $0.value.macDeviceID == macDeviceID }?
-            .value.client
+        guard let subscription = secondaryMacSubscriptions
+            .first(where: { $0.value.macDeviceID == macDeviceID })?
+            .value else { return nil }
+        return (subscription.client, subscription.supportedHostCapabilities)
     }
 
     func flushPendingNotificationDismisses(macDeviceID: String? = nil) async {
@@ -126,10 +134,15 @@ extension MobileShellComposite {
     }
 
     func reconcileNotificationsWithMac(client: MobileCoreRPCClient) async {
+        guard supportedHostCapabilities.contains(Self.notificationReconcileCapability),
+              remoteClient === client,
+              connectionState == .connected else { return }
         let deliveredIDs = await deliveredNotificationClearer.deliveredIdentifiers()
         guard !Task.isCancelled,
               remoteClient === client,
-              connectionState == .connected else { return }
+              connectionState == .connected,
+              supportedHostCapabilities.contains(Self.notificationReconcileCapability)
+        else { return }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.reconcile",
