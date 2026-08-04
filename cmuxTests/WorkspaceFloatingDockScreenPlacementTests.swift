@@ -420,13 +420,19 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         #expect(snapshot.parkedFrame.size == restoreFrame.size)
         #expect(controller.window?.frame == snapshot.parkedFrame)
         #expect(controller.window?.frame.size == restoreFrame.size)
-        #expect(controller.window?.contentView?.superview?.layer?.mask != nil)
-        let interactionWindow = try #require(NSApp.windows.first {
+        #expect(controller.window?.contentView?.superview?.layer?.mask == nil)
+        #expect(controller.window?.isVisible == false)
+        let presentationWindow = try #require(NSApp.windows.first {
             $0.identifier?.rawValue
-                == "cmux.workspace.float.parkingInteraction.\(dock.id.uuidString)"
+                == "cmux.workspace.float.parkingPresentation.\(dock.id.uuidString)"
         })
-        #expect(interactionWindow.frame == snapshot.restingVisibleFrame)
-        #expect(interactionWindow.parent === controller.window)
+        #expect(presentationWindow.frame == snapshot.restingVisibleFrame)
+        #expect(presentationWindow.isVisible)
+        #expect(presentationWindow.parent == nil)
+        #expect(
+            presentationWindow.contentView?.identifier?.rawValue
+                == "FloatingWindowParkingPresentation.\(dock.id.uuidString)"
+        )
         #expect(controller.window?.ignoresMouseEvents == true)
         #expect(dock.screenFrame == restoreFrame)
     }
