@@ -22,7 +22,11 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     /// classification so the coordinator falls back to the handle registry.
     var identityKinds: [UUID: Set<ControlHandleKind>]?
 
+    /// How many times each identity was classified, for memoization coverage.
+    var identityKindQueries: [UUID: Int] = [:]
+
     func controlIdentityKinds(for uuid: UUID) -> Set<ControlHandleKind>? {
+        identityKindQueries[uuid, default: 0] += 1
         guard let identityKinds else { return nil }
         return identityKinds[uuid] ?? []
     }

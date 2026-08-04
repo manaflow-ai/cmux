@@ -42,6 +42,10 @@ public final class ControlCommandCoordinator {
     @ObservationIgnored
     public var handles: ControlHandleRegistry
 
+    /// Per-request memo for ``identityKinds(for:)``, cleared by
+    /// ``resetIdentityKindCache()`` at each request boundary.
+    var identityKindCache: [UUID: (kinds: Set<ControlHandleKind>, authoritative: Bool)] = [:]
+
     @ObservationIgnored
     nonisolated let simulatorOperationAdmissionGate =
         ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 4)
@@ -68,6 +72,9 @@ public final class ControlCommandCoordinator {
     /// - Parameter request: The decoded request envelope.
     /// - Returns: The command result, or `nil` if not owned here.
     public func handle(_ request: ControlRequest) -> ControlCallResult? {
+        // Identity classification is a per-request snapshot of live topology,
+        // exactly as the conformer's handle-ref refresh already is.
+        resetIdentityKindCache()
         // Each domain's handler (in its own `+<Domain>.swift` extension) owns its
         // methods and returns `nil` for anything else, so the chain falls through
         // to the next domain and finally to the legacy app-side dispatcher.
@@ -295,29 +302,66 @@ public final class ControlCommandCoordinator {
             return handles.uuid(forRef: raw, kinds: expected)
         }
         let known = identityKinds(for: parsed)
-        // Empty means no source can name a kind for this identity, which is gap
-        // 1 of the issue: the CLI injects the caller's own CMUX_WORKSPACE_ID /
-        // CMUX_SURFACE_ID into most commands, so failing closed here would also
-        // fail ordinary commands issued from a since-closed workspace. Telling
-        // those apart needs the wire-format change the issue defers to a
-        // product call.
-        guard known.isEmpty || !known.isDisjoint(with: expected) else { return nil }
+        if !known.kinds.isEmpty {
+            guard !known.kinds.isDisjoint(with: expected) else { return nil }
+            return parsed
+        }
+        // Live topology says this id names nothing. For a key the CLI never
+        // fills from caller context, that is unambiguously a user-specified
+        // target that does not exist, so it fails closed.
+        if known.authoritative, !Self.callerInjectableKeys.contains(key) {
+            return nil
+        }
+        // Otherwise it stays acceptable. That is gap 1 of the issue: the CLI
+        // injects the caller's own CMUX_WORKSPACE_ID / CMUX_SURFACE_ID into
+        // most commands, so failing closed on these keys would also fail
+        // ordinary commands issued from a since-closed workspace. Telling those
+        // apart needs the wire-format change the issue defers to a product
+        // call. Non-authoritative classification (no app attached) also stays
+        // permissive, since absence of evidence is not evidence of absence.
         return parsed
     }
 
+    /// The param keys the CLI fills from the caller's own environment
+    /// (`CMUX_WORKSPACE_ID` / `CMUX_SURFACE_ID`), where a stale id is ordinary
+    /// rather than a mistargeted command. Every other key is user-specified.
+    static let callerInjectableKeys: Set<String> = [
+        "workspace_id", "surface_id", "terminal_id", "tab_id", "panel_id",
+    ]
+
     /// The kinds an identity is known to have, preferring the app's live
-    /// topology over the handle registry's mint history.
+    /// topology over the handle registry's mint history, plus whether that
+    /// answer is authoritative.
     ///
     /// Mint history alone is not a sound oracle: dock-hosted objects may not be
     /// minted yet, and ``ControlHandleRegistry/removeRef(kind:uuid:)`` erases
     /// what the registry knew. The conformer answers from live topology when it
     /// can; the registry is the fallback for contexts with no app attached
-    /// (tests, and any conformer that does not implement the seam).
-    func identityKinds(for uuid: UUID) -> Set<ControlHandleKind> {
+    /// (tests, and any conformer that does not implement the seam), and that
+    /// fallback is never treated as authoritative.
+    ///
+    /// Memoized for the current request: classification sweeps live topology,
+    /// and one request resolves the same id repeatedly (rejection checking,
+    /// routing, then the command body).
+    func identityKinds(for uuid: UUID) -> (kinds: Set<ControlHandleKind>, authoritative: Bool) {
+        if let cached = identityKindCache[uuid] { return cached }
+        let resolved: (kinds: Set<ControlHandleKind>, authoritative: Bool)
         if let authoritative = context?.controlIdentityKinds(for: uuid) {
-            return authoritative
+            resolved = (authoritative, true)
+        } else {
+            resolved = (handles.mintedKinds(for: uuid), false)
         }
-        return handles.mintedKinds(for: uuid)
+        identityKindCache[uuid] = resolved
+        return resolved
+    }
+
+    /// Drops the memoized identity classifications.
+    ///
+    /// Called at each request boundary, alongside the conformer's ref refresh,
+    /// so classification is a per-request snapshot of topology exactly as the
+    /// handle refs already are.
+    public func resetIdentityKindCache() {
+        identityKindCache.removeAll(keepingCapacity: true)
     }
 
     /// Resolves a `kind:N` ref for a named param key, restricted to the handle
@@ -400,28 +444,34 @@ public final class ControlCommandCoordinator {
     /// selector through the handle registry exactly as the legacy
     /// `v2ResolveTabManager` did before walking its precedence.
     func routingSelectors(_ params: [String: JSONValue]) -> ControlRoutingSelectors {
-        ControlRoutingSelectors(
-            hasWindowIDParam: hasNonNull(params, "window_id"),
-            windowID: routingUUID(params, "window_id"),
-            groupID: routingUUID(params, "group_id"),
-            workspaceID: routingUUID(params, "workspace_id"),
-            surfaceID: routingUUID(params, "surface_id")
-                ?? routingUUID(params, "terminal_id")
-                ?? routingUUID(params, "tab_id"),
-            paneID: routingUUID(params, "pane_id"),
-            hasRejectedSelector: hasRejectedRoutingSelector(params)
-        )
-    }
-
-    /// Whether any routing selector was supplied but failed to resolve, which
-    /// must fail the routing walk rather than read as an absent selector.
-    ///
-    /// `window_id` is excluded: its presence is already carried separately by
-    /// ``ControlRoutingSelectors/hasWindowIDParam`` and handled by the walk.
-    func hasRejectedRoutingSelector(_ params: [String: JSONValue]) -> Bool {
-        Self.routingSelectorKeys.contains { key in
-            hasNonNull(params, key) && routingUUID(params, key) == nil
+        // Each key is resolved exactly once: classification sweeps live
+        // topology, so resolving a second time to compute the rejection flag
+        // would double the cost of every routed request.
+        var rejected = false
+        func selector(_ key: String) -> UUID? {
+            let resolved = routingUUID(params, key)
+            if resolved == nil, hasNonNull(params, key) { rejected = true }
+            return resolved
         }
+
+        // `window_id` is resolved without the rejection flag: its presence is
+        // carried separately by `hasWindowIDParam`, which the walk already
+        // fails closed on.
+        let windowID = routingUUID(params, "window_id")
+        let groupID = selector("group_id")
+        let workspaceID = selector("workspace_id")
+        let surfaceID = selector("surface_id") ?? selector("terminal_id") ?? selector("tab_id")
+        let paneID = selector("pane_id")
+
+        return ControlRoutingSelectors(
+            hasWindowIDParam: hasNonNull(params, "window_id"),
+            windowID: windowID,
+            groupID: groupID,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            paneID: paneID,
+            hasRejectedSelector: rejected
+        )
     }
 
     /// The routing selector keys whose supplied-but-invalid state fails closed.

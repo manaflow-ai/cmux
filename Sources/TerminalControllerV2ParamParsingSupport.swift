@@ -94,19 +94,6 @@ extension TerminalController {
         return v2MainSync { v2ResolveIdentifier(s, forParamKey: key) }
     }
 
-    /// Whether any routing selector was supplied but failed to resolve — a
-    /// wrong-kind ref or id, an unknown `kind:N` ref, or a blank/non-string
-    /// value. Such a request must fail closed rather than slide down the
-    /// routing walk to the active window.
-    ///
-    /// `window_id` is excluded: the walk already fails closed on a
-    /// present-but-unresolvable one.
-    nonisolated func v2HasRejectedRoutingSelector(_ params: [String: Any]) -> Bool {
-        ControlCommandCoordinator.routingSelectorKeys.contains { key in
-            v2HasNonNullParam(params, key) && v2RoutingUUID(params, key) == nil
-        }
-    }
-
     /// The routing-lane twin of ``v2UUID(_:_:)``: identical, except the Window
     /// Dock's window-as-`workspace_id` alias is accepted. Only the routing walk
     /// may take that alias, so it is never granted by param name alone.

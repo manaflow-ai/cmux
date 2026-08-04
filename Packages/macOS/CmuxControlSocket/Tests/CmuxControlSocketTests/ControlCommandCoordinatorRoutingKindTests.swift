@@ -283,6 +283,77 @@ struct ControlCommandCoordinatorRoutingKindTests {
         #expect(code == "unavailable")
     }
 
+    /// A user-specified selector naming nothing live fails closed. `group_id`
+    /// and `pane_id` are never filled from the caller's environment by the CLI,
+    /// so a stale or invented id there is a mistargeted command, not context.
+    @Test func unknownUserSpecifiedSelectorsFailClosed() {
+        let coordinator = ControlCommandCoordinator()
+        let context = FakeSurfaceControlCommandContext()
+        context.identityKinds = [:]
+        coordinator.context = context
+        let stranger = UUID()
+
+        let group = coordinator.routingSelectors(["group_id": .string(stranger.uuidString)])
+        #expect(group.groupID == nil)
+        #expect(group.hasRejectedSelector)
+
+        let pane = coordinator.routingSelectors(["pane_id": .string(stranger.uuidString)])
+        #expect(pane.paneID == nil)
+        #expect(pane.hasRejectedSelector)
+    }
+
+    /// The caller-injected keys keep falling back, because the CLI puts the
+    /// caller's own `CMUX_WORKSPACE_ID`/`CMUX_SURFACE_ID` there and a
+    /// since-closed workspace must not break ordinary commands. That is gap 1,
+    /// pending the wire-format change.
+    @Test func unknownCallerInjectableSelectorsStillPassThrough() {
+        let coordinator = ControlCommandCoordinator()
+        let context = FakeSurfaceControlCommandContext()
+        context.identityKinds = [:]
+        coordinator.context = context
+        let stale = UUID()
+
+        for key in ["workspace_id", "surface_id", "terminal_id", "tab_id"] {
+            let routing = coordinator.routingSelectors([key: .string(stale.uuidString)])
+            #expect(!routing.hasRejectedSelector)
+        }
+        #expect(
+            coordinator.routingSelectors(["workspace_id": .string(stale.uuidString)]).workspaceID == stale
+        )
+    }
+
+    /// With no app attached the classification is not authoritative, so absence
+    /// of evidence must not become evidence of absence.
+    @Test func nonAuthoritativeClassificationStaysPermissive() {
+        let (coordinator, _) = coordinatorWithOneRefPerKind()
+        let stranger = UUID()
+
+        let routing = coordinator.routingSelectors(["group_id": .string(stranger.uuidString)])
+        #expect(routing.groupID == stranger)
+        #expect(!routing.hasRejectedSelector)
+    }
+
+    /// Classification is memoized per request, so a routed command does not
+    /// sweep live topology once per selector occurrence.
+    @Test func identityClassificationIsMemoizedPerRequest() {
+        let coordinator = ControlCommandCoordinator()
+        let context = FakeSurfaceControlCommandContext()
+        let workspace = UUID()
+        context.identityKinds = [workspace: [.workspace]]
+        coordinator.context = context
+
+        _ = coordinator.routingSelectors([
+            "workspace_id": .string(workspace.uuidString),
+            "surface_id": .string(workspace.uuidString),
+        ])
+        #expect(context.identityKindQueries[workspace] == 1)
+
+        // A new request re-snapshots topology.
+        coordinator.resetIdentityKindCache()
+        _ = coordinator.routingSelectors(["workspace_id": .string(workspace.uuidString)])
+        #expect(context.identityKindQueries[workspace] == 2)
+    }
+
     @Test func registryRejectsRefsOutsideTheRequestedKinds() {
         var registry = ControlHandleRegistry()
         let surfaceID = UUID()

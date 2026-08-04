@@ -3670,6 +3670,9 @@ class TerminalController {
     // the worker-lane resolution hop, mirroring the main-lane dispatch
     // preamble.
     func v2RefreshKnownRefs() {
+        // Identity classification snapshots live topology for the request, so
+        // it is refreshed on the same boundary as the handle refs.
+        controlCommandCoordinator.resetIdentityKindCache()
         guard let app = AppDelegate.shared else { return }
 
         let windows = app.listMainWindowSummaries()
@@ -3704,17 +3707,29 @@ class TerminalController {
         // an absent one would slide down to the active window and act on a
         // target the caller never named
         // (https://github.com/manaflow-ai/cmux/issues/9424).
-        if v2HasRejectedRoutingSelector(params) { return nil }
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2RoutingUUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
         }
-        if let groupId = v2RoutingUUID(params, "group_id") {
+        // Resolve each selector once, recording supplied-but-invalid as it goes,
+        // so classification does not sweep live topology twice per request.
+        var rejected = false
+        func selector(_ key: String) -> UUID? {
+            let resolved = v2RoutingUUID(params, key)
+            if resolved == nil, v2HasNonNullParam(params, key) { rejected = true }
+            return resolved
+        }
+        let groupSelector = selector("group_id")
+        let workspaceSelector = selector("workspace_id")
+        let surfaceSelector = selector("surface_id") ?? selector("terminal_id") ?? selector("tab_id")
+        let paneSelector = selector("pane_id")
+        if rejected { return nil }
+        if let groupId = groupSelector {
             if let tm = v2MainSync({ v2LocateTabManager(forGroupId: groupId) }) {
                 return tm
             }
         }
-        if let wsId = v2RoutingUUID(params, "workspace_id") {
+        if let wsId = workspaceSelector {
             if wsId == AppDelegate.windowDockAliasWorkspaceId {
                 return v2MainSync { tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
             }
@@ -3727,12 +3742,10 @@ class TerminalController {
                 return tm
             }
         }
-        if let surfaceId = v2RoutingUUID(params, "surface_id")
-            ?? v2RoutingUUID(params, "terminal_id")
-            ?? v2RoutingUUID(params, "tab_id") {
+        if let surfaceId = surfaceSelector {
             if let manager = v2MainSync({ controlTabManager(surfaceID: surfaceId) }) { return manager }
         }
-        if let paneId = v2RoutingUUID(params, "pane_id") {
+        if let paneId = paneSelector {
             if let tm = v2MainSync({ controlTabManager(paneID: paneId) }) {
                 return tm
             }
