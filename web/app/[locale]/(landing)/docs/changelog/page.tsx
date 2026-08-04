@@ -14,6 +14,8 @@ import { DocsSchema } from "../docs-schema";
 import { changelogMedia } from "./changelog-media";
 import { ChangelogRelease } from "./changelog-release";
 
+export const dynamic = "force-static";
+
 export async function generateMetadata({
   params,
 }: {
