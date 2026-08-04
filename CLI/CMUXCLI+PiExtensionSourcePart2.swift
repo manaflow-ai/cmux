@@ -299,37 +299,43 @@ function prepareFeedDispatch(
   const cwd = context.cwd;
   const toolCallId = firstString(objectValue(event, ["toolCallId", "tool_call_id", "id"]));
   const toolName = firstString(objectValue(event, ["toolName", "tool_name", "name"]));
-  const projectionState: PiFeedProjectionState = { remainingNodes: 48, seen: new WeakSet() };
-  const payload: HookExtra = {
-    session_id: utf8Prefix(sessionId, 256),
-    cwd: utf8Prefix(cwd, 2048),
-    hook_event_name: eventName,
-    event: eventName,
-    turn_id: utf8Prefix(currentTurnId(sessionStates, sessionId, event), 256),
-  };
-  const boundedToolCallId = utf8Prefix(toolCallId, 256);
-  if (boundedToolCallId !== undefined) payload.tool_call_id = boundedToolCallId;
-  const boundedToolName = utf8Prefix(toolName, 256);
-  if (boundedToolName !== undefined) payload.tool_name = boundedToolName;
+  const turnId = currentTurnId(sessionStates, sessionId, event);
   const toolInput = objectValue(event, ["args", "input"]);
-  if (toolInput !== undefined) payload.tool_input = projectPiFeedValue(toolInput, projectionState);
-  if (isTerminalFeedEvent(eventName)) {
-    const toolResult = objectValue(event, ["result", "details", "content"]);
-    if (toolResult !== undefined) {
-      payload.tool_result = projectPiFeedValue(toolResult, projectionState, 0, false);
-    }
-    const isError = objectValue(event, ["isError", "is_error"]);
-    if (isError !== undefined) payload.is_error = projectPiFeedValue(isError, projectionState);
-  }
+  const terminal = isTerminalFeedEvent(eventName);
+  const toolResult = terminal
+    ? objectValue(event, ["result", "details", "content"])
+    : undefined;
+  const isError = terminal ? objectValue(event, ["isError", "is_error"]) : undefined;
   return () => {
     const target = surfaceTargetArgs(dispatcher, sessionId);
     if (!target) return;
+
+    // Pi invokes tool lifecycle handlers on its UI event loop. Keep those
+    // callbacks lightweight by traversing and bounding tool payloads only in
+    // the already-detached lifecycle task.
+    const projectionState: PiFeedProjectionState = { remainingNodes: 48, seen: new WeakSet() };
+    const payload: HookExtra = {
+      session_id: utf8Prefix(sessionId, 256),
+      cwd: utf8Prefix(cwd, 2048),
+      hook_event_name: eventName,
+      event: eventName,
+      turn_id: utf8Prefix(turnId, 256),
+    };
+    const boundedToolCallId = utf8Prefix(toolCallId, 256);
+    if (boundedToolCallId !== undefined) payload.tool_call_id = boundedToolCallId;
+    const boundedToolName = utf8Prefix(toolName, 256);
+    if (boundedToolName !== undefined) payload.tool_name = boundedToolName;
+    if (toolInput !== undefined) payload.tool_input = projectPiFeedValue(toolInput, projectionState);
+    if (toolResult !== undefined) {
+      payload.tool_result = projectPiFeedValue(toolResult, projectionState, 0, false);
+    }
+    if (isError !== undefined) payload.is_error = projectPiFeedValue(isError, projectionState);
     dispatcher.enqueueFeed(`${sessionId}:${toolCallId || toolName || "unknown"}`, {
       args: ["hooks", "feed", "--source", "pi", "--event", eventName, ...target],
       cwd,
       payload,
       context,
-      terminal: isTerminalFeedEvent(eventName),
+      terminal,
       onFailure: () => { state.feedDeliveryFailed = true; },
     });
   };
@@ -353,7 +359,11 @@ async function publishPendingCompletion(
     last_assistant_message: completion.lastAssistantMessage,
     turn_id: completion.turnId,
   };
-  if (feedDelivered) {
+  if (completion.suppressNotification) {
+    // Stop normally creates cmux's native fallback notification when no explicit
+    // notification was routed. Mark intentional interruption as already handled.
+    stopPayload.cmux_notification_routed = true;
+  } else if (feedDelivered) {
     const notificationRouted = await sendHook(dispatcher, "notification", context, {
       message: completion.lastAssistantMessage || "Task completed",
       turn_id: completion.turnId,
@@ -453,12 +463,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     const sessionId = context.sessionId;
     if (!sessionId) return;
     const state = stateFor(sessionStates, sessionId);
-    const message = lastAssistantMessage(event);
+    const assistantCompletion = assistantCompletionFrom(event);
     // Preserve the latest low-level result until Pi confirms no automatic work remains.
     state.pendingCompletion = {
-      lastAssistantMessage: message || state.pendingCompletion?.lastAssistantMessage,
+      lastAssistantMessage: assistantCompletion.lastAssistantMessage || state.pendingCompletion?.lastAssistantMessage,
       notificationType: firstString(objectValue(event, ["stopReason", "reason", "terminationReason"])) || "completed",
       turnId: currentTurnId(sessionStates, sessionId, event),
+      suppressNotification: assistantCompletion.suppressNotification,
     };
     // Older Pi versions do not emit agent_settled, so retain their established completion behavior.
     if (!supportsAgentSettled()) {

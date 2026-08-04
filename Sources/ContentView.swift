@@ -7086,14 +7086,14 @@ struct ContentView: View {
         return snapshot
     }
 
-    /// Search keywords for the "Mobile Connect" command palette entry.
+    /// Search keywords for the Tailscale pairing command palette entry.
     ///
     /// Kept as a single source of truth so the contribution and its behavioral
     /// test agree on what queries (e.g. `ios`, `ipados`) must surface the
     /// command. These are platform/technical terms that read the same across
     /// locales, so they are not localized.
     static let commandPaletteMobileConnectKeywords: [String] = [
-        "mobile", "connect", "pair", "pairing", "device",
+        "tailscale", "mobile", "connect", "pair", "pairing", "device",
         "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
     ]
 
@@ -7437,16 +7437,16 @@ struct ContentView: View {
                 keywords: ["open", "ghostty", "settings", "config", "configuration", "file", "textedit", "terminal"]
             )
         )
-        if CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
-            contributions.append(
-                CommandPaletteCommandContribution(
-                    commandId: "palette.mobileConnect",
-                    title: constant(String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")),
-                    subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
-                    keywords: Self.commandPaletteMobileConnectKeywords
-                )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.mobileConnect",
+                title: constant(
+                    String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing")
+                ),
+                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Tailscale")),
+                keywords: Self.commandPaletteMobileConnectKeywords
             )
-        }
+        )
         contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions() + Self.commandPaletteProCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8581,6 +8581,7 @@ struct ContentView: View {
             _ = AppDelegate.shared?.performMobileConnectWorkspaceAction(
                 tabManager: tabManager,
                 preferredWindow: observedWindow,
+                enforceFeatureFlag: false,
                 debugSource: "palette.mobileConnect"
             )
         }
