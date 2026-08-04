@@ -149,7 +149,32 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     }
 
     func testMobilePushForwardingIsVisibleAndDefaultsToAlways() {
-        let app = makeLaunchedApp()
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += settingsLaunchArguments
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        // `makeLaunchedApp()` deliberately wraps `launch()` in a broad,
+        // non-strict expected failure for headless activation. That wrapper
+        // can finish this test before the Settings assertions run. `activate`
+        // launches when needed without that wrapper, so missing controls are
+        // real regression failures.
+        app.activate()
+        XCTAssertTrue(
+            poll(timeout: 10.0) {
+                app.state == .runningForeground || app.state == .runningBackground
+            },
+            "App failed to launch. state=\(app.state.rawValue)"
+        )
+        if app.state != .runningForeground {
+            app.activate()
+        }
+        XCTAssertTrue(
+            poll(timeout: 6.0) { app.state == .runningForeground },
+            "App did not become foreground. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForWindowCount(atLeast: 1, app: app, timeout: 8.0),
+            "main window did not appear"
+        )
         let window = openSettings(app)
         defer { closeSettings(app, window) }
         navigate(window, to: "Mobile")
