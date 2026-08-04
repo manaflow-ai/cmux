@@ -1407,7 +1407,16 @@
     "changelog": {
       "title": "Журнал змін",
       "metaTitle": "Журнал змін",
-      "metaDescription": "Примітки до випусків та історія версій cmux. Нові можливості, виправлення помилок та зміни для нативного терміналу macOS."
+      "metaDescription": "Примітки до випусків та історія версій cmux. Нові можливості, виправлення помилок та зміни для нативного терміналу macOS.",
+      "versionTitle": "cmux {version} · Журнал змін",
+      "releaseNavLabel": "Версії поруч із cmux {version}",
+      "sections": {
+        "added": "Додано",
+        "changed": "Змінено",
+        "fixed": "Виправлено",
+        "removed": "Видалено",
+        "contributors": "Учасники"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",
