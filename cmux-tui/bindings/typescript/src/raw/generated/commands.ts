@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd. */
+/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
 
 
 import type * as T from "./types.js";
@@ -299,6 +299,11 @@ export interface FocusPaneRequest extends CmuxRequestBase {
   "pane": T.Id;
 }
 export type FocusPaneResult = T.EmptyResult;
+
+/** Protocol v6; authority: frontend. */
+export interface GetCellPixelsRequest extends CmuxRequestBase {
+  cmd: "get-cell-pixels";
+}
 
 /** Protocol v7; authority: control. */
 export interface GetFrontendProjectionRequest extends CmuxRequestBase {
@@ -745,6 +750,7 @@ export type SetWindowTitleResult = T.EmptyResult;
 /** Protocol v9; authority: local-admin. */
 export interface ShutdownDaemonRequest extends CmuxRequestBase {
   cmd: "shutdown-daemon";
+  "force"?: boolean;
   "generation": string;
   "pid": number;
 }
@@ -853,6 +859,7 @@ export type CmuxRequest =
   | ExportLayoutRequest
   | FocusDirectionRequest
   | FocusPaneRequest
+  | GetCellPixelsRequest
   | GetFrontendProjectionRequest
   | IdentifyRequest
   | IdsRequest
@@ -1154,6 +1161,14 @@ export interface CmuxCommandDefinitionMap {
     result: FocusPaneResult;
     authority: "control";
     since: 5;
+    capability: null;
+    stream: null;
+  };
+  "get-cell-pixels": {
+    request: GetCellPixelsRequest;
+    result: T.GetCellPixelsResult;
+    authority: "frontend";
+    since: 6;
     capability: null;
     stream: null;
   };

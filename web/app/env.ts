@@ -66,6 +66,18 @@ const requireVercelRelayValue = (
       });
     }
   });
+const retiredEnvValue = (
+  name: string,
+  replacement: string,
+): z.ZodType<string | undefined> =>
+  z.string().optional().superRefine((value, context) => {
+    if (value) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${name} is retired; use ${replacement}`,
+      });
+    }
+  });
 const privateRelayEnvNames = new Set([
   "CMUX_RELAY_JWT_PRIVATE_KEY_PEM",
   "CMUX_RELAY_POLICY_KEY_ID",
@@ -172,8 +184,17 @@ export const env = createEnv({
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
     STRIPE_PRO_MONTHLY_PRICE_ID: z.string().min(1).optional(),
-    STRIPE_PRO_YEARLY_PRICE_ID: z.string().min(1).optional(),
+    // Deliberately distinct from the legacy STRIPE_PRO_YEARLY_PRICE_ID,
+    // which can refer to the grandfathered $240/year price.
+    STRIPE_PRO_YEARLY_PRICE_ID: retiredEnvValue(
+      "STRIPE_PRO_YEARLY_PRICE_ID",
+      "STRIPE_PRO_YEARLY_288_PRICE_ID",
+    ),
+    STRIPE_PRO_YEARLY_288_PRICE_ID: z.string().min(1).optional(),
     STRIPE_TEAM_MONTHLY_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_TEAM_YEARLY_PRICE_ID: z.string().min(1).optional(),
+    CMUX_APP_PRICING_CHECKOUT_URL: z.string().url().optional(),
+    CMUX_APP_PRICING_RELAY_SECRET: z.string().min(32).optional(),
     // App Store Connect API for server-side TestFlight enrollment. Optional:
     // the dashboard shows enrollment unavailable until these credentials are set.
     // ASC_PRIVATE_KEY accepts PEM contents with literal "\n" escapes;
@@ -304,7 +325,17 @@ export const env = createEnv({
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
     STRIPE_PRO_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_PRICE_ID),
+    STRIPE_PRO_YEARLY_288_PRICE_ID: trimEnv(
+      process.env.STRIPE_PRO_YEARLY_288_PRICE_ID,
+    ),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
+    STRIPE_TEAM_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_PRICE_ID),
+    CMUX_APP_PRICING_CHECKOUT_URL: trimEnv(
+      process.env.CMUX_APP_PRICING_CHECKOUT_URL,
+    ),
+    CMUX_APP_PRICING_RELAY_SECRET: trimEnv(
+      process.env.CMUX_APP_PRICING_RELAY_SECRET,
+    ),
     ASC_KEY_ID: trimEnv(process.env.ASC_KEY_ID),
     ASC_ISSUER_ID: trimEnv(process.env.ASC_ISSUER_ID),
     ASC_PRIVATE_KEY: trimEnv(process.env.ASC_PRIVATE_KEY),

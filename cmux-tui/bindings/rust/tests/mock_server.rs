@@ -2479,6 +2479,92 @@ fn terminal_wait_cancel_false_drains_the_completion_race_before_reuse() {
 }
 
 #[test]
+fn terminal_wait_cancel_false_drains_response_first_before_reuse() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        let wait = request(&mut reader);
+        let cancel = request(&mut reader);
+        assert_eq!(cancel["operation"], "request.cancel");
+        success(&mut stream, &wait, json!({"matched": true, "text": "raced"}));
+        thread::sleep(Duration::from_millis(10));
+        success(&mut stream, &cancel, json!({"canceled": false}));
+
+        let ping = request(&mut reader);
+        success(
+            &mut stream,
+            &ping,
+            json!({
+                "alive": true,
+                "cursor": {"generation": "g", "revision": "2"}
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let terminal = client.current_session().terminal(TerminalId::parse(TERMINAL).unwrap());
+    let options = RequestOptions::new().with_timeout(Duration::from_millis(20)).unwrap();
+    let error = client
+        .with_request_options(options, || {
+            terminal.wait(WaitOptions { pattern: "raced".to_string(), timeout_ms: None })
+        })
+        .unwrap_err();
+    assert!(matches!(error, Error::Timeout(_)));
+    assert!(client.current_session().ping().unwrap().alive);
+
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn malformed_raced_wait_result_preserves_timeout_and_reconnects() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let (mut first, _) = listener.accept().unwrap();
+        let mut first_reader = BufReader::new(first.try_clone().unwrap());
+        let wait = request(&mut first_reader);
+        let cancel = request(&mut first_reader);
+        success(&mut first, &cancel, json!({"canceled": false}));
+        success(&mut first, &wait, json!({"matched": true}));
+        assert_connection_closed_without_request(
+            &mut first_reader,
+            "malformed raced terminal.wait result",
+        );
+
+        let (mut second, _) = listener.accept().unwrap();
+        let ping = request(&mut BufReader::new(second.try_clone().unwrap()));
+        success(
+            &mut second,
+            &ping,
+            json!({
+                "alive": true,
+                "cursor": {"generation": "g", "revision": "3"}
+            }),
+        );
+    });
+
+    let client = connect(&path);
+    let terminal = client.current_session().terminal(TerminalId::parse(TERMINAL).unwrap());
+    let options = RequestOptions::new().with_timeout(Duration::from_millis(20)).unwrap();
+    let error = client
+        .with_request_options(options, || {
+            terminal.wait(WaitOptions { pattern: "never".to_string(), timeout_ms: None })
+        })
+        .unwrap_err();
+    assert!(matches!(error, Error::Timeout(_)));
+    assert!(client.current_session().ping().unwrap().alive);
+
+    client.close().unwrap();
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn malformed_wait_cleanup_preserves_timeout_and_reconnects() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();

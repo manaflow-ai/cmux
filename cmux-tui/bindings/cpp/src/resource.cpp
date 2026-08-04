@@ -15,6 +15,10 @@
 #include <stdexcept>
 #include <utility>
 
+#if defined(CMUX_CPP_TESTING)
+#include "resource_test_hooks.hpp"
+#endif
+
 #if defined(__APPLE__)
 #include <stdlib.h>
 #elif defined(__linux__)
@@ -22,6 +26,46 @@
 #endif
 
 namespace cmux {
+
+#if defined(CMUX_CPP_TESTING)
+namespace detail {
+namespace {
+
+std::atomic<std::size_t> simulated_request_lock_failures{0};
+std::atomic<std::size_t> observed_request_lock_failures{0};
+
+}  // namespace
+
+void simulate_spurious_request_lock_failures(std::size_t count) noexcept {
+    observed_request_lock_failures.store(0, std::memory_order_release);
+    simulated_request_lock_failures.store(count, std::memory_order_release);
+}
+
+std::size_t simulated_request_lock_failures_observed() noexcept {
+    return observed_request_lock_failures.load(std::memory_order_acquire);
+}
+
+bool consume_simulated_request_lock_failure() noexcept {
+    auto remaining =
+        simulated_request_lock_failures.load(std::memory_order_acquire);
+    while (remaining != 0) {
+        if (simulated_request_lock_failures.compare_exchange_weak(
+                remaining,
+                remaining - 1,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire)) {
+            observed_request_lock_failures.fetch_add(
+                1,
+                std::memory_order_release);
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace detail
+#endif
+
 namespace {
 
 struct OperationInfo {
@@ -1099,12 +1143,13 @@ public:
     ClientOptions options;
     std::unique_ptr<Transport> control;
     TransportFactory stream_factory;
-    std::mutex request_mutex;
+    std::timed_mutex request_mutex;
     std::atomic<std::uint64_t> next_request_id{1};
     std::atomic<bool> is_closed{false};
 
     [[nodiscard]] Result<void> cancel_abandoned_request(
-        std::string_view target_request_id) {
+        std::string_view target_request_id,
+        Operation target_operation) {
         const auto deadline =
             std::chrono::steady_clock::now() + options.timeout;
         const auto remaining = [&]() -> Timeout {
@@ -1184,6 +1229,20 @@ public:
                     if (error.code != ErrorCode::command) {
                         return error;
                     }
+                } else if (target_operation == Operation::terminal_wait) {
+                    auto typed = detail::decode_value<TerminalWaitResult>(
+                        completed.value());
+                    if (!typed) {
+                        return std::move(typed).error();
+                    }
+                } else if (
+                    target_operation == Operation::terminal_wait_exit) {
+                    auto typed =
+                        detail::decode_value<TerminalWaitExitResult>(
+                            completed.value());
+                    if (!typed) {
+                        return std::move(typed).error();
+                    }
                 }
                 target_seen = true;
             } else if (response_id.value() == cancel_request_id) {
@@ -1237,13 +1296,6 @@ public:
         Json::Object params,
         std::optional<std::string> idempotency_key,
         CallOptions call) {
-        std::lock_guard lock(request_mutex);
-        if (is_closed.load(std::memory_order_acquire)) {
-            return make_error(ErrorCode::closed, "client is closed");
-        }
-        if (call.cancel.stop_requested()) {
-            return make_error(ErrorCode::canceled, "operation was canceled");
-        }
         const auto deadline = call.deadline.value_or(
             std::chrono::steady_clock::now() + options.timeout);
         const auto remaining = [&]() -> Timeout {
@@ -1255,6 +1307,47 @@ public:
                 Timeout(1),
                 std::chrono::duration_cast<Timeout>(deadline - now));
         };
+        std::unique_lock<std::timed_mutex> lock(
+            request_mutex,
+            std::defer_lock);
+        while (!lock.owns_lock()) {
+            if (call.cancel.stop_requested()) {
+                return make_error(
+                    ErrorCode::canceled,
+                    "operation was canceled before request admission");
+            }
+            auto timeout = remaining();
+            if (timeout == Timeout::zero()) {
+                return make_error(
+                    ErrorCode::timeout,
+                    "operation timed out before request admission");
+            }
+            if (call.cancel.stop_possible()) {
+                timeout = std::min(timeout, Timeout(25));
+                (void)lock.try_lock_for(timeout);
+            } else {
+#if defined(CMUX_CPP_TESTING)
+                if (!detail::consume_simulated_request_lock_failure()) {
+#endif
+                    (void)lock.try_lock_until(deadline);
+#if defined(CMUX_CPP_TESTING)
+                }
+#endif
+            }
+        }
+        if (is_closed.load(std::memory_order_acquire)) {
+            return make_error(ErrorCode::closed, "client is closed");
+        }
+        if (call.cancel.stop_requested()) {
+            return make_error(
+                ErrorCode::canceled,
+                "operation was canceled before send");
+        }
+        if (remaining() == Timeout::zero()) {
+            return make_error(
+                ErrorCode::timeout,
+                "operation timed out before send");
+        }
         const auto mutation_key = idempotency_key;
         const auto outcome_error = [&](Error error) {
             if (mutation_key && error.code != ErrorCode::command &&
@@ -1272,13 +1365,19 @@ public:
             std::to_string(
                 next_request_id.fetch_add(1, std::memory_order_relaxed));
         inject_routing(options, operation, params);
+        const auto send_timeout = remaining();
+        if (send_timeout == Timeout::zero()) {
+            return make_error(
+                ErrorCode::timeout,
+                "operation timed out before send");
+        }
         auto sent = send_envelope(
             *control,
             request_id,
             operation,
             std::move(params),
             std::move(idempotency_key),
-            remaining(),
+            send_timeout,
             options.json_limits);
         if (!sent) {
             close();
@@ -1293,7 +1392,7 @@ public:
                 (original.code == ErrorCode::timeout ||
                  original.code == ErrorCode::canceled)) {
                 auto cleaned =
-                    cancel_abandoned_request(request_id);
+                    cancel_abandoned_request(request_id, operation);
                 if (!cleaned) {
                     close();
                 }
@@ -3010,13 +3109,22 @@ private:
 }  // namespace
 
 struct ResourceStream::Impl {
+    static constexpr std::size_t max_buffered_messages = 256U;
+    static constexpr std::size_t max_buffered_bytes = 16U * 1024U * 1024U;
+
+    struct BufferedEnvelope {
+        Json envelope;
+        std::size_t bytes = 0;
+    };
+
     std::unique_ptr<Transport> transport;
     ClientOptions options;
     StreamId stream_id;
     std::string machine_selector;
     std::string session_selector;
     Json::Object connection_route;
-    std::deque<Json> buffered;
+    std::deque<BufferedEnvelope> buffered;
+    std::size_t buffered_bytes = 0;
     std::optional<StreamEnd> stream_end;
     std::atomic<std::uint64_t> next_request_id{1};
     std::mutex mutex;
@@ -3027,16 +3135,41 @@ struct ResourceStream::Impl {
 
     ~Impl() { close_transport(); }
 
-    [[nodiscard]] Result<Json> receive(Timeout timeout) {
+    [[nodiscard]] Result<BufferedEnvelope> receive(Timeout timeout) {
         auto wire = transport->receive(timeout);
         if (!wire) {
             return std::move(wire).error();
         }
-        return Json::parse(wire.value(), options.json_limits);
+        const auto bytes = wire.value().size();
+        auto parsed = Json::parse(wire.value(), options.json_limits);
+        if (!parsed) {
+            return std::move(parsed).error();
+        }
+        return BufferedEnvelope{std::move(parsed).value(), bytes};
     }
 
-    [[nodiscard]] Result<Json> receive() {
+    [[nodiscard]] Result<BufferedEnvelope> receive() {
         return receive(options.timeout);
+    }
+
+    [[nodiscard]] Result<void> buffer(BufferedEnvelope envelope) {
+        if (
+            buffered.size() >= max_buffered_messages
+            || envelope.bytes > max_buffered_bytes - buffered_bytes) {
+            return make_error(
+                ErrorCode::stream_local_overflow,
+                "stream buffer exceeded 256 envelopes or 16 MiB");
+        }
+        buffered_bytes += envelope.bytes;
+        buffered.push_back(std::move(envelope));
+        return {};
+    }
+
+    [[nodiscard]] BufferedEnvelope pop_buffered() {
+        auto envelope = std::move(buffered.front());
+        buffered.pop_front();
+        buffered_bytes -= envelope.bytes;
+        return envelope;
     }
 
     [[nodiscard]] std::string request_id(std::string_view purpose) {
@@ -3056,6 +3189,7 @@ struct ResourceStream::Impl {
 
     [[nodiscard]] Error fail_closed(Error error) {
         buffered.clear();
+        buffered_bytes = 0;
         close_transport();
         return error;
     }
@@ -3183,22 +3317,23 @@ detail::ResourceClientState::open_stream(
         if (call.cancel.stop_possible()) {
             timeout = std::min(timeout, Timeout(25));
         }
-        auto envelope = impl->receive(timeout);
-        if (!envelope) {
-            if (envelope.error().code == ErrorCode::timeout &&
+        auto received = impl->receive(timeout);
+        if (!received) {
+            if (received.error().code == ErrorCode::timeout &&
                 call.cancel.stop_possible() &&
                 remaining() != Timeout::zero()) {
                 continue;
             }
-            return std::move(envelope).error();
+            return std::move(received).error();
         }
-        auto type = envelope_type(envelope.value());
+        auto envelope = std::move(received).value();
+        auto type = envelope_type(envelope.envelope);
         if (!type) {
             return std::move(type).error();
         }
         if (type.value() == "response") {
             auto response = decode_response(
-                envelope.value(), request_id, "stream open response");
+                envelope.envelope, request_id, "stream open response");
             if (!response) {
                 return std::move(response).error();
             }
@@ -3237,23 +3372,21 @@ detail::ResourceClientState::open_stream(
         }
         if (type.value() == "stream_item") {
             auto valid = decode_stream_item(
-                envelope.value(), impl->stream_id);
+                envelope.envelope, impl->stream_id);
             if (!valid) {
                 return std::move(valid).error();
             }
         } else {
             auto valid = decode_stream_end(
-                envelope.value(), impl->stream_id);
+                envelope.envelope, impl->stream_id);
             if (!valid) {
                 return std::move(valid).error();
             }
         }
-        if (impl->buffered.size() >= 256U) {
-            return make_error(
-                ErrorCode::stream_local_overflow,
-                "stream buffer exceeded 256 envelopes");
+        auto buffered = impl->buffer(std::move(envelope));
+        if (!buffered) {
+            return std::move(buffered).error();
         }
-        impl->buffered.push_back(std::move(envelope).value());
     }
 }
 
@@ -3298,8 +3431,7 @@ Result<std::optional<RawStreamItem>> ResourceStream::next(Timeout timeout) {
     }
     Json envelope;
     if (!impl_->buffered.empty()) {
-        envelope = std::move(impl_->buffered.front());
-        impl_->buffered.pop_front();
+        envelope = std::move(impl_->pop_buffered().envelope);
     } else {
         auto wire = impl_->transport->receive(timeout);
         if (!wire) {
@@ -3373,17 +3505,18 @@ Result<Json> ResourceStream::connection_control(
         return impl_->fail_closed(std::move(sent).error());
     }
     while (true) {
-        auto envelope = impl_->receive();
-        if (!envelope) {
-            return impl_->fail_closed(std::move(envelope).error());
+        auto received = impl_->receive();
+        if (!received) {
+            return impl_->fail_closed(std::move(received).error());
         }
-        auto type = envelope_type(envelope.value());
+        auto envelope = std::move(received).value();
+        auto type = envelope_type(envelope.envelope);
         if (!type) {
             return impl_->fail_closed(std::move(type).error());
         }
         if (type.value() == "response") {
             auto response = decode_response(
-                envelope.value(), request_id, "stream control response");
+                envelope.envelope, request_id, "stream control response");
             if (!response && response.error().code != ErrorCode::command) {
                 return impl_->fail_closed(std::move(response).error());
             }
@@ -3392,23 +3525,21 @@ Result<Json> ResourceStream::connection_control(
         if (type.value() == "stream_item" || type.value() == "stream_end") {
             if (type.value() == "stream_item") {
                 auto valid = decode_stream_item(
-                    envelope.value(), impl_->stream_id);
+                    envelope.envelope, impl_->stream_id);
                 if (!valid) {
                     return impl_->fail_closed(std::move(valid).error());
                 }
             } else {
                 auto valid = decode_stream_end(
-                    envelope.value(), impl_->stream_id);
+                    envelope.envelope, impl_->stream_id);
                 if (!valid) {
                     return impl_->fail_closed(std::move(valid).error());
                 }
             }
-            if (impl_->buffered.size() >= 256U) {
-                return impl_->fail_closed(make_error(
-                    ErrorCode::stream_local_overflow,
-                    "stream buffer exceeded 256 envelopes"));
+            auto buffered = impl_->buffer(std::move(envelope));
+            if (!buffered) {
+                return impl_->fail_closed(std::move(buffered).error());
             }
-            impl_->buffered.push_back(std::move(envelope).value());
             continue;
         }
         return impl_->fail_closed(make_error(
@@ -3523,14 +3654,13 @@ Result<StreamEnd> ResourceStream::cancel() {
         }
         Json envelope;
         if (!impl_->buffered.empty()) {
-            envelope = std::move(impl_->buffered.front());
-            impl_->buffered.pop_front();
+            envelope = std::move(impl_->pop_buffered().envelope);
         } else {
             auto received = impl_->receive(timeout);
             if (!received) {
                 return fail_cancel(std::move(received).error());
             }
-            envelope = std::move(received).value();
+            envelope = std::move(received).value().envelope;
         }
         if (remaining() == Timeout::zero()) {
             return fail_cancel(make_error(

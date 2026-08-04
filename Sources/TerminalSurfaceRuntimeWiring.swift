@@ -178,7 +178,8 @@ extension TerminalSurface {
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         ioMode: TerminalSurfaceIOMode = .exec,
-        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
     ) {
@@ -197,6 +198,7 @@ extension TerminalSurface {
             focusPlacement: focusPlacement,
             ioMode: ioMode,
             manualInputHandler: manualInputHandler,
+            manualInputKeyNameResolver: manualInputKeyNameResolver,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies

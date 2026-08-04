@@ -16,36 +16,38 @@ SPEC.loader.exec_module(POLICY)
 
 
 def test_duplicate_path_to_existing_remote_input_is_unchanged() -> None:
+    remote_call = '.package(url: "https://example.com/remote.git", from: "1.0.0")'
     previous = {
-        "root": (set(), ["path-a"]),
-        "path-a": (set(), ["remote-owner"]),
-        "remote-owner": ({"https://example.com/remote.git"}, []),
+        "root": POLICY.PackageNode(False, ["path-a"], frozenset()),
+        "path-a": POLICY.PackageNode(False, ["remote-owner"], frozenset()),
+        "remote-owner": POLICY.PackageNode(True, [], frozenset({remote_call})),
     }
     current = {
         **previous,
-        "root": (set(), ["path-a", "path-b"]),
-        "path-b": (set(), ["remote-owner"]),
+        "root": POLICY.PackageNode(False, ["path-a", "path-b"], frozenset()),
+        "path-b": POLICY.PackageNode(False, ["remote-owner"], frozenset()),
     }
 
-    assert POLICY.remote_dependency_closure("root", previous) == {
-        "https://example.com/remote.git",
-    }
-    assert POLICY.remote_dependency_closure("root", current) == (
-        POLICY.remote_dependency_closure("root", previous)
+    assert POLICY.closure_remote_dependency_calls("root", previous) == frozenset(
+        {remote_call}
+    )
+    assert POLICY.closure_remote_dependency_calls("root", current) == (
+        POLICY.closure_remote_dependency_calls("root", previous)
     )
 
 
 def test_new_remote_input_changes_the_closure() -> None:
-    previous = {"root": (set(), [])}
+    remote_call = '.package(url: "https://example.com/new.git", from: "1.0.0")'
+    previous = {"root": POLICY.PackageNode(False, [], frozenset())}
     current = {
-        "root": (set(), ["path-b"]),
-        "path-b": ({"https://example.com/new.git"}, []),
+        "root": POLICY.PackageNode(False, ["path-b"], frozenset()),
+        "path-b": POLICY.PackageNode(True, [], frozenset({remote_call})),
     }
 
-    assert POLICY.remote_dependency_closure("root", previous) == set()
-    assert POLICY.remote_dependency_closure("root", current) == {
-        "https://example.com/new.git",
-    }
+    assert POLICY.closure_remote_dependency_calls("root", previous) == frozenset()
+    assert POLICY.closure_remote_dependency_calls("root", current) == frozenset(
+        {remote_call}
+    )
 
 
 def main() -> int:

@@ -13,6 +13,7 @@ import {
 import { buildAlternateLinkHeader } from "./i18n/seo";
 
 const intlMiddleware = createMiddleware(routing);
+const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
@@ -69,6 +70,17 @@ export default function middleware(request: NextRequest) {
 
   if (pathname === "/app-pricing" || pathname === "/app-pricing/") {
     return NextResponse.next();
+  }
+
+  // Social crawlers can retain metadata URLs after the page HTML changes.
+  // Serve the hashed paths emitted by the former metadata-file route through
+  // today's stable endpoint without exposing a redirect to the crawler.
+  const legacyOpenGraphImagePath = legacyOpenGraphImageRewritePath(pathname);
+  if (legacyOpenGraphImagePath) {
+    const url = request.nextUrl.clone();
+    url.pathname = legacyOpenGraphImagePath;
+    url.search = "";
+    return NextResponse.rewrite(url);
   }
 
   // This is a localized image endpoint, but the default-locale URL is
@@ -300,6 +312,32 @@ function setFeatureWorkflowDocLinkHeader(
 
 function requestOrigin(request: NextRequest) {
   return request.nextUrl.origin;
+}
+
+function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
+  const segments = pathname.split("/").filter(Boolean);
+  let locale = routing.defaultLocale;
+  let imageSegment: string;
+
+  if (segments.length === 1) {
+    imageSegment = segments[0];
+  } else if (segments.length === 2 && localeSet.has(segments[0])) {
+    locale = segments[0] as (typeof routing.locales)[number];
+    imageSegment = segments[1];
+  } else {
+    return undefined;
+  }
+
+  if (
+    !imageSegment.startsWith("opengraph-image-") ||
+    imageSegment.length === "opengraph-image-".length
+  ) {
+    return undefined;
+  }
+
+  return locale === routing.defaultLocale
+    ? "/opengraph-image"
+    : `/${locale}/opengraph-image`;
 }
 
 export const config = {

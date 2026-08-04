@@ -323,7 +323,7 @@ extension MobileHostIrohRuntime {
         let delay = failureRecoverySchedule.delay(
             failureCount: failureRecoveryFailureCount,
             retryAfterSeconds: nil,
-            jitterUnitInterval: Double.random(in: 0 ... 1)
+            jitterUnitInterval: failureRecoveryJitter()
         )
         failureRecoveryFailureCount = min(failureRecoveryFailureCount + 1, 20)
         let clock = failureRecoveryClock
@@ -377,6 +377,7 @@ extension MobileHostIrohRuntime {
         await stopLANPublication()
         guard ownsDeactivationCleanup(revision: revision) else { return }
         clearHostRuntime()
+        clearIrohRoutePublication(revision: revision)
         guard ownsDeactivationCleanup(revision: revision) else { return }
         await noteActiveRuntimeDeactivated(revision: revision)
     }
