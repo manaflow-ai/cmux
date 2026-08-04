@@ -128,4 +128,25 @@ import Testing
         )
         #expect(JSONSerialization.isValidJSONObject(body))
     }
+
+    @Test
+    @MainActor
+    func encodedHeartbeatBodyPreservesTheWirePayload() async throws {
+        let data = try #require(await PresenceHeartbeatClient.encodedHeartbeatBody(
+            deviceID: "11111111-2222-4333-8444-555555555555",
+            tag: "default",
+            bundleID: "com.cmuxterm.app",
+            displayName: "Studio",
+            routes: [try route(host: "100.0.0.1", port: 51000)],
+            stopping: true,
+            now: Date(timeIntervalSince1970: 1_700_000_000)
+        ))
+        let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let routes = try #require(payload["routes"] as? [[String: Any]])
+
+        #expect(payload["deviceId"] as? String == "11111111-2222-4333-8444-555555555555")
+        #expect(payload["tag"] as? String == "default")
+        #expect(payload["stopping"] as? Bool == true)
+        #expect(routes.count == 1)
+    }
 }
