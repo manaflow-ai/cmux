@@ -3531,6 +3531,16 @@ impl MenuItem {
     }
 }
 
+fn menu_scrollbar_track(rect: Rect, total_rows: usize) -> Option<Rect> {
+    let visible_rows = usize::from(rect.height.saturating_sub(2));
+    (rect.width >= 3 && visible_rows > 0 && total_rows > visible_rows).then_some(Rect {
+        x: rect.x + rect.width - 2,
+        y: rect.y + 1,
+        width: 1,
+        height: visible_rows as u16,
+    })
+}
+
 pub struct MenuLevel {
     pub items: Arc<[MenuItem]>,
     all_items: Arc<[MenuItem]>,
@@ -3619,6 +3629,40 @@ impl MenuLevel {
             self.scroll_offset.min(self.items.len().saturating_sub(self.visible_rows));
     }
 
+    fn set_scroll_offset(&mut self, offset: usize) -> bool {
+        let offset = offset.min(self.items.len().saturating_sub(self.visible_rows));
+        if self.scroll_offset == offset {
+            return false;
+        }
+        self.scroll_offset = offset;
+        let end = offset.saturating_add(self.visible_rows).min(self.items.len());
+        if (self.selected < offset || self.selected >= end)
+            && let Some(relative) = self.items[offset..end].iter().position(MenuItem::selectable)
+        {
+            self.selected = offset + relative;
+        }
+        true
+    }
+
+    fn scroll_rows(&mut self, delta: isize) -> bool {
+        self.set_scroll_offset(self.scroll_offset.saturating_add_signed(delta))
+    }
+
+    pub(crate) fn scrollbar_track(&self) -> Option<Rect> {
+        menu_scrollbar_track(self.rect, self.items.len())
+    }
+
+    pub(crate) fn scrollbar(&self) -> Option<(Rect, (u16, u16))> {
+        let track = self.scrollbar_track()?;
+        let thumb = viewport_thumb_geometry(
+            self.items.len(),
+            self.visible_rows,
+            self.scroll_offset,
+            track.height,
+        );
+        Some((track, thumb))
+    }
+
     fn replace_items(&mut self, items: Vec<MenuItem>) {
         let items: Arc<[MenuItem]> = items.into();
         self.all_items = items.clone();
@@ -3639,15 +3683,23 @@ pub(crate) struct MenuSearch {
     fallback: Arc<[MenuItem]>,
 }
 
+#[derive(Clone, Copy)]
+struct MenuScrollbarDrag {
+    depth: usize,
+    anchor_y: u16,
+    anchor_offset: usize,
+}
+
 /// Right-click context menu overlay. The rect includes the border chrome;
 /// action rows get a one-cell padding column on each side inside that border,
 /// groups are divided by separator rows, and the hover/selection highlight
-/// spans the full inner row including those padding cells.
+/// spans the content row including padding, leaving room for an overflow thumb.
 pub struct ContextMenu {
     pub levels: Vec<MenuLevel>,
     pub(crate) search: Option<MenuSearch>,
     right_press: (u16, u16),
     right_drag_moved: bool,
+    scrollbar_drag: Option<MenuScrollbarDrag>,
     captured_resources: Vec<(MenuAction, Option<MenuActionResource>)>,
 }
 
@@ -3680,6 +3732,7 @@ impl ContextMenu {
             search: None,
             right_press: (x, y),
             right_drag_moved: false,
+            scrollbar_drag: None,
             captured_resources: Vec::new(),
         }
     }
@@ -3715,6 +3768,7 @@ impl ContextMenu {
             }),
             right_press: (x, y),
             right_drag_moved: false,
+            scrollbar_drag: None,
             captured_resources: Vec::new(),
         }
     }
@@ -3740,6 +3794,7 @@ impl ContextMenu {
         }
         visible.extend(search.fallback.iter().cloned());
         self.levels.truncate(1);
+        self.scrollbar_drag = None;
         if let Some(level) = self.levels.first_mut() {
             level.replace_items(visible);
         }
@@ -3799,6 +3854,9 @@ impl ContextMenu {
     pub fn hit_at(&self, x: u16, y: u16) -> Option<(usize, usize)> {
         let (depth, level) =
             self.levels.iter().enumerate().rev().find(|(_, level)| level.rect.contains(x, y))?;
+        if level.scrollbar_track().is_some_and(|track| track.contains(x, y)) {
+            return None;
+        }
         let rect = level.rect;
         let right = rect.x + rect.width.saturating_sub(1);
         let bottom = rect.y + rect.height.saturating_sub(1);
@@ -3811,6 +3869,81 @@ impl ContextMenu {
 
     pub fn contains(&self, x: u16, y: u16) -> bool {
         self.levels.iter().any(|level| level.rect.contains(x, y))
+    }
+
+    fn scrollbar_at(&self, x: u16, y: u16) -> Option<(usize, Rect)> {
+        self.levels.iter().enumerate().rev().find_map(|(depth, level)| {
+            level.scrollbar_track().filter(|track| track.contains(x, y)).map(|track| (depth, track))
+        })
+    }
+
+    fn scroll_at(&mut self, x: u16, y: u16, down: bool) -> bool {
+        let Some(depth) = self
+            .levels
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, level)| level.rect.contains(x, y))
+            .map(|(depth, _)| depth)
+        else {
+            return false;
+        };
+        self.levels.truncate(depth + 1);
+        self.scrollbar_drag = None;
+        self.levels[depth].scroll_rows(if down { 3 } else { -3 })
+    }
+
+    fn start_scrollbar_drag(&mut self, x: u16, y: u16) -> bool {
+        let Some((depth, track)) = self.scrollbar_at(x, y) else {
+            return false;
+        };
+        self.levels.truncate(depth + 1);
+        let level = &mut self.levels[depth];
+        let relative = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+        let (thumb_y, thumb_height) = viewport_thumb_geometry(
+            level.items.len(),
+            level.visible_rows,
+            level.scroll_offset,
+            track.height,
+        );
+        if relative < thumb_y || relative >= thumb_y.saturating_add(thumb_height) {
+            let offset =
+                viewport_jump_offset(level.items.len(), level.visible_rows, track.height, relative);
+            level.set_scroll_offset(offset);
+        }
+        self.scrollbar_drag =
+            Some(MenuScrollbarDrag { depth, anchor_y: y, anchor_offset: level.scroll_offset });
+        true
+    }
+
+    fn drag_scrollbar(&mut self, y: u16) -> bool {
+        let Some(drag) = self.scrollbar_drag else {
+            return false;
+        };
+        let Some(level) = self.levels.get_mut(drag.depth) else {
+            self.scrollbar_drag = None;
+            return false;
+        };
+        let Some(track) = level.scrollbar_track() else {
+            self.scrollbar_drag = None;
+            return false;
+        };
+        let offset = viewport_drag_offset(
+            level.items.len(),
+            level.visible_rows,
+            track.height,
+            drag.anchor_offset,
+            y as i128 - drag.anchor_y as i128,
+        );
+        level.set_scroll_offset(offset)
+    }
+
+    fn finish_scrollbar_drag(&mut self) -> bool {
+        self.scrollbar_drag.take().is_some()
+    }
+
+    pub(crate) fn scrollbar_dragging(&self, depth: usize) -> bool {
+        self.scrollbar_drag.is_some_and(|drag| drag.depth == depth)
     }
 
     fn selected_action(&self) -> Option<MenuAction> {
@@ -3887,6 +4020,9 @@ impl ContextMenu {
     fn close_submenu(&mut self) -> bool {
         if self.levels.len() > 1 {
             self.levels.pop();
+            if self.scrollbar_drag.is_some_and(|drag| drag.depth >= self.levels.len()) {
+                self.scrollbar_drag = None;
+            }
             true
         } else {
             false
@@ -4392,6 +4528,7 @@ enum PromptPointerRegion {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum MenuPointerRegion {
     Item { depth: usize, index: usize },
+    Scrollbar { depth: usize },
     Chrome { depth: usize },
     Outside,
 }
@@ -4450,6 +4587,12 @@ struct RenderedMenuLevel {
     scroll_offset: usize,
     items: Arc<[MenuItem]>,
     resources: Arc<[Option<MenuActionResource>]>,
+}
+
+impl RenderedMenuLevel {
+    fn scrollbar_track(&self) -> Option<Rect> {
+        menu_scrollbar_track(self.rect, self.items.len())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -4651,6 +4794,9 @@ impl RenderedPointerFrame {
                 .rev()
                 .find(|(_, level)| level.rect.contains(x, y))
                 .map_or((MenuPointerRegion::Outside, None), |(depth, level)| {
+                    if level.scrollbar_track().is_some_and(|track| track.contains(x, y)) {
+                        return (MenuPointerRegion::Scrollbar { depth }, None);
+                    }
                     let right = level.rect.x + level.rect.width.saturating_sub(1);
                     let bottom = level.rect.y + level.rect.height.saturating_sub(1);
                     if x == level.rect.x || y == level.rect.y || x == right || y == bottom {
@@ -14081,6 +14227,7 @@ impl App {
 
     fn handle_menu_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
         let Some(menu) = self.menu.as_mut() else { return Ok(RenderAction::None) };
+        menu.finish_scrollbar_drag();
         match key.code {
             KeyCode::Esc => {
                 if !menu.close_submenu() {
@@ -15832,6 +15979,9 @@ impl App {
     }
 
     fn cancel_pointer_interaction(&mut self) {
+        if let Some(menu) = self.menu.as_mut() {
+            menu.finish_scrollbar_drag();
+        }
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
         } else if let Some(Drag::Browser { surface, content, position, frame_seq }) = &self.drag {
@@ -15904,6 +16054,9 @@ impl App {
     }
 
     fn finish_active_drag(&mut self) {
+        if let Some(menu) = self.menu.as_mut() {
+            menu.finish_scrollbar_drag();
+        }
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
             return;
@@ -16439,11 +16592,11 @@ impl App {
                 || prompt.input_rect.contains(x, y);
         }
         if let Some(menu) = &self.menu {
-            // Everything inside the menu rect is menu territory: only item
-            // rows are clickable; border cells never inherit clickability
-            // from hits underneath.
+            // Everything inside the menu rect is menu territory: item rows
+            // and scrollbar tracks are clickable; border cells never inherit
+            // clickability from hits underneath.
             if menu.contains(x, y) {
-                return menu.hit_at(x, y).is_some();
+                return menu.hit_at(x, y).is_some() || menu.scrollbar_at(x, y).is_some();
             }
         }
         if self.omnibar_hit_at(x, y).is_some() {
@@ -16487,13 +16640,18 @@ impl App {
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
         self.sync_pointer_shape(x, y);
-        if let Some(menu) = self.menu.as_mut()
-            && let Some((depth, item)) = menu.hit_at(x, y)
-        {
-            if menu.select_at(depth, item) {
-                return Ok(RenderAction::Draw);
-            }
-            return Ok(RenderAction::None);
+        if let Some(menu) = self.menu.as_mut() {
+            let before_scrollbar =
+                self.hover.and_then(|(px, py)| menu.scrollbar_at(px, py).map(|(depth, _)| depth));
+            let after_scrollbar = menu.scrollbar_at(x, y).map(|(depth, _)| depth);
+            let selection_changed =
+                menu.hit_at(x, y).is_some_and(|(depth, item)| menu.select_at(depth, item));
+            self.hover = Some((x, y));
+            return Ok(if selection_changed || before_scrollbar != after_scrollbar {
+                RenderAction::Draw
+            } else {
+                RenderAction::None
+            });
         }
         if self.menu.is_none() && self.prompt.is_none() && self.drag.is_none() {
             let _ = self.forward_pty_mouse_at_with_admission(
@@ -16642,7 +16800,9 @@ impl App {
         // An open menu captures the click: activate or dismiss. Clicks on
         // the border chrome keep it open without activating.
         if let Some(mut menu) = self.menu.take() {
-            if let Some((depth, item)) = menu.hit_at(x, y) {
+            if menu.start_scrollbar_drag(x, y) {
+                self.menu = Some(menu);
+            } else if let Some((depth, item)) = menu.hit_at(x, y) {
                 let action = menu.action_at(depth, item);
                 menu.select_at(depth, item);
                 if let Some(action) = action {
@@ -16971,6 +17131,13 @@ impl App {
     }
 
     fn handle_left_drag(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        if let Some(menu) = self.menu.as_mut()
+            && menu.scrollbar_drag.is_some()
+        {
+            menu.drag_scrollbar(y);
+            self.hover = Some((x, y));
+            return Ok(RenderAction::Draw);
+        }
         match &self.drag {
             Some(Drag::MachineArm { .. }) => Ok(RenderAction::Draw),
             Some(Drag::TabArm { surface, at }) => {
@@ -17147,6 +17314,12 @@ impl App {
     }
 
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        if let Some(menu) = self.menu.as_mut()
+            && menu.finish_scrollbar_drag()
+        {
+            self.hover = Some((x, y));
+            return Ok(RenderAction::Draw);
+        }
         if matches!(self.drag, Some(Drag::MachineArm { .. })) {
             let Some(Drag::MachineArm { target, at }) = self.drag.take() else {
                 unreachable!("machine arm matched before take");
@@ -17732,7 +17905,7 @@ impl App {
     }
 
     fn global_menu_actions(&self) -> Vec<MenuAction> {
-        vec![MenuAction::ShowShortcuts]
+        vec![MenuAction::ToggleSidebar { visible: self.sidebar_visible }, MenuAction::ShowShortcuts]
     }
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
@@ -17862,7 +18035,7 @@ impl App {
                 _ => {}
             }
             groups.push(self.menu_group(self.sidebar_menu_actions()));
-            groups.push(self.menu_group(self.global_menu_actions()));
+            groups.push(self.menu_group([MenuAction::ShowShortcuts]));
             self.menu = Some(ContextMenu::with_groups(x, y, groups));
             return;
         }
@@ -17947,7 +18120,10 @@ impl App {
             }
             groups.push(self.menu_group(self.global_menu_actions()));
             self.menu = Some(ContextMenu::with_groups(x, y, groups));
+            return;
         }
+        self.menu =
+            Some(ContextMenu::with_groups(x, y, vec![self.menu_group(self.global_menu_actions())]));
     }
 
     fn replace_clients(&mut self, clients: Vec<ClientInfo>) {
@@ -17957,9 +18133,12 @@ impl App {
 
     fn open_clients_menu(&mut self, x: u16, y: u16, surface: SurfaceId) {
         self.session.refresh_clients_background();
+        let mut groups = Vec::new();
         if let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&self.clients, surface) {
-            self.menu = Some(ContextMenu::with_groups(x, y, vec![items]));
+            groups.push(items);
         }
+        groups.push(self.menu_group(self.global_menu_actions()));
+        self.menu = Some(ContextMenu::with_groups(x, y, groups));
     }
 
     #[cfg(test)]
@@ -17981,7 +18160,14 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
-        if self.menu.is_some() || self.prompt.is_some() {
+        if let Some(menu) = self.menu.as_mut() {
+            return Ok(if menu.scroll_at(x, y, down) {
+                RenderAction::Draw
+            } else {
+                RenderAction::None
+            });
+        }
+        if self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
         if let Some(area) = self
@@ -19330,7 +19516,7 @@ mod tests {
             shortcut(MenuAction::TogglePaneZoom { pane: 2, zoomed: false }),
             Some("Ctrl-b z")
         );
-        assert_eq!(shortcut(MenuAction::ToggleSidebar { visible: true }), None);
+        assert_eq!(shortcut(MenuAction::ToggleSidebar { visible: true }), Some("Ctrl-b s"));
         assert_eq!(shortcut(MenuAction::ToggleSidebarCompact { compact: false }), None);
         assert_eq!(shortcut(MenuAction::FocusSidebar), None);
         assert_eq!(shortcut(MenuAction::ShowShortcuts), Some("Ctrl-b ?"));
@@ -19376,14 +19562,15 @@ mod tests {
         let items = &app.menu.as_ref().unwrap().levels[0].items;
         assert!(items.iter().any(|item| item.action() == Some(MenuAction::RenameScreen(screen))));
         assert!(items.iter().any(|item| item.action() == Some(MenuAction::ShowShortcuts)));
+        assert!(
+            items
+                .iter()
+                .any(|item| item.action() == Some(MenuAction::ToggleSidebar { visible: true }))
+        );
         assert!(!items.iter().any(|item| {
             matches!(
                 item.action(),
-                Some(
-                    MenuAction::ToggleSidebar { .. }
-                        | MenuAction::ToggleSidebarCompact { .. }
-                        | MenuAction::FocusSidebar
-                )
+                Some(MenuAction::ToggleSidebarCompact { .. } | MenuAction::FocusSidebar)
             )
         }));
         app.activate_menu(MenuAction::ShowShortcuts).unwrap();

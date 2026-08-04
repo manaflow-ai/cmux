@@ -256,6 +256,7 @@ impl MachineRuntime {
             anyhow::bail!("this client cannot connect external machines");
         }
         let target = target.trim();
+        let target = target.strip_prefix("ssh ").map(str::trim).unwrap_or(target);
         if target.is_empty() || target.starts_with('-') || target.chars().any(char::is_whitespace) {
             anyhow::bail!("machine address must be a host or user@host without whitespace");
         }

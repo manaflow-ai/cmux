@@ -184,6 +184,7 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
 pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
     let chrome = app.chrome;
+    let hover = app.hover;
     let Some(menu) = app.menu.as_mut() else { return };
     let base = Style::default().bg(chrome.menu_bg).fg(chrome.menu_fg);
     let border = base.fg(chrome.menu_border);
@@ -221,7 +222,10 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
             continue;
         }
 
+        let scrollbar_dragging = menu.scrollbar_dragging(depth);
         let level = &menu.levels[depth];
+        let scrollbar = level.scrollbar();
+        let scrollbar_track = scrollbar.map(|(track, _)| track);
         let buf = frame.buffer_mut();
         for dy in 0..height {
             for dx in 0..width {
@@ -263,13 +267,15 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
         let inner_y = y + 1;
         let inner_w = width.saturating_sub(2);
         let inner_h = height.saturating_sub(2);
+        let scrollbar_width = u16::from(scrollbar_track.is_some());
+        let row_content_w = inner_w.saturating_sub(scrollbar_width);
         for (i, item) in
             level.items.iter().enumerate().skip(level.scroll_offset).take(inner_h as usize)
         {
             let row_y = inner_y + (i - level.scroll_offset) as u16;
             if *item == MenuItem::Separator {
                 set_cell(buf, x, row_y, "├", border);
-                for dx in 0..inner_w {
+                for dx in 0..row_content_w {
                     set_cell(buf, inner_x + dx, row_y, "─", border);
                 }
                 set_cell(buf, x + width - 1, row_y, "┤", border);
@@ -277,7 +283,7 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
             }
             if let Some(label) = item.label() {
                 let style = if i == level.selected { selected } else { base };
-                for dx in 0..inner_w {
+                for dx in 0..row_content_w {
                     set_cell(buf, inner_x + dx, row_y, " ", style);
                 }
                 let shortcut_width =
@@ -287,15 +293,17 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
                     inner_x + pad + 1,
                     row_y,
                     label,
-                    inner_w.saturating_sub(pad * 2 + arrow_width + shortcut_width) as usize,
+                    row_content_w.saturating_sub(pad * 2 + arrow_width + shortcut_width) as usize,
                     style,
                 );
                 if let Some(shortcut) = item.shortcut() {
                     let shortcut_width =
-                        (shortcut.width() as u16).min(inner_w.saturating_sub(pad * 2));
+                        (shortcut.width() as u16).min(row_content_w.saturating_sub(pad * 2));
                     if shortcut_width > 0 {
-                        let shortcut_x =
-                            x + level.rect.width.saturating_sub(pad + 1 + shortcut_width);
+                        let shortcut_x = x + level
+                            .rect
+                            .width
+                            .saturating_sub(pad + 1 + shortcut_width + scrollbar_width);
                         buf.set_stringn(
                             shortcut_x,
                             row_y,
@@ -305,10 +313,20 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
                         );
                     }
                 }
-                if matches!(item, MenuItem::Submenu { .. }) && inner_w > 2 {
-                    buf.set_stringn(x + width - pad - 3, row_y, " ›", 2, style);
+                if matches!(item, MenuItem::Submenu { .. }) && row_content_w > 2 {
+                    buf.set_stringn(x + width - pad - 3 - scrollbar_width, row_y, " ›", 2, style);
                 }
             }
+        }
+        if let Some((track, thumb)) = scrollbar {
+            let state = if scrollbar_dragging {
+                ScrollbarState::Expanded
+            } else if hover.is_some_and(|(hx, hy)| track.contains(hx, hy)) {
+                ScrollbarState::Highlighted
+            } else {
+                ScrollbarState::Idle
+            };
+            ScrollbarStyle::from_chrome(chrome).draw_thumb(buf, track, thumb, base, state);
         }
     }
 }

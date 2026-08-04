@@ -1323,10 +1323,10 @@ OPTIONS:
         done: "done",
         unknown: "unknown",
         connect_prompt: "Host address or pairing code",
-        connect_host_prompt: "Host address",
+        connect_host_prompt: "SSH host or user@host",
         ssh_hosts: "SSH hosts",
         type_to_filter: "type to filter",
-        other_host: "Other host…",
+        other_host: "Add SSH host…",
         personal_scope: "personal",
         team_scope: "team",
         scope: "scope",
@@ -1819,10 +1819,10 @@ ID とセッション:
         done: "完了",
         unknown: "不明",
         connect_prompt: "ホストアドレスまたはペアリングコード",
-        connect_host_prompt: "ホストアドレス",
+        connect_host_prompt: "SSH ホストまたは user@host",
         ssh_hosts: "SSH ホスト",
         type_to_filter: "入力して絞り込み",
-        other_host: "その他のホスト…",
+        other_host: "SSH ホストを追加…",
         personal_scope: "個人",
         team_scope: "チーム",
         scope: "スコープ",
@@ -2075,14 +2075,20 @@ mod tests {
             catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
             "ホストアドレスまたはペアリングコード"
         );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.connect_host_prompt, "Host address");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.connect_host_prompt, "ホストアドレス");
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.connect_host_prompt,
+            "SSH host or user@host"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.connect_host_prompt,
+            "SSH ホストまたは user@host"
+        );
         assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.ssh_hosts, "SSH hosts");
         assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.ssh_hosts, "SSH ホスト");
         assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.type_to_filter, "type to filter");
         assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.type_to_filter, "入力して絞り込み");
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.other_host, "Other host…");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.other_host, "その他のホスト…");
+        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.other_host, "Add SSH host…");
+        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.other_host, "SSH ホストを追加…");
         assert_eq!(
             catalog_for_locale("en_US.UTF-8").sidebar.machine_name_required,
             "Machine name is required"
