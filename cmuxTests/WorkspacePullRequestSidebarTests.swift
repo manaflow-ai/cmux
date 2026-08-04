@@ -729,14 +729,10 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             mainRunLoopTurnCompleted.fulfill()
         }
 
-        let responsivenessResult = XCTWaiter().wait(
-            for: [discoveryStarted, mainRunLoopTurnCompleted],
+        await fulfillment(
+            of: [discoveryStarted, mainRunLoopTurnCompleted],
             timeout: 5
         )
-        guard responsivenessResult == .completed else {
-            XCTFail("Repository discovery did not start while the main run loop remained responsive")
-            return
-        }
         XCTAssertEqual(
             discovery.invocationCount,
             1,
@@ -748,10 +744,9 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         discovery.release()
-        XCTAssertEqual(
-            XCTWaiter().wait(for: [discoveryFinished], timeout: 5),
-            .completed,
-            "Repository discovery did not finish after the test released it"
+        await fulfillment(
+            of: [discoveryFinished],
+            timeout: 5
         )
     }
 
