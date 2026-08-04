@@ -1,17 +1,19 @@
 public import AppKit
-public import Combine
+public import CmuxFoundation
 
 /// Drives sidebar auto-scrolling while a drag hovers near the scroll view's top
 /// or bottom edge. Prefers AppKit's native `NSClipView.autoscroll(with:)` when a
 /// drag event is available and falls back to a manual per-tick scroll computed
 /// from `SidebarDragAutoScrollPlanner`.
 @MainActor
-public final class SidebarDragAutoScrollController: ObservableObject {
+public final class SidebarDragAutoScrollController {
     private weak var scrollView: NSScrollView?
-    private var timer: Timer?
+    private let tickScheduler: MainActorDeferredActionScheduler
     private var activePlan: SidebarAutoScrollPlan?
 
-    public init() {}
+    public init(clock: any Clock<Duration> = ContinuousClock()) {
+        tickScheduler = MainActorDeferredActionScheduler(clock: clock)
+    }
 
     public func attach(scrollView: NSScrollView?) {
         self.scrollView = scrollView
@@ -27,24 +29,19 @@ public final class SidebarDragAutoScrollController: ObservableObject {
             return
         }
         activePlan = plan
-        startTimerIfNeeded()
+        startTickingIfNeeded()
     }
 
     public func stop() {
-        timer?.invalidate()
-        timer = nil
+        tickScheduler.cancel()
         activePlan = nil
     }
 
-    private func startTimerIfNeeded() {
-        guard timer == nil else { return }
-        let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.tick()
-            }
+    private func startTickingIfNeeded() {
+        guard !tickScheduler.isScheduled else { return }
+        tickScheduler.schedule(after: .milliseconds(16)) { [weak self] in
+            self?.tick()
         }
-        self.timer = timer
-        RunLoop.main.add(timer, forMode: .eventTracking)
     }
 
     private func tick() {
@@ -71,6 +68,7 @@ public final class SidebarDragAutoScrollController: ObservableObject {
             stop()
             return
         }
+        startTickingIfNeeded()
     }
 
     private func distancesToEdges(mousePoint: CGPoint, viewportHeight: CGFloat, isFlipped: Bool) -> (top: CGFloat, bottom: CGFloat) {

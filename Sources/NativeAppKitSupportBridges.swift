@@ -2512,6 +2512,48 @@ struct NativeSidebarFooterBridge: NSViewControllerRepresentable {
     }
 }
 
+struct NativeSidebarBridge: NSViewControllerRepresentable {
+    @EnvironmentObject private var tabManager: TabManager
+    @EnvironmentObject private var sidebarSelectionState: SidebarSelectionState
+    @EnvironmentObject private var cmuxConfigStore: CmuxConfigStore
+
+    let updateViewModel: UpdateStateModel
+    let sidebarUnread: SidebarUnreadModel
+    let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
+    let isPresented: Bool
+    let onSendFeedback: () -> Void
+    let onToggleSidebar: () -> Void
+    let onNewTab: () -> Void
+
+    func makeNSViewController(context: Context) -> SidebarNativeViewController {
+        SidebarNativeViewController(
+            updateViewModel: updateViewModel,
+            tabManager: tabManager,
+            sidebarSelectionState: sidebarSelectionState,
+            cmuxConfigStore: cmuxConfigStore,
+            sidebarUnread: sidebarUnread,
+            titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+            onSendFeedback: onSendFeedback,
+            onToggleSidebar: onToggleSidebar,
+            onNewTab: onNewTab
+        )
+    }
+
+    func updateNSViewController(
+        _ controller: SidebarNativeViewController,
+        context: Context
+    ) {
+        controller.setPresentationActive(isPresented)
+    }
+
+    static func dismantleNSViewController(
+        _ controller: SidebarNativeViewController,
+        coordinator: ()
+    ) {
+        controller.teardown()
+    }
+}
+
 private struct AgentSessionPanelNativeBridge: NSViewRepresentable {
     let panel: AgentSessionPanel
     let isFocused: Bool
