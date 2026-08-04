@@ -83,12 +83,7 @@ import Testing
         let host = RemoteTmuxHost(destination: "close-\(UUID().uuidString)@example.test")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
         let controller = harness.appDelegate.remoteTmuxController
-        defer {
-            if controller.sessionMirror(host: host, sessionName: "dev") != nil {
-                controller.detach(host: host, sessionName: "dev")
-            }
-        }
-        controller.cacheConnection(connection)
+        harness.cacheConnection(connection)
         #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
         let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
         let keepWorkspaceOpenKey = "closeWorkspaceOnLastSurfaceShortcut"
@@ -168,7 +163,7 @@ import Testing
         let host = RemoteTmuxHost(destination: "explicit-detach-\(UUID().uuidString)@example.test")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
         let controller = harness.controller
-        controller.cacheConnection(connection)
+        harness.cacheConnection(connection)
         #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
         let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
         harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
@@ -206,7 +201,7 @@ import Testing
         let host = RemoteTmuxHost(destination: "remote-end-\(UUID().uuidString)@example.test")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
         let controller = harness.controller
-        controller.cacheConnection(connection)
+        harness.cacheConnection(connection)
         #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: harness.manager))
         let mirrorWorkspace = try #require(harness.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
         harness.manager.closeWorkspace(harness.workspace, recordHistory: false)
@@ -316,19 +311,10 @@ import Testing
         defer { restoreEnvironment(sshOverrideKey, previousValue: previousSSH) }
 
         let harness = try Harness()
-        var extraWindowIDs: [UUID] = []
-        defer {
-            extraWindowIDs.reversed().forEach(harness.closeWindow)
-            harness.tearDown()
-        }
-        let secondWindowID = harness.appDelegate.createMainWindow()
-        extraWindowIDs.append(secondWindowID)
+        defer { harness.tearDown() }
+        let secondWindowID = try harness.createWindow()
         let secondManager = try #require(harness.appDelegate.tabManagerFor(windowId: secondWindowID))
         let host = RemoteTmuxHost(destination: "placement-\(UUID().uuidString)@example.test")
-        defer {
-            harness.controller.detach(host: host, sessionName: "one")
-            harness.controller.detach(host: host, sessionName: "two")
-        }
         harness.cacheConnection(host: host, session: "one")
         harness.cacheConnection(host: host, session: "two")
         #expect(try harness.controller.mirrorSession(host: host, sessionName: "one", into: harness.manager))
@@ -348,7 +334,7 @@ import Testing
             Issue.record("Expected dedicated-window attach to mirror the host")
             return
         }
-        extraWindowIDs.append(targetWindowID)
+        try harness.ownWindow(targetWindowID)
         let targetManager = try #require(harness.appDelegate.tabManagerFor(windowId: targetWindowID))
 
         #expect(workspaceIDs.count == 2)
@@ -392,13 +378,8 @@ import Testing
         }
 
         let harness = try Harness()
-        var targetWindowID: UUID?
-        defer {
-            if let targetWindowID { harness.closeWindow(targetWindowID) }
-            harness.tearDown()
-        }
+        defer { harness.tearDown() }
         let host = RemoteTmuxHost(destination: "focus-\(UUID().uuidString)@example.test")
-        defer { harness.controller.detach(host: host, sessionName: "one") }
         harness.cacheConnection(host: host, session: "one")
         #expect(harness.appDelegate.focusMainWindow(windowId: harness.windowId))
         #expect(harness.appDelegate.tabManager === harness.manager)
@@ -420,9 +401,10 @@ import Testing
         let responseData = try #require(responseText.data(using: .utf8))
         let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
         let result = try #require(response["result"] as? [String: Any])
-        targetWindowID = try #require(
+        let targetWindowID = try #require(
             (result["window_id"] as? String).flatMap(UUID.init(uuidString:))
         )
+        try harness.ownWindow(targetWindowID)
 
         #expect(harness.appDelegate.tabManager === harness.manager)
         #expect(TerminalController.shared.activeTabManagerForCallerNotification() === harness.manager)
@@ -466,42 +448,83 @@ import Testing
     }
 
     @MainActor
-    private struct Harness {
+    private final class Harness {
         let appDelegate: AppDelegate
         let windowId: UUID
         let manager: TabManager
         let workspace: Workspace
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
+        private var ownedWindowIDs: [UUID] = []
+        private var ownedManagers: [ObjectIdentifier: TabManager] = [:]
+        private var cachedConnections: [RemoteTmuxControlConnection] = []
+        private var didTearDown = false
 
         init() throws {
             appDelegate = try #require(AppDelegate.shared)
             windowId = appDelegate.createMainWindow()
             manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
+            ownedWindowIDs.append(windowId)
+            ownedManagers[ObjectIdentifier(manager)] = manager
         }
 
         func tearDown() {
+            guard !didTearDown else { return }
+            didTearDown = true
             workspace.isRemoteTmuxMirror = false
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
-            closeWindow(windowId)
+
+            // SwiftUI and the portal hierarchy must stop owning renderer views
+            // before model teardown schedules the native Ghostty surface free.
+            // Capturing the workspaces first also covers a window whose production
+            // close path already removed its AppDelegate context.
+            let workspaces = ownedManagers.values.flatMap(\.tabs)
+            ownedWindowIDs.reversed().forEach(closeWindow)
+            workspaces.forEach { $0.teardownAllPanels() }
+
+            // Closing a tracked window normally removes its mirrors and cached
+            // connections. This final pass owns early-exit cleanup for sessions
+            // created before an assertion throws or before a mirror is installed.
+            for connection in cachedConnections {
+                controller.detach(host: connection.host, sessionName: connection.sessionName)
+            }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
-            controller.cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: session))
+            cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: session))
         }
 
-        func closeWindow(_ id: UUID) {
-            let identifier = "cmux.main.\(id.uuidString)"
-            if let manager = appDelegate.tabManagerFor(windowId: id) {
-                manager.tabs.forEach { $0.teardownAllPanels() }
+        func cacheConnection(_ connection: RemoteTmuxControlConnection) {
+            cachedConnections.append(connection)
+            controller.cacheConnection(connection)
+        }
+
+        func createWindow() throws -> UUID {
+            let id = appDelegate.createMainWindow()
+            try ownWindow(id)
+            return id
+        }
+
+        func ownWindow(_ id: UUID) throws {
+            let manager = try #require(appDelegate.tabManagerFor(windowId: id))
+            if !ownedWindowIDs.contains(id) {
+                ownedWindowIDs.append(id)
             }
+            ownedManagers[ObjectIdentifier(manager)] = manager
+        }
+
+        private func closeWindow(_ id: UUID) {
+            let identifier = "cmux.main.\(id.uuidString)"
             if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == identifier }) {
                 appDelegate.suppressClosedWindowHistoryForTesting(windowId: id)
+                window.orderOut(nil)
+                window.contentView = nil
+                window.contentViewController = nil
                 window.close()
             }
             appDelegate.forgetRecoverableMainWindowRoute(windowId: id)
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
     }
 }
