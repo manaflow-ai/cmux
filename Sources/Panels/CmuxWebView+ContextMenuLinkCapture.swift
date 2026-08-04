@@ -2,6 +2,56 @@ import AppKit
 import ObjectiveC
 import WebKit
 
+enum BrowserContextMenuSemanticCopyValue: Equatable {
+    case emailAddress(String)
+    case phoneNumber(String)
+
+    var text: String {
+        switch self {
+        case .emailAddress(let address), .phoneNumber(let address):
+            return address
+        }
+    }
+
+    var localizedMenuTitle: String {
+        switch self {
+        case .emailAddress:
+            return String(
+                localized: "browser.contextMenu.copyEmailAddress",
+                defaultValue: "Copy Email Address"
+            )
+        case .phoneNumber:
+            return String(
+                localized: "browser.contextMenu.copyPhoneNumber",
+                defaultValue: "Copy Phone Number"
+            )
+        }
+    }
+}
+
+func browserContextMenuSemanticCopyValue(for url: URL) -> BrowserContextMenuSemanticCopyValue? {
+    guard let scheme = url.scheme?.lowercased(),
+          scheme == "mailto" || scheme == "tel",
+          let separator = url.absoluteString.firstIndex(of: ":")
+    else { return nil }
+
+    let valueStart = url.absoluteString.index(after: separator)
+    let resourceSpecifier = url.absoluteString[valueStart...]
+    let valueEnd = resourceSpecifier.firstIndex(of: "?") ?? resourceSpecifier.endIndex
+    let encodedValue = String(resourceSpecifier[..<valueEnd])
+    let value = encodedValue.removingPercentEncoding ?? encodedValue
+    guard !value.isEmpty else { return nil }
+
+    switch scheme {
+    case "mailto":
+        return .emailAddress(value)
+    case "tel":
+        return .phoneNumber(value)
+    default:
+        return nil
+    }
+}
+
 /// Context-menu link resolution for `CmuxWebView`.
 ///
 /// WebKit's own context-menu hit test knows the exact element under the
@@ -150,6 +200,10 @@ extension CmuxWebView {
               captured.uptime - menuOpenUptime <= Self.contextMenuLinkCaptureMaxAge
         else { return nil }
         return captured.url
+    }
+
+    func capturedContextMenuSemanticCopyValueForCurrentMenu() -> BrowserContextMenuSemanticCopyValue? {
+        capturedContextMenuLinkURLForCurrentMenu().flatMap(browserContextMenuSemanticCopyValue(for:))
     }
 
     func resolveContextMenuLinkURL(at point: NSPoint, completion: @escaping (URL?) -> Void) {

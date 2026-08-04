@@ -2194,6 +2194,20 @@ final class CmuxWebView: WKWebView {
             item.target = self
             menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
         }
+        if let semanticCopyValue = capturedContextMenuSemanticCopyValueForCurrentMenu(),
+           !menu.items.contains(where: { $0.action == #selector(contextMenuCopySemanticLink(_:)) }),
+           let copyLinkIndex = menu.items.firstIndex(where: {
+               $0.identifier?.rawValue == "WKMenuItemIdentifierCopyLink"
+                   || $0.title == "Copy Link"
+           }) {
+            let item = NSMenuItem(
+                title: semanticCopyValue.localizedMenuTitle,
+                action: #selector(contextMenuCopySemanticLink(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            menu.insertItem(item, at: copyLinkIndex + 1)
+        }
         appendScreenshotContextMenuItems(to: menu)
         appendMoveTabToNewWorkspaceContextMenuItem(to: menu)
         appendBrowserFocusModeContextMenuItem(to: menu)
@@ -2220,6 +2234,20 @@ final class CmuxWebView: WKWebView {
         resolveContextMenuLinkURL(at: point) { [weak self] url in
             guard let self, let url else { return }
             self.onContextMenuOpenLinkInNewTab?(url)
+        }
+    }
+
+    @objc private func contextMenuCopySemanticLink(_ sender: Any?) {
+        _ = sender
+        let point = lastContextMenuPoint
+        resolveContextMenuLinkURL(at: point) { url in
+            guard let url,
+                  let semanticCopyValue = browserContextMenuSemanticCopyValue(for: url)
+            else { return }
+
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(semanticCopyValue.text, forType: .string)
         }
     }
 
