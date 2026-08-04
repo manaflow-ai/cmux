@@ -11,7 +11,7 @@ internal import os
 /// The server owns transport state only. Everything app-shaped — telemetry,
 /// client command handling, restart scheduling, notifications — crosses the
 /// ``SocketControlServerEvents`` seam, and accepted client connections are
-/// surfaced through ``connections``.
+/// delivered through either the synchronous ingress handler or ``connections``.
 ///
 /// ## Isolation design: state separated by its drivers
 ///
@@ -190,15 +190,17 @@ public final class SocketControlServer {
     private let authorizationObserverBag: SocketAuthorizationObserverBag
     private nonisolated let connectionAuthorizationState: SocketConnectionAuthorizationState
     private nonisolated let effectivePasswordProvider: @Sendable () -> String?
+    nonisolated let acceptedConnectionHandler: (@Sendable (ControlConnection) -> Void)?
 
     /// Accepted, configured client connections, in accept order.
     ///
-    /// The composition root must run exactly one long-lived consumer over
-    /// this stream for the server's lifetime; descriptor ownership transfers
-    /// with each yielded ``ControlConnection``. The stream spans listener
-    /// restarts and never finishes. At most `maximumBufferedConnections` wait
-    /// for that consumer. When the buffer is full, the accept path closes each
-    /// newly dropped descriptor.
+    /// When no `acceptedConnectionHandler` is supplied, the composition root
+    /// must run exactly one long-lived consumer over this stream for the
+    /// server's lifetime; descriptor ownership transfers with each yielded
+    /// ``ControlConnection``. The stream spans listener restarts and never
+    /// finishes. At most `maximumBufferedConnections` wait for that consumer.
+    /// When the buffer is full, the accept path closes each newly dropped
+    /// descriptor.
     public nonisolated let connections: AsyncStream<ControlConnection>
     nonisolated let connectionsContinuation: AsyncStream<ControlConnection>.Continuation
 
@@ -231,6 +233,11 @@ public final class SocketControlServer {
     ///     password mode. Called outside authorization-state lock sections.
     ///   - authorizationChangeSignals: Out-of-band signals for authoritative
     ///     password-file changes that do not post an in-process notification.
+    ///   - acceptedConnectionHandler: Optional synchronous ingress handler.
+    ///     It runs on the listener Dispatch queue, must return promptly, and
+    ///     assumes ownership of each descriptor. When present, accepted
+    ///     connections bypass ``connections`` so delivery cannot be starved by
+    ///     Swift cooperative-executor work.
     ///   - events: Host callback seam.
     public init(
         initialSocketPath: String = SocketControlSettings.stableDefaultSocketPath,
@@ -241,6 +248,7 @@ public final class SocketControlServer {
         notificationCenter: NotificationCenter,
         effectivePasswordProvider: @escaping @Sendable () -> String? = { nil },
         authorizationChangeSignals: AsyncStream<Void>? = nil,
+        acceptedConnectionHandler: (@Sendable (ControlConnection) -> Void)? = nil,
         events: SocketControlServerEvents
     ) {
         let initialState = ListenerResources(socketPath: initialSocketPath)
@@ -255,6 +263,7 @@ public final class SocketControlServer {
         )
         self.connectionAuthorizationState = SocketConnectionAuthorizationState()
         self.effectivePasswordProvider = effectivePasswordProvider
+        self.acceptedConnectionHandler = acceptedConnectionHandler
         self.events = events
         (self.connections, self.connectionsContinuation) =
             AsyncStream<ControlConnection>.makeStream(

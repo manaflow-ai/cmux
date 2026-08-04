@@ -118,14 +118,17 @@ extension SocketControlServer {
                 return
             }
             let authorization = acceptedConnectionAuthorization()
-            let yielded = connectionsContinuation.yield(
-                ControlConnection(
-                    socket: clientSocket,
-                    peerProcessID: peerPid,
-                    authorizationGeneration: authorization.generation,
-                    authorizationRevocationSignal: authorization.revocationSignal
-                )
+            let connection = ControlConnection(
+                socket: clientSocket,
+                peerProcessID: peerPid,
+                authorizationGeneration: authorization.generation,
+                authorizationRevocationSignal: authorization.revocationSignal
             )
+            if let acceptedConnectionHandler {
+                acceptedConnectionHandler(connection)
+                continue
+            }
+            let yielded = connectionsContinuation.yield(connection)
             switch yielded {
             case .enqueued:
                 break

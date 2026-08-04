@@ -164,8 +164,6 @@ class TerminalController {
     // The package-owned listener: path/bind/lock lifecycle, accept source,
     // backoff/rearm recovery, and the generation-counted state machine.
     nonisolated let socketServer: SocketControlServer
-    // Accepted-connection consumer; runs until process exit (singleton).
-    private nonisolated let socketConnectionsTask: Task<Void, Never>
     // Per-surface dedupe for high-frequency report_* socket telemetry.
     // Cross-thread contract (reintroduced by the tranche-B v1 worker lane):
     // the nonisolated seam witness controlSidebarScheduleScopedShellState
@@ -420,27 +418,21 @@ class TerminalController {
                 passwordStore.configuredPassword(allowLazyKeychainFallback: true)
             },
             authorizationChangeSignals: socketPasswordFileWatcher?.events,
-            events: Self.makeSocketServerEvents(target: serverEventTarget)
-        )
-        self.socketServer = socketServer
-        // Single consumer of the accepted-connection stream, detached so
-        // accepts never funnel through the main actor. Each connection still
-        // gets a dedicated thread: command bodies block (main-thread sync
-        // hops, semaphore waits), so never the cooperative pool.
-        self.socketConnectionsTask = Task.detached {
-            for await connection in socketServer.connections {
+            acceptedConnectionHandler: { connection in
                 guard let controller = serverEventTarget.controller else {
                     close(connection.socket)
-                    continue
+                    return
                 }
-                await controller.spawnClientHandler(
+                controller.spawnClientHandler(
                     socket: connection.socket,
                     peerPid: connection.peerProcessID,
                     authorizationGeneration: connection.authorizationGeneration,
                     authorizationRevocationSignal: connection.authorizationRevocationSignal
                 )
-            }
-        }
+            },
+            events: Self.makeSocketServerEvents(target: serverEventTarget)
+        )
+        self.socketServer = socketServer
         serverEventTarget.controller = self
         controlCommandCoordinator.context = self
         browserDownloadObserver = NotificationCenter.default.addObserver(
@@ -1508,11 +1500,11 @@ class TerminalController {
         peerPid: pid_t?,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal
-    ) async {
+    ) {
         let initialReadLimits = socketClientInitialReadLimits(peerProcessID: peerPid)
         let preauthorizationLimiter = socketClientPreauthorizationLimiter
         let claimedPreauthorizationSlot = if initialReadLimits != nil {
-            await preauthorizationLimiter.claim()
+            preauthorizationLimiter.claim()
         } else {
             false
         }
@@ -1551,7 +1543,7 @@ class TerminalController {
         var holdsPreauthorizationSlot = initialSlotHeld
         defer {
             if holdsPreauthorizationSlot {
-                Task { await preauthorizationLimiter.release() }
+                preauthorizationLimiter.release()
             }
         }
         var passwordAuthorization = SocketPasswordAuthorization()
@@ -1587,7 +1579,7 @@ class TerminalController {
             lineReader.clearLimits()
             if holdsPreauthorizationSlot {
                 holdsPreauthorizationSlot = false
-                Task { await preauthorizationLimiter.release() }
+                preauthorizationLimiter.release()
             }
 
             var shouldCloseSocket = false
