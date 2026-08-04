@@ -34641,7 +34641,21 @@ export default CMUXSessionRestore;
             "_source": source,
             "_ppid": agentPid,
         ]
-        if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
+        var resolvedFeedWorkspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
+        // Task tools mutate the persistent workspace checklist, so they must
+        // land in the workspace that owns this surface *now*. The inherited
+        // CMUX_WORKSPACE_ID is fixed at spawn and goes stale when a surface is
+        // moved. https://github.com/manaflow-ai/cmux/issues/8960
+        if isWorkstreamTaskToolName(toolName), let client {
+            if let rehomed = rehomedWorkspaceIdForSurface(
+                surfaceId: env["CMUX_SURFACE_ID"],
+                claimedWorkspaceId: resolvedFeedWorkspaceId,
+                client: client
+            ) {
+                resolvedFeedWorkspaceId = rehomed
+            }
+        }
+        if let workspaceId = resolvedFeedWorkspaceId {
             eventDict["workspace_id"] = workspaceId
         }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]

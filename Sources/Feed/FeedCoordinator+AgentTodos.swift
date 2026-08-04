@@ -23,7 +23,11 @@ extension FeedCoordinator {
     /// exact rather than a guess.
     @MainActor
     func recoverAgentTodosIfNeeded(for event: WorkstreamEvent) {
-        guard let toolName = event.toolName, isWorkstreamTaskTool(toolName) else { return }
+        // `.todoWrite` producers (the OpenCode plugin) send no tool name, so
+        // the hook event name is the only signal that this is a task event.
+        let isTaskEvent = event.hookEventName == .todoWrite
+            || (event.toolName.map(isWorkstreamTaskTool) ?? false)
+        guard isTaskEvent else { return }
         guard let store, !store.hasTaskTodos(forWorkstream: event.sessionId) else { return }
         guard let workspace = Self.resolveTodoWorkspace(for: event) else { return }
 
@@ -63,14 +67,17 @@ extension FeedCoordinator {
 
     /// Resolves the workspace whose checklist this event may mutate.
     ///
-    /// Only the event's own `workspace_id` (the running terminal's
-    /// `CMUX_WORKSPACE_ID`) is trusted, and the write fails closed without it.
-    /// Deliberately not `resolveAttentionTarget`: that falls back to the
-    /// retained hook-session JSON on disk, which is fine for routing a
-    /// transient notification but would let a stale record write rows into the
-    /// workspace a resumed or moved session used to live in. It would also put
-    /// a synchronous file read and JSON parse on the main actor for every task
-    /// event.
+    /// Only the event's own `workspace_id` is trusted, and the write fails
+    /// closed without it. For task tools the feed hook re-homes that value
+    /// against the surface's current owner before sending, so a moved pane
+    /// routes to the workspace it lives in now rather than the one its
+    /// terminal inherited at spawn.
+    ///
+    /// Deliberately not `resolveAttentionTarget`: it prefers the same
+    /// `event.workspaceId` and merely adds an on-disk hook-session fallback,
+    /// so it re-homes nothing here while letting a stale record write rows
+    /// into a workspace the session has left, and it would put a synchronous
+    /// file read and JSON parse on the main actor for every task event.
     @MainActor
     private static func resolveTodoWorkspace(for event: WorkstreamEvent) -> Workspace? {
         guard let raw = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
