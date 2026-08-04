@@ -14007,6 +14007,7 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         let settings = renderContext.tabItemSettings
         let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
+            workspaceId: tab.id,
             settings: settings,
             showsAgentActivity: renderContext.showsAgentActivity
         )

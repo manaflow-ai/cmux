@@ -5,6 +5,8 @@ import Foundation
 /// Workspace sidebar snapshot value types extracted from `ContentView.swift`, which sits at its file-length budget.
 struct SidebarWorkspaceSnapshotBuilder {
     struct PresentationKey: Equatable {
+        // A cache candidate must belong to the row it is about to render.
+        let workspaceId: UUID
         let showsWorkspaceDescription: Bool
         let usesVerticalBranchLayout: Bool
         let showsGitBranch: Bool

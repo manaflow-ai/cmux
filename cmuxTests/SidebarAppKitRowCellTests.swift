@@ -9,11 +9,13 @@ import Testing
 @MainActor
 struct SidebarAppKitRowCellTests {
     private static func makeSnapshot(
+        workspaceId: UUID,
         title: String = "Workspace",
         metadataEntries: [SidebarStatusEntry] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
+                workspaceId: workspaceId,
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
                 showsAgentActivity: false
             ),
@@ -64,7 +66,10 @@ struct SidebarAppKitRowCellTests {
         return SidebarWorkspaceRowModel(
             workspaceId: workspaceId,
             index: 0,
-            snapshot: makeSnapshot(metadataEntries: metadataEntries),
+            snapshot: makeSnapshot(
+                workspaceId: workspaceId,
+                metadataEntries: metadataEntries
+            ),
             settings: resolvedSettings,
             isActive: isActive,
             isMultiSelected: false,
@@ -96,12 +101,13 @@ struct SidebarAppKitRowCellTests {
     private static func makeSwiftUIRow(
         settings: SidebarTabItemSettingsSnapshot
     ) -> SidebarWorkspaceRowSnapshot {
-        SidebarWorkspaceRowSnapshot(
-            workspaceId: UUID(),
+        let workspaceId = UUID()
+        return SidebarWorkspaceRowSnapshot(
+            workspaceId: workspaceId,
             groupId: nil,
             index: 0,
             workspaceCount: 1,
-            workspace: makeSnapshot(),
+            workspace: makeSnapshot(workspaceId: workspaceId),
             isActive: false,
             isMultiSelected: false,
             hasUserCustomTitle: false,

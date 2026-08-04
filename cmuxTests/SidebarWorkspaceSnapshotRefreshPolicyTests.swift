@@ -223,6 +223,8 @@ import Testing
         #expect(snapshotsByWorkspaceId[workspaceB.id]?.metadataEntries.isEmpty == true)
 
         let addedWorkspaceSnapshot = snapshot(for: addedWorkspace)
+        #expect(cachedRowZeroSnapshot.presentationKey.workspaceId == workspaceA.id)
+        #expect(addedWorkspaceSnapshot.presentationKey.workspaceId == addedWorkspace.id)
         let displayedRowZeroSnapshot =
             cachedRowZeroSnapshot.presentationKey == addedWorkspaceSnapshot.presentationKey
                 ? cachedRowZeroSnapshot
@@ -236,6 +238,7 @@ import Testing
     }
 
     static func snapshot(
+        workspaceId: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000007252")!,
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
         customDescription: String? = nil,
@@ -249,7 +252,7 @@ import Testing
         activeCodingAgentCount: Int = 0
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
-            presentationKey: presentationKey ?? Self.presentationKey(),
+            presentationKey: presentationKey ?? Self.presentationKey(workspaceId: workspaceId),
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
@@ -285,6 +288,7 @@ import Testing
     }
 
     static func presentationKey(
+        workspaceId: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000007252")!,
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
@@ -300,6 +304,7 @@ import Testing
         )
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            workspaceId: workspaceId,
             showsWorkspaceDescription: showsWorkspaceDescription,
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,

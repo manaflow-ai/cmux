@@ -9,11 +9,13 @@ import Testing
 @MainActor
 struct SidebarWorkspaceRowSuspensionTests {
     private static func makeSnapshot(
+        workspaceId: UUID,
         manualTaskStatus: WorkspaceTaskStatus? = nil,
         checklistItems: [WorkspaceChecklistItem] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
+                workspaceId: workspaceId,
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
                 showsAgentActivity: false
             ),
@@ -78,6 +80,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             workspaceId: workspaceId,
             index: 0,
             snapshot: makeSnapshot(
+                workspaceId: workspaceId,
                 manualTaskStatus: manualTaskStatus,
                 checklistItems: checklistItems
             ),
