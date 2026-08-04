@@ -9139,18 +9139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] in
-            let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
-            if !shouldClose {
-                self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
-                // Close CANCELLED (a genuine veto, not a confirmed quit): clear any
-                // kill-on-close marker so a later window/quit close detaches. A
-                // CONFIRMED quit of the last tab keeps the marker set so
-                // applicationWillTerminate kills the session before exit.
-                if self?.isTerminatingApp != true {
-                    self?.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
-                }
-            }
-            return shouldClose
+            self?.handleMainTerminalWindowCloseRequest(windowId: windowId, onCancel: nil) ?? true
         }
         window.delegate = controller
         mainWindowControllers.append(controller)
@@ -13116,9 +13105,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func handleQuitShortcutWarning() -> Bool {
-        guard activeQuitConfirmationAlertPresenter == nil else { return true }
-        if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
+    private func handleQuitShortcutWarning(
+        onCancel: (() -> Void)? = nil,
+        forceConfirmation: Bool = false
+    ) -> Bool {
+        if let activeQuitConfirmationAlertPresenter {
+            if let onCancel {
+                activeQuitConfirmationAlertPresenter.joinCancellationAction(onCancel)
+            }
+            return true
+        }
+        if !forceConfirmation && !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
             isDevBuild: BuildFlavor.current == .dev
@@ -13137,6 +13134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // second alert when NSApp.terminate re-enters the delegate callback.
                 self?.isQuitWarningConfirmed = true
                 NSApp.terminate(nil)
+            } else {
+                onCancel?()
             }
         }
         return true
@@ -16735,13 +16734,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
+    private func handleMainTerminalWindowShouldClose(onCancel: (() -> Void)?) -> Bool {
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
         if isRunningUnderXCTest(ProcessInfo.processInfo.environment) { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
-        _ = handleQuitShortcutWarning()
+        // The "Don't warn again for Cmd+Q" preference does not apply here:
+        // Ctrl+D has already exited the sole shell, so this decision must offer
+        // Cancel as the only way to recover a terminal instead of quitting cmux.
+        _ = handleQuitShortcutWarning(
+            onCancel: onCancel,
+            forceConfirmation: onCancel != nil
+        )
         return false
+    }
+
+    private func handleMainTerminalWindowCloseRequest(
+        windowId: UUID,
+        onCancel: (() -> Void)?
+    ) -> Bool {
+        let cancellationAction: (() -> Void)? = onCancel.map { action in
+            { [weak self] in
+                self?.handleCancelledMainTerminalWindowClose(windowId: windowId)
+                action()
+            }
+        }
+        let shouldClose = handleMainTerminalWindowShouldClose(onCancel: cancellationAction)
+        if !shouldClose, onCancel == nil {
+            handleCancelledMainTerminalWindowClose(windowId: windowId)
+        }
+        return shouldClose
+    }
+
+    private func handleCancelledMainTerminalWindowClose(windowId: UUID) {
+        closedWindowHistorySuppressedWindowIds.remove(windowId)
+        // A cancelled close must not leave an explicit kill-on-close marker for
+        // a later window or app close. A confirmed quit keeps the marker so
+        // applicationWillTerminate kills the remote session before exit.
+        if !isTerminatingApp {
+            remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
+        }
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
@@ -16891,7 +16923,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspaceForMainActor(tabId: tabId)
     }
 
-    func closeMainWindowContainingTabId(_ tabId: UUID, recordHistory: Bool = true) {
+    func closeMainWindowContainingTabId(
+        _ tabId: UUID,
+        recordHistory: Bool = true,
+        onCancelled: (() -> Void)? = nil
+    ) {
 #if DEBUG
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
@@ -16905,6 +16941,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !recordHistory {
                 closedWindowHistorySuppressedWindowIds.remove(context.windowId)
             }
+            return
+        }
+        if let onCancelled,
+           !handleMainTerminalWindowCloseRequest(windowId: context.windowId, onCancel: onCancelled) {
             return
         }
         window.performClose(nil)

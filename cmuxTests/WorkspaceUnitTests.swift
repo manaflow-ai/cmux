@@ -4694,10 +4694,25 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
 
+        let reloadState = sourcePanel.surface.captureFontSizeConfigurationReloadState(
+            magnificationPercent: 100
+        )
+        defer {
+            sourcePanel.surface.abandonFontSizeConfigurationReloadReconciliation(
+                from: reloadState,
+                magnificationPercent: 100
+            )
+        }
+
         sourcePanel.surface.replaceSurfaceWithFreedPointerForTesting()
         XCTAssertNotNil(
             sourcePanel.surface.surface,
             "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
+        )
+        _ = sourcePanel.surface.fontSizeLineageSnapshot()
+        XCTAssertNotNil(
+            sourcePanel.surface.surface,
+            "Expected the pending reload snapshot to leave liveness validation to inherited config"
         )
 
         let splitPanel = workspace.newTerminalSplit(
@@ -4728,10 +4743,25 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
 
+        let reloadState = sourcePanel.surface.captureFontSizeConfigurationReloadState(
+            magnificationPercent: 100
+        )
+        defer {
+            sourcePanel.surface.abandonFontSizeConfigurationReloadReconciliation(
+                from: reloadState,
+                magnificationPercent: 100
+            )
+        }
+
         sourcePanel.surface.replaceSurfaceWithFreedPointerForTesting()
         XCTAssertNotNil(
             sourcePanel.surface.surface,
             "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
+        )
+        _ = sourcePanel.surface.fontSizeLineageSnapshot()
+        XCTAssertNotNil(
+            sourcePanel.surface.surface,
+            "Expected the pending reload snapshot to leave liveness validation to inherited config"
         )
 
         let createdPanel = workspace.newTerminalSurface(
