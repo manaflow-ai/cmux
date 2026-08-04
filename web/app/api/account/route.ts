@@ -85,6 +85,8 @@ const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const POSTHOG_DEFAULT_API_HOST = "https://us.posthog.com";
 const POSTHOG_PERSON_DELETE_TIMEOUT_MS = 10_000;
+const HOSTED_TENANT_DELETE_BATCH_SIZE = 2;
+const HOSTED_TENANT_DELETE_PHASE_TIMEOUT_MS = 20_000;
 
 type DeletableStackUser = {
   readonly id: string;
@@ -125,7 +127,10 @@ type StackPaginationPage = readonly unknown[] & {
 };
 
 type AccountDeletionTombstoneStart =
-  | { readonly kind: "started" }
+  | {
+      readonly kind: "started";
+      readonly hostedSubrouterDeletedTeamIds: readonly string[];
+    }
   | { readonly kind: "pending" }
   | { readonly kind: "completed" }
   | { readonly kind: "cleanupIncomplete" };
@@ -267,12 +272,23 @@ export async function DELETE(request: Request): Promise<Response> {
       if (retirement.revoked) destructiveCleanupStarted = true;
       await refreshAccountDeletionTombstoneLease(userId);
     }
-    for (const teamId of accountScope.teamIds) {
-      // Retirement revokes every tenant key before credential-bearing state is
-      // deleted. A 202 response remains retryable while live requests drain.
-      destructiveCleanupStarted = true;
-      await hostedSubrouter.deleteTenant(accessToken, teamId);
-      await refreshAccountDeletionTombstoneLease(userId);
+    const hostedDeletion = await deleteHostedSubrouterTenantsForAccount({
+      userId,
+      accessToken,
+      teamIds: accountScope.teamIds,
+      completedTeamIds: tombstoneStart.hostedSubrouterDeletedTeamIds,
+      client: hostedSubrouter,
+      beforeDeletion: () => {
+        destructiveCleanupStarted = true;
+      },
+    });
+    if (!hostedDeletion.complete) {
+      await markAccountDeletionTombstoneHostedDeletePending(userId);
+      return jsonResponse({
+        ok: true,
+        deletionPending: true,
+        destroyedVms,
+      }, 202);
     }
     // Delete cmux-owned data before the Stack user so a Stack-side failure does
     // not strand retained app data behind an account the user can no longer use.
@@ -356,6 +372,34 @@ async function legacySubrouterTenantIdsForTeams(
   return uniqueNonEmptyStrings(rows.map((row) => row.tenantId));
 }
 
+async function deleteHostedSubrouterTenantsForAccount(input: {
+  readonly userId: string;
+  readonly accessToken: string;
+  readonly teamIds: readonly string[];
+  readonly completedTeamIds: readonly string[];
+  readonly client: ReturnType<typeof createHostedSubrouterClient>;
+  readonly beforeDeletion: () => void;
+}): Promise<{ readonly complete: boolean }> {
+  const completed = new Set(input.completedTeamIds);
+  const remaining = uniqueNonEmptyStrings(input.teamIds).filter(
+    (teamId) => !completed.has(teamId),
+  );
+  const batch = remaining.slice(0, HOSTED_TENANT_DELETE_BATCH_SIZE);
+  const deadline = Date.now() + HOSTED_TENANT_DELETE_PHASE_TIMEOUT_MS;
+  let deleted = 0;
+  for (const teamId of batch) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    input.beforeDeletion();
+    await input.client.deleteTenant(input.accessToken, teamId, {
+      signal: AbortSignal.timeout(Math.min(remainingMs, 10_000)),
+    });
+    await markAccountDeletionTombstoneHostedTeamDeleted(input.userId, teamId);
+    deleted += 1;
+  }
+  return { complete: deleted === remaining.length };
+}
+
 async function currentDeletableStackUser(request: Request): Promise<DeletableStackSession | null> {
   if (!isStackConfigured()) return null;
 
@@ -392,12 +436,31 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
         userIdHash: accountDeletionTombstones.userIdHash,
         status: accountDeletionTombstones.status,
         updatedAt: accountDeletionTombstones.updatedAt,
+        hostedSubrouterDeletedTeamIds:
+          accountDeletionTombstones.hostedSubrouterDeletedTeamIds,
       })
       .from(accountDeletionTombstones)
       .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
       .limit(1);
     if (existing?.status === "completed") return { kind: "completed" };
     if (existing?.status === "cleanup_incomplete") return { kind: "cleanupIncomplete" };
+    if (existing?.status === "hosted_delete_pending") {
+      await tx
+        .update(accountDeletionTombstones)
+        .set({
+          status: "in_progress",
+          updatedAt: now,
+          attemptCount: sql`${accountDeletionTombstones.attemptCount} + 1`,
+          errorMessage: null,
+        })
+        .where(eq(accountDeletionTombstones.userIdHash, userIdHash));
+      return {
+        kind: "started",
+        hostedSubrouterDeletedTeamIds: uniqueNonEmptyStrings(
+          existing.hostedSubrouterDeletedTeamIds,
+        ),
+      };
+    }
     if (existing && isBlockingAccountDeletionTombstone(existing, now)) {
       return { kind: "pending" };
     }
@@ -422,8 +485,40 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
           errorMessage: null,
         },
       });
-    return { kind: "started" };
+    return {
+      kind: "started",
+      hostedSubrouterDeletedTeamIds: uniqueNonEmptyStrings(
+        existing?.hostedSubrouterDeletedTeamIds ?? [],
+      ),
+    };
   });
+}
+
+async function markAccountDeletionTombstoneHostedTeamDeleted(
+  userId: string,
+  teamId: string,
+): Promise<void> {
+  await cloudDb()
+    .update(accountDeletionTombstones)
+    .set({
+      hostedSubrouterDeletedTeamIds:
+        sql`${accountDeletionTombstones.hostedSubrouterDeletedTeamIds} || ${JSON.stringify([teamId])}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
+}
+
+async function markAccountDeletionTombstoneHostedDeletePending(
+  userId: string,
+): Promise<void> {
+  await cloudDb()
+    .update(accountDeletionTombstones)
+    .set({
+      status: "hosted_delete_pending",
+      updatedAt: new Date(),
+      errorMessage: null,
+    })
+    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
 }
 
 async function markAccountDeletionTombstoneCompleted(userId: string): Promise<void> {
@@ -435,6 +530,7 @@ async function markAccountDeletionTombstoneCompleted(userId: string): Promise<vo
       status: "completed",
       updatedAt: now,
       completedAt: now,
+      hostedSubrouterDeletedTeamIds: [],
       errorMessage: null,
     })
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
@@ -479,6 +575,7 @@ async function markAccountDeletionTombstoneCleanupIncomplete(userId: string, err
       status: "cleanup_incomplete",
       updatedAt: now,
       completedAt: now,
+      hostedSubrouterDeletedTeamIds: [],
       errorMessage: sanitizedErrorSummary(error),
     })
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));

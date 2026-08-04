@@ -947,9 +947,9 @@ describe("account deletion route", () => {
     expect(await pending.json()).toEqual({
       ok: true,
       deletionPending: true,
-      destroyedVms: 0,
+      destroyedVms: 2,
     });
-    expect(hostedTenantDeleteRequests.map(([_, init]) => ({
+    expect(hostedTenantDeleteRequests.map(([, init]) => ({
       authorization: new Headers(init?.headers).get("authorization"),
       teamId: (JSON.parse(String(init?.body)) as { readonly teamId: string }).teamId,
     }))).toEqual([
@@ -957,6 +957,9 @@ describe("account deletion route", () => {
       { authorization: "Bearer first-access", teamId: "team-personal-1" },
     ]);
     expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(hostedTenantDeleteRequests.every(([, init]) =>
+      init?.signal instanceof AbortSignal
+    )).toBe(true);
 
     transactionTombstoneSelectResults = [[{
       userIdHash: "existing-hash",
@@ -970,7 +973,7 @@ describe("account deletion route", () => {
 
     expect(completed.status).toBe(200);
     expect(await completed.json()).toEqual({ ok: true, destroyedVms: 2 });
-    expect(hostedTenantDeleteRequests.slice(2).map(([_, init]) => ({
+    expect(hostedTenantDeleteRequests.slice(2).map(([, init]) => ({
       authorization: new Headers(init?.headers).get("authorization"),
       teamId: (JSON.parse(String(init?.body)) as { readonly teamId: string }).teamId,
     }))).toEqual([

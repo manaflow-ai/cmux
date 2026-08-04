@@ -35,7 +35,11 @@ export type HostedSubrouterClient = {
     accessToken: string,
     team: HostedTeam,
   ) => Promise<HostedTenant>;
-  readonly deleteTenant: (accessToken: string, teamId: string) => Promise<void>;
+  readonly deleteTenant: (
+    accessToken: string,
+    teamId: string,
+    options?: { readonly signal?: AbortSignal },
+  ) => Promise<void>;
   readonly listAccounts: (tenantKey: string) => Promise<readonly SubrouterAccount[]>;
   readonly createAccount: (
     tenantKey: string,
@@ -178,7 +182,7 @@ export function createHostedSubrouterClient(options: {
       }
       return tenant;
     },
-    deleteTenant: async (accessToken, teamId) => {
+    deleteTenant: async (accessToken, teamId, options) => {
       assertTenantControlConfigured();
       const upstreamResponse = await requestResponse(
         fetchImpl,
@@ -191,6 +195,7 @@ export function createHostedSubrouterClient(options: {
             "x-subrouter-tenant-delete-token": tenantDeleteToken,
           },
           body: JSON.stringify({ teamId }),
+          signal: options?.signal,
         },
       );
       const response = await responseJson(upstreamResponse);
