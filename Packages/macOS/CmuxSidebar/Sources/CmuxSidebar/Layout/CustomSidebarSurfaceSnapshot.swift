@@ -26,6 +26,9 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     public let gitIsDirty: Bool
     /// The surface's listening ports, or empty when none (`tabs[i].ports`).
     public let listeningPorts: [Int]
+    /// The tracked coding-agent kind, or `nil`/empty for a plain shell
+    /// (`tabs[i].agent`).
+    public let agentKind: String?
 
     /// Creates a surface snapshot from already-resolved leaf values.
     public init(
@@ -36,7 +39,8 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         directory: String?,
         gitBranch: String?,
         gitIsDirty: Bool,
-        listeningPorts: [Int]
+        listeningPorts: [Int],
+        agentKind: String? = nil
     ) {
         self.panelId = panelId
         self.title = title
@@ -46,5 +50,6 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         self.gitBranch = gitBranch
         self.gitIsDirty = gitIsDirty
         self.listeningPorts = listeningPorts
+        self.agentKind = agentKind
     }
 }

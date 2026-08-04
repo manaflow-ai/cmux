@@ -136,7 +136,8 @@ with:
   (`{ target, state, connected }`).
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
-  `dirty`, `ports` (array of Int).
+  `dirty`, `ports` (array of Int), and `agent` (coding-agent kind such as
+  `"claude"`, `"codex"`, or `"opencode"`; omitted for plain shells).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The

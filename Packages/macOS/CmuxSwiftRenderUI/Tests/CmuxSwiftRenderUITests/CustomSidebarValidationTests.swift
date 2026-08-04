@@ -50,6 +50,23 @@ struct CustomSidebarValidationTests {
         #expect(report.entries.first?.errorMessage == "No supported SwiftUI view found.")
     }
 
+    @Test("default context validates a sidebar that reads the tracked tab agent")
+    func validatesTrackedTabAgent() throws {
+        let directory = try temporaryDirectory()
+        try """
+        ForEach(workspaces) { workspace in
+            ForEach(workspace.tabs) { tab in
+                Text(tab.agent)
+            }
+        }
+        """.write(to: directory.appendingPathComponent("agents.swift"), atomically: true, encoding: .utf8)
+
+        let report = validator.validate(directory: directory)
+
+        #expect(report.validCount == 1)
+        #expect(report.errorCount == 0)
+    }
+
     @Test("reports a missing requested sidebar name")
     func reportsMissingRequestedName() throws {
         let directory = try temporaryDirectory()
@@ -188,6 +205,7 @@ struct CustomSidebarValidationTests {
                         "branch": .string("fix-crash-on-launch"),
                         "dirty": .bool(true),
                         "ports": .array([.int(3801)]),
+                        "agent": .string("codex"),
                     ]),
                     .object([
                         "id": .string("surface-browser"),

@@ -62,7 +62,7 @@ cmux sidebar validate mine && cmux sidebar select mine
 ## Live data context (read-only, refreshes ~1s)
 
 - `workspaces`: `id`, `title`, `selected`, `pinned`, `index`, `directory`, `ports` + `portCount`, `unread`, `tabs` + `tabCount`; when present also `description`, `color`, `branch` + `dirty`, `pr` / `prs` (`{number, label, url, status, stale, branch}`), `progress` (`{value, label}`), `latestMessage`, `latestPrompt`, `latestAt`, `remote` (`{target, state, connected}`).
-- `workspaces[i].tabs`: `id`, `title`, `focused`, `pinned`; plus `directory`, `branch` + `dirty`, `ports` when available.
+- `workspaces[i].tabs`: `id`, `title`, `focused`, `pinned`; plus `directory`, `branch` + `dirty`, `ports`, and `agent` (for example `claude`, `codex`, or `opencode`) when available.
 - `clock`: `{time, hour, minute, second, weekday, epoch}`.
 - Scalars: `workspaceCount`, `selectedTitle`, `selectedId`, `unreadTotal`.
 

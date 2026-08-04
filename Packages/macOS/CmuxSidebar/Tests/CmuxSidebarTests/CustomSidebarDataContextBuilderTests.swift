@@ -289,7 +289,8 @@ struct CustomSidebarDataContextBuilderTests {
             directory: "/src",
             gitBranch: "feat",
             gitIsDirty: false,
-            listeningPorts: [5173]
+            listeningPorts: [5173],
+            agentKind: "codex"
         )
 
         let value = builder.surfaceValue(enriched)
@@ -302,10 +303,12 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("branch") == .string("feat"))
         #expect(value.member("dirty") == .bool(false))
         #expect(value.member("ports") == .array([.int(5173)]))
+        #expect(value.member("agent") == .string("codex"))
 
         let bare = builder.surfaceValue(minimalSurface(id: id))
         #expect(bare.member("directory") == nil)
         #expect(bare.member("branch") == nil)
         #expect(bare.member("ports") == nil)
+        #expect(bare.member("agent") == nil)
     }
 }

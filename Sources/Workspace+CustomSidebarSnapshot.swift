@@ -61,11 +61,23 @@ extension Workspace {
                         directory: reportedPanelDirectory(panelId: panelId),
                         gitBranch: git?.branch,
                         gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: surfaceListeningPorts[panelId] ?? []
+                        listeningPorts: surfaceListeningPorts[panelId] ?? [],
+                        agentKind: customSidebarAgentKind(panelId: panelId)
                     )
                 )
             }
         }
         return surfaces
+    }
+
+    private func customSidebarAgentKind(panelId: UUID) -> String? {
+        let kinds = (agentPIDKeysByPanelId[panelId] ?? []).compactMap { key -> String? in
+            guard let rawKind = key.split(separator: ".", maxSplits: 1).first,
+                  !rawKind.isEmpty else {
+                return nil
+            }
+            return rawKind == "claude_code" ? "claude" : String(rawKind)
+        }
+        return kinds.sorted().first
     }
 }

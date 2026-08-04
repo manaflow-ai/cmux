@@ -133,6 +133,9 @@ public struct CustomSidebarDataContextBuilder {
         if !surface.listeningPorts.isEmpty {
             surfaceFields["ports"] = .array(surface.listeningPorts.map { .int($0) })
         }
+        if let agentKind = surface.agentKind, !agentKind.isEmpty {
+            surfaceFields["agent"] = .string(agentKind)
+        }
         return .object(surfaceFields)
     }
 }
