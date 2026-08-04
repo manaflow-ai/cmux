@@ -11638,7 +11638,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			repositoryURL = "https://github.com/PostHog/posthog-ios.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 3.41.0;
+				minimumVersion = 3.69.0;
 			};
 		};
 		A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
