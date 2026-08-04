@@ -79,6 +79,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         sourceView: UIView,
         contextMenuIdentifier: String
     )?
+    private var visibleWorkspaceIDs: Set<MobileWorkspacePreview.ID> = []
 
     init(configuration: WorkspaceListTable) {
         self.configuration = configuration
@@ -129,8 +130,38 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     func detach() {
+        if !visibleWorkspaceIDs.isEmpty {
+            visibleWorkspaceIDs.removeAll()
+            configuration.visibleWorkspaceIDsChanged?([])
+        }
         pendingContextMenuWorkspaceClose = nil
         tableViewController = nil
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        willDisplay cell: UITableViewCell,
+        forRowAt indexPath: IndexPath
+    ) {
+        guard
+            let item = dataSource?.itemIdentifier(for: indexPath),
+            case .workspace(let workspaceID, _) = item,
+            visibleWorkspaceIDs.insert(workspaceID).inserted
+        else { return }
+        configuration.visibleWorkspaceIDsChanged?(visibleWorkspaceIDs)
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        didEndDisplaying cell: UITableViewCell,
+        forRowAt indexPath: IndexPath
+    ) {
+        guard
+            let item = dataSource?.itemIdentifier(for: indexPath),
+            case .workspace(let workspaceID, _) = item,
+            visibleWorkspaceIDs.remove(workspaceID) != nil
+        else { return }
+        configuration.visibleWorkspaceIDsChanged?(visibleWorkspaceIDs)
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {

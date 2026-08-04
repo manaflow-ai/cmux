@@ -57,6 +57,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let showAddDevice: (() -> Void)?
     let reconnect: (() -> Void)?
     let refresh: (@Sendable () async -> Void)?
+    var visibleWorkspaceIDsChanged: ((Set<MobileWorkspacePreview.ID>) -> Void)? = nil
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
         WorkspaceListTableCoordinator(configuration: self)
