@@ -2123,29 +2123,22 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testPersistentPTYBootstrapReinstallsOldDaemonMissingPTYCapability() async throws {
         let fileManager = FileManager.default
-        let fakeGoDirectory = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-remote-daemon-fake-go-\(UUID().uuidString)",
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-capability-reinstall-\(UUID().uuidString)",
             isDirectory: true
         )
-        try fileManager.createDirectory(at: fakeGoDirectory, withIntermediateDirectories: true)
-        let fakeGoURL = fakeGoDirectory.appendingPathComponent("go", isDirectory: false)
-        try Data().write(to: fakeGoURL)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeGoURL.path)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+        let fakeDaemonData = Data("fake daemon".utf8)
+        let fakeDaemonURL = directoryURL.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        try fakeDaemonData.write(to: fakeDaemonURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonURL.path)
 
         let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
         let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
-        let previousPath = getenv("PATH").map { String(cString: $0) }
         setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", "1", 1)
         unsetenv("CMUX_REMOTE_DAEMON_BINARY")
-        // The production path resolves `go` before calling the injected process runner. Own that
-        // discovery dependency as part of the fixture; CI runners are not required to install Go,
-        // and the scripted runner below writes the fake build output without executing this file.
-        let testPath = [fakeGoDirectory.path, previousPath]
-            .compactMap { $0 }
-            .joined(separator: ":")
-        setenv("PATH", testPath, 1)
         defer {
-            try? fileManager.removeItem(at: fakeGoDirectory)
             if let previousAllowLocalBuild {
                 setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", previousAllowLocalBuild, 1)
             } else {
@@ -2156,25 +2149,18 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             } else {
                 unsetenv("CMUX_REMOTE_DAEMON_BINARY")
             }
-            if let previousPath {
-                setenv("PATH", previousPath, 1)
-            } else {
-                unsetenv("PATH")
-            }
         }
 
         // Expectation rather than a semaphore, for the reason above: async fulfillment
         // yields the main actor to the session transition this test is waiting on.
         let uploadInvoked = expectation(description: "daemon upload invoked")
         uploadInvoked.assertForOverFulfill = false
-        let fakeDaemonData = Data("fake daemon".utf8)
         let lock = NSLock()
         var uploadCommand: String?
         var uploadPayload: Data?
         var helloCountBeforeUpload = 0
         var helloCount = 0
         let remoteProcessScript: RemoteProcessScript = { executable, arguments, stdin, _ in
-            let executableName = URL(fileURLWithPath: executable).lastPathComponent
             if executable == "/usr/bin/ssh" {
                 let command = arguments.last ?? ""
                 if command.contains("uname -s") {
@@ -2193,6 +2179,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     lock.lock()
                     helloCount += 1
                     lock.unlock()
+                    // An override present before bootstrap forces a proactive install and would
+                    // stop this from being a capability-reinstall test. Publish the deterministic
+                    // binary only after the existing daemon's hello; the missing-capability branch
+                    // then acquires this exact file instead of consulting an embedded manifest or
+                    // whichever Go toolchain happens to be on the runner.
+                    setenv("CMUX_REMOTE_DAEMON_BINARY", fakeDaemonURL.path, 1)
                     return (
                         status: 0,
                         stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"old","capabilities":["proxy.stream.push"]}}"# + "\n",
@@ -2220,19 +2212,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             if executable == "/usr/bin/scp" {
                 XCTFail("daemon upload used scp; it is expected to stream over the ssh exec channel")
                 return (status: 1, stdout: "", stderr: "unexpected scp")
-            }
-            if executableName == "go" {
-                if let outputFlagIndex = arguments.firstIndex(of: "-o"),
-                   outputFlagIndex + 1 < arguments.count {
-                    let outputURL = URL(fileURLWithPath: arguments[outputFlagIndex + 1], isDirectory: false)
-                    try? FileManager.default.createDirectory(
-                        at: outputURL.deletingLastPathComponent(),
-                        withIntermediateDirectories: true
-                    )
-                    try fakeDaemonData.write(to: outputURL)
-                    try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: outputURL.path)
-                }
-                return (status: 0, stdout: "", stderr: "")
             }
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")

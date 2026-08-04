@@ -82,7 +82,7 @@ import Testing
         XCTAssertEqual(result.status, 1, result.diagnostics)
     }
 
-    @Test func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
+    @Test func testAgentTeamsHelpForwardsToExternalAgentCLI() throws {
         let cliPath = try bundledCLIPath()
         let home = try makeTemporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
@@ -93,8 +93,14 @@ import Testing
             let executableURL = binURL.appendingPathComponent(executableName, isDirectory: false)
             try """
             #!/bin/sh
-            : > "$CMUX_TEST_AGENT_LAUNCH_MARKER"
-            exit 99
+            {
+              printf 'provider=%s\n' "${0##*/}"
+              for argument in "$@"; do
+                printf 'arg=%s\n' "$argument"
+              done
+            } > "$CMUX_TEST_AGENT_LAUNCH_MARKER"
+            printf 'fake provider help\n'
+            exit 0
             """.write(to: executableURL, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o700],
@@ -117,7 +123,8 @@ import Testing
         // CLI takes it as given and never goes looking.
         environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-agent-teams-help-\(UUID().uuidString.prefix(8)).sock"
 
-        for command in ["claude-teams", "codex-teams"] {
+        for (command, provider) in [("claude-teams", "claude"), ("codex-teams", "codex")] {
+            try? FileManager.default.removeItem(at: launchMarker)
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: [command, "--help"],
@@ -126,12 +133,11 @@ import Testing
 
             XCTAssertFalse(result.timedOut, result.diagnostics)
             XCTAssertEqual(result.status, 0, result.diagnostics)
-            XCTAssertTrue(result.stdout.contains("Usage: cmux \(command)"), result.diagnostics)
-            // The CLI reports a failed exec by throwing, and the top-level handler prints
-            // that on stderr, so this has to read both streams. On one shared pipe it
-            // used to cover either by accident.
-            XCTAssertFalse(result.combinedOutput.contains("Failed to launch"), result.diagnostics)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: launchMarker.path), result.diagnostics)
+            XCTAssertTrue(result.stdout.contains("fake provider help"), result.diagnostics)
+            let launch = try String(contentsOf: launchMarker, encoding: .utf8)
+            let launchLines = launch.components(separatedBy: .newlines)
+            XCTAssertTrue(launchLines.contains("provider=\(provider)"), result.diagnostics)
+            XCTAssertTrue(launchLines.contains("arg=--help"), result.diagnostics)
         }
     }
 
@@ -550,11 +556,24 @@ import Testing
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
         XCTAssertEqual(result.status, 0, result.diagnostics)
-        let resolvedRoot = root.resolvingSymlinksInPath().path
-        let resolvedMissingDirectory = missingDirectory.resolvingSymlinksInPath().path
-        XCTAssertTrue(result.stdout.contains("pwd=\(resolvedRoot)\n"), result.diagnostics)
-        XCTAssertTrue(result.stdout.contains("arg=\(resolvedRoot)\n"), result.diagnostics)
-        XCTAssertFalse(result.stdout.contains(resolvedMissingDirectory), result.diagnostics)
+        let outputLines = result.stdout.components(separatedBy: .newlines)
+        let observedPWD = try XCTUnwrap(outputLines.first(where: { $0.hasPrefix("pwd=") }))
+            .dropFirst("pwd=".count)
+        let observedArguments = outputLines.compactMap { line -> String? in
+            guard line.hasPrefix("arg=") else { return nil }
+            return String(line.dropFirst("arg=".count))
+        }
+        let cwdFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--cwd"))
+        let sessionFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--session"))
+        let observedCwdArgument = try XCTUnwrap(observedArguments.dropFirst(cwdFlagIndex + 1).first)
+        let observedSessionID = try XCTUnwrap(observedArguments.dropFirst(sessionFlagIndex + 1).first)
+        let canonicalRoot = try XCTUnwrap(canonicalExistingPath(root.path))
+
+        XCTAssertEqual(cwdFlagIndex, 0, result.diagnostics)
+        XCTAssertEqual(sessionFlagIndex, 2, result.diagnostics)
+        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(String(observedPWD))), canonicalRoot, result.diagnostics)
+        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(observedCwdArgument)), canonicalRoot, result.diagnostics)
+        XCTAssertEqual(observedSessionID, checkpointID, result.diagnostics)
     }
 
     @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
@@ -2868,6 +2887,17 @@ import Testing
         "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
     }
 
+    /// Resolves an existing path through the kernel-backed filesystem view.
+    ///
+    /// Foundation's URL normalization spells the `/var` symlink differently across
+    /// macOS releases. `realpath` lets a test compare identity without baking either
+    /// `/var/folders/...` or `/private/var/folders/...` into its expected output.
+    private func canonicalExistingPath(_ path: String) -> String? {
+        guard let resolved = path.withCString({ realpath($0, nil) }) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
     /// Runs a shell command with its environment spelled out.
     ///
     /// The environment is a required parameter. A child that inherits the test host's
@@ -2879,11 +2909,13 @@ import Testing
         environment: [String: String],
         timeout: TimeInterval? = nil
     ) -> ProcessRunResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", command]
-        process.environment = environment
-        return runToCompletion(process, timeout: timeout)
+        runPOSIXProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: environment,
+            currentDirectoryURL: nil,
+            timeout: timeout
+        )
     }
 
     func runProcess(
@@ -2894,12 +2926,14 @@ import Testing
         timeout: TimeInterval? = nil,
         afterLaunch: (() -> Void)? = nil
     ) -> ProcessRunResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.currentDirectoryURL = currentDirectoryURL
-        return runToCompletion(process, timeout: timeout, afterLaunch: afterLaunch)
+        runPOSIXProcess(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            currentDirectoryURL: currentDirectoryURL,
+            timeout: timeout,
+            afterLaunch: afterLaunch
+        )
     }
 
     /// Runs a CLI child away from the app host's main thread.
@@ -2923,62 +2957,151 @@ import Testing
         }
     }
 
-    /// Runs `process` to completion, capturing stdout and stderr on separate pipes.
+    /// Runs a child to completion in its own process group, capturing stdout and stderr separately.
     ///
-    /// Both readers start before the wait. Calling `readDataToEndOfFile()` only after
-    /// `waitUntilExit()` returns deadlocks as soon as the child fills a pipe buffer, and
-    /// that deadlock is indistinguishable from a hang inside the CLI.
+    /// App-hosted tests cannot reliably use `Foundation.Process` as the lifecycle oracle:
+    /// its exit notification can be delayed while another fixture child is alive, even after
+    /// the CLI has exited successfully. `posix_spawn` plus one `waitpid` owner makes exit and
+    /// timeout state authoritative. The child-led process group also lets a timeout terminate
+    /// descendants instead of leaving one holding the capture pipes open.
     ///
     /// - Parameter timeout: This run's deadline. A test that asserts how long the CLI
     ///   waits passes its own; everything else takes ``CMUXCLITestHangGuard/seconds``.
-    private func runToCompletion(
-        _ process: Process,
+    private func runPOSIXProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        currentDirectoryURL: URL?,
         timeout: TimeInterval? = nil,
         afterLaunch: (() -> Void)? = nil
     ) -> ProcessRunResult {
         let budget = timeout ?? CMUXCLITestHangGuard.seconds
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
-            // Five sibling suites share this runner and print only `stdout` when they
-            // fail, so a launch failure has to reach stdout as well or those tests
-            // report an empty message.
-            let message = "test runner could not spawn "
-                + "\(process.executableURL?.path ?? "<none>"): \(error)"
+        func launchFailure(_ detail: String) -> ProcessRunResult {
+            // Sibling files share this runner and some legacy assertions still print only
+            // stdout, so duplicate setup failures onto both streams.
+            let message = "test runner could not spawn \(executablePath): \(detail)"
             return ProcessRunResult(status: -1, stdout: message, stderr: message, timedOut: false)
         }
-        afterLaunch?()
 
-        let stdoutDrain = PipeDrain(stdoutPipe.fileHandleForReading)
-        let stderrDrain = PipeDrain(stderrPipe.fileHandleForReading)
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
+        var stdoutFDs: [Int32] = [-1, -1]
+        var stderrFDs: [Int32] = [-1, -1]
+        defer {
+            for descriptor in stdoutFDs + stderrFDs where descriptor >= 0 {
+                close(descriptor)
+            }
+        }
+        guard pipe(&stdoutFDs) == 0, pipe(&stderrFDs) == 0 else {
+            return launchFailure(String(cString: strerror(errno)))
+        }
+        guard stdoutFDs.allSatisfy({ $0 > STDERR_FILENO }),
+              stderrFDs.allSatisfy({ $0 > STDERR_FILENO }) else {
+            return launchFailure("capture pipe collided with standard I/O")
         }
 
-        let initialWait = exitSignal.wait(timeout: .now() + budget)
-        let timedOut = initialWait == .timedOut
-        var reaped = initialWait == .success
-        if timedOut {
-            process.terminate()
-            let terminationWait = exitSignal.wait(timeout: .now() + 1)
-            if terminationWait == .success {
-                reaped = true
-            } else if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-                reaped = exitSignal.wait(timeout: .now() + 1) == .success
-            } else {
-                // `isRunning == false` means Foundation has observed termination even if
-                // the background waiter was delayed before signalling the semaphore.
-                reaped = true
+        var fileActions: posix_spawn_file_actions_t?
+        var setupStatus = posix_spawn_file_actions_init(&fileActions)
+        guard setupStatus == 0 else {
+            return launchFailure(String(cString: strerror(setupStatus)))
+        }
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        setupStatus = "/dev/null".withCString {
+            posix_spawn_file_actions_addopen(&fileActions, STDIN_FILENO, $0, O_RDONLY, 0)
+        }
+        if setupStatus == 0, let currentDirectoryURL {
+            setupStatus = currentDirectoryURL.path.withCString {
+                posix_spawn_file_actions_addchdir_np(&fileActions, $0)
+            }
+        }
+        if setupStatus == 0 {
+            setupStatus = posix_spawn_file_actions_adddup2(&fileActions, stdoutFDs[1], STDOUT_FILENO)
+        }
+        if setupStatus == 0 {
+            setupStatus = posix_spawn_file_actions_adddup2(&fileActions, stderrFDs[1], STDERR_FILENO)
+        }
+        for descriptor in stdoutFDs + stderrFDs where setupStatus == 0 {
+            setupStatus = posix_spawn_file_actions_addclose(&fileActions, descriptor)
+        }
+        guard setupStatus == 0 else {
+            return launchFailure(String(cString: strerror(setupStatus)))
+        }
+
+        var attributes: posix_spawnattr_t?
+        setupStatus = posix_spawnattr_init(&attributes)
+        guard setupStatus == 0 else {
+            return launchFailure(String(cString: strerror(setupStatus)))
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+        let spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP)
+        setupStatus = posix_spawnattr_setpgroup(&attributes, 0)
+        if setupStatus == 0 {
+            setupStatus = posix_spawnattr_setflags(&attributes, spawnFlags)
+        }
+        guard setupStatus == 0 else {
+            return launchFailure(String(cString: strerror(setupStatus)))
+        }
+
+        let argumentStrings = [executablePath] + arguments
+        let environmentStrings = environment.map { "\($0.key)=\($0.value)" }.sorted()
+        guard (argumentStrings + environmentStrings).allSatisfy({ !$0.utf8.contains(0) }) else {
+            return launchFailure("argument or environment contains NUL")
+        }
+        var argumentPointers = argumentStrings.map { strdup($0) }
+        var environmentPointers = environmentStrings.map { strdup($0) }
+        defer {
+            for pointer in argumentPointers where pointer != nil { free(pointer) }
+            for pointer in environmentPointers where pointer != nil { free(pointer) }
+        }
+        guard argumentPointers.allSatisfy({ $0 != nil }),
+              environmentPointers.allSatisfy({ $0 != nil }) else {
+            return launchFailure("could not allocate argv or environment")
+        }
+        argumentPointers.append(nil)
+        environmentPointers.append(nil)
+
+        var processIdentifier: pid_t = 0
+        let spawnStatus = executablePath.withCString { executablePointer in
+            argumentPointers.withUnsafeMutableBufferPointer { argumentBuffer in
+                environmentPointers.withUnsafeMutableBufferPointer { environmentBuffer in
+                    guard let argumentBase = argumentBuffer.baseAddress,
+                          let environmentBase = environmentBuffer.baseAddress else {
+                        return Int32(EINVAL)
+                    }
+                    return posix_spawn(
+                        &processIdentifier,
+                        executablePointer,
+                        &fileActions,
+                        &attributes,
+                        argumentBase,
+                        environmentBase
+                    )
+                }
+            }
+        }
+        guard spawnStatus == 0, processIdentifier > 1 else {
+            return launchFailure(String(cString: strerror(spawnStatus == 0 ? ECHILD : spawnStatus)))
+        }
+
+        close(stdoutFDs[1]); stdoutFDs[1] = -1
+        close(stderrFDs[1]); stderrFDs[1] = -1
+        let stdoutDrain = PipeDrain(
+            FileHandle(fileDescriptor: stdoutFDs[0], closeOnDealloc: true)
+        )
+        stdoutFDs[0] = -1
+        let stderrDrain = PipeDrain(
+            FileHandle(fileDescriptor: stderrFDs[0], closeOnDealloc: true)
+        )
+        stderrFDs[0] = -1
+        let waiter = POSIXProcessWaiter(processIdentifier: processIdentifier)
+        afterLaunch?()
+
+        var timedOut = false
+        if !waiter.wait(timeout: budget) {
+            timedOut = true
+            _ = kill(-processIdentifier, SIGTERM)
+            if !waiter.wait(timeout: 1) {
+                _ = kill(-processIdentifier, SIGKILL)
+                _ = waiter.wait(timeout: 5)
             }
         }
 
@@ -2988,11 +3111,8 @@ import Testing
         let stdoutText = stdoutDrain.text(waitingUpTo: 5)
         let stderrText = stderrDrain.text(waitingUpTo: 5)
 
-        guard reaped else {
-            // Foundation raises NSInvalidArgumentException if either termination property
-            // is read before the child exits. Keep an unkillable child from taking down the
-            // shared test host: return a failing sentinel without touching those properties.
-            let message = "test runner could not reap the process after SIGKILL"
+        guard let outcome = waiter.outcome else {
+            let message = "test runner could not reap process group after SIGKILL"
             let diagnostics = stderrText.isEmpty ? message : "\(stderrText)\n\(message)"
             return ProcessRunResult(
                 status: -1,
@@ -3001,14 +3121,88 @@ import Testing
                 timedOut: true
             )
         }
+        let finalStderr: String
+        if let waitError = outcome.waitError {
+            let message = "test runner waitpid failed: \(String(cString: strerror(waitError)))"
+            finalStderr = stderrText.isEmpty ? message : "\(stderrText)\n\(message)"
+        } else {
+            finalStderr = stderrText
+        }
 
         return ProcessRunResult(
-            status: process.terminationStatus,
+            status: outcome.status,
             stdout: stdoutText,
-            stderr: stderrText,
+            stderr: finalStderr,
             timedOut: timedOut,
-            terminationReason: process.terminationReason
+            terminationReason: outcome.reason
         )
+    }
+
+    private struct POSIXProcessOutcome {
+        let status: Int32
+        let reason: Process.TerminationReason
+        let waitError: Int32?
+    }
+
+    /// Owns the only `waitpid` call for a spawned child and publishes one immutable outcome.
+    private final class POSIXProcessWaiter: @unchecked Sendable {
+        private let processIdentifier: pid_t
+        private let lock = NSLock()
+        private let finished = DispatchSemaphore(value: 0)
+        private var storedOutcome: POSIXProcessOutcome?
+
+        init(processIdentifier: pid_t) {
+            self.processIdentifier = processIdentifier
+            let thread = Thread { [self] in reap() }
+            thread.name = "cmux-cli-test-process-reaper"
+            thread.stackSize = 1 << 20
+            thread.start()
+        }
+
+        var outcome: POSIXProcessOutcome? {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedOutcome
+        }
+
+        func wait(timeout: TimeInterval) -> Bool {
+            if outcome != nil { return true }
+            if finished.wait(timeout: .now() + timeout) == .success { return true }
+            // Do not turn a completion racing the deadline into a timeout.
+            return outcome != nil
+        }
+
+        private func reap() {
+            var rawStatus: Int32 = 0
+            var waitResult: pid_t
+            repeat {
+                waitResult = waitpid(processIdentifier, &rawStatus, 0)
+            } while waitResult == -1 && errno == EINTR
+
+            let result: POSIXProcessOutcome
+            if waitResult == processIdentifier {
+                let terminatingSignal = rawStatus & 0x7f
+                if terminatingSignal == 0 {
+                    result = POSIXProcessOutcome(
+                        status: (rawStatus >> 8) & 0xff,
+                        reason: .exit,
+                        waitError: nil
+                    )
+                } else {
+                    result = POSIXProcessOutcome(
+                        status: terminatingSignal,
+                        reason: .uncaughtSignal,
+                        waitError: nil
+                    )
+                }
+            } else {
+                result = POSIXProcessOutcome(status: -1, reason: .exit, waitError: errno)
+            }
+            lock.lock()
+            storedOutcome = result
+            lock.unlock()
+            finished.signal()
+        }
     }
 
     /// Reads one pipe on a background queue so a child writing more than a pipe buffer
