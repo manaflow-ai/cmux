@@ -13,6 +13,60 @@ import struct CmuxSettings.AppCatalogSection
 @Suite(.serialized)
 struct CommandClickHTMLOpenRoutingTests {
     @Test
+    func hoverCacheIdentityIncludesSurfaceGenerationDirectoryAndWord() {
+        let surfaceID = UUID()
+        let base = WordPathHoverCacheKey(
+            surfaceID: surfaceID,
+            surfaceGeneration: 1,
+            row: 2,
+            column: 3,
+            rows: 24,
+            columns: 80,
+            boundsSize: CGSize(width: 800, height: 480),
+            cellSize: CGSize(width: 10, height: 20),
+            workingDirectory: "/tmp/one",
+            quicklookWord: "index.html"
+        )
+
+        #expect(base != WordPathHoverCacheKey(
+            surfaceID: surfaceID,
+            surfaceGeneration: 2,
+            row: 2,
+            column: 3,
+            rows: 24,
+            columns: 80,
+            boundsSize: CGSize(width: 800, height: 480),
+            cellSize: CGSize(width: 10, height: 20),
+            workingDirectory: "/tmp/one",
+            quicklookWord: "index.html"
+        ))
+        #expect(base != WordPathHoverCacheKey(
+            surfaceID: surfaceID,
+            surfaceGeneration: 1,
+            row: 2,
+            column: 3,
+            rows: 24,
+            columns: 80,
+            boundsSize: CGSize(width: 800, height: 480),
+            cellSize: CGSize(width: 10, height: 20),
+            workingDirectory: "/tmp/two",
+            quicklookWord: "index.html"
+        ))
+        #expect(base != WordPathHoverCacheKey(
+            surfaceID: surfaceID,
+            surfaceGeneration: 1,
+            row: 2,
+            column: 3,
+            rows: 24,
+            columns: 80,
+            boundsSize: CGSize(width: 800, height: 480),
+            cellSize: CGSize(width: 10, height: 20),
+            workingDirectory: "/tmp/one",
+            quicklookWord: "other.html"
+        ))
+    }
+
+    @Test
     func htmlPathOpensInBrowserInsteadOfFilePreview() throws {
         _ = NSApplication.shared
 

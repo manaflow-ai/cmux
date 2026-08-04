@@ -7,11 +7,13 @@ import Foundation
 /// under a stationary pointer cannot open stale data.
 struct WordPathHoverCacheKey: Equatable {
     let surfaceID: UUID
+    let surfaceGeneration: UInt64
     let row: Int
     let column: Int
     let rows: Int
     let columns: Int
     let boundsSize: CGSize
     let cellSize: CGSize
-    let reportedWorkingDirectory: String?
+    let workingDirectory: String
+    let quicklookWord: String?
 }
