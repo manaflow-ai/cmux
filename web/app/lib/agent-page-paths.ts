@@ -74,6 +74,7 @@ const llmsCompareDescriptions = {
 } satisfies Record<(typeof comparePages)[number]["slug"], string>;
 
 const extensionPattern = /\.(md|txt)$/i;
+const changelogReleasePathPattern = /^\/docs\/changelog\/\d+\.\d+\.(?:\d+|x)$/;
 const reservedTextRoutes = new Set(["/robots.txt"]);
 const blockedPrefixes = [
   "/api",
@@ -439,7 +440,7 @@ const agentReadablePageByPath: Map<string, AgentReadablePage> = new Map(
 function isKnownAgentReadablePage(canonicalPath: string): boolean {
   const { path, locale } = basePagePath(canonicalPath);
   const page = agentReadablePageByPath.get(path);
-  if (!page) return false;
+  if (!page) return changelogReleasePathPattern.test(path);
   return !locale || !page.locales || page.locales.includes(locale);
 }
 
