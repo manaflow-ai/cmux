@@ -435,7 +435,11 @@ extension PortScanner {
         let result = await commandRunner.run(
             directory: "/",
             executable: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"],
+            // A PID-scoped TCP query does not depend on filesystem mount
+            // metadata. Suppress warning-class diagnostics such as lsof's
+            // Time Machine `can't stat()` warning so unrelated mounts cannot
+            // make every port miss permanently incomplete.
+            arguments: ["-nP", "-w", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"],
             timeout: Self.processScanTimeout
         )
 
