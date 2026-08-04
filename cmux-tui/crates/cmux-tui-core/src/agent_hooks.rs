@@ -544,7 +544,7 @@ fn add_agent_topology(
         let parent_id = stable_topology_id("agentnode", &[&tree_id, &parent]);
         normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
         normalized.insert("agent_relation".into(), Value::String("explicit".into()));
-    } else if source == "claude" && child_event {
+    } else if matches!(source, "claude" | "claude-code") && child_event {
         // Claude Code's command-hook contract exposes a stable child ID but
         // no parent ID, and its subagents cannot spawn subagents. The parent
         // is therefore the root of the shared session tree.
@@ -641,14 +641,14 @@ mod tests {
     #[test]
     fn dedicated_question_and_plan_tools_are_semantic_events() {
         let question = agent_hook_journal_ingress(
-            "claude",
+            "claude-code",
             "PermissionRequest",
             None,
             json!({"tool_name":"AskUserQuestion"}),
         )
         .unwrap();
         let plan = agent_hook_journal_ingress(
-            "claude",
+            "claude-code",
             "PermissionRequest",
             None,
             json!({"tool_name":"ExitPlanMode"}),
