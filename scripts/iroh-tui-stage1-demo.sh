@@ -41,6 +41,7 @@ case "$zig_pkg_volume" in
 esac
 provider_socket="$demo_root/provider.sock"
 provider_log="$demo_root/provider.log"
+server_token_file="$demo_root/server-provisioning-token"
 transcript="$demo_root/transcript.txt"
 host_target="$build_cache_root/host-target"
 host_binary="$host_target/debug/cmux-tui-iroh"
@@ -184,6 +185,8 @@ cargo build \
     -p cmux-tui-iroh
 
 server_token="$(mint_enrollment_token)"
+(umask 022; printf '%s\n' "$server_token" > "$server_token_file")
+unset server_token
 provider_token="$(mint_enrollment_token)"
 unset CMUX_BROKER_ACCESS_TOKEN CMUX_BROKER_REFRESH_TOKEN
 printf '%s\n' "$provider_token" \
@@ -198,10 +201,11 @@ unset provider_token
 docker volume create "$volume" >/dev/null
 docker_args=(
     --detach
-    --interactive
     --name "$container"
     --env "CMUX_BROKER_URL=$CMUX_CONTAINER_BROKER_URL"
+    --env "CMUX_PROVISIONING_TOKEN_FILE=/run/cmux/provisioning-token"
     --env "CMUX_RELAY_ENVIRONMENT=$CMUX_RELAY_ENVIRONMENT"
+    --mount "type=bind,source=$server_token_file,target=/run/cmux/provisioning-token,readonly"
     --mount "type=volume,source=$volume,target=/state"
 )
 if [ -n "$CMUX_CONTAINER_BROKER_FORWARD" ]; then
@@ -210,14 +214,17 @@ if [ -n "$CMUX_CONTAINER_BROKER_FORWARD" ]; then
         --env "CMUX_BROKER_FORWARD=$CMUX_CONTAINER_BROKER_FORWARD"
     )
 fi
-printf '%s\n' "$server_token" \
-    | docker run "${docker_args[@]}" "$image" >/dev/null
-unset server_token
+if ! docker run "${docker_args[@]}" "$image" >/dev/null; then
+    docker logs "$container" >&2 || true
+    exit 1
+fi
 
 if ! wait_for_container_ready_count 1; then
     docker logs "$container" >&2 || true
     exit 1
 fi
+chmod 0600 "$server_token_file"
+: > "$server_token_file"
 first_ready="$(docker logs "$container" 2>&1 | grep 'server ready' | head -n 1)"
 port_bindings="$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$container")"
 published_ports="$(docker port "$container")"

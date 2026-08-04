@@ -6,6 +6,7 @@ CMUX_RELAY_ENVIRONMENT="${CMUX_RELAY_ENVIRONMENT:-production}"
 CMUX_SESSION_SOCKET="/run/cmux/stage1.sock"
 CMUX_SESSION_STATE="/state/session"
 CMUX_IROH_STATE="/state/transport"
+CMUX_PROVISIONING_TOKEN_FILE="${CMUX_PROVISIONING_TOKEN_FILE:-}"
 
 if [ -n "${CMUX_BROKER_FORWARD:-}" ]; then
     case "$CMUX_BROKER_FORWARD" in
@@ -20,9 +21,17 @@ if [ -n "${CMUX_BROKER_FORWARD:-}" ]; then
 fi
 
 if [ ! -f "$CMUX_IROH_STATE/iroh-tui/server/credential.json" ]; then
-    IFS= read -r provisioning_token
+    if [ -n "$CMUX_PROVISIONING_TOKEN_FILE" ]; then
+        if [ ! -r "$CMUX_PROVISIONING_TOKEN_FILE" ]; then
+            echo "cmux-tui-iroh: provisioning token file is not readable" >&2
+            exit 1
+        fi
+        IFS= read -r provisioning_token < "$CMUX_PROVISIONING_TOKEN_FILE"
+    else
+        IFS= read -r provisioning_token
+    fi
     if [ -z "$provisioning_token" ]; then
-        echo "cmux-tui-iroh: initial provisioning token is required on stdin" >&2
+        echo "cmux-tui-iroh: initial provisioning token is required" >&2
         exit 1
     fi
     printf '%s\n' "$provisioning_token" \
