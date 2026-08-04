@@ -1889,7 +1889,11 @@ extension Workspace {
             panelGitBranches.removeValue(forKey: panelId)
         }
 
-        surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
+        if snapshot.terminal?.hibernation != nil {
+            surfaceListeningPorts.removeValue(forKey: panelId)
+        } else {
+            surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
+        }
 
         if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
             surfaceTTYNames[panelId] = ttyName
@@ -5032,6 +5036,13 @@ final class Workspace: Identifiable, ObservableObject {
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        if !isRemoteWorkspace {
+            // Hibernation destroys the local PTY. Clear its derived badge and
+            // reject any queued publication captured before that teardown.
+            surfaceListeningPorts.removeValue(forKey: panelId)
+            recomputeListeningPorts()
+            PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+        }
         let keys = agentPIDKeysByPanelId[panelId] ?? []
         for key in keys {
             _ = clearAgentPID(key: key, panelId: panelId, clearStatus: false, refreshPorts: false)
