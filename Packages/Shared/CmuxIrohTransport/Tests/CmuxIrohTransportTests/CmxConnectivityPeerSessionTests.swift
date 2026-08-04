@@ -75,7 +75,7 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
-    func physicalCloseCannotRetainControlOwnership() async throws {
+    func replacementWaitsForParentCloseAcknowledgement() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
         let firstSession = TestConnectivitySession(
@@ -118,9 +118,91 @@ struct CmxConnectivityPeerSessionTests {
         await release.value
         _ = try await acquireReplacement.value
 
-        #expect(replacementStartedBeforeCloseFinished)
+        #expect(!replacementStartedBeforeCloseFinished)
         #expect(await peer.connectionContinuityID() == 16)
         await peer.releaseControl(ownerID: replacementOwner)
+    }
+
+    @Test
+    func releaseDuringPendingDialInvalidatesLateResultAndUnblocksNextOwner() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let retired = TestConnectivitySession(continuityID: 17)
+        let replacement = TestConnectivitySession(continuityID: 18)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [retired, replacement]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let retiredOwner = UUID()
+        let replacementOwner = UUID()
+
+        let retiredAcquire = Task {
+            try await peer.acquireControl(for: request, ownerID: retiredOwner)
+        }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        await peer.releaseControl(ownerID: retiredOwner)
+
+        let replacementAcquire = Task {
+            try await peer.acquireControl(
+                for: request,
+                ownerID: replacementOwner
+            )
+        }
+        let replacementStartedWithoutLateDial: Bool
+        do {
+            try await Self.waitUntil { await builder.callCount() == 2 }
+            replacementStartedWithoutLateDial = true
+        } catch {
+            replacementStartedWithoutLateDial = false
+        }
+
+        // Let the cancelled first builder return after its generation retired.
+        // It must be closed instead of installed.
+        await builder.release(call: 0)
+        if !replacementStartedWithoutLateDial {
+            await peer.releaseControl(ownerID: retiredOwner)
+            try await Self.waitUntil { await builder.callCount() == 2 }
+        }
+        await builder.release(call: 1)
+        _ = try await replacementAcquire.value
+        _ = await retiredAcquire.result
+
+        #expect(replacementStartedWithoutLateDial)
+        #expect(await retired.closeCount() == 1)
+        #expect(await peer.connectionContinuityID() == 18)
+        await peer.releaseControl(ownerID: replacementOwner)
+    }
+
+    @Test
+    func featureLaneCannotDialWithoutAnActiveControlOwner() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let builder = SequencedConnectivitySessionBuilder(
+            sessions: [TestConnectivitySession(continuityID: 19)]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+
+        await #expect(throws: CmxConnectivityEngineError.inactive) {
+            _ = try await peer.openBidirectionalLane(
+                for: request,
+                lane: .artifact(
+                    resourceID: CmxIrohResourceID("artifact:no-control"),
+                    offset: 0
+                ),
+                priority: 1
+            )
+        }
+        #expect(await builder.callCount() == 0)
     }
 
     @Test

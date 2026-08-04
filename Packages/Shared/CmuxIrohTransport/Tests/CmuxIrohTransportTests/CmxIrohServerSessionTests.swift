@@ -6,6 +6,45 @@ import Testing
 @Suite
 struct CmxIrohServerSessionTests {
     @Test
+    func closeAcknowledgesParentBeforeBlockedControlCleanup() async throws {
+        let fixture = try ServerFixture(decision: .accepted)
+        let credential = try CmxIrohAdmissionCredential.pairGrant("aa.bb.cc")
+        let controlHeader = try fixture.headerCodec.encode(
+            CmxIrohStreamHeader(lane: .control, credential: credential)
+        )
+        let receive = TestGatedStopIrohReceiveStream(
+            buffer: controlHeader
+                + admissionFrame(status: 2)
+                + Data("rpc".utf8)
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: fixture.peerID,
+            bidirectionalStreams: [CmxIrohBidirectionalStream(
+                receiveStream: receive,
+                sendStream: fixture.controlSend
+            )]
+        )
+        let session = try CmxIrohServerSession(
+            connection: connection,
+            authorizer: fixture.authorizer
+        )
+        _ = try await session.admit()
+        let completion = TestAsyncCompletionProbe()
+
+        let close = Task {
+            await session.close()
+            await completion.complete()
+        }
+        await receive.waitUntilStopStarted()
+
+        #expect(await connection.observedCloseCallCount() == 1)
+        #expect(await completion.isComplete())
+
+        await receive.releaseStop()
+        await close.value
+    }
+
+    @Test
     func admittedHostSessionEmitsAttributedCloseAndPathEvents() async throws {
         let fixture = try ServerFixture(decision: .accepted)
         let connection = TestIrohConnection(
