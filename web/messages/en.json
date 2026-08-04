@@ -2459,7 +2459,16 @@
     "changelog": {
       "title": "Changelog",
       "metaTitle": "Changelog",
-      "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal."
+      "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal.",
+      "versionTitle": "cmux {version} · Changelog",
+      "releaseNavLabel": "Releases near cmux {version}",
+      "sections": {
+        "added": "Added",
+        "changed": "Changed",
+        "fixed": "Fixed",
+        "removed": "Removed",
+        "contributors": "Contributors"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",
