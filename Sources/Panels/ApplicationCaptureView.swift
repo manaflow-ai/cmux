@@ -156,7 +156,9 @@ final class ApplicationCaptureView: NSView {
         } else {
             refreshPhysicalModifierKeys()
         }
-        synchronizeForwardedModifierKeys()
+        if window?.isKeyWindow == true {
+            synchronizeForwardedModifierKeys()
+        }
         return true
     }
 
@@ -891,10 +893,7 @@ final class ApplicationCaptureView: NSView {
                 )
             }
             self.inputReleaseTask = nil
-            if self.window?.firstResponder === self {
-                self.refreshPhysicalModifierKeys()
-                self.synchronizeForwardedModifierKeys()
-            }
+            self.refreshPhysicalModifierKeysAndSynchronizeIfFocused()
             if self.shouldCaptureNow {
                 self.startCapture()
             }
@@ -1207,7 +1206,12 @@ final class ApplicationCaptureView: NSView {
     }
 
     private func refreshPhysicalModifierKeysAndSynchronizeIfFocused() {
-        guard window?.firstResponder === self else { return }
+        guard
+            window?.firstResponder === self,
+            window?.isKeyWindow == true
+        else {
+            return
+        }
         refreshPhysicalModifierKeys()
         synchronizeForwardedModifierKeys()
     }
