@@ -35,6 +35,86 @@ private final class MarkedOptionTextView: NSTextView {
 struct AppDelegateOptionDigitShortcutRoutingTests {
 #if DEBUG
     @Test
+    func fileConfiguredOptionOnlySplitPrecedesPrintableOptionTextBypass() throws {
+        try withIsolatedShortcutRoutingState {
+            let appDelegate = try #require(AppDelegate.shared)
+            let directoryURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "shortcuts": {
+                "bindings": {
+                  "splitDown": "opt+["
+                }
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let testWindow = try #require(self.window(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let focusableView = OptionDigitFocusableTestView(
+                frame: NSRect(x: 0, y: 0, width: 20, height: 20)
+            )
+            testWindow.contentView?.addSubview(focusableView)
+            defer { focusableView.removeFromSuperview() }
+            let optionBracketEvent = try #require(makeKeyEvent(
+                modifierFlags: [.option],
+                characters: "“",
+                charactersIgnoringModifiers: "[",
+                keyCode: 33,
+                windowNumber: testWindow.windowNumber
+            ))
+
+            testWindow.makeKeyAndOrderFront(nil)
+            #expect(testWindow.makeFirstResponder(focusableView))
+            let initialPaneCount = workspace.bonsplitController.allPaneIds.count
+
+            #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: optionBracketEvent))
+            #expect(KeyboardShortcutSettings.shortcut(for: .splitDown).matches(event: optionBracketEvent))
+            #expect(
+                testWindow.performKeyEquivalent(with: optionBracketEvent),
+                "An explicit Option+[ binding should route before the printable Option text bypass"
+            )
+            #expect(workspace.bonsplitController.allPaneIds.count == initialPaneCount + 1)
+            #expect(focusableView.keyDownCallCount == 0)
+            #expect(testWindow.makeFirstResponder(focusableView))
+
+            let turkishQEvent = try #require(makeKeyEvent(
+                modifierFlags: [.option],
+                characters: "@",
+                charactersIgnoringModifiers: "q",
+                keyCode: 12,
+                windowNumber: testWindow.windowNumber
+            ))
+
+            #expect(shortcutRoutingShouldBypassForPrintableOptionText(event: turkishQEvent))
+            #expect(
+                testWindow.performKeyEquivalent(with: turkishQEvent),
+                "An unbound printable Option key should still be forwarded to the text responder"
+            )
+            #expect(focusableView.keyDownCallCount == 1)
+            #expect(focusableView.lastKeyDownCharactersIgnoringModifiers == "q")
+            #expect(workspace.bonsplitController.allPaneIds.count == initialPaneCount + 1)
+        }
+    }
+
+    @Test
     func optionDigitWorkspaceNumberShortcutBeatsPrintableOptionTextBypass() throws {
         try withIsolatedShortcutRoutingState {
             let appDelegate = try #require(AppDelegate.shared)
