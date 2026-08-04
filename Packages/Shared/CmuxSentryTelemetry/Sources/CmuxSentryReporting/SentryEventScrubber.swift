@@ -120,7 +120,13 @@ public struct SentryEventScrubber: Sendable {
     public func scrub(_ breadcrumb: Breadcrumb) -> Breadcrumb {
         breadcrumb.message = scrubber.scrub(optional: breadcrumb.message)
         if let data = breadcrumb.data {
-            breadcrumb.data = scrubber.scrub(dictionary: data)
+            let scrubbed = scrubber.scrub(dictionary: data)
+            for key in data.keys {
+                breadcrumb.setData(value: nil, key: key)
+            }
+            for (key, value) in scrubbed {
+                breadcrumb.setData(value: value, key: key)
+            }
         }
         return breadcrumb
     }

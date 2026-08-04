@@ -11406,10 +11406,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		};
 		A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/getsentry/sentry-cocoa.git";
+			repositoryURL = "https://github.com/manaflow-ai/sentry-cocoa.git";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 9.3.0;
+				kind = revision;
+				revision = eb55c85ef21ecf890744b035354dccfa9854efad;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

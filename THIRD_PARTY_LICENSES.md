@@ -82,7 +82,7 @@ SOFTWARE.
 
 - **License:** MIT License
 - **Copyright:** Copyright (c) 2015 Sentry
-- **Source:** https://github.com/getsentry/sentry-cocoa
+- **Source:** https://github.com/manaflow-ai/sentry-cocoa
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -31,10 +31,9 @@
     {
       "identity" : "sentry-cocoa",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/getsentry/sentry-cocoa.git",
+      "location" : "https://github.com/manaflow-ai/sentry-cocoa.git",
       "state" : {
-        "revision" : "a24b98028b0b6e81bfd0526967468ba4ba60303c",
-        "version" : "9.3.0"
+        "revision" : "eb55c85ef21ecf890744b035354dccfa9854efad"
       }
     },
     {

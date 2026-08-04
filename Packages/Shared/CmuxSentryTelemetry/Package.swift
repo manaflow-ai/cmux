@@ -28,8 +28,8 @@ let package = Package(
     dependencies: [
         .package(path: "../CMUXMobileCore"),
         .package(
-            url: "https://github.com/getsentry/sentry-cocoa.git",
-            .upToNextMajor(from: "9.3.0")
+            url: "https://github.com/manaflow-ai/sentry-cocoa.git",
+            revision: "eb55c85ef21ecf890744b035354dccfa9854efad"
         ),
     ],
     targets: [
