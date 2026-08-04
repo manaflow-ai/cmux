@@ -236,7 +236,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         )
     }
 
-    @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
+    @Test func nativeFreesAcrossHibernationAndCloseNeverOverlap() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let isolatedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         let queuedIsolatedSurface = UnsafeMutableRawPointer.allocate(
@@ -308,19 +308,26 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             }
         )
 
-        #expect(await closeTicket.wait(timeout: .seconds(1)))
-        #expect(await secondIsolatedTicket.wait(timeout: .seconds(1)))
-        #expect(closeFreeCount.withLock { $0 } == 1)
-        #expect(await isolatedTicket.wait(timeout: .zero) == false)
-        #expect(secondIsolatedFreeCount.withLock { $0 } == 1)
-
-        let replacementReservation = try #require(
-            await coordinator.reserveIsolatedHibernationTeardown()
+        #expect(
+            await closeTicket.wait(timeout: .milliseconds(100)) == false,
+            "a close free overlapped a hibernation free"
         )
+        #expect(
+            await secondIsolatedTicket.wait(timeout: .milliseconds(100)) == false,
+            "hibernation frees overlapped each other"
+        )
+        #expect(closeFreeCount.withLock { $0 } == 0)
+        #expect(await isolatedTicket.wait(timeout: .zero) == false)
+        #expect(secondIsolatedFreeCount.withLock { $0 } == 0)
         #expect(await coordinator.reserveIsolatedHibernationTeardown() == nil)
-        await coordinator.cancelIsolatedHibernationTeardown(replacementReservation)
+
         releaseIsolatedFree.signal()
         #expect(await isolatedTicket.wait(timeout: .seconds(1)))
+        #expect(await secondIsolatedTicket.wait(timeout: .seconds(1)))
+        #expect(await closeTicket.wait(timeout: .seconds(1)))
+        #expect(secondIsolatedFreeCount.withLock { $0 } == 1)
+        #expect(closeFreeCount.withLock { $0 } == 1)
+
         let nextReservation = try #require(
             await coordinator.reserveIsolatedHibernationTeardown()
         )
