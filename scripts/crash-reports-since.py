@@ -67,7 +67,7 @@ def names_a_cmux_process(header: dict) -> bool:
 
 def crashes_since(since: str, directory: str = REPORT_DIR) -> list[str]:
     hits = []
-    for path in sorted(glob.glob(os.path.join(os.path.expanduser(directory), "*.ips"))):
+    for path in glob.iglob(os.path.join(os.path.expanduser(directory), "*.ips")):
         header = header_of(path)
         if not names_a_cmux_process(header):
             continue
@@ -75,16 +75,16 @@ def crashes_since(since: str, directory: str = REPORT_DIR) -> list[str]:
         # second-resolution prefix, which sorts correctly as text in local time.
         if str(header.get("timestamp", ""))[:19] >= since:
             hits.append(os.path.basename(path))
-    return hits
+    return sorted(hits)
 
 
 def cmux_reports(directory: str = REPORT_DIR) -> list[str]:
     """Every cmux-named report currently in the directory."""
     hits = []
-    for path in sorted(glob.glob(os.path.join(os.path.expanduser(directory), "*.ips"))):
+    for path in glob.iglob(os.path.join(os.path.expanduser(directory), "*.ips")):
         if names_a_cmux_process(header_of(path)):
             hits.append(os.path.basename(path))
-    return hits
+    return sorted(hits)
 
 
 def write_snapshot(snapshot: str, directory: str = REPORT_DIR) -> list[str]:
