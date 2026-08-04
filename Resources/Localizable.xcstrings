@@ -262468,6 +262468,160 @@
         }
       }
     },
+    "settings.surfaceTabBar.activeBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active Tab Background" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブタブの背景" } }
+      }
+    },
+    "settings.surfaceTabBar.activeBackground.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Background of the selected surface tab." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中のサーフェスタブの背景色です。" } }
+      }
+    },
+    "settings.surfaceTabBar.activeForeground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active Tab Text" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブタブのテキスト" } }
+      }
+    },
+    "settings.surfaceTabBar.activeForeground.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Label color of the selected surface tab." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中のサーフェスタブのラベル色です。" } }
+      }
+    },
+    "settings.surfaceTabBar.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルト" } }
+      }
+    },
+    "settings.surfaceTabBar.divider": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tab Divider" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブの区切り線" } }
+      }
+    },
+    "settings.surfaceTabBar.divider.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Use Default" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルトを使用" } }
+      }
+    },
+    "settings.surfaceTabBar.divider.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "None" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "なし" } }
+      }
+    },
+    "settings.surfaceTabBar.divider.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Separator between neighboring surface tabs." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "隣接するサーフェスタブ間の区切り線です。" } }
+      }
+    },
+    "settings.surfaceTabBar.edge.bottom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Bottom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "下" } }
+      }
+    },
+    "settings.surfaceTabBar.edge.top": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Top" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上" } }
+      }
+    },
+    "settings.surfaceTabBar.inactiveBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inactive Tab Background" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "非アクティブタブの背景" } }
+      }
+    },
+    "settings.surfaceTabBar.inactiveBackground.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Background of unselected surface tabs." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択されていないサーフェスタブの背景色です。" } }
+      }
+    },
+    "settings.surfaceTabBar.inactiveForeground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inactive Tab Text" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "非アクティブタブのテキスト" } }
+      }
+    },
+    "settings.surfaceTabBar.inactiveForeground.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Label color of unselected surface tabs." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択されていないサーフェスタブのラベル色です。" } }
+      }
+    },
+    "settings.surfaceTabBar.indicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active Tab Indicator" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブタブのインジケータ" } }
+      }
+    },
+    "settings.surfaceTabBar.indicator.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Accent line on the selected surface tab." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中のサーフェスタブに表示するアクセント線です。" } }
+      }
+    },
+    "settings.surfaceTabBar.indicatorEdge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Indicator Edge" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インジケータの位置" } }
+      }
+    },
+    "settings.surfaceTabBar.indicatorEdge.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Place the active-tab accent line along the top or bottom edge." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブタブのアクセント線を上端または下端に配置します。" } }
+      }
+    },
+    "settings.surfaceTabBar.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "None" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "なし" } }
+      }
+    },
+    "settings.surfaceTabBar.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リセット" } }
+      }
+    },
+    "settings.surfaceTabBar.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Surface Tab Bar" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サーフェスタブバー" } }
+      }
+    },
     "cli.workspaceGroup.help.overview": {
       "extractionState": "manual",
       "localizations": {

@@ -431,6 +431,12 @@ public struct SettingsWindowRoot: View {
         )
         .id(anchorID(for: .app))
 
+        SurfaceTabBarAppearanceSection(
+            jsonStore: jsonStore,
+            catalog: catalog,
+            errorLog: runtime.errorLog
+        )
+
         TerminalSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,

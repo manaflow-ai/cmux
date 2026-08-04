@@ -346,6 +346,48 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarStyle.activeTabIndicatorEdge, .bottom)
     }
 
+    @MainActor
+    func testSurfaceTabBarStyleCarriesIntoDocksCreatedAfterReload() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-tab-style-dock-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "activeTabBackground": "#28343A",
+              "tabDividerColor": "none",
+              "activeTabIndicatorEdge": "bottom"
+            }
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let manager = TabManager()
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            startFileWatchers: false
+        )
+        store.wireDirectoryTracking(tabManager: manager)
+        store.loadAll()
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let expected = store.surfaceTabBarStyle.bonsplitStyle
+        XCTAssertEqual(workspace.bonsplitController.configuration.appearance.tabStyle, expected)
+        XCTAssertEqual(
+            workspace.dockSplit.bonsplitController.configuration.appearance.tabStyle,
+            expected
+        )
+
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        XCTAssertEqual(windowDock.bonsplitController.configuration.appearance.tabStyle, expected)
+    }
+
     func testDecodeSurfaceTabBarButtonsDefersUnknownActionReferences() throws {
         let json = """
         {

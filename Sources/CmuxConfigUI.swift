@@ -9,6 +9,161 @@ struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
 
 struct CmuxSurfaceTabBarUIDefinition: Codable, Sendable, Hashable {
     var buttons: [CmuxSurfaceTabBarButton]?
+    var activeTabBackground: String?
+    var activeTabForeground: String?
+    var inactiveTabBackground: String?
+    var inactiveTabForeground: String?
+    var tabDividerColor: String?
+    var activeTabIndicatorColor: String?
+    var activeTabIndicatorEdge: CmuxSurfaceTabBarIndicatorEdge?
+
+    private enum CodingKeys: String, CodingKey {
+        case buttons
+        case activeTabBackground
+        case activeTabForeground
+        case inactiveTabBackground
+        case inactiveTabForeground
+        case tabDividerColor
+        case activeTabIndicatorColor
+        case activeTabIndicatorEdge
+    }
+
+    init(
+        buttons: [CmuxSurfaceTabBarButton]? = nil,
+        activeTabBackground: String? = nil,
+        activeTabForeground: String? = nil,
+        inactiveTabBackground: String? = nil,
+        inactiveTabForeground: String? = nil,
+        tabDividerColor: String? = nil,
+        activeTabIndicatorColor: String? = nil,
+        activeTabIndicatorEdge: CmuxSurfaceTabBarIndicatorEdge? = nil
+    ) {
+        self.buttons = buttons
+        self.activeTabBackground = activeTabBackground
+        self.activeTabForeground = activeTabForeground
+        self.inactiveTabBackground = inactiveTabBackground
+        self.inactiveTabForeground = inactiveTabForeground
+        self.tabDividerColor = tabDividerColor
+        self.activeTabIndicatorColor = activeTabIndicatorColor
+        self.activeTabIndicatorEdge = activeTabIndicatorEdge
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        buttons = try container.decodeIfPresent([CmuxSurfaceTabBarButton].self, forKey: .buttons)
+        activeTabBackground = try Self.color(forKey: .activeTabBackground, in: container)
+        activeTabForeground = try Self.color(forKey: .activeTabForeground, in: container)
+        inactiveTabBackground = try Self.color(forKey: .inactiveTabBackground, in: container)
+        inactiveTabForeground = try Self.color(forKey: .inactiveTabForeground, in: container)
+        tabDividerColor = try Self.color(forKey: .tabDividerColor, in: container, allowsNone: true)
+        activeTabIndicatorColor = try Self.color(forKey: .activeTabIndicatorColor, in: container)
+        activeTabIndicatorEdge = try Self.indicatorEdge(in: container)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(buttons, forKey: .buttons)
+        try container.encodeIfPresent(activeTabBackground, forKey: .activeTabBackground)
+        try container.encodeIfPresent(activeTabForeground, forKey: .activeTabForeground)
+        try container.encodeIfPresent(inactiveTabBackground, forKey: .inactiveTabBackground)
+        try container.encodeIfPresent(inactiveTabForeground, forKey: .inactiveTabForeground)
+        try container.encodeIfPresent(tabDividerColor, forKey: .tabDividerColor)
+        try container.encodeIfPresent(activeTabIndicatorColor, forKey: .activeTabIndicatorColor)
+        try container.encodeIfPresent(activeTabIndicatorEdge, forKey: .activeTabIndicatorEdge)
+    }
+
+    var style: CmuxSurfaceTabBarStyle {
+        CmuxSurfaceTabBarStyle(
+            activeTabBackground: activeTabBackground,
+            activeTabForeground: activeTabForeground,
+            inactiveTabBackground: inactiveTabBackground,
+            inactiveTabForeground: inactiveTabForeground,
+            tabDividerColor: tabDividerColor,
+            activeTabIndicatorColor: activeTabIndicatorColor,
+            activeTabIndicatorEdge: activeTabIndicatorEdge
+        )
+    }
+
+    private static let hexDigits = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+
+    private static func color(
+        forKey key: CodingKeys,
+        in container: KeyedDecodingContainer<CodingKeys>,
+        allowsNone: Bool = false
+    ) throws -> String? {
+        guard container.contains(key) else { return nil }
+        let value = try container.decode(String.self, forKey: key)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if allowsNone, value.caseInsensitiveCompare("none") == .orderedSame {
+            return "none"
+        }
+        let hex = value.hasPrefix("#") ? String(value.dropFirst()) : value
+        guard (hex.count == 6 || hex.count == 8),
+              hex.unicodeScalars.allSatisfy({ hexDigits.contains($0) }) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must be #RRGGBB or #RRGGBBAA" +
+                    (allowsNone ? ", or 'none'" : "")
+            )
+        }
+        return "#\(hex)"
+    }
+
+    private static func indicatorEdge(
+        in container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> CmuxSurfaceTabBarIndicatorEdge? {
+        guard container.contains(.activeTabIndicatorEdge) else { return nil }
+        let value = try container.decode(String.self, forKey: .activeTabIndicatorEdge)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let edge = CmuxSurfaceTabBarIndicatorEdge(rawValue: value) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .activeTabIndicatorEdge,
+                in: container,
+                debugDescription: "activeTabIndicatorEdge must be 'top' or 'bottom'"
+            )
+        }
+        return edge
+    }
+}
+
+enum CmuxSurfaceTabBarIndicatorEdge: String, Codable, Sendable, Hashable, CaseIterable {
+    case top
+    case bottom
+}
+
+struct CmuxSurfaceTabBarStyle: Sendable, Hashable {
+    var activeTabBackground: String?
+    var activeTabForeground: String?
+    var inactiveTabBackground: String?
+    var inactiveTabForeground: String?
+    var tabDividerColor: String?
+    var activeTabIndicatorColor: String?
+    var activeTabIndicatorEdge: CmuxSurfaceTabBarIndicatorEdge?
+
+    func overriding(_ fallback: Self) -> Self {
+        Self(
+            activeTabBackground: activeTabBackground ?? fallback.activeTabBackground,
+            activeTabForeground: activeTabForeground ?? fallback.activeTabForeground,
+            inactiveTabBackground: inactiveTabBackground ?? fallback.inactiveTabBackground,
+            inactiveTabForeground: inactiveTabForeground ?? fallback.inactiveTabForeground,
+            tabDividerColor: tabDividerColor ?? fallback.tabDividerColor,
+            activeTabIndicatorColor: activeTabIndicatorColor ?? fallback.activeTabIndicatorColor,
+            activeTabIndicatorEdge: activeTabIndicatorEdge ?? fallback.activeTabIndicatorEdge
+        )
+    }
+
+    var bonsplitStyle: BonsplitConfiguration.Appearance.TabStyle {
+        BonsplitConfiguration.Appearance.TabStyle(
+            activeBackgroundHex: activeTabBackground,
+            activeForegroundHex: activeTabForeground,
+            inactiveBackgroundHex: inactiveTabBackground,
+            inactiveForegroundHex: inactiveTabForeground,
+            dividerHex: tabDividerColor,
+            activeIndicatorHex: activeTabIndicatorColor,
+            activeIndicatorEdge: activeTabIndicatorEdge == .bottom ? .bottom : .top
+        )
+    }
 }
 
 struct CmuxConfigButtonPlacement: Codable, Sendable, Hashable {

@@ -248,7 +248,8 @@ final class DockSplitStore: BonsplitDelegate {
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
-        terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver()
+        terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
+        surfaceTabStyle: BonsplitConfiguration.Appearance.TabStyle = .init()
     ) {
         self.workspaceId = workspaceId
         self.scope = scope
@@ -262,7 +263,9 @@ final class DockSplitStore: BonsplitDelegate {
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
             settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
         })
-        self.bonsplitController = BonsplitController(configuration: Self.makeConfiguration())
+        self.bonsplitController = BonsplitController(
+            configuration: Self.makeConfiguration(surfaceTabStyle: surfaceTabStyle)
+        )
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
         self.bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
