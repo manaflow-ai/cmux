@@ -74,21 +74,7 @@ struct BrowserUserAgentPolicyWebKitTests {
         #expect(webView.customUserAgent?.isEmpty != false)
     }
 
-    @Test func sheetsDestinationTreatsEmptyReportedIdentityAsWebKitDefault() {
-        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        // Some macOS versions report the native identity as "" instead of nil
-        // after a restart clears the custom identity; both must satisfy the
-        // webKitDefault resolution or Sheets restarts forever (issue #9462).
-        webView.customUserAgent = ""
-        let request = URLRequest(
-            url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
-        )
-
-        #expect(BrowserUserAgentPolicy.system.resolution(for: request.url) == .webKitDefault)
-        #expect(webView.browserUserAgentPolicyRestartRequest(for: request) == nil)
-    }
-
-    @Test func sheetsDestinationRestartsAtMostOnceWhenIdentityNeverConverges() throws {
+    @Test func sheetsDestinationNeverAllowsStaleSafariIdentity() throws {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         let request = URLRequest(
             url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
@@ -107,27 +93,17 @@ struct BrowserUserAgentPolicyWebKitTests {
         #expect((webView.customUserAgent ?? "").isEmpty)
         let replacementRequest = try #require(replacementRequests.first)
 
-        // Simulate a WebKit whose reported identity never matches the resolved
-        // policy: the replacement pass must proceed instead of restarting again.
-        webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
-        #expect(!webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
-            for: replacementRequest,
-            targetFrameIsMainFrame: true,
-            decisionHandler: { decisions.append($0) },
-            startReplacement: { replacementRequests.append($0) }
-        ))
-        #expect(decisions == [.cancel])
-        #expect(replacementRequests.count == 1)
-
-        // A later navigation to the same destination may restart once again.
+        // If another load phase exposes the stale Safari identity again, the
+        // replacement must correct it instead of silently allowing a downgrade.
         webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
         #expect(webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
-            for: request,
+            for: replacementRequest,
             targetFrameIsMainFrame: true,
             decisionHandler: { decisions.append($0) },
             startReplacement: { replacementRequests.append($0) }
         ))
         #expect(decisions == [.cancel, .cancel])
         #expect(replacementRequests.count == 2)
+        #expect((webView.customUserAgent ?? "").isEmpty)
     }
 }
