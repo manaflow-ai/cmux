@@ -47,8 +47,8 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. The first two product scenes use production-app screenshots, with
-    /// the notification scene showing the shipped chronological feed. The
+    /// path. The first product scene uses a real captured agent terminal session,
+    /// while the notification scene shows the shipped chronological feed. The
     /// connection scene keeps its live connection-state illustration. Relaunching
     /// after the simulated search finishes must resume at Connect and expose QR
     /// as an explicit fallback.
@@ -196,7 +196,7 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-01-agents")
         let agentsTitle = app.staticTexts["Your agents keep working on your Mac"]
         let agentsBody = app.staticTexts["Track every workspace from your phone."]
-        let agentsScreenshot = element("MobileOnboardingScreenshot-workspaces")
+        let agentsScreenshot = element("MobileOnboardingScreenshot-agent-session")
         assertPageContentFitsWithoutScrolling(
             title: agentsTitle,
             visual: agentsScreenshot,
