@@ -79,6 +79,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.contentView = accessoryView
+        panel.setAccessibilityHidden(true)
 
         accessoryView.onEditingChange = { [weak self] isEditing in
             self?.isEditing = isEditing
@@ -108,13 +109,13 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         guard !panel.isVisible else {
             setFrame(targetFrame, animated: animated)
             panel.alphaValue = 1
-            panel.orderFront(nil)
+            orderPanelFront()
             return
         }
 
         panel.alphaValue = animated ? 0 : 1
         panel.setFrame(targetFrame, display: false)
-        panel.orderFront(nil)
+        orderPanelFront()
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.setFrame(targetFrame, display: true)
             panel.alphaValue = 1
@@ -205,12 +206,13 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         accessoryView.cancelRenaming(notify: false)
         isEditing = false
         guard panel.isVisible else {
+            orderPanelOut()
             detach()
             return
         }
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             panel.alphaValue = 0
-            panel.orderOut(nil)
+            orderPanelOut()
             detach()
             return
         }
@@ -220,7 +222,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self] in
             guard let self, self.presentationGeneration == generation else { return }
-            self.panel.orderOut(nil)
+            self.orderPanelOut()
             self.detach()
         }
     }
@@ -235,7 +237,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         accessoryView.cancelPendingActivation()
         accessoryView.cancelRenaming(notify: false)
         glassEffect.remove(from: panel)
-        panel.orderOut(nil)
+        orderPanelOut()
         detach()
     }
 
@@ -264,7 +266,7 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         if !panel.isVisible {
             panel.alphaValue = 0
         }
-        panel.orderFront(nil)
+        orderPanelFront()
     }
 
     func prepareForOwnerTransitionHiding() {
@@ -285,10 +287,10 @@ final class WorkspaceFloatingDockParkingAccessoryController {
         if isVisible {
             panel.alphaValue = 1
             synchronizeWithOwner()
-            panel.orderFront(nil)
+            orderPanelFront()
         } else {
             panel.alphaValue = 0
-            panel.orderOut(nil)
+            orderPanelOut()
             detach()
         }
     }
@@ -327,6 +329,16 @@ final class WorkspaceFloatingDockParkingAccessoryController {
     private func detach() {
         removeOwnerWindowObservers()
         panel.parent?.removeChildWindow(panel)
+    }
+
+    private func orderPanelFront() {
+        panel.setAccessibilityHidden(false)
+        panel.orderFront(nil)
+    }
+
+    private func orderPanelOut() {
+        panel.setAccessibilityHidden(true)
+        panel.orderOut(nil)
     }
 
     private func frame(

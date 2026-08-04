@@ -354,6 +354,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         hideParkingAccessory(animated: false)
         if let panel = window {
             disableParkingPresentation(on: panel)
+            panel.setAccessibilityHidden(true)
         }
         window?.ignoresMouseEvents = false
         window?.orderOut(nil)
@@ -375,6 +376,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         hideParkingAccessory(animated: false)
         if let panel = window {
             disableParkingPresentation(on: panel)
+            panel.setAccessibilityHidden(true)
         }
         window?.ignoresMouseEvents = false
         window?.orderOut(nil)
@@ -872,6 +874,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             parent.removeChildWindow(window)
         }
         if let window {
+            window.setAccessibilityHidden(true)
             backdropController.remove(from: window)
         }
         window?.orderOut(nil)
@@ -1170,6 +1173,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
         if panel.isKeyWindow {
             parentWindow?.makeKeyAndOrderFront(nil)
         }
+        panel.setAccessibilityHidden(true)
         panel.ignoresMouseEvents = true
         parkingPresentationController.show(
             representing: panel,
@@ -1181,6 +1185,7 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
 
     private func disableParkingPresentation(on panel: NSWindow) {
         parkingPresentationController.hide()
+        panel.setAccessibilityHidden(false)
         panel.ignoresMouseEvents = false
     }
 
@@ -1349,6 +1354,7 @@ private final class WorkspaceFloatingDockParkingPresentationController {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.contentView = presentationView
+        panel.setAccessibilityHidden(true)
         backdropController.changesTintWithWindowKeyState = false
     }
 
@@ -1365,10 +1371,11 @@ private final class WorkspaceFloatingDockParkingPresentationController {
             snapshot: snapshot,
             fullWindowSize: ownerWindow.frame.size
         )
+        panel.title = ownerWindow.title
         backdropController.apply(appearance, to: panel)
         panel.contentView?.identifier = rootIdentifier
         setOwnerFrame(ownerWindow.frame, display: false)
-        panel.orderFront(nil)
+        orderFront()
     }
 
     func updateAppearance(_ appearance: WorkspaceFloatingDockBackdropAppearance) {
@@ -1387,11 +1394,13 @@ private final class WorkspaceFloatingDockParkingPresentationController {
         presentationView.updateFullWindowSize(ownerFrame.size)
         let frame = viewportFrame(for: ownerFrame)
         guard !frame.isNull, !frame.isEmpty else {
+            panel.setAccessibilityHidden(true)
             panel.orderOut(nil)
             return
         }
         panel.setFrame(frame, display: display)
         if !panel.isVisible {
+            panel.setAccessibilityHidden(false)
             panel.orderFront(nil)
         }
     }
@@ -1405,10 +1414,12 @@ private final class WorkspaceFloatingDockParkingPresentationController {
 
     func orderFront() {
         guard !panel.frame.isEmpty else { return }
+        panel.setAccessibilityHidden(false)
         panel.orderFront(nil)
     }
 
     func hide() {
+        panel.setAccessibilityHidden(true)
         panel.orderOut(nil)
     }
 
