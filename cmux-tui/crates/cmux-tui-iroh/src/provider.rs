@@ -68,7 +68,9 @@ pub async fn serve(
             }
             completed = connections.join_next(), if !connections.is_empty() => {
                 match completed {
-                    Some(Ok(Err(_))) => eprintln!("cmux-tui-iroh: provider request denied or closed"),
+                    Some(Ok(Err(error))) => {
+                        eprintln!("cmux-tui-iroh: provider request denied or closed: {error:#}");
+                    }
                     Some(Err(error)) => {
                         eprintln!("cmux-tui-iroh: provider connection task failed: {error}");
                     }

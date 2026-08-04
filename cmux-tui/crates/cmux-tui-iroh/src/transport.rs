@@ -42,13 +42,6 @@ struct RelayGeneration {
     expires_at: i64,
 }
 
-#[derive(Clone)]
-struct CachedDiscovery {
-    snapshot: DiscoverySnapshot,
-    relay_urls: Vec<String>,
-    fetched_at: Instant,
-}
-
 pub struct DiscoveryLease {
     pub snapshot: DiscoverySnapshot,
     pub relay_urls: Vec<String>,
@@ -64,7 +57,7 @@ pub struct EndpointRuntime {
     verifier: RelayPolicyVerifier,
     relay: RwLock<RelayGeneration>,
     grant_keys: RwLock<GrantVerificationKeySet>,
-    discovery: Mutex<Option<CachedDiscovery>>,
+    discovery_guard: Mutex<()>,
 }
 
 impl std::fmt::Debug for EndpointRuntime {
@@ -134,7 +127,6 @@ impl EndpointRuntime {
         verifier.record(&policy)?;
 
         let grant_keys = snapshot.grant_verification_keys.clone();
-        let relay_urls = policy.relay_urls();
         Ok(Self {
             identity,
             broker,
@@ -149,11 +141,7 @@ impl EndpointRuntime {
                 expires_at: validated.expires_at,
             }),
             grant_keys: RwLock::new(grant_keys),
-            discovery: Mutex::new(Some(CachedDiscovery {
-                snapshot,
-                relay_urls,
-                fetched_at: Instant::now(),
-            })),
+            discovery_guard: Mutex::new(()),
         })
     }
 
@@ -180,26 +168,11 @@ impl EndpointRuntime {
     pub async fn fresh_discovery_with_fleet(&self) -> Result<DiscoveryLease> {
         let generation = self.active_relay_generation().await?;
         let relay_urls = generation.policy.relay_urls();
-        let mut cache = self.discovery.lock().await;
-        if let Some(cached) = cache.as_ref()
-            && cached.relay_urls == relay_urls
-            && cached.fetched_at.elapsed() < DISCOVERY_MAX_AGE
-        {
-            return Ok(DiscoveryLease {
-                snapshot: cached.snapshot.clone(),
-                relay_urls: cached.relay_urls.clone(),
-                fetched_at: cached.fetched_at,
-            });
-        }
+        let _discovery_guard = self.discovery_guard.lock().await;
         let snapshot = self.broker.discover(&self.credential).await?;
         validate_discovery(&snapshot, &self.binding, &relay_urls)?;
         let fetched_at = Instant::now();
         *self.grant_keys.write().await = snapshot.grant_verification_keys.clone();
-        *cache = Some(CachedDiscovery {
-            snapshot: snapshot.clone(),
-            relay_urls: relay_urls.clone(),
-            fetched_at,
-        });
         Ok(DiscoveryLease { snapshot, relay_urls, fetched_at })
     }
 
@@ -282,7 +255,7 @@ impl EndpointRuntime {
             "relay refresh rolled back the live policy"
         );
 
-        let mut discovery = self.discovery.lock().await;
+        let _discovery_guard = self.discovery_guard.lock().await;
         let snapshot = self.broker.discover(&self.credential).await?;
         validate_discovery(&snapshot, &self.binding, &policy.relay_urls())?;
         ensure!(!self.endpoint.is_closed(), "iroh endpoint closed during relay refresh");
@@ -311,12 +284,6 @@ impl EndpointRuntime {
         };
         *self.relay.write().await = next.clone();
         *self.grant_keys.write().await = snapshot.grant_verification_keys.clone();
-        *discovery = Some(CachedDiscovery {
-            snapshot,
-            relay_urls: next.policy.relay_urls(),
-            fetched_at: Instant::now(),
-        });
-
         let next_urls =
             next.policy.relays.iter().map(|relay| relay.url.as_str()).collect::<HashSet<_>>();
         for relay in &current.policy.relays {

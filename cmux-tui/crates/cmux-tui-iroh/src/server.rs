@@ -53,7 +53,9 @@ pub async fn serve(
             }
             completed = connections.join_next(), if !connections.is_empty() => {
                 match completed {
-                    Some(Ok(Err(_))) => eprintln!("cmux-tui-iroh: connection denied or closed"),
+                    Some(Ok(Err(error))) => {
+                        eprintln!("cmux-tui-iroh: connection denied or closed: {error:#}");
+                    }
                     Some(Err(error)) => eprintln!("cmux-tui-iroh: connection task failed: {error}"),
                     _ => {}
                 }

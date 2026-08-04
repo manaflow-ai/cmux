@@ -51,7 +51,7 @@ Tickets are generation-bound, machine-bound, one use, and memory-only. Expiry, c
 2. Before opening the cmux-tui Unix socket or forwarding an application byte, it reads one admission frame with a 16 KiB limit and a five-second timeout.
 3. Before broker traffic, it verifies the compact JWS with the last authenticated discovery key set, including type `cmux-pair-grant+jwt`, `alg=EdDSA`, TUI ALPN, TUI scope, canonical UUIDs, valid times, and the broker lifetime bound.
 4. That local preflight requires the grant initiator EndpointID to equal the TLS initiator EndpointID and the acceptor tuple to equal the persisted local binding. Invalid or cross-endpoint traffic therefore cannot induce authenticated HTTP.
-5. It then obtains one authenticated discovery snapshot. Concurrent valid admissions share a successful snapshot for at most 30 seconds; one mutex coalesces the network fetch.
+5. It then obtains a current authenticated discovery snapshot. A mutex serializes discovery with relay-fleet replacement, but no prior snapshot can authorize a new connection.
 6. It re-verifies the signature with that snapshot's key set and requires every initiator and acceptor field to match exactly one corresponding discovery binding. The acceptor must remain pairable, advertise `cmux.tui.attach`, use route contract 1, and the discovery relay fleet must equal the installed signed relay fleet.
 7. Only after all checks pass does it connect to the local session socket, acknowledge admission, and start the byte bridge.
 
@@ -122,7 +122,7 @@ The cmux-remote Noise identity and `dev.cmux.remote/1` protocol are not placed o
 | Grant refresh and expiry are bounded | Provider obtains a grant for each `open_machine`; server closes at its signed expiry. |
 | Tokens never cross iroh | Enrollment, Stack credentials, relay credentials, and provider bearer/ticket stay on HTTPS or owner-only local sockets. Only the signed pair grant crosses the admission stream. |
 | First application stream is admission-only | The first bounded frame is the pair grant. The local session socket is unopened until admission succeeds. |
-| Invalid peers cannot amplify broker traffic | Verify the signed grant, TLS initiator, and exact local acceptor against the last authenticated key set before discovery. Coalesce online discovery behind one 30-second snapshot lease. |
+| Invalid peers cannot amplify broker traffic | Verify the signed grant, TLS initiator, and exact local acceptor against the last authenticated key set before discovery. Each surviving TLS connection gets one bounded authenticated discovery request under the fixed admission limits. |
 | Fixed unauthenticated resource limits | Reuse cmux-remote's bounded semaphores, five-second admission timeout, one admitted protocol stream per connection, and bounded frame sizes. |
 | Registration proves endpoint-key possession | Use the exact challenge hash and `cmux/iroh/device-registration/v1` transcript, signed by the persisted endpoint key. |
 | Registration slots and rotation semantics | Persist client-minted device ID and tag. Reboot updates the same `(userId, deviceId, tag)` slot. Key loss creates a new identity; rotation is not guessed. |
@@ -150,7 +150,7 @@ The cmux-remote Noise identity and `dev.cmux.remote/1` protocol are not placed o
 | Machine-provider control frame | 1 MiB |
 | Machine-provider transport handshake | 64 KiB, then streaming bytes without buffering the session |
 | Provider ticket | 30 seconds, one use |
-| Admission snapshot age | At most 30 seconds |
+| Admission snapshot age | Fetched for the current connection; revalidated within 30 seconds |
 | Grant lifetime | Broker maximum seven days, connection closes at signed expiry |
 
 ## Verification plan

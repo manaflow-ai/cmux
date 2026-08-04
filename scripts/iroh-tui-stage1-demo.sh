@@ -257,9 +257,13 @@ if ! wait_for_file "$provider_socket"; then
 fi
 grep 'provider ready' "$provider_log" | tee -a "$transcript"
 
-"$host_binary" probe \
+if ! "$host_binary" probe \
     --socket "$provider_socket" \
-    --machine-id "$server_binding" | tee -a "$transcript"
+    --machine-id "$server_binding" | tee -a "$transcript"; then
+    cat "$provider_log" >&2
+    docker logs "$container" >&2 || true
+    exit 1
+fi
 record "detach_reattach_before_restart=ok"
 
 docker restart "$container" >/dev/null
@@ -275,9 +279,13 @@ if [ "$first_ready" != "$second_ready" ]; then
 fi
 record "container_endpoint_device_tag_and_binding_stable=ok"
 
-"$host_binary" probe \
+if ! "$host_binary" probe \
     --socket "$provider_socket" \
-    --machine-id "$server_binding" | tee -a "$transcript"
+    --machine-id "$server_binding" | tee -a "$transcript"; then
+    cat "$provider_log" >&2
+    docker logs "$container" >&2 || true
+    exit 1
+fi
 record "reattach_after_restart=ok"
 grep -E 'connected machine=.*path=relay' "$provider_log" | tail -n 3 | tee -a "$transcript"
 record "acceptance=pass completed=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
