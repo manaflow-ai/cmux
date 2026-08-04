@@ -1412,7 +1412,16 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "บันทึกการอัปเดต cmux และประวัติเวอร์ชัน ฟีเจอร์ใหม่, แก้ไขบั๊ก และการเปลี่ยนแปลงสำหรับเทอร์มินัล macOS เนทีฟ",
-      "metaTitle": "บันทึกการเปลี่ยนแปลง"
+      "metaTitle": "บันทึกการเปลี่ยนแปลง",
+      "versionTitle": "cmux {version} · บันทึกการเปลี่ยนแปลง",
+      "releaseNavLabel": "รุ่นใกล้เคียง cmux {version}",
+      "sections": {
+        "added": "เพิ่มแล้ว",
+        "changed": "เปลี่ยนแปลงแล้ว",
+        "fixed": "แก้ไขแล้ว",
+        "removed": "นำออกแล้ว",
+        "contributors": "ผู้มีส่วนร่วม"
+      }
     },
     "navItems": {
       "gettingStarted": "เริ่มต้นใช้งาน",

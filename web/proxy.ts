@@ -49,11 +49,14 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Temporary redirect: /changelog → /docs/changelog, preserving any locale prefix.
-  const changelogMatch = pathname.match(/^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog\/?$/);
+  // Temporary redirect: /changelog[/<version>] → /docs/changelog[/<version>],
+  // preserving any locale prefix.
+  const changelogMatch = pathname.match(
+    /^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog(\/[^/]+)?\/?$/,
+  );
   if (changelogMatch) {
     const url = request.nextUrl.clone();
-    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog`;
+    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog${changelogMatch[2] ?? ""}`;
     return NextResponse.redirect(url, 307);
   }
 
@@ -117,7 +120,11 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.includes(".")) {
+  const isChangelogVersionPath =
+    /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/docs\/changelog\/[^/]+\/?$/.test(
+      pathname,
+    );
+  if (pathname.includes(".") && !isChangelogVersionPath) {
     return NextResponse.next();
   }
 
