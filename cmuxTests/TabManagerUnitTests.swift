@@ -4006,6 +4006,37 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
 
 @MainActor
 final class SidebarCreationContextTests: XCTestCase {
+    func testEachMachineRestoresItsFocusedWorkspaceWithinAWindow() throws {
+        let manager = TabManager()
+        let firstLocal = try XCTUnwrap(manager.tabs.first)
+        let secondLocal = manager.addWorkspace(select: false)
+        let firstRemote = manager.addWorkspace(select: false)
+        firstRemote.remoteConfiguration = makeRemoteConfiguration(
+            ownerWorkspaceID: firstRemote.id
+        )
+        let secondRemote = manager.addWorkspace(select: false)
+        secondRemote.remoteConfiguration = makeRemoteConfiguration(
+            ownerWorkspaceID: secondRemote.id
+        )
+
+        let remote = try XCTUnwrap(
+            manager.sidebarCreationContextSnapshots().first { $0.kind == .remote }
+        )
+        XCTAssertTrue(manager.selectSidebarCreationContext(id: SidebarCreationContextSelection.localID))
+        manager.selectWorkspace(secondLocal)
+
+        XCTAssertTrue(manager.selectSidebarCreationContext(id: remote.id))
+        XCTAssertEqual(manager.selectedTabId, firstRemote.id)
+        manager.selectWorkspace(secondRemote)
+
+        XCTAssertTrue(manager.selectSidebarCreationContext(id: SidebarCreationContextSelection.localID))
+        XCTAssertEqual(manager.selectedTabId, secondLocal.id)
+        manager.selectWorkspace(firstLocal)
+
+        XCTAssertTrue(manager.selectSidebarCreationContext(id: remote.id))
+        XCTAssertEqual(manager.selectedTabId, secondRemote.id)
+    }
+
     func testRemoteContextIdentityExcludesWorkspaceRuntimeOwnership() {
         let first = makeRemoteConfiguration(
             ownerWorkspaceID: UUID(),
