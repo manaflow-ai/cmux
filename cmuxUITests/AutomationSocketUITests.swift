@@ -148,6 +148,70 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
+    func testNewWorkspaceCLIJSONReturnsOrderedInitialSurfaces() throws {
+        let app = configuredApp(mode: "allowAll")
+        let launchFailureOptions = XCTExpectedFailure.Options()
+        launchFailureOptions.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: launchFailureOptions) {
+            app.launch()
+        }
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            ensureRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for new-workspace CLI JSON test. state=\(app.state.rawValue)"
+        )
+        guard let resolvedPath = resolveSocketPath(timeout: 5.0, allowTmpFallback: false) else {
+            XCTFail("Expected control socket to exist")
+            return
+        }
+        socketPath = resolvedPath
+        XCTAssertTrue(waitForSocketPong(timeout: 5.0), "Expected socket ping at \(socketPath)")
+
+        let simple = try runBundledCLI([
+            "new-workspace",
+            "--json",
+            "--name",
+            "test-ws",
+        ])
+        XCTAssertEqual(simple.terminationStatus, 0, simple.stderr)
+        let simplePayload = try parseJSONObject(simple.stdout)
+        assertWorkspaceIdentifiers(in: simplePayload)
+        let simpleSurfaces = try XCTUnwrap(simplePayload["surfaces"] as? [[String: Any]])
+        XCTAssertEqual(simpleSurfaces.count, 1)
+        assertSurfaceIdentifiers(in: simpleSurfaces[0])
+        XCTAssertEqual(simpleSurfaces[0]["type"] as? String, "terminal")
+
+        let layout = """
+        {"direction":"horizontal","children":[{"pane":{"surfaces":[{"type":"terminal"},{"type":"browser","url":"about:blank"}]}},{"pane":{"surfaces":[{"type":"terminal"}]}}]}
+        """
+        let withLayout = try runBundledCLI([
+            "new-workspace",
+            "--json",
+            "--layout",
+            layout,
+        ])
+        XCTAssertEqual(withLayout.terminationStatus, 0, withLayout.stderr)
+        let layoutPayload = try parseJSONObject(withLayout.stdout)
+        assertWorkspaceIdentifiers(in: layoutPayload)
+        let layoutSurfaces = try XCTUnwrap(layoutPayload["surfaces"] as? [[String: Any]])
+        XCTAssertEqual(layoutSurfaces.map { $0["type"] as? String }, ["terminal", "browser", "terminal"])
+        for surface in layoutSurfaces {
+            assertSurfaceIdentifiers(in: surface)
+        }
+
+        let plainText = try runBundledCLI([
+            "new-workspace",
+            "--name",
+            "plain-test-ws",
+        ])
+        XCTAssertEqual(plainText.terminationStatus, 0, plainText.stderr)
+        XCTAssertNotNil(
+            plainText.stdout.range(of: #"^OK workspace:\d+$"#, options: .regularExpression),
+            "Expected legacy plain-text output to remain unchanged, got: \(plainText.stdout)"
+        )
+    }
+
     func testTextBoxSkillMentionFiltersWhenTypingAfterBareDollarTrigger() throws {
         let skillRoot = try makeSkillFixtureRoot(
             skillNames: [
@@ -235,6 +299,108 @@ final class AutomationSocketUITests: XCTestCase {
         // does not fail with "Application ... does not have a process ID".
         app.launchEnvironment["CMUX_TAG"] = launchTag
         return app
+    }
+
+    private func runBundledCLI(
+        _ arguments: [String]
+    ) throws -> (terminationStatus: Int32, stdout: String, stderr: String) {
+        let executableURL = try XCTUnwrap(
+            bundledCLIURL(),
+            "Expected bundled cmux CLI next to the UI test host"
+        )
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = ["--socket", socketPath] + arguments
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "10"
+        environment["CMUX_QUIET"] = "1"
+        process.environment = environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+        process.waitUntilExit()
+
+        let stdout = String(
+            data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = String(
+            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func bundledCLIURL() -> URL? {
+        var productDirectories: [URL] = []
+        if let builtProductsPath = ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"],
+           !builtProductsPath.isEmpty {
+            productDirectories.append(URL(fileURLWithPath: builtProductsPath, isDirectory: true))
+        }
+        for bundleURL in [Bundle.main.bundleURL, Bundle(for: Self.self).bundleURL] {
+            let components = bundleURL.standardizedFileURL.pathComponents
+            guard let productsIndex = components.firstIndex(of: "Products"),
+                  productsIndex + 1 < components.count else {
+                continue
+            }
+            productDirectories.append(URL(
+                fileURLWithPath: NSString.path(withComponents: Array(components.prefix(productsIndex + 2))),
+                isDirectory: true
+            ))
+        }
+
+        var candidates: [URL] = []
+        for directory in productDirectories {
+            candidates.append(directory
+                .appendingPathComponent("cmux DEV.app", isDirectory: true)
+                .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false))
+            let appURLs = (try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            )) ?? []
+            for appURL in appURLs where appURL.pathExtension == "app" {
+                candidates.append(appURL.appendingPathComponent("Contents/Resources/bin/cmux"))
+            }
+        }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
+    }
+
+    private func parseJSONObject(_ text: String) throws -> [String: Any] {
+        let data = try XCTUnwrap(text.data(using: .utf8))
+        return try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any],
+            "Expected JSON object on stdout, got: \(text)"
+        )
+    }
+
+    private func assertWorkspaceIdentifiers(
+        in payload: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertNotNil(payload["workspace_ref"] as? String, file: file, line: line)
+        XCTAssertNotNil(
+            (payload["workspace_id"] as? String).flatMap(UUID.init(uuidString:)),
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertSurfaceIdentifiers(
+        in payload: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertNotNil(payload["surface_ref"] as? String, file: file, line: line)
+        XCTAssertNotNil(
+            (payload["surface_id"] as? String).flatMap(UUID.init(uuidString:)),
+            file: file,
+            line: line
+        )
+        XCTAssertNotNil(payload["type"] as? String, file: file, line: line)
     }
 
     private func configureTextBoxMentionLaunchEnvironment(_ app: XCUIApplication) {
