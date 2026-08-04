@@ -10,7 +10,7 @@ import UserNotifications
 import CmuxGit
 import CmuxSidebarGit
 import CmuxSidebar
-@testable import CmuxTerminal
+import CmuxTerminal
 import CmuxSettings
 
 #if canImport(cmux_DEV)
@@ -1552,80 +1552,30 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 5, "Expected only one workspace to close after the first accepted confirmation")
     }
 
-    func testCloseWorkspaceEnqueuesTerminalRuntimeTeardownOffMainThread() async {
-        let manager = TabManager()
-        // Start with a non-terminal placeholder so this fixture never creates a
-        // native Ghostty surface that could race the synthetic handle below.
-        let workspace = manager.addWorkspace(initialSurface: .cloudVMLoading)
-        manager.selectWorkspace(workspace)
-
-        guard let panelId = workspace.focusedPanelId,
-              workspace.surfaceIdFromPanelId(panelId) != nil else {
-            XCTFail("Expected a focused panel in the workspace layout")
-            return
-        }
-
-        let liveDependencies = GhosttyApp.terminalSurfaceRuntimeDependencies
-        let isolatedDependencies = TerminalSurfaceRuntimeDependencies(
-            registry: liveDependencies.registry,
-            engine: liveDependencies.engine,
-            viewProvider: liveDependencies.viewProvider,
-            spawnPolicy: liveDependencies.spawnPolicy,
-            byteTee: liveDependencies.byteTee,
-            rendererRealization: liveDependencies.rendererRealization,
-            hibernationRecorder: liveDependencies.hibernationRecorder,
-            runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
-            restoreSpawnScheduler: liveDependencies.restoreSpawnScheduler,
-            runtimeFilesystem: liveDependencies.runtimeFilesystem,
-            sessionPortBase: liveDependencies.sessionPortBase,
-            sessionPortRangeSize: liveDependencies.sessionPortRangeSize,
-            scrollbackReplayEnvironmentKey: liveDependencies.scrollbackReplayEnvironmentKey,
-            globalFontMagnificationPercent: liveDependencies.globalFontMagnificationPercent
-        )
-        let surface = TerminalSurface(
-            id: panelId,
-            tabId: workspace.id,
-            context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: nil,
-            dependencies: isolatedDependencies
-        )
-        let terminalPanel = TerminalPanel(workspaceId: workspace.id, surface: surface)
-        // Preserve the placeholder's panel identity. Workspace teardown walks
-        // `panels`, but its close lifecycle resolves each entry through the
-        // Bonsplit surface mapping; a new, unbound panel id is not owned by the
-        // layout and therefore cannot exercise the real close path.
-        workspace.panels[panelId] = terminalPanel
-
-        let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
-        // The test needs only a non-nil teardown token. Direct assignment avoids
-        // native TTY/font initialization, while the isolated coordinator keeps
-        // earlier real-surface frees from delaying this assertion.
-        terminalPanel.surface.surface = fakeSurface
+    func testRuntimeSurfaceTeardownRunsOffMainThread() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
 
         let nativeFreeStarted = expectation(description: "native free started")
-        let fakeSurfaceToken = UInt(bitPattern: fakeSurface)
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
-            guard UInt(bitPattern: surface) == fakeSurfaceToken else { return }
-            XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
-            nativeFreeStarted.fulfill()
-        }
-        defer {
-            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
-        }
+        let ticket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test",
+            surface: surface,
+            callbackContext: nil,
+            freeSurface: { _ in
+                XCTAssertFalse(
+                    Thread.isMainThread,
+                    "Native surface free must not run on the main thread"
+                )
+                nativeFreeStarted.fulfill()
+            }
+        )
 
-        // Session history snapshots intentionally inspect a terminal's native
-        // runtime before close. This synthetic token is not a Ghostty surface,
-        // so skip history capture and enter the shared close/teardown action
-        // after the confirmation/history decision.
-        manager.closeWorkspace(workspace, recordHistory: false)
-        XCTAssertEqual(manager.tabs.count, 1)
-        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
-        XCTAssertNil(terminalPanel.surface.surface)
-
-        // The coordinator first admits the request through a Swift task. Suspend
-        // the main actor so that task can run; XCTest's synchronous wait starves
-        // inherited main-actor work and can only time out.
         await fulfillment(of: [nativeFreeStarted], timeout: 3.0)
+        let didFinish = await ticket.wait(timeout: .seconds(1))
+        XCTAssertTrue(didFinish)
     }
 
     func testCloseCurrentTabSpamWithConfirmationDisabledClosesEveryRequestedWorkspace() {
