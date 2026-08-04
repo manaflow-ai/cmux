@@ -1,12 +1,61 @@
-import XCTest
-import Foundation
 import Darwin
+import Foundation
+import Testing
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@Suite("Terminal foreground process resolution")
+struct TerminalForegroundProcessResolutionTests {
+    @Test func unwrapsLoginGroupLeader() {
+        let loginGroup = [
+            CmuxTopProcessSnapshot.TerminalProcessGroupMember(
+                pid: 100,
+                parentPID: 1,
+                name: "login"
+            ),
+            CmuxTopProcessSnapshot.TerminalProcessGroupMember(
+                pid: 101,
+                parentPID: 100,
+                name: "zsh"
+            ),
+            CmuxTopProcessSnapshot.TerminalProcessGroupMember(
+                pid: 102,
+                parentPID: 101,
+                name: "sleep"
+            ),
+        ]
+        #expect(
+            CmuxTopProcessSnapshot.terminalForegroundProcessID(
+                processGroupID: 100,
+                members: loginGroup
+            ) == 102
+        )
+
+        let commandGroup = [
+            CmuxTopProcessSnapshot.TerminalProcessGroupMember(
+                pid: 200,
+                parentPID: 100,
+                name: "sleep"
+            ),
+            CmuxTopProcessSnapshot.TerminalProcessGroupMember(
+                pid: 201,
+                parentPID: 200,
+                name: "helper"
+            ),
+        ]
+        #expect(
+            CmuxTopProcessSnapshot.terminalForegroundProcessID(
+                processGroupID: 200,
+                members: commandGroup
+            ) == 200
+        )
+    }
+}
 
 final class CmuxTopSnapshotScopeTests: XCTestCase {
     func testProcessForegroundGroupRequiresTerminalForegroundMatch() {

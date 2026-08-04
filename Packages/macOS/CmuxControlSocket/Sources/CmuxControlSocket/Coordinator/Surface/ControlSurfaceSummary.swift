@@ -40,6 +40,12 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     /// For terminal surfaces, the resume binding, else `nil`. Emitted as the
     /// `resume_binding` value (a `null` binding still emits the key).
     public let resumeBinding: ControlSurfaceResumeBinding?
+    /// For local terminal surfaces, the live foreground process identifier
+    /// reported by the terminal runtime, else `nil`.
+    public let foregroundProcessID: Int?
+    /// For local terminal surfaces, the live controlling TTY device path, else
+    /// `nil`.
+    public let ttyName: String?
     /// Persisted Simulator identity, available without starting its worker.
     public let simulatorDeviceID: String?
     /// Persisted Simulator runtime identity, available without discovery.
@@ -69,6 +75,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     ///   - tmuxStartCommand: For terminals, the tmux start command.
     ///   - isTerminal: Whether this is a terminal surface.
     ///   - resumeBinding: For terminals, the resume binding.
+    ///   - foregroundProcessID: For local terminals, the live foreground PID.
+    ///   - ttyName: For local terminals, the controlling TTY device path.
     ///   - dockScopeRawValue: The Dock scope for a Dock-hosted surface.
     public init(
         surfaceID: UUID,
@@ -84,6 +92,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         tmuxStartCommand: String?,
         isTerminal: Bool,
         resumeBinding: ControlSurfaceResumeBinding?,
+        foregroundProcessID: Int? = nil,
+        ttyName: String? = nil,
         simulatorDeviceID: String? = nil,
         simulatorRuntimeIdentifier: String? = nil,
         simulatorDeviceTypeIdentifier: String? = nil,
@@ -104,6 +114,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         self.tmuxStartCommand = tmuxStartCommand
         self.isTerminal = isTerminal
         self.resumeBinding = resumeBinding
+        self.foregroundProcessID = foregroundProcessID
+        self.ttyName = ttyName
         self.simulatorDeviceID = simulatorDeviceID
         self.simulatorRuntimeIdentifier = simulatorRuntimeIdentifier
         self.simulatorDeviceTypeIdentifier = simulatorDeviceTypeIdentifier

@@ -372,6 +372,8 @@ extension TerminalController {
                 resumeBinding: terminalPanel != nil
                     ? controlResumeBinding(from: workspace.surfaceResumeBinding(panelId: panel.id))
                     : nil,
+                foregroundProcessID: controlSurfaceForegroundProcessID(terminalPanel),
+                ttyName: terminalPanel?.surface.controllingTTYName(),
                 simulatorDeviceID: simulatorPanel?.selectedDeviceID,
                 simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
                 simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,

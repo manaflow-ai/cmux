@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -215,6 +216,32 @@ extension CMUXCLI {
             return basename.isEmpty ? trimmed : basename
         }
         return nil
+    }
+
+    /// Resolves the live foreground command name for tmux's
+    /// `#{pane_current_command}` format. Launch metadata describes what started
+    /// the pane, so it is only a fallback when the runtime PID is unavailable.
+    func tmuxCurrentCommandName(forProcessID processID: Int) -> String? {
+        guard processID > 0, processID <= Int(Int32.max) else { return nil }
+
+        var nameBuffer = [CChar](repeating: 0, count: Int(MAXCOMLEN + 1))
+        let nameLength = proc_name(pid_t(processID), &nameBuffer, UInt32(nameBuffer.count))
+        if nameLength > 0 {
+            let name = String(cString: nameBuffer)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty {
+                return name
+            }
+        }
+
+        var pathBuffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        let pathLength = proc_pidpath(pid_t(processID), &pathBuffer, UInt32(pathBuffer.count))
+        guard pathLength > 0 else { return nil }
+        let path = String(cString: pathBuffer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { return nil }
+        let basename = (path as NSString).lastPathComponent
+        return basename.isEmpty ? nil : basename
     }
 
     func tmuxFormatRequestsPaneCommand(_ format: String?) -> Bool {

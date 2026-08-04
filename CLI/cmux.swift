@@ -20518,6 +20518,20 @@ struct CMUXCLI {
                 if let path = tmuxPathFromObject(surface) {
                     context["pane_current_path"] = path
                 }
+                if let foregroundProcessID = intFromAny(surface["foreground_process_id"]),
+                   foregroundProcessID > 0 {
+                    context["pane_pid"] = String(foregroundProcessID)
+                    if let currentCommand = tmuxCurrentCommandName(
+                        forProcessID: foregroundProcessID
+                    ) {
+                        context["pane_current_command"] = currentCommand
+                    }
+                }
+                if let ttyName = (surface["tty_name"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !ttyName.isEmpty {
+                    context["pane_tty"] = ttyName
+                }
                 let paneStartCommand = [
                     surface["tmux_start_command"],
                     surface["pane_start_command"],
@@ -20527,7 +20541,8 @@ struct CMUXCLI {
                     .first { !$0.isEmpty }
                 if let paneStartCommand {
                     context["pane_start_command"] = paneStartCommand
-                    if let currentCommand = tmuxCurrentCommandName(from: paneStartCommand) {
+                    if context["pane_current_command"] == nil,
+                       let currentCommand = tmuxCurrentCommandName(from: paneStartCommand) {
                         context["pane_current_command"] = currentCommand
                     }
                 }
@@ -23687,9 +23702,13 @@ struct CMUXCLI {
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         client: client
-                   ) {
+                    ) {
                     context["pane_start_command"] = legacyHudStartCommand
-                    context["pane_current_command"] = tmuxCurrentCommandName(from: legacyHudStartCommand)
+                    if context["pane_current_command"] == nil {
+                        context["pane_current_command"] = tmuxCurrentCommandName(
+                            from: legacyHudStartCommand
+                        )
+                    }
                 }
                 let fallback = context["pane_id"] ?? paneId
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))

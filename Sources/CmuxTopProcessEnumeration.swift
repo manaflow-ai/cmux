@@ -4,6 +4,12 @@ import Foundation
 private nonisolated let cmuxTopPIDPathBufferSize = 4096
 
 extension CmuxTopProcessSnapshot {
+    struct TerminalProcessGroupMember: Sendable, Equatable {
+        let pid: Int
+        let parentPID: Int
+        let name: String
+    }
+
     static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) -> [CmuxTopProcessInfo] {
         let sampledProcesses = allBSDProcesses()
         guard !sampledProcesses.isEmpty else { return [] }
@@ -73,6 +79,75 @@ extension CmuxTopProcessSnapshot {
             return nil
         }
         return Int64(statInfo.st_rdev)
+    }
+
+    /// Resolves Ghostty's foreground process-group identifier to the concrete
+    /// process whose command should represent the pane.
+    ///
+    /// Ghostty normally returns the foreground process-group leader, which is
+    /// the command tmux wants. Login-shell terminals on macOS are the exception:
+    /// `/usr/bin/login` remains the group leader while the interactive shell (or
+    /// the command it execs) is its descendant in the same group. In that case,
+    /// prefer the deepest live group member so callers see `zsh`/`sleep` rather
+    /// than the login wrapper.
+    static func terminalForegroundProcessID(processGroupID: Int) -> Int? {
+        guard processGroupID > 0, processGroupID <= Int(Int32.max) else { return nil }
+        let members = processGroupBSDInfos(processGroupID: processGroupID).map {
+            TerminalProcessGroupMember(
+                pid: Int($0.pbi_pid),
+                parentPID: Int($0.pbi_ppid),
+                name: fixedString($0.pbi_comm)
+            )
+        }
+        return terminalForegroundProcessID(
+            processGroupID: processGroupID,
+            members: members
+        )
+    }
+
+    static func terminalForegroundProcessID(
+        processGroupID: Int,
+        members: [TerminalProcessGroupMember]
+    ) -> Int? {
+        guard !members.isEmpty else { return nil }
+
+        guard let leader = members.first(where: { $0.pid == processGroupID }) else {
+            return members.map(\.pid).filter { $0 > 0 }.min()
+        }
+        guard leader.name == "login" else { return processGroupID }
+
+        let memberByPID = Dictionary(
+            members.map { ($0.pid, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        func descendantDepth(_ member: TerminalProcessGroupMember) -> Int? {
+            var parentPID = member.parentPID
+            var depth = 1
+            var visited: Set<Int> = [member.pid]
+            while parentPID != processGroupID {
+                guard visited.insert(parentPID).inserted,
+                      let parent = memberByPID[parentPID] else {
+                    return nil
+                }
+                parentPID = parent.parentPID
+                depth += 1
+            }
+            return depth
+        }
+
+        return members
+            .compactMap { member -> (pid: Int, depth: Int)? in
+                let pid = member.pid
+                guard pid != processGroupID, pid > 0,
+                      let depth = descendantDepth(member) else {
+                    return nil
+                }
+                return (pid, depth)
+            }
+            .max { lhs, rhs in
+                lhs.depth == rhs.depth ? lhs.pid > rhs.pid : lhs.depth < rhs.depth
+            }?
+            .pid ?? processGroupID
     }
 
     private static func processInfo(
@@ -189,6 +264,39 @@ extension CmuxTopProcessSnapshot {
             capacity = max(pids.count * 2, returnedPIDCount + 32)
         }
         return lastCount > 0 ? bsdInfos(from: lastPIDs, count: lastCount) : []
+    }
+
+    private static func processGroupBSDInfos(processGroupID: Int) -> [proc_bsdinfo] {
+        let pidStride = MemoryLayout<pid_t>.stride
+        var capacity = 8
+        var lastPIDs: [pid_t] = []
+        var lastCount = 0
+        for _ in 0..<3 {
+            var pids = Array(repeating: pid_t(), count: capacity)
+            let returnedCount = pids.withUnsafeMutableBufferPointer { buffer in
+                proc_listpgrppids(
+                    pid_t(processGroupID),
+                    buffer.baseAddress,
+                    Int32(buffer.count * pidStride)
+                )
+            }
+            guard returnedCount >= 0 else {
+                break
+            }
+            let count = min(pids.count, Int(returnedCount))
+            if count > 0 {
+                lastPIDs = pids
+                lastCount = count
+            }
+            if Int(returnedCount) < pids.count {
+                break
+            }
+            capacity = max(pids.count * 2, Int(returnedCount) + 8)
+        }
+        return lastPIDs.prefix(lastCount).compactMap { pid in
+            guard pid > 0 else { return nil }
+            return bsdInfo(for: Int(pid))
+        }
     }
 
     private static func bsdInfo(for pid: Int) -> proc_bsdinfo? {

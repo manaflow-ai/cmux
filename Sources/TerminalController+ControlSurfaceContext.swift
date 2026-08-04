@@ -115,6 +115,18 @@ extension TerminalController: ControlSurfaceContext {
 
     // MARK: - list
 
+    /// Returns the concrete foreground command PID for a local terminal.
+    /// Ghostty exposes a process-group identifier, so unwrap macOS's persistent
+    /// `login` group leader before publishing process formats over the socket.
+    func controlSurfaceForegroundProcessID(_ terminal: TerminalPanel?) -> Int? {
+        guard let processGroupID = terminal?.surface.foregroundProcessID() else {
+            return nil
+        }
+        return CmuxTopProcessSnapshot.terminalForegroundProcessID(
+            processGroupID: processGroupID
+        ) ?? processGroupID
+    }
+
     func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return nil
@@ -163,6 +175,8 @@ extension TerminalController: ControlSurfaceContext {
                 tmuxStartCommand: summary.tmuxStartCommand,
                 isTerminal: summary.isTerminal,
                 resumeBinding: summary.resumeBinding,
+                foregroundProcessID: summary.foregroundProcessID,
+                ttyName: summary.ttyName,
                 simulatorDeviceID: simulatorPanel?.selectedDeviceID,
                 simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
                 simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,

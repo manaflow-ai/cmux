@@ -77,6 +77,8 @@ extension TerminalController {
                 resumeBinding: controlResumeBinding(
                     from: dock.surfaceResumeBinding(panelId: panel.id)
                 ),
+                foregroundProcessID: controlSurfaceForegroundProcessID(terminal),
+                ttyName: terminal?.surface.controllingTTYName(),
                 dockScopeRawValue: dock.scope.rawValue
             )
         }

@@ -169,6 +169,9 @@ extension ControlCommandCoordinator {
                     item["initial_command"] = orNull(surface.initialCommand)
                     item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
                     item["resume_binding"] = surfaceResumeBindingPayload(surface.resumeBinding)
+                    item["foreground_process_id"] = surface.foregroundProcessID
+                        .map { .int(Int64($0)) } ?? .null
+                    item["tty_name"] = orNull(surface.ttyName)
                 }
                 if surface.typeRawValue == "simulator" {
                     item["simulator_id"] = orNull(surface.simulatorDeviceID)
