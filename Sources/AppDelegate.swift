@@ -13125,12 +13125,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func handleQuitShortcutWarning(onCancel: (() -> Void)? = nil) -> Bool {
+    private func handleQuitShortcutWarning(
+        onCancel: (() -> Void)? = nil,
+        forceConfirmation: Bool = false
+    ) -> Bool {
         guard activeQuitConfirmationAlertPresenter == nil else {
             onCancel?()
             return true
         }
-        if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
+        if !forceConfirmation && !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
             isDevBuild: BuildFlavor.current == .dev
@@ -16754,7 +16757,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // on runModal or have NSApp.terminate kill the test process.
         if isRunningUnderXCTest(ProcessInfo.processInfo.environment) { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
-        _ = handleQuitShortcutWarning(onCancel: onCancel)
+        _ = handleQuitShortcutWarning(
+            onCancel: onCancel,
+            forceConfirmation: onCancel != nil
+        )
         return false
     }
 
