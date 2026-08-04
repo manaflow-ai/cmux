@@ -3327,7 +3327,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         )
     }
 
-    func testWorkspaceFloatingDockStashKeepsNativeWindowAndContentAlive() throws {
+    func testWorkspaceFloatingDockStashKeepsNativeWindowAndContentAlive() async throws {
         _ = NSApplication.shared
         let url = try temporaryTextFile(contents: "", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -3415,6 +3415,7 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         dock.setStashed(false)
         presenter.refresh()
+        try await Task.sleep(nanoseconds: 350_000_000)
 
         XCTAssertTrue(presenter.owns(window: originalWindow))
         XCTAssertTrue(presenter.presentedWindow(for: dock) === originalWindow)
