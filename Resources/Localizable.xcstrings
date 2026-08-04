@@ -60498,13 +60498,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fork Conversation…"
+            "value": "Fork Conversation with…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "会話をフォーク…"
+            "value": "別のエージェントで会話をフォーク…"
           }
         }
       }

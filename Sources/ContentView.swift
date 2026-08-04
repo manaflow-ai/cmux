@@ -4893,9 +4893,9 @@ struct ContentView: View {
             return 0
         }
         switch commandId {
-        case "palette.forkAgentConversation":
-            return 10_001
         case "palette.forkAgentConversationRight":
+            return 10_001
+        case "palette.forkAgentConversation":
             return 10_000
         default:
             return 0
@@ -7806,7 +7806,7 @@ struct ContentView: View {
                 commandId: "palette.forkAgentConversation",
                 title: constant(String(
                     localized: "command.forkAgentConversation.title",
-                    defaultValue: "Fork Conversation…"
+                    defaultValue: "Fork Conversation with…"
                 )),
                 subtitle: terminalPanelSubtitle,
                 keywords: [

@@ -5,27 +5,27 @@ import Foundation
 
 extension ContentView {
     func forkFocusedAgentConversationRight() {
-        forkFocusedAgentConversation(request: .init(targetHarness: .current, destination: .right))
+        forkFocusedAgentConversation(request: .sameHarness(destination: .right))
     }
 
     func forkFocusedAgentConversationLeft() {
-        forkFocusedAgentConversation(request: .init(targetHarness: .current, destination: .left))
+        forkFocusedAgentConversation(request: .sameHarness(destination: .left))
     }
 
     func forkFocusedAgentConversationTop() {
-        forkFocusedAgentConversation(request: .init(targetHarness: .current, destination: .top))
+        forkFocusedAgentConversation(request: .sameHarness(destination: .top))
     }
 
     func forkFocusedAgentConversationBottom() {
-        forkFocusedAgentConversation(request: .init(targetHarness: .current, destination: .bottom))
+        forkFocusedAgentConversation(request: .sameHarness(destination: .bottom))
     }
 
     func forkFocusedAgentConversationToNewTab() {
-        forkFocusedAgentConversation(request: .init(targetHarness: .current, destination: .newTab))
+        forkFocusedAgentConversation(request: .sameHarness(destination: .newTab))
     }
 
     func forkFocusedAgentConversationToNewWorkspace() {
-        forkFocusedAgentConversation(request: .init(targetHarness: .current, destination: .newWorkspace))
+        forkFocusedAgentConversation(request: .sameHarness(destination: .newWorkspace))
     }
 
     func forkFocusedAgentConversation(request: AgentConversationForkRequest) {

@@ -11,10 +11,7 @@ extension Workspace {
     ) async -> Bool {
         await forkAgentConversationFromContextMenu(
             fromPanelId: panelId,
-            request: AgentConversationForkRequest(
-                targetHarness: .current,
-                destination: destination
-            )
+            request: .sameHarness(destination: destination)
         )
     }
 

@@ -19,6 +19,15 @@ struct AgentConversationForkRequest: Equatable, Sendable {
         self.destination = destination
     }
 
+    static func sameHarness(
+        destination: AgentConversationForkDestination
+    ) -> AgentConversationForkRequest {
+        AgentConversationForkRequest(
+            targetHarness: .current,
+            destination: destination
+        )
+    }
+
     static var commandPaletteChoiceArguments: [CommandPaletteChoiceArgument] {
         [
             CommandPaletteChoiceArgument(

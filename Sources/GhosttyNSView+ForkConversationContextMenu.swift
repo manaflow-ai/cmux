@@ -153,13 +153,9 @@ extension GhosttyNSView {
         } else if let item = sender as? NSMenuItem,
            let rawDestination = item.representedObject as? String,
            let representedDestination = AgentConversationForkDestination(rawValue: rawDestination) {
-            request = AgentConversationForkRequest(
-                targetHarness: .current,
-                destination: representedDestination
-            )
+            request = .sameHarness(destination: representedDestination)
         } else {
-            request = AgentConversationForkRequest(
-                targetHarness: .current,
+            request = .sameHarness(
                 destination: AgentConversationForkDefaultSettings.current()
             )
         }
