@@ -144,8 +144,8 @@ struct MobilePairingView: View {
             return String(
                 localized: "mobile.pairing.req.tailscale.reachable",
                 defaultValue: """
-                Tailscale is connected on this Mac. It must also be installed and connected \
-                on your iPhone on the same Tailscale network.
+                Tailscale is connected on this Mac. It must also be installed and connected on your iPhone. \
+                Both devices must be connected to the same Tailscale network.
                 """
             )
         case .some(false):
@@ -160,8 +160,8 @@ struct MobilePairingView: View {
             return String(
                 localized: "mobile.pairing.req.tailscale.hint",
                 defaultValue: """
-                Tailscale must be installed and connected on this Mac and your iPhone \
-                on the same Tailscale network.
+                Tailscale must be installed and connected on both this Mac and your iPhone. \
+                Both devices must be connected to the same Tailscale network.
                 """
             )
         }
@@ -299,8 +299,8 @@ struct MobilePairingView: View {
             Text(String(
                 localized: "mobile.pairing.codeMode.tailscaleDetail",
                 defaultValue: """
-                Tailscale pairing code. Keep Tailscale connected on both devices \
-                on the same Tailscale network.
+                Tailscale pairing code. Keep Tailscale connected on both devices. \
+                Both devices must be connected to the same Tailscale network.
                 """
             ))
             .cmuxFont(.caption)

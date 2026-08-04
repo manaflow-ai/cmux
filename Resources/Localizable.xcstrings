@@ -35811,6 +35811,23 @@
         }
       }
     },
+    "cli.surfaceResume.set.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume set: unknown flag '%1$@'. Known flags: %2$@. Use -- <argv...> for command arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume set: 不明なフラグ '%1$@'。利用可能なフラグ: %2$@。コマンド引数には -- <argv...> を使用してください。"
+          }
+        }
+      }
+    },
     "cli.claude-hook.notification.title": {
       "extractionState": "manual",
       "localizations": {
@@ -110609,13 +110626,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows Tailscale Pairing entrypoints that open the QR code workspace."
+            "value": "Shows the Tailscale Pairing button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "QRコードワークスペースを開くTailscaleペアリングの入口を表示します。"
+            "value": "サイドバーのフッターにTailscaleペアリングボタンを表示します。"
           }
         }
       }
@@ -134736,13 +134753,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale pairing code. Keep Tailscale connected on both devices on the same Tailscale network."
+            "value": "Tailscale pairing code. Keep Tailscale connected on both devices. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale ペアリングコードです。両方のデバイスで Tailscale を同じ Tailscale ネットワークに接続したままにしてください。"
+            "value": "Tailscale ペアリングコードです。両方のデバイスで Tailscale の接続を維持してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -135263,13 +135280,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale must be installed and connected on this Mac and your iPhone on the same Tailscale network."
+            "value": "Tailscale must be installed and connected on both this Mac and your iPhone. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac と iPhone の両方に Tailscale をインストールし、同じ Tailscale ネットワークに接続する必要があります。"
+            "value": "この Mac と iPhone の両方に Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -135297,13 +135314,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale is connected on this Mac. It must also be installed and connected on your iPhone on the same Tailscale network."
+            "value": "Tailscale is connected on this Mac. It must also be installed and connected on your iPhone. Both devices must be connected to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac は Tailscale に接続済みです。iPhone にも Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。"
+            "value": "この Mac は Tailscale に接続済みです。iPhone にも Tailscale をインストールして接続してください。両方のデバイスを同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }

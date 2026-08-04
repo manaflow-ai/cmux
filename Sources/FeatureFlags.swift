@@ -139,7 +139,7 @@ final class CmuxFeatureFlags {
                 title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Tailscale Pairing button"),
                 flagDescription: String(
                     localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows Tailscale Pairing entrypoints that open the QR code workspace."
+                    defaultValue: "Shows the Tailscale Pairing button in the sidebar footer."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
             ),

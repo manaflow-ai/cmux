@@ -102,7 +102,7 @@ struct PairingView: View {
                         defaultValue: """
                         Install Tailscale on both devices and connect them to the same Tailscale network. \
                         On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here. \
-                        Manual entry is only for simulator loopback.
+                        Manual host and port entry is an advanced fallback for reconnecting an already paired Mac.
                         """
                     ))
                 }

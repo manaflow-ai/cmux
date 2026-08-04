@@ -432,13 +432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on both devices and connect them to the same Tailscale network. On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here. Manual entry is only for simulator loopback."
+            "value": "Install Tailscale on both devices and connect them to the same Tailscale network. On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here. Manual host and port entry is an advanced fallback for reconnecting an already paired Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方のデバイスにTailscaleをインストールし、同じTailscaleネットワークに接続してください。Macのcmuxで「Tailscaleペアリング」を開いてQRコードを表示し、ここでスキャンします。手入力はシミュレータのループバック専用です。"
+            "value": "両方のデバイスにTailscaleをインストールし、同じTailscaleネットワークに接続してください。Macのcmuxで「Tailscaleペアリング」を開いてQRコードを表示し、ここでスキャンします。ホストとポートの手入力は、ペアリング済みのMacへ再接続するための高度な代替手段です。"
           }
         }
       }
