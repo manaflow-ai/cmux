@@ -10,15 +10,6 @@ struct DiagnosticLocalization: Sendable {
         self.bundle = Self.bundle(for: locale)
     }
 
-    /// Whether this runtime compiled the package string catalog for `locale`.
-    ///
-    /// Xcode emits localized `.lproj` resources. Command-line SwiftPM copies
-    /// `.xcstrings` verbatim, so explicit-locale behavior tests cannot resolve
-    /// translations in that runner even though app builds can.
-    static func hasCompiledLocalization(for locale: Locale) -> Bool {
-        languageBundle(for: locale) != nil
-    }
-
     func string(
         _ key: StaticString,
         defaultValue: String.LocalizationValue
@@ -36,10 +27,10 @@ struct DiagnosticLocalization: Sendable {
     }
 
     private static func languageBundle(for locale: Locale) -> Bundle? {
-        let identifiers = [
-            locale.identifier,
-            locale.language.languageCode?.identifier,
-        ].compactMap { $0 }
+        let identifiers = Bundle.preferredLocalizations(
+            from: Bundle.module.localizations,
+            forPreferences: [locale.identifier]
+        )
         for identifier in identifiers {
             guard let path = Bundle.module.path(
                 forResource: identifier,

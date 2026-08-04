@@ -3,6 +3,10 @@ import Testing
 @testable import CMUXMobileCore
 
 @Suite struct DiagnosticEventPresentationTests {
+    private var englishPresentation: DiagnosticEventPresentation {
+        DiagnosticEventPresentation(locale: Locale(identifier: "en"))
+    }
+
     /// Case names are shipped telemetry vocabulary (Sentry grouping keys), so a
     /// rename is a breaking change this test makes visible.
     @Test func pinsEventCodeNames() {
@@ -32,7 +36,7 @@ import Testing
             b: DiagnosticFailureKind.policyUnavailable.rawValue,
             c: 42
         )
-        let described = DiagnosticEventPresentation().describe(event)
+        let described = englishPresentation.describe(event)
         #expect(described.name == "Transport dial failed")
         #expect(described.fields == [
             .init(key: "transport", value: "Iroh"),
@@ -42,27 +46,27 @@ import Testing
     }
 
     @Test func describesRetryDelayAndCloseAttribution() {
-        let retry = DiagnosticEventPresentation().describe(
+        let retry = englishPresentation.describe(
             DiagnosticEvent(code: .retryScheduled, tNanos: 1, ms: 32_331)
         )
         #expect(retry.fields == [.init(key: "retry_delay", value: "32.331 seconds")])
 
-        let oneSecond = DiagnosticEventPresentation().describe(
+        let oneSecond = englishPresentation.describe(
             DiagnosticEvent(code: .retryScheduled, tNanos: 1, ms: 1_000)
         )
         #expect(oneSecond.fields == [.init(key: "retry_delay", value: "1 second")])
 
-        let twoSeconds = DiagnosticEventPresentation().describe(
+        let twoSeconds = englishPresentation.describe(
             DiagnosticEvent(code: .retryScheduled, tNanos: 1, ms: 2_000)
         )
         #expect(twoSeconds.fields == [.init(key: "retry_delay", value: "2 seconds")])
 
-        let subSecond = DiagnosticEventPresentation().describe(
+        let subSecond = englishPresentation.describe(
             DiagnosticEvent(code: .retryScheduled, tNanos: 1, ms: 999)
         )
         #expect(subSecond.fields == [.init(key: "retry_delay", value: "999 ms")])
 
-        let close = DiagnosticEventPresentation().describe(
+        let close = englishPresentation.describe(
             DiagnosticEvent(
                 code: .transportCloseAttribution,
                 tNanos: 1,
@@ -78,25 +82,25 @@ import Testing
             .init(key: "application_error_code", value: "7"),
             .init(key: "session", value: "9"),
         ])
-        let closeSummary = DiagnosticEventPresentation().summary(close)
+        let closeSummary = englishPresentation.summary(close)
         #expect(!closeSummary.contains("Session"))
         #expect(!closeSummary.contains("9"))
     }
 
     @Test func describesLifecycleAndReachability() {
-        let phase = DiagnosticEventPresentation().describe(
+        let phase = englishPresentation.describe(
             DiagnosticEvent(code: .appLifecycleChanged, tNanos: 1, a: DiagnosticAppLifecyclePhase.background.rawValue)
         )
         #expect(phase.fields == [.init(key: "phase", value: "Background")])
 
-        let reachability = DiagnosticEventPresentation().describe(
+        let reachability = englishPresentation.describe(
             DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0)
         )
         #expect(reachability.fields == [.init(key: "network", value: "Offline")])
     }
 
     @Test func unknownRawValuesFallBackToIntegers() {
-        let described = DiagnosticEventPresentation().describe(
+        let described = englishPresentation.describe(
             DiagnosticEvent(code: .transportDialFailed, tNanos: 1, a: 999, b: 998)
         )
         #expect(described.fields == [
@@ -160,7 +164,7 @@ import Testing
         #expect(Set(expected.keys) == Set(DiagnosticEventCode.allCases))
         for code in DiagnosticEventCode.allCases {
             #expect(
-                DiagnosticEventPresentation().describe(
+                englishPresentation.describe(
                     DiagnosticEvent(code: code, tNanos: 1)
                 ).name == expected[code]
             )
@@ -168,7 +172,7 @@ import Testing
     }
 
     @Test func decodesEveryStructuredPayloadIntoSemanticFields() {
-        let recovery = DiagnosticEventPresentation().describe(DiagnosticEvent(
+        let recovery = englishPresentation.describe(DiagnosticEvent(
             code: .recoveryStarted,
             tNanos: 1,
             a: DiagnosticTransportKind.iroh.rawValue,
@@ -179,7 +183,7 @@ import Testing
             .init(key: "trigger", value: "Network changed"),
         ])
 
-        let endpoint = DiagnosticEventPresentation().describe(DiagnosticEvent(
+        let endpoint = englishPresentation.describe(DiagnosticEvent(
             code: .endpointFailed,
             tNanos: 1,
             a: DiagnosticTransportKind.iroh.rawValue,
@@ -190,7 +194,7 @@ import Testing
             .init(key: "failure", value: "Iroh endpoint unavailable"),
         ])
 
-        let session = DiagnosticEventPresentation().describe(DiagnosticEvent(
+        let session = englishPresentation.describe(DiagnosticEvent(
             code: .transportSessionLifecycle,
             tNanos: 1,
             a: DiagnosticSessionLifecycleKind.established.rawValue,
@@ -203,7 +207,7 @@ import Testing
             .init(key: "session", value: "12"),
         ])
 
-        let composer = DiagnosticEventPresentation().describe(DiagnosticEvent(
+        let composer = englishPresentation.describe(DiagnosticEvent(
             code: .composerActiveTransition,
             tNanos: 1,
             ms: 300,
@@ -218,7 +222,7 @@ import Testing
             .init(key: "terminal_input_focused", value: "No"),
         ])
 
-        let input = DiagnosticEventPresentation().describe(DiagnosticEvent(
+        let input = englishPresentation.describe(DiagnosticEvent(
             code: .inputSeqBehind,
             tNanos: 1,
             surface: 7,
@@ -242,15 +246,15 @@ import Testing
             tNanos: 1,
             b: DiagnosticFailureKind.identityMismatch.rawValue
         )
-        #expect(DiagnosticEventPresentation().failureKind(of: event) == .identityMismatch)
-        #expect(DiagnosticEventPresentation().transportKind(of: event) == nil)
+        #expect(englishPresentation.failureKind(of: event) == .identityMismatch)
+        #expect(englishPresentation.transportKind(of: event) == nil)
 
         let success = DiagnosticEvent(code: .rpcReady, tNanos: 1, b: 3)
-        #expect(DiagnosticEventPresentation().failureKind(of: success) == nil)
+        #expect(englishPresentation.failureKind(of: success) == nil)
     }
 
     @Test(.enabled(
-        if: DiagnosticLocalization.hasCompiledLocalization(for: Locale(identifier: "ja")),
+        if: LocalizationTestSupport().hasCompiledLocalization(for: Locale(identifier: "ja")),
         "Command-line SwiftPM copies string catalogs without compiling locale resources"
     ))
     func presentsJapaneseReportCopy() {

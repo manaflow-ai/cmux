@@ -4,6 +4,8 @@ import os
 @testable import CMUXMobileCore
 
 @Suite struct DiagnosticLogTests {
+    private var englishLocale: Locale { Locale(identifier: "en") }
+
     private enum ClassifiedTestError: Error, DiagnosticFailureProviding {
         case denied
 
@@ -67,9 +69,9 @@ import os
         let report = await log.snapshot(
             generatedAt: Date(timeIntervalSince1970: 1_700_000_001)
         )
-        let humanReadableExport = report.humanReadableExport()
+        let humanReadableExport = report.humanReadableExport(locale: englishLocale)
         let text = String(decoding: humanReadableExport, as: UTF8.self)
-        #expect(report.compactExport() == humanReadableExport)
+        #expect(report.compactExport() == report.humanReadableExport())
         let inputSequenceLine = "2023-11-14 22:13:20.500 UTC | "
             + "Terminal input acknowledgements fell behind "
             + "(Surface: 7, Local sequence: 10, Remote sequence: 20)"
@@ -89,7 +91,10 @@ import os
         """)
 
         let liveText = String(decoding: await log.export(), as: UTF8.self)
-        #expect(liveText.contains("Connection attempt started"))
+        let currentConnectTitle = DiagnosticEventPresentation().describe(
+            DiagnosticEvent(code: .connect, tNanos: 0)
+        ).name
+        #expect(liveText.contains(currentConnectTitle))
         #expect(!liveText.contains("anchorWallNs"))
         #expect(!liveText.contains("500,1,,,,,"))
     }
@@ -199,7 +204,10 @@ import os
             role: .unspecified,
             generatedAt: Date(timeIntervalSince1970: 1_700_000_001)
         )
-        let text = String(decoding: report.humanReadableExport(), as: UTF8.self)
+        let text = String(
+            decoding: report.humanReadableExport(locale: englishLocale),
+            as: UTF8.self
+        )
         #expect(text == """
         cmux Iroh and transport report
         Report format: 2
@@ -225,13 +233,16 @@ import os
             ]
         )
 
-        let text = String(decoding: report.humanReadableExport(), as: UTF8.self)
+        let text = String(
+            decoding: report.humanReadableExport(locale: englishLocale),
+            as: UTF8.self
+        )
         #expect(text.contains("+0.000 seconds | Iroh endpoint starting"))
         #expect(text.contains("+0.250 seconds | Iroh endpoint active"))
     }
 
     @Test(.enabled(
-        if: DiagnosticLocalization.hasCompiledLocalization(for: Locale(identifier: "ja")),
+        if: LocalizationTestSupport().hasCompiledLocalization(for: Locale(identifier: "ja")),
         "Command-line SwiftPM copies string catalogs without compiling locale resources"
     ))
     func exportUsesJapaneseCatalogCopy() async {
