@@ -3,7 +3,6 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
-import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

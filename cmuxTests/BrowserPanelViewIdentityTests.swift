@@ -1,8 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
-import Observation
-import SwiftUI
+import CmuxNotifications
 import Testing
 
 #if canImport(cmux_DEV)
@@ -17,24 +16,25 @@ import Testing
         let workspaceID = UUID()
         let firstPanel = BrowserPanel(workspaceId: workspaceID)
         let secondPanel = BrowserPanel(workspaceId: workspaceID)
-        let model = BrowserPanelReplacementModel(panel: firstPanel)
+        let paneID = PaneID()
+        let contentController = PanelContentViewController(
+            configuration: configuration(panel: firstPanel, paneID: paneID)
+        )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        let hostingView = NSHostingView(
-            rootView: BrowserPanelReplacementHarness(model: model, paneID: PaneID())
-        )
-        hostingView.frame = window.contentView?.bounds ?? .zero
-        hostingView.autoresizingMask = [.width, .height]
-        window.contentView = hostingView
+        contentController.view.frame = window.contentView?.bounds ?? .zero
+        contentController.view.autoresizingMask = [.width, .height]
+        window.contentViewController = contentController
         window.makeKeyAndOrderFront(nil)
 
         defer {
+            contentController.teardown()
             window.orderOut(nil)
-            window.contentView = nil
+            window.contentViewController = nil
             firstPanel.close()
             secondPanel.close()
         }
@@ -42,7 +42,7 @@ import Testing
         let firstField = try #require(waitForOmnibarField(panelID: firstPanel.id, in: window))
         firstField.stringValue = "stale search"
         let firstCoordinator = try #require(
-            firstField.delegate as? OmnibarTextFieldRepresentable.Coordinator
+            firstField.delegate as? OmnibarTextFieldNativeHost.Coordinator
         )
         firstCoordinator.controlTextDidChange(
             Notification(name: NSControl.textDidChangeNotification, object: firstField)
@@ -50,7 +50,7 @@ import Testing
         render(window)
         #expect(firstField.stringValue == "stale search")
 
-        model.panel = secondPanel
+        contentController.update(configuration: configuration(panel: secondPanel, paneID: paneID))
 
         let secondField = try #require(waitForOmnibarField(panelID: secondPanel.id, in: window))
         #expect(
@@ -79,32 +79,17 @@ import Testing
         window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
     }
-}
 
-@MainActor
-@Observable
-private final class BrowserPanelReplacementModel {
-    var panel: BrowserPanel
-
-    init(panel: BrowserPanel) {
-        self.panel = panel
-    }
-}
-
-@MainActor
-private struct BrowserPanelReplacementHarness: View {
-    let model: BrowserPanelReplacementModel
-    let paneID: PaneID
-
-    var body: some View {
-        PanelContentView(
-            panel: model.panel,
-            workspaceId: model.panel.workspaceId,
-            paneId: paneID,
+    private func configuration(panel: BrowserPanel, paneID: PaneID) -> PanelContentConfiguration {
+        PanelContentConfiguration(
+            panel: panel,
+            workspaceID: panel.workspaceId,
+            paneID: paneID,
             isFocused: true,
             isSelectedInPane: true,
             isVisibleInUI: true,
             allowsPointerInput: true,
+            pointerEntryEventFilter: nil,
             portalPriority: 1,
             isSplit: false,
             appearance: PanelAppearance(
@@ -117,9 +102,12 @@ private struct BrowserPanelReplacementHarness: View {
             ),
             windowAppearance: .rightSidebarPanelViewTestDefault,
             customSidebarTabManager: nil,
+            customSidebarUnread: SidebarUnreadModel(),
             hasUnreadNotification: false,
             terminalAgentContext: "",
             paneOwnershipOverride: true,
+            terminalPaneOwnershipResolver: nil,
+            paneDropZone: nil,
             onFocus: {},
             onRequestPanelFocus: {},
             onResumeAgentHibernation: {},

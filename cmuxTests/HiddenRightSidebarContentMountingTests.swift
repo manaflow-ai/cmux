@@ -1,7 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxSettings
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -62,7 +61,7 @@ struct HiddenRightSidebarContentMountingTests {
         )
         defer { window.orderOut(nil) }
 
-        let rootView = RightSidebarPanelView(
+        let controller = RightSidebarNativeViewController(
             tabManager: TabManager(),
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: fileExplorerState,
@@ -75,13 +74,13 @@ struct HiddenRightSidebarContentMountingTests {
             onOpenAsPane: { _ in },
             onClose: {}
         )
-        let hostingView = NSHostingView(rootView: rootView)
-        hostingView.frame = window.contentRect(forFrameRect: window.frame)
-        window.contentView = hostingView
+        defer { controller.teardown() }
+        controller.view.frame = window.contentRect(forFrameRect: window.frame)
+        window.contentViewController = controller
         window.displayIfNeeded()
-        hostingView.layoutSubtreeIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
 
-        let mountedContainer = Self.firstSubview(in: hostingView) { $0 is FileExplorerContainerView }
+        let mountedContainer = Self.firstSubview(in: controller.view) { $0 is FileExplorerContainerView }
         #expect(
             mountedContainer == nil,
             "Hidden right-sidebar state should preserve the selected mode without mounting FileExplorerPanelView content"

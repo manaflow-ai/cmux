@@ -1,6 +1,5 @@
 import AppKit
 import CmuxBrowser
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -11,10 +10,9 @@ import Testing
 
 /// Regression coverage for the Design Mode composer overlay hit testing.
 ///
-/// The composer is hosted as a full-slot overlay above the portal-hosted
-/// WKWebView. A plain `NSHostingView` claims every point in `hitTest`, so an
-/// unscoped overlay swallows clicks, scrolls, and element-picker interactions
-/// meant for the page — even while the composer card is dismissed. The overlay
+/// The composer is a full-slot overlay above the portal-hosted WKWebView. An
+/// unscoped overlay can swallow clicks, scrolls, and element-picker interactions
+/// meant for the page, even while the composer card is dismissed. The overlay
 /// must route events only within the visible composer card and pass everything
 /// else through to the web content below.
 @MainActor
@@ -46,36 +44,28 @@ struct BrowserDesignModeComposerHostingViewTests {
 
         let hit = slot.hitTest(NSPoint(x: 320, y: 240))
 
-        #expect(
-            !(hit is NSHostingView<BrowserDesignModePopoverHost>),
-            "The dismissed composer overlay must not intercept events meant for the web view"
-        )
+        #expect(hit == nil, "The dismissed composer overlay must not intercept page events")
     }
 
-    @Test func presentedComposerRoutesEventsOnlyWithinTheCardFrame() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
-        let overlay = BrowserDesignModeComposerHostingView(
-            rootView: BrowserDesignModePopoverHost(controller: makeController())
-        )
+    @Test func presentedComposerRoutesEventsOnlyWithinTheCardFrame() throws {
+        let controller = makeController()
+        controller.isComposerPresented = true
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let overlay = BrowserDesignModeComposerView(controller: controller)
         overlay.frame = container.bounds
         container.addSubview(overlay)
+        overlay.layoutSubtreeIfNeeded()
 
-        let cardFrame = CGRect(x: 100, y: 300, width: 200, height: 80)
-        overlay.cardFrameInTopLeftCoordinates = cardFrame
-
-        func hit(topLeftPoint: NSPoint) -> NSView? {
-            let localPoint = overlay.isFlipped
-                ? topLeftPoint
-                : NSPoint(x: topLeftPoint.x, y: overlay.bounds.height - topLeftPoint.y)
-            return overlay.hitTest(overlay.convert(localPoint, to: container))
-        }
+        let card = try #require(overlay.subviews.first { $0 is BrowserDesignModeCardView })
+        let inside = NSPoint(x: card.frame.midX, y: card.frame.midY)
+        let outside = NSPoint(x: 2, y: 2)
 
         #expect(
-            hit(topLeftPoint: NSPoint(x: 150, y: 320)) != nil,
+            overlay.hitTest(inside) != nil,
             "Events inside the composer card must reach the composer"
         )
         #expect(
-            hit(topLeftPoint: NSPoint(x: 20, y: 20)) == nil,
+            overlay.hitTest(outside) == nil,
             "Events outside the composer card must pass through to the page"
         )
     }

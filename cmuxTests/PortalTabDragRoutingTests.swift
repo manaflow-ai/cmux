@@ -1,6 +1,5 @@
 import XCTest
 import AppKit
-import SwiftUI
 @testable import Bonsplit
 
 #if canImport(cmux_DEV)
@@ -43,7 +42,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
             splitButtons: []
         )
         let measuredWidth = try XCTUnwrap(
-            renderedSelectedPaneTabIndicatorWidth(
+            nativeSelectedPaneTabWidth(
                 title: "~",
                 icon: "terminal.fill",
                 appearance: appearance
@@ -70,7 +69,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
         return hostedView
     }
 
-    private func renderedSelectedPaneTabIndicatorWidth(
+    private func nativeSelectedPaneTabWidth(
         title: String,
         icon: String?,
         appearance: BonsplitConfiguration.Appearance
@@ -80,93 +79,12 @@ final class PortalTabDragRoutingTests: XCTestCase {
         let tab = TabItem(title: title, icon: icon)
         pane.tabs = [tab]
         pane.selectedTabId = tab.id
-
-        let size = NSSize(width: 180, height: appearance.tabBarHeight)
-        let hostingView = NSHostingView(
-            rootView: TabBarView(pane: pane, isFocused: true, showSplitButtons: false)
-                .environment(controller)
-                .environment(controller.internalController)
+        let tabBar = BonsplitNativeTabBarView(
+            frame: NSRect(x: 0, y: 0, width: 180, height: appearance.tabBarHeight)
         )
-        let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else { return nil }
-
-        contentView.wantsLayer = true
-        contentView.layer?.backgroundColor = NSColor.clear.cgColor
-        hostingView.frame = NSRect(origin: .zero, size: size)
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
-
-        window.makeKeyAndOrderFront(nil)
-        let sampleRect = NSRect(x: 0, y: 0, width: size.width, height: 4)
-        return waitForHighSaturationWidth(
-            in: hostingView,
-            sampleRect: sampleRect
-        )
-    }
-
-    private func waitForHighSaturationWidth(
-        in view: NSView,
-        sampleRect: NSRect,
-        timeout: TimeInterval = 10.0
-    ) -> CGFloat? {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            view.layoutSubtreeIfNeeded()
-            view.displayIfNeeded()
-            if let width = highSaturationWidth(in: view, sampleRect: sampleRect) {
-                return width
-            }
-            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        } while Date() < deadline
-        return highSaturationWidth(in: view, sampleRect: sampleRect)
-    }
-
-    private func highSaturationWidth(in view: NSView, sampleRect: NSRect) -> CGFloat? {
-        let integralBounds = view.bounds.integral
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: integralBounds) else { return nil }
-        bitmap.size = integralBounds.size
-        view.cacheDisplay(in: integralBounds, to: bitmap)
-
-        let scaleX = CGFloat(bitmap.pixelsWide) / max(1, integralBounds.width)
-        let scaleY = CGFloat(bitmap.pixelsHigh) / max(1, integralBounds.height)
-        let minX = max(0, Int(floor(sampleRect.minX * scaleX)))
-        let maxX = min(bitmap.pixelsWide, Int(ceil(sampleRect.maxX * scaleX)))
-        let minY = max(0, Int(floor(sampleRect.minY * scaleY)))
-        let maxY = min(bitmap.pixelsHigh, Int(ceil(sampleRect.maxY * scaleY)))
-
-        var activeColumnCount = 0
-        for x in minX..<maxX {
-            var hasIndicatorPixel = false
-            for y in minY..<maxY {
-                guard let color = bitmap.colorAt(x: x, y: y),
-                      let rgb = color.usingColorSpace(.sRGB),
-                      rgb.alphaComponent > 0.05 else { continue }
-                let alpha = min(max(rgb.alphaComponent, 0), 1)
-                let red = rgb.redComponent * alpha
-                let green = rgb.greenComponent * alpha
-                let blue = rgb.blueComponent * alpha
-                let high = max(red, green, blue)
-                guard high > 0.01 else { continue }
-                let low = min(red, green, blue)
-                if (high - low) / high > 0.4 {
-                    hasIndicatorPixel = true
-                    break
-                }
-            }
-            if hasIndicatorPixel {
-                activeColumnCount += 1
-            }
-        }
-        guard activeColumnCount > 0 else { return nil }
-        return CGFloat(activeColumnCount) / scaleX
+        tabBar.configure(pane: pane, controller: controller)
+        tabBar.layoutSubtreeIfNeeded()
+        return tabBar.tabViewsForTesting[tab.id]?.preferredNaturalWidth
     }
 
     private struct TabStripPassThroughFixture {
