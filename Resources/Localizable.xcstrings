@@ -229004,16 +229004,124 @@
     "sleepyMode.lockFailed": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر قفل الـ Mac — استخدم قائمة النظام › قفل الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće zaključati Mac — koristite sistemski meni › Zaključaj ekran"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke låse din Mac — brug systemmenuen › Lås skærm"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac konnte nicht gesperrt werden — verwende das Systemmenü › Bildschirm sperren"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't lock the Mac \u2014 use the Apple menu \u203a Lock Screen"
+            "value": "Couldn't lock the Mac — use the system menu › Lock Screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo bloquear el Mac — usa el menú del sistema › Bloquear pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de verrouiller le Mac — utilisez le menu système › Verrouiller l'écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile bloccare il Mac — usa il menu di sistema › Blocca schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac \u3092\u30ed\u30c3\u30af\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f \u2014 Apple \u30e1\u30cb\u30e5\u30fc \u203a \u300c\u753b\u9762\u3092\u30ed\u30c3\u30af\u300d\u3092\u4f7f\u3063\u3066\u304f\u3060\u3055\u3044"
+            "value": "Mac をロックできませんでした — システムメニュー › 「画面をロック」を使ってください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចាក់សោ Mac បានទេ — សូមប្រើម៉ឺនុយប្រព័ន្ធ › ចាក់សោអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac을 잠글 수 없습니다 — 시스템 메뉴 › 화면 잠금을 사용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke låse Mac-en — bruk systemmenyen › Lås skjerm"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można zablokować Maca — użyj menu systemowego › Zablokuj ekran"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível bloquear o Mac — use o menu do sistema › Bloquear tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось заблокировать Mac — используйте системное меню › Заблокировать экран"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล็อก Mac ไม่ได้ — ใช้เมนูระบบ › ล็อกหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac kilitlenemedi — sistem menüsü › Ekranı Kilitle seçeneğini kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося заблокувати Mac — скористайтеся системним меню › Заблокувати екран"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法锁定 Mac — 请使用系统菜单 › 锁定屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法鎖定 Mac — 請使用系統選單 › 鎖定螢幕"
           }
         }
       }

@@ -197,7 +197,7 @@ struct SleepyFaceView: View {
             if powerUIState.lockFailed {
                 Text(String(
                     localized: "sleepyMode.lockFailed",
-                    defaultValue: "Couldn't lock the Mac \u{2014} use the Apple menu \u{203A} Lock Screen"
+                    defaultValue: "Couldn't lock the Mac \u{2014} use the system menu \u{203A} Lock Screen"
                 ))
                 .font(.system(size: 13, weight: .bold, design: .monospaced))
                 .foregroundStyle(Color(red: 0.95, green: 0.62, blue: 0.30))

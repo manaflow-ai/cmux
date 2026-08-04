@@ -3,7 +3,9 @@ import Foundation
 import OSLog
 import Security
 
-private let sleepyCommandLogger = Logger(subsystem: "com.cmuxterm.app", category: "SleepyMode.command")
+/// Logs system-command failures for Sleepy Mode's power actions, so a tool that
+/// is missing or exits non-zero leaves a trace instead of vanishing.
+nonisolated private let sleepyCommandLogger = Logger(subsystem: "com.cmuxterm.app", category: "SleepyMode.command")
 
 /// Real command runner. Blocking work happens on background queues and is
 /// surfaced through async APIs, so awaiting callers (including MainActor UI)
@@ -42,56 +44,79 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     private let privilegedQueue = DispatchQueue(label: "com.cmux.sleepyMode.privileged")
     private var authorization: AuthorizationRef?  // accessed only on privilegedQueue
 
+    /// Builds a process with both output streams discarded.
+    ///
+    /// - Parameters:
+    ///   - tool: Absolute path of the executable.
+    ///   - args: Arguments passed to the executable.
+    /// - Returns: A configured, unstarted process.
+    nonisolated private func makeProcess(_ tool: String, _ args: [String]) -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = args
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        return process
+    }
+
     /// Launches `tool` without waiting for it to exit, reporting whether the
-    /// launch itself succeeded. The previous `try?` discarded that error, which
-    /// turned a system tool Apple had removed into a button that silently did
-    /// nothing; a launch failure is now both logged and returned.
+    /// launch itself succeeded.
+    ///
+    /// The previous `try?` discarded that error, which turned a removed system
+    /// tool into a button that silently did nothing; a launch failure is now
+    /// both logged and returned.
+    ///
+    /// - Parameters:
+    ///   - tool: Absolute path of the executable.
+    ///   - args: Arguments passed to the executable.
+    /// - Returns: `true` when the process started.
     @discardableResult
-    func run(_ tool: String, _ args: [String]) async -> Bool {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: tool)
-                process.arguments = args
-                process.standardOutput = FileHandle.nullDevice
-                process.standardError = FileHandle.nullDevice
-                do {
-                    try process.run()
-                    continuation.resume(returning: true)
-                } catch {
-                    sleepyCommandLogger.error("Failed to launch \(tool, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                    continuation.resume(returning: false)
-                }
-            }
+    nonisolated func run(_ tool: String, _ args: [String]) async -> Bool {
+        do {
+            try makeProcess(tool, args).run()
+            return true
+        } catch {
+            sleepyCommandLogger.error("Failed to launch \(tool, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 
-    func canRun(_ tool: String) async -> Bool {
+    /// Whether `tool` exists and is executable.
+    ///
+    /// - Parameter tool: Absolute path to probe.
+    /// - Returns: `true` when the file can be executed.
+    nonisolated func canRun(_ tool: String) async -> Bool {
         FileManager.default.isExecutableFile(atPath: tool)
     }
 
+    /// Runs `tool` and resumes once it exits, reporting whether it exited zero.
+    ///
+    /// Termination is observed through `Process.terminationHandler` rather than
+    /// `waitUntilExit()`, so no thread is parked waiting for the child.
+    ///
+    /// - Parameters:
+    ///   - tool: Absolute path of the executable.
+    ///   - args: Arguments passed to the executable.
+    /// - Returns: `true` only on a zero exit status.
     @discardableResult
-    func runAwaitingExit(_ tool: String, _ args: [String]) async -> Bool {
+    nonisolated func runAwaitingExit(_ tool: String, _ args: [String]) async -> Bool {
         await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: tool)
-                process.arguments = args
-                process.standardOutput = FileHandle.nullDevice
-                process.standardError = FileHandle.nullDevice
-                do {
-                    try process.run()
-                } catch {
-                    sleepyCommandLogger.error("Failed to launch \(tool, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                    continuation.resume(returning: false)
-                    return
-                }
-                process.waitUntilExit()
-                let status = process.terminationStatus
+            let process = makeProcess(tool, args)
+            process.terminationHandler = { finished in
+                let status = finished.terminationStatus
                 if status != 0 {
                     sleepyCommandLogger.error("\(tool, privacy: .public) exited with status \(status, privacy: .public)")
                 }
                 continuation.resume(returning: status == 0)
+            }
+            do {
+                try process.run()
+            } catch {
+                // The handler never fires for a process that never started, so
+                // clear it and resume exactly once here.
+                process.terminationHandler = nil
+                sleepyCommandLogger.error("Failed to launch \(tool, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continuation.resume(returning: false)
             }
         }
     }
@@ -101,21 +126,19 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     /// for `AuthorizationExecuteWithPrivileges`.
     ///
     /// This is a fallback for systems where the supported `CGSession -suspend`
-    /// tool no longer ships (Apple removed `User.menu` from `Menu Extras`), so
-    /// the caller should prefer that tool whenever it is still present.
+    /// tool no longer ships, so the caller should prefer that tool whenever it
+    /// is still present.
+    ///
+    /// - Returns: `true` when a lock mechanism was available and invoked.
     @discardableResult
-    func lockScreen() async -> Bool {
+    nonisolated func lockScreen() async -> Bool {
         guard let lock = Self.lockScreenImmediate else {
             sleepyCommandLogger.error("No screen-lock mechanism available: SACLockScreenImmediate could not be resolved")
             return false
         }
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            // Locking is UI-adjacent; keep it on the main queue.
-            DispatchQueue.main.async {
-                lock()
-                continuation.resume(returning: true)
-            }
-        }
+        // Locking is UI-adjacent, so hop to the main actor for the call itself.
+        await MainActor.run { lock() }
+        return true
     }
 
     func capture(_ tool: String, _ args: [String]) async -> String? {
