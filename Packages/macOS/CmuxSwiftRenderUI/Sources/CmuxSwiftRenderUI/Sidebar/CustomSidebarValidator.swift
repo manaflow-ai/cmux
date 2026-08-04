@@ -1,3 +1,4 @@
+import CmuxSidebar
 import CmuxSwiftRender
 import Foundation
 
@@ -5,14 +6,24 @@ import Foundation
 public struct CustomSidebarValidator {
     private let fileManager: FileManager
     private let fallbackDataContext: [String: SwiftValue]
+    private let fallbackComparisonDataContext: [String: SwiftValue]?
 
     /// Creates a validator with injectable filesystem and data-context dependencies.
+    ///
+    /// - Parameters:
+    ///   - fileManager: Filesystem client used for discovery and source reads.
+    ///   - fallbackDataContext: Optional caller-provided validation state. Pass
+    ///     `nil` to use the runtime-shaped representative contexts and enable
+    ///     optional-data coverage validation.
     public init(
         fileManager: FileManager = .default,
-        fallbackDataContext: [String: SwiftValue] = Self.defaultDataContext
+        fallbackDataContext: [String: SwiftValue]? = nil
     ) {
         self.fileManager = fileManager
-        self.fallbackDataContext = fallbackDataContext
+        self.fallbackDataContext = fallbackDataContext ?? Self.defaultDataContext
+        self.fallbackComparisonDataContext = fallbackDataContext == nil
+            ? Self.defaultComparisonDataContext
+            : nil
     }
 
     /// Discovers custom sidebar source files in a directory.
@@ -49,8 +60,7 @@ public struct CustomSidebarValidator {
                 missingEntry(name: requestedName, directory: directory)
             ])
         }
-        let context = dataContext ?? fallbackDataContext
-        let entries = urls.map { validate(fileURL: $0, dataContext: context) }
+        let entries = urls.map { validate(fileURL: $0, dataContext: dataContext) }
         return CustomSidebarValidationReport(entries: entries)
     }
 
@@ -76,13 +86,48 @@ public struct CustomSidebarValidator {
             switch kind {
             case .swift:
                 let source = try String(contentsOf: fileURL, encoding: .utf8)
-                let node = SwiftViewInterpreter().evaluate(source, state: dataContext ?? fallbackDataContext)
-                guard node != nil else {
-                    return CustomSidebarValidationEntry(
+                let interpreter = SwiftViewInterpreter()
+                let program = interpreter.parse(source)
+                let evaluation = interpreter.evaluateWithDiagnostics(
+                    program,
+                    state: dataContext ?? fallbackDataContext
+                )
+                guard let node = evaluation.node else {
+                    return invalidEntry(
                         name: name,
                         fileURL: fileURL,
                         kind: kind,
-                        errorMessage: String(localized: "sidebar.custom.noView", defaultValue: "No supported SwiftUI view found.")
+                        message: String(
+                            localized: "sidebar.custom.noView",
+                            defaultValue: "No supported SwiftUI view found."
+                        )
+                    )
+                }
+                guard node.containsVisibleContent else {
+                    return invalidEntry(
+                        name: name,
+                        fileURL: fileURL,
+                        kind: kind,
+                        message: String(
+                            localized: "sidebar.custom.validation.emptyRender",
+                            defaultValue: "Sidebar rendered no visible content."
+                        )
+                    )
+                }
+                if dataContext == nil,
+                   let comparisonContext = fallbackComparisonDataContext,
+                   !evaluation.accessedMemberNames.isDisjoint(
+                       with: Self.representativeOptionalWorkspaceFields
+                   ),
+                   interpreter.evaluate(program, state: comparisonContext) == node {
+                    return invalidEntry(
+                        name: name,
+                        fileURL: fileURL,
+                        kind: kind,
+                        message: String(
+                            localized: "sidebar.custom.validation.noOptionalDataCoverage",
+                            defaultValue: "Sidebar output did not change when its referenced optional workspace data was removed."
+                        )
                     )
                 }
             case .json:
@@ -137,40 +182,140 @@ public struct CustomSidebarValidator {
         return String(localized: "sidebar.custom.validation.readFailed", defaultValue: "Failed to read sidebar file.")
     }
 
-    /// Representative data context used when validating Swift sidebars outside a live render.
-    public static let defaultDataContext: [String: SwiftValue] = [
-        "workspaces": .array([
-            .object([
-                "id": .string("workspace-sample"),
-                "title": .string("Sample Workspace"),
-                "selected": .bool(true),
-                "pinned": .bool(false),
-                "index": .int(0),
-                "directory": .string("~/project"),
-                "ports": .array([.int(3000)]),
-                "portCount": .int(1),
-                "unread": .int(0),
-                "tabs": .array([]),
-                "tabCount": .int(0),
-                "description": .string(""),
-                "color": .string(""),
-                "branch": .string("main"),
-                "dirty": .bool(false),
-                "pr": .string(""),
-                "prs": .array([]),
-                "progress": .string(""),
-                "latestMessage": .string(""),
-                "latestPrompt": .string(""),
-                "latestAt": .string(""),
-                "remote": .string("")
-            ])
-        ]),
-        "workspaceCount": .int(1),
-        "selectedTitle": .string("Sample Workspace"),
-        "selectedId": .string("workspace-sample"),
-        "unreadTotal": .int(0),
-        "clock": .string("12:00")
-    ]
+    /// Representative runtime-shaped data used to validate Swift sidebars
+    /// outside a live render.
+    ///
+    /// The context is produced by ``CustomSidebarDataContextBuilder`` from one
+    /// workspace with every optional value populated and one with those values
+    /// absent, so validation exercises the same types and omission rules as a
+    /// live sidebar.
+    public static let defaultDataContext: [String: SwiftValue] = representativeDataContexts.rich
+
+    private static let defaultComparisonDataContext = representativeDataContexts.withoutOptionalData
+
+    private static let representativeOptionalWorkspaceFields: Set<String> = {
+        let richFields = firstWorkspaceFields(in: representativeDataContexts.rich)
+        let comparisonFields = firstWorkspaceFields(in: representativeDataContexts.withoutOptionalData)
+        return Set(richFields.keys).subtracting(comparisonFields.keys)
+    }()
+
+    private static let representativeDataContexts: (
+        rich: [String: SwiftValue],
+        withoutOptionalData: [String: SwiftValue]
+    ) = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+        let builder = CustomSidebarDataContextBuilder(calendar: calendar)
+        let richWorkspace = representativeSelectedWorkspace(includingOptionalData: true)
+        let comparisonWorkspace = representativeSelectedWorkspace(includingOptionalData: false)
+        let sparseWorkspace = representativeSparseWorkspace()
+        return (
+            rich: builder.dataContext(
+                for: representativeSnapshot(workspaces: [richWorkspace, sparseWorkspace])
+            ),
+            withoutOptionalData: builder.dataContext(
+                for: representativeSnapshot(workspaces: [comparisonWorkspace, sparseWorkspace])
+            )
+        )
+    }()
+
+    private static func representativeSelectedWorkspace(
+        includingOptionalData: Bool
+    ) -> CustomSidebarWorkspaceSnapshot {
+        let pullRequest: SwiftValue = .object([
+            "number": .int(412),
+            "label": .string("PR #412"),
+            "url": .string("https://github.com/manaflow-ai/cmux/pull/412"),
+            "status": .string("open"),
+            "stale": .bool(false),
+            "branch": .string("fix/checkout"),
+        ])
+        return CustomSidebarWorkspaceSnapshot(
+            id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x12)),
+            title: "checkout-flow",
+            isSelected: true,
+            isPinned: false,
+            index: 0,
+            directory: "/Users/cmux/checkout-flow",
+            listeningPorts: [3000],
+            unreadCount: 3,
+            surfaces: [
+                CustomSidebarSurfaceSnapshot(
+                    panelId: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x14)),
+                    title: "Tests",
+                    isFocused: true,
+                    isPinned: false,
+                    directory: "/Users/cmux/checkout-flow",
+                    gitBranch: "fix/checkout",
+                    gitIsDirty: false,
+                    listeningPorts: [3000]
+                ),
+            ],
+            surfaceCount: 1,
+            customDescription: includingOptionalData ? "Checkout work" : nil,
+            customColor: includingOptionalData ? "#7AA2F7" : nil,
+            gitBranch: includingOptionalData ? "fix/checkout" : nil,
+            gitIsDirty: false,
+            pullRequestValues: includingOptionalData ? [pullRequest] : [],
+            progress: includingOptionalData ? .init(value: 0.41, label: "Tests running") : nil,
+            latestConversationMessage: includingOptionalData ? "Waiting for review" : nil,
+            latestSubmittedMessage: includingOptionalData ? "Finish checkout coverage" : nil,
+            latestSubmittedAt: includingOptionalData
+                ? Date(timeIntervalSince1970: 1_779_999_400)
+                : nil,
+            remote: includingOptionalData
+                ? .init(target: "aws-m4pro-1", stateRawValue: "connected", isConnected: true)
+                : nil
+        )
+    }
+
+    private static func representativeSparseWorkspace() -> CustomSidebarWorkspaceSnapshot {
+        CustomSidebarWorkspaceSnapshot(
+            id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x13)),
+            title: "notes",
+            isSelected: false,
+            isPinned: false,
+            index: 1,
+            directory: "/Users/cmux/notes",
+            listeningPorts: [],
+            unreadCount: 0,
+            surfaces: [],
+            surfaceCount: 0,
+            customDescription: nil,
+            customColor: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            pullRequestValues: [],
+            progress: nil,
+            latestConversationMessage: nil,
+            latestSubmittedMessage: nil,
+            latestSubmittedAt: nil,
+            remote: nil
+        )
+    }
+
+    private static func representativeSnapshot(
+        workspaces: [CustomSidebarWorkspaceSnapshot]
+    ) -> CustomSidebarContextSnapshot {
+        let selectedId = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x04, 0x12))
+        return CustomSidebarContextSnapshot(
+            workspaces: workspaces,
+            selectedWorkspaceId: selectedId,
+            selectedWorkspaceTitle: "checkout-flow",
+            totalUnreadCount: 3,
+            now: Date(timeIntervalSince1970: 1_780_000_000)
+        )
+    }
+
+    private static func firstWorkspaceFields(
+        in context: [String: SwiftValue]
+    ) -> [String: SwiftValue] {
+        guard case let .array(workspaces)? = context["workspaces"],
+              case let .object(fields)? = workspaces.first else {
+            return [:]
+        }
+        return fields
+    }
 
     private func missingEntry(name: String, directory: URL) -> CustomSidebarValidationEntry {
         let swiftURL = directory.appendingPathComponent("\(name).swift")
@@ -181,6 +326,20 @@ public struct CustomSidebarValidator {
             fileURL: missingURL,
             kind: missingURL.pathExtension.lowercased() == "swift" ? .swift : .json,
             errorMessage: String(localized: "sidebar.custom.validation.fileMissing", defaultValue: "Sidebar file is missing.")
+        )
+    }
+
+    private func invalidEntry(
+        name: String,
+        fileURL: URL,
+        kind: CustomSidebarFileKind,
+        message: String
+    ) -> CustomSidebarValidationEntry {
+        CustomSidebarValidationEntry(
+            name: name,
+            fileURL: fileURL,
+            kind: kind,
+            errorMessage: message
         )
     }
 }

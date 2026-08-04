@@ -61,18 +61,30 @@ public struct SwiftViewInterpreter: Sendable {
     /// recursive view helpers).
     public func evaluate(_ program: ParsedProgram, state: [String: SwiftValue] = [:]) -> RenderNode? {
         onLargeStack {
-            let env = EvalEnvironment(values: state)
-            self.registerFunctions(program.file.statements, env)
-            for item in program.file.statements {
-                if let expr = item.item.as(ExprSyntax.self), let node = self.evalView(expr, env) {
-                    // A tripped node budget means the tree was truncated
-                    // mid-walk; publish nothing so the host's last-good-sticky
-                    // render keeps the previous output instead of flashing a
-                    // partial tree.
-                    return env.budget.nodesExceeded ? nil : node
-                }
-            }
-            return nil
+            self.evaluateProgram(program, state: state, memberAccessRecorder: nil).node
+        }
+    }
+
+    /// Interprets a parsed program and records the value members read by its
+    /// executed path.
+    ///
+    /// Rendering callers should continue using ``evaluate(_:state:)`` to avoid
+    /// collecting validation-only coverage. Validators can compare the
+    /// returned ``SwiftViewEvaluation/node`` across representative states and
+    /// use ``SwiftViewEvaluation/accessedMemberNames`` to distinguish ignored
+    /// data from source that never reads that data.
+    ///
+    /// - Parameters:
+    ///   - program: Previously parsed sidebar source.
+    ///   - state: Values available to the interpreted source.
+    /// - Returns: The rendered tree and member-access coverage for validation.
+    public func evaluateWithDiagnostics(
+        _ program: ParsedProgram,
+        state: [String: SwiftValue] = [:]
+    ) -> SwiftViewEvaluation {
+        onLargeStack {
+            let recorder = EvaluationMemberAccessRecorder()
+            return self.evaluateProgram(program, state: state, memberAccessRecorder: recorder)
         }
     }
 
@@ -84,6 +96,19 @@ public struct SwiftViewInterpreter: Sendable {
     /// data, call ``parse(_:)`` once and reuse the ``ParsedProgram``.
     public func evaluate(_ source: String, state: [String: SwiftValue] = [:]) -> RenderNode? {
         evaluate(parse(source), state: state)
+    }
+
+    /// Parses and interprets source while recording executed value-member reads.
+    ///
+    /// - Parameters:
+    ///   - source: The authored sidebar source.
+    ///   - state: Values available to the interpreted source.
+    /// - Returns: The rendered tree and member-access coverage for validation.
+    public func evaluateWithDiagnostics(
+        _ source: String,
+        state: [String: SwiftValue] = [:]
+    ) -> SwiftViewEvaluation {
+        evaluateWithDiagnostics(parse(source), state: state)
     }
 
     /// Runs `work` on a dedicated 16 MB-stack worker thread and returns its
@@ -102,6 +127,30 @@ public struct SwiftViewInterpreter: Sendable {
         worker.start()
         done.wait()
         return box.value!
+    }
+
+    private func evaluateProgram(
+        _ program: ParsedProgram,
+        state: [String: SwiftValue],
+        memberAccessRecorder: EvaluationMemberAccessRecorder?
+    ) -> SwiftViewEvaluation {
+        let env = EvalEnvironment(values: state, memberAccessRecorder: memberAccessRecorder)
+        registerFunctions(program.file.statements, env)
+        for item in program.file.statements {
+            if let expr = item.item.as(ExprSyntax.self), let node = evalView(expr, env) {
+                // A tripped node budget means the tree was truncated mid-walk;
+                // publish nothing so the host's last-good-sticky render keeps
+                // the previous output instead of flashing a partial tree.
+                return SwiftViewEvaluation(
+                    node: env.budget.nodesExceeded ? nil : node,
+                    accessedMemberNames: memberAccessRecorder?.memberNames ?? []
+                )
+            }
+        }
+        return SwiftViewEvaluation(
+            node: nil,
+            accessedMemberNames: memberAccessRecorder?.memberNames ?? []
+        )
     }
 
     /// Registers any `func` declarations in `items` into `env` so value and

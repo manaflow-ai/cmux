@@ -30,7 +30,9 @@ public struct ExpressionEvaluator: Sendable {
             return env.lookup(ref.baseName.text)
         }
         if let member = expr.as(MemberAccessExprSyntax.self), let base = member.base {
-            return eval(base, env)?.member(member.declName.baseName.text)
+            let memberName = member.declName.baseName.text
+            env.recordMemberAccess(memberName)
+            return eval(base, env)?.member(memberName)
         }
         if let subscriptCall = expr.as(SubscriptCallExprSyntax.self),
            let indexExpr = subscriptCall.arguments.first?.expression {

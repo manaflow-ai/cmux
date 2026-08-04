@@ -24,6 +24,7 @@ let package = Package(
         .target(
             name: "CmuxSwiftRenderUI",
             dependencies: [
+                .product(name: "CmuxSidebar", package: "CmuxSidebar"),
                 .product(name: "CmuxSwiftRender", package: "CmuxSwiftRender"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
