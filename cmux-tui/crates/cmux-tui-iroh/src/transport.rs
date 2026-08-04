@@ -126,7 +126,7 @@ impl EndpointRuntime {
         validate_discovery(&snapshot, &binding, &policy.relay_urls())?;
         verifier.record(&policy)?;
 
-        let grant_keys = snapshot.grant_verification_keys.clone();
+        let grant_keys = snapshot.grant_verification_keys;
         Ok(Self {
             identity,
             broker,
