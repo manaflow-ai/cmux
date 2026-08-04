@@ -44,11 +44,18 @@ extension CmxIrohClientRuntime {
         await relayCoordinator?.deactivate()
         relayCoordinator = nil
         if profile.source == .managed, !profile.allowedRelayURLs.isEmpty {
+            let refreshSchedule = CmxIrohRelayRefreshSchedule(
+                role: .client,
+                endpointIdentity: binding.endpointID
+            )
             let coordinator = CmxIrohRelayCredentialCoordinator(
                 supervisor: connectivityEngine,
                 broker: broker,
                 managedRelayURLs: replacementManagedURLs,
                 selectedRelayURLs: profile.allowedRelayURLs,
+                jitter: { now, refreshAfter in
+                    refreshSchedule.deadline(now: now, refreshAfter: refreshAfter)
+                },
                 retrySchedule: .foregroundClient,
                 automaticRefreshEnabled: automaticRelayCredentialRefreshEnabled,
                 credentialDidInstall: { [handleRelayCredential] response in
