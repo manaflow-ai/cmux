@@ -402,7 +402,7 @@ struct HermesFirstClassSupportTests {
                   \(sqlLiteral(row.source)),
                   'test-model',
                   \(row.startedAt),
-                  \(row.endedAt.map(String.init) ?? "NULL"),
+                  \(row.endedAt.map { String($0) } ?? "NULL"),
                   \(sqlLiteral(row.id)),
                   \(row.cwd.map(sqlLiteral) ?? "NULL")
                 );
@@ -424,7 +424,7 @@ struct HermesFirstClassSupportTests {
         var error: UnsafeMutablePointer<Int8>?
         let result = sqlite3_exec(database, sql, nil, nil, &error)
         guard result == SQLITE_OK else {
-            let message = error.map(String.init(cString:)) ?? "sqlite error \(result)"
+            let message = error.map { String(cString: $0) } ?? "sqlite error \(result)"
             sqlite3_free(error)
             throw HermesFirstClassTestError.sqlite(message)
         }
