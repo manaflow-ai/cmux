@@ -2925,6 +2925,13 @@ mod tests {
             "native-session"
         );
         assert_eq!(first.params["event"]["subjects"][0]["id"], TERMINAL);
+        assert_eq!(first.params["event"]["sensitivity"], "sensitive");
+        for optional in ["occurred_at_ms", "causation_id", "correlation_id"] {
+            assert!(
+                first.params["event"].get(optional).is_none(),
+                "absent optional field {optional} must not serialize as null"
+            );
+        }
         assert_eq!(first.idempotency_key, None);
         assert_eq!(second.idempotency_key, None);
 
