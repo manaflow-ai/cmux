@@ -7504,14 +7504,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return createdWorkspace
     }
 
-    /// Opens the iPhone pairing flow as a dedicated workspace, reusing the
+    /// Opens the Tailscale pairing flow as a dedicated workspace, reusing the
     /// existing pairing workspace in the target window when one is open.
     ///
     /// - Parameters:
     ///   - preferredTabManager: The target window's workspace manager.
     ///   - preferredWindow: The target main window, when known.
     ///   - focusWorkspace: Whether to select and focus the pairing workspace.
-    ///   - enforceFeatureFlag: Whether the Mobile Connect button flag gates the action.
+    ///   - enforceFeatureFlag: Whether the Tailscale Pairing button flag gates the action.
     ///   - bringWindowForward: Whether to activate the resolved main window.
     ///   - debugSource: The entrypoint name used in debug diagnostics.
     /// - Returns: The reused or newly created pairing workspace, or `nil` when unavailable.
@@ -7552,7 +7552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return workspace
         }
 
-        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
+        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Tailscale Pairing")
         let workspace = manager.addWorkspace(
             title: title,
             select: focusWorkspace,
@@ -9136,18 +9136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
         controller.shouldClose = { [weak self] in
-            let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
-            if !shouldClose {
-                self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
-                // Close CANCELLED (a genuine veto, not a confirmed quit): clear any
-                // kill-on-close marker so a later window/quit close detaches. A
-                // CONFIRMED quit of the last tab keeps the marker set so
-                // applicationWillTerminate kills the session before exit.
-                if self?.isTerminatingApp != true {
-                    self?.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
-                }
-            }
-            return shouldClose
+            self?.handleMainTerminalWindowCloseRequest(windowId: windowId, onCancel: nil) ?? true
         }
         window.delegate = controller
         mainWindowControllers.append(controller)
@@ -10936,6 +10925,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard tabManager != nil else { return }
         let startWithHiddenSidebar = env["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] == "1"
         let showRightSidebar = env["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1"
+        let fourTabSetup = env["CMUX_UI_TEST_BONSPLIT_FOUR_TAB_SETUP"] == "1"
 
         let deadline = Date().addingTimeInterval(20.0)
         func mainWindowContextForUITest() -> (window: NSWindow, context: MainWindowContext)? {
@@ -11000,6 +10990,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let workspaceTitle = "UITest Workspace"
             let alphaTitle = "UITest Alpha"
             let betaTitle = "UITest Beta"
+            let gammaTitle = "UITest Gamma"
+            let deltaTitle = "UITest Delta"
             tabManager.setCustomTitle(tabId: workspace.id, title: workspaceTitle)
             workspace.setPanelCustomTitle(panelId: alphaPanelId, title: alphaTitle)
             tabManager.newSurface()
@@ -11010,6 +11002,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
+            var gammaPanelId: UUID?
+            var deltaPanelId: UUID?
+            if fourTabSetup {
+                tabManager.newSurface()
+                guard let createdGammaPanelId = workspace.focusedPanelId,
+                      createdGammaPanelId != alphaPanelId,
+                      createdGammaPanelId != betaPanelId else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Failed to create third surface"])
+                    return
+                }
+                gammaPanelId = createdGammaPanelId
+                workspace.setPanelCustomTitle(panelId: createdGammaPanelId, title: gammaTitle)
+
+                tabManager.newSurface()
+                guard let createdDeltaPanelId = workspace.focusedPanelId,
+                      createdDeltaPanelId != alphaPanelId,
+                      createdDeltaPanelId != betaPanelId,
+                      createdDeltaPanelId != createdGammaPanelId else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Failed to create fourth surface"])
+                    return
+                }
+                deltaPanelId = createdDeltaPanelId
+                workspace.setPanelCustomTitle(panelId: createdDeltaPanelId, title: deltaTitle)
+            }
             if let rawActionButtonCount = env["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"],
                let requestedActionButtonCount = Int(rawActionButtonCount),
                requestedActionButtonCount > 0 {
@@ -11060,8 +11076,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "workspaceTitle": workspaceTitle,
                 "alphaTitle": alphaTitle,
                 "betaTitle": betaTitle,
+                "gammaTitle": fourTabSetup ? gammaTitle : "",
+                "deltaTitle": fourTabSetup ? deltaTitle : "",
                 "alphaPanelId": alphaPanelId.uuidString,
                 "betaPanelId": betaPanelId.uuidString,
+                "gammaPanelId": gammaPanelId?.uuidString ?? "",
+                "deltaPanelId": deltaPanelId?.uuidString ?? "",
             ])
             self.startBonsplitTabDragUITestRecorder(
                 workspaceId: workspace.id,
@@ -13093,9 +13113,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func handleQuitShortcutWarning() -> Bool {
-        guard activeQuitConfirmationAlertPresenter == nil else { return true }
-        if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
+    private func handleQuitShortcutWarning(
+        onCancel: (() -> Void)? = nil,
+        forceConfirmation: Bool = false
+    ) -> Bool {
+        if let activeQuitConfirmationAlertPresenter {
+            if let onCancel {
+                activeQuitConfirmationAlertPresenter.joinCancellationAction(onCancel)
+            }
+            return true
+        }
+        if !forceConfirmation && !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
             isDevBuild: BuildFlavor.current == .dev
@@ -13114,6 +13142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // second alert when NSApp.terminate re-enters the delegate callback.
                 self?.isQuitWarningConfirmed = true
                 NSApp.terminate(nil)
+            } else {
+                onCancel?()
             }
         }
         return true
@@ -16712,13 +16742,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private func handleMainTerminalWindowShouldClose() -> Bool {
+    private func handleMainTerminalWindowShouldClose(onCancel: (() -> Void)?) -> Bool {
         // XCTest has no UI for the warn-before-quit dialog and would either block
         // on runModal or have NSApp.terminate kill the test process.
         if isRunningUnderXCTest(ProcessInfo.processInfo.environment) { return true }
         guard !isTerminatingApp, mainWindowContexts.count <= 1 else { return true }
-        _ = handleQuitShortcutWarning()
+        // The "Don't warn again for Cmd+Q" preference does not apply here:
+        // Ctrl+D has already exited the sole shell, so this decision must offer
+        // Cancel as the only way to recover a terminal instead of quitting cmux.
+        _ = handleQuitShortcutWarning(
+            onCancel: onCancel,
+            forceConfirmation: onCancel != nil
+        )
         return false
+    }
+
+    private func handleMainTerminalWindowCloseRequest(
+        windowId: UUID,
+        onCancel: (() -> Void)?
+    ) -> Bool {
+        let cancellationAction: (() -> Void)? = onCancel.map { action in
+            { [weak self] in
+                self?.handleCancelledMainTerminalWindowClose(windowId: windowId)
+                action()
+            }
+        }
+        let shouldClose = handleMainTerminalWindowShouldClose(onCancel: cancellationAction)
+        if !shouldClose, onCancel == nil {
+            handleCancelledMainTerminalWindowClose(windowId: windowId)
+        }
+        return shouldClose
+    }
+
+    private func handleCancelledMainTerminalWindowClose(windowId: UUID) {
+        closedWindowHistorySuppressedWindowIds.remove(windowId)
+        // A cancelled close must not leave an explicit kill-on-close marker for
+        // a later window or app close. A confirmed quit keeps the marker so
+        // applicationWillTerminate kills the remote session before exit.
+        if !isTerminatingApp {
+            remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId)
+        }
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
@@ -16868,7 +16931,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspaceForMainActor(tabId: tabId)
     }
 
-    func closeMainWindowContainingTabId(_ tabId: UUID, recordHistory: Bool = true) {
+    func closeMainWindowContainingTabId(
+        _ tabId: UUID,
+        recordHistory: Bool = true,
+        onCancelled: (() -> Void)? = nil
+    ) {
 #if DEBUG
         closeMainWindowContainingTabIdObserverForTesting?(tabId, recordHistory)
 #endif
@@ -16882,6 +16949,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !recordHistory {
                 closedWindowHistorySuppressedWindowIds.remove(context.windowId)
             }
+            return
+        }
+        if let onCancelled,
+           !handleMainTerminalWindowCloseRequest(windowId: context.windowId, onCancel: onCancelled) {
             return
         }
         window.performClose(nil)
