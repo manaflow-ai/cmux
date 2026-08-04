@@ -2320,7 +2320,16 @@
     "changelog": {
       "title": "変更履歴",
       "metaDescription": "cmuxのリリースノートとバージョン履歴。ネイティブmacOSターミナルの新機能、バグ修正、変更点。",
-      "metaTitle": "変更履歴"
+      "metaTitle": "変更履歴",
+      "versionTitle": "cmux {version} · 変更履歴",
+      "releaseNavLabel": "cmux {version} 付近のリリース",
+      "sections": {
+        "added": "追加",
+        "changed": "変更",
+        "fixed": "修正",
+        "removed": "削除",
+        "contributors": "コントリビューター"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",
