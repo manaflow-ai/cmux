@@ -6,6 +6,8 @@ extension WKWebView {
     @MainActor
     @discardableResult
     func applyBrowserUserAgentPolicy(for url: URL?) -> Bool {
+        // WebKit exposes its native identity as either nil or an empty string across load phases.
+        let currentUserAgent = customUserAgent.flatMap { $0.isEmpty ? nil : $0 }
         let resolvedUserAgent: String?
         switch BrowserUserAgentPolicy.system.resolution(for: url) {
         case .custom(let userAgent):
@@ -13,11 +15,12 @@ extension WKWebView {
         case .webKitDefault:
             resolvedUserAgent = nil
         case .notApplicable:
+            guard currentUserAgent != nil else { return false }
             customUserAgent = nil
             return false
         }
 
-        guard customUserAgent != resolvedUserAgent else { return false }
+        guard currentUserAgent != resolvedUserAgent else { return false }
         customUserAgent = resolvedUserAgent
         return true
     }
@@ -41,14 +44,15 @@ extension WKWebView {
 
     @MainActor
     func restartNavigationForBrowserUserAgentPolicyIfNeeded(
-        _ navigationAction: WKNavigationAction,
+        for request: URLRequest,
+        targetFrameIsMainFrame: Bool?,
         decisionHandler: (WKNavigationActionPolicy) -> Void,
         willRestart: () -> Void = {},
         startReplacement: (URLRequest) -> Void
     ) -> Bool {
         guard let restartRequest = browserUserAgentPolicyRestartRequest(
-            for: navigationAction.request,
-            targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            for: request,
+            targetFrameIsMainFrame: targetFrameIsMainFrame
         ) else {
             return false
         }

@@ -32,7 +32,7 @@ const snapshot = {
 describe("Connectivity authority", () => {
   test("returns a complete snapshot on initial sync", async () => {
     const authority = makeConnectivityAuthority({
-      discover: () => Effect.succeed(snapshot),
+      discoverComplete: () => Effect.succeed(snapshot),
     });
 
     const response = await Effect.runPromise(authority.sync("user-a", {
@@ -46,12 +46,46 @@ describe("Connectivity authority", () => {
       changed: true,
       reset: false,
       snapshot,
+      snapshot_complete: true,
     });
+  });
+
+  test("uses one broker-owned complete discovery snapshot", async () => {
+    const bindings = Array.from({ length: 300 }, (_, index) => ({
+      binding_id: `binding-${index + 1}`,
+    }));
+    let paginatedCalls = 0;
+    let completeCalls = 0;
+    const broker = {
+      discover: () => {
+        paginatedCalls += 1;
+        return Effect.succeed({
+          ...snapshot,
+          bindings: bindings.slice(0, 128),
+          next_cursor: "page-2",
+        });
+      },
+      discoverComplete: () => {
+        completeCalls += 1;
+        return Effect.succeed({ ...snapshot, bindings });
+      },
+    };
+    const authority = makeConnectivityAuthority(broker);
+
+    const response = await Effect.runPromise(authority.sync("user-a", {
+      protocol_version: 2,
+      known_revision: null,
+    }));
+
+    expect((response.snapshot?.bindings as unknown[])).toHaveLength(300);
+    expect(response).toMatchObject({ snapshot_complete: true });
+    expect(paginatedCalls).toBe(0);
+    expect(completeCalls).toBe(1);
   });
 
   test("omits an unchanged snapshot and identifies backend revision reset", async () => {
     const authority = makeConnectivityAuthority({
-      discover: () => Effect.succeed(snapshot),
+      discoverComplete: () => Effect.succeed(snapshot),
     });
 
     expect(await Effect.runPromise(authority.sync("user-a", {
@@ -73,6 +107,7 @@ describe("Connectivity authority", () => {
       changed: true,
       reset: true,
       snapshot,
+      snapshot_complete: true,
     });
   });
 
@@ -99,7 +134,7 @@ describe("Connectivity authority", () => {
 
   test("serves an authenticated no-store sync response", async () => {
     const authority = makeConnectivityAuthority({
-      discover: () => Effect.succeed(snapshot),
+      discoverComplete: () => Effect.succeed(snapshot),
     });
     const response = await handleConnectivitySync(syncRequest(null), {
       verify: async () => USER,
@@ -118,7 +153,7 @@ describe("Connectivity authority", () => {
   test("rejects malformed and oversized sync requests before authority work", async () => {
     let calls = 0;
     const authority = makeConnectivityAuthority({
-      discover: () => {
+      discoverComplete: () => {
         calls += 1;
         return Effect.succeed(snapshot);
       },

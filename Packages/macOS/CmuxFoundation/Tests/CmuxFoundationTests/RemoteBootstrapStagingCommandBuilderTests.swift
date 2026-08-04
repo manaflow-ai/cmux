@@ -27,7 +27,7 @@ struct RemoteBootstrapStagingCommandBuilderTests {
 
         let padding = String(repeating: "# bootstrap padding 0123456789\n", count: 20_000)
         let bootstrap = """
-        printf '%s\\n' 'workspace=__CMUX_WORKSPACE_ID__ surface=__CMUX_SURFACE_ID__ lifecycle=__CMUX_TERMINAL_LIFECYCLE_ID__'
+        printf '%s\\n' 'workspace=__CMUX_WORKSPACE_ID__ surface=__CMUX_SURFACE_ID__ lifecycle=__CMUX_TERMINAL_LIFECYCLE_ID__ attempt=__CMUX_SSH_ATTEMPT_ID__'
         \(padding)
         """
         let builder = try #require(RemoteBootstrapStagingCommandBuilder(
@@ -41,6 +41,7 @@ struct RemoteBootstrapStagingCommandBuilderTests {
             "CMUX_WORKSPACE_ID": "workspace-123",
             "CMUX_SURFACE_ID": "surface-456",
             "CMUX_TERMINAL_LIFECYCLE_ID": "lifecycle-789",
+            "CMUX_SSH_ATTEMPT_ID": "attempt-012",
             "CMUX_REMOTE_HOME": remoteHome.path,
             "CMUX_SSH_ARGUMENTS": directory.appendingPathComponent("ssh.args").path,
         ]
@@ -56,11 +57,12 @@ struct RemoteBootstrapStagingCommandBuilderTests {
         let stagedURL = remoteHome.appendingPathComponent(".cmux/relay/52261.bootstrap.sh")
         let staged = String(decoding: try Data(contentsOf: stagedURL), as: UTF8.self)
         #expect(staged.contains(
-            "workspace=workspace-123 surface=surface-456 lifecycle=lifecycle-789"
+            "workspace=workspace-123 surface=surface-456 lifecycle=lifecycle-789 attempt=attempt-012"
         ))
         #expect(!staged.contains("__CMUX_WORKSPACE_ID__"))
         #expect(!staged.contains("__CMUX_SURFACE_ID__"))
         #expect(!staged.contains("__CMUX_TERMINAL_LIFECYCLE_ID__"))
+        #expect(!staged.contains("__CMUX_SSH_ATTEMPT_ID__"))
         #expect(staged.utf8.count > 500_000)
 
         let sshArguments = String(
@@ -82,7 +84,7 @@ struct RemoteBootstrapStagingCommandBuilderTests {
         #expect(execution.status == 0)
         #expect(
             execution.stdout ==
-                "workspace=workspace-123 surface=surface-456 lifecycle=lifecycle-789\n"
+                "workspace=workspace-123 surface=surface-456 lifecycle=lifecycle-789 attempt=attempt-012\n"
         )
         #expect(execution.stderr.isEmpty)
     }

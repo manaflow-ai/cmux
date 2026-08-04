@@ -102,6 +102,9 @@ class GeneratedClientMixin:
     def focus_pane(self, pane: Id) -> EmptyResult:
         return self._invoke_command('focus-pane', FocusPaneRequest(pane=pane))
 
+    def get_cell_pixels(self) -> GetCellPixelsResult:
+        return self._invoke_command('get-cell-pixels', GetCellPixelsRequest())
+
     def get_frontend_projection(self, frontend: str, scope: str, subject_key: str) -> FrontendProjection:
         return self._invoke_command('get-frontend-projection', GetFrontendProjectionRequest(frontend=frontend, scope=scope, subject_key=subject_key))
 
@@ -255,8 +258,8 @@ class GeneratedClientMixin:
     def set_window_title(self, title: str) -> EmptyResult:
         return self._invoke_command('set-window-title', SetWindowTitleRequest(title=title))
 
-    def shutdown_daemon(self, pid: int, generation: str) -> ShutdownDaemonResult:
-        return self._invoke_command('shutdown-daemon', ShutdownDaemonRequest(pid=pid, generation=generation))
+    def shutdown_daemon(self, pid: int, generation: str, *, force: Union[bool, MissingType] = MISSING) -> ShutdownDaemonResult:
+        return self._invoke_command('shutdown-daemon', ShutdownDaemonRequest(pid=pid, generation=generation, force=force))
 
     def sidebar_plugin(self, cols: int, rows: int, *, relaunch: Union[bool, MissingType] = MISSING) -> SidebarPluginResult:
         return self._invoke_command('sidebar-plugin', SidebarPluginRequest(cols=cols, rows=rows, relaunch=relaunch))
@@ -316,6 +319,7 @@ GeneratedClientMixin.detach_client.__cmux_command__ = COMMANDS['detach-client']
 GeneratedClientMixin.export_layout.__cmux_command__ = COMMANDS['export-layout']
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
+GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixels']
 GeneratedClientMixin.get_frontend_projection.__cmux_command__ = COMMANDS['get-frontend-projection']
 GeneratedClientMixin.identify.__cmux_command__ = COMMANDS['identify']
 GeneratedClientMixin.ids.__cmux_command__ = COMMANDS['ids']

@@ -3,7 +3,15 @@
 The package root is the handwritten cmux resource API. It uses opaque
 prefixed string IDs, tagged selectors, typed snapshots, explicit mutation
 receipts, structured errors, and cancellable streams. It supports Python 3.9+
-with no runtime dependencies.
+with no runtime dependencies. The distribution includes the PEP 561
+`py.typed` marker so type checkers consume its inline annotations.
+
+Install the `cmux-sdk` distribution. The Python import remains `cmux`, so it
+does not overlap the `uvx cmux` CLI distribution:
+
+```bash
+python -m pip install cmux-sdk
+```
 
 ```python
 from cmux import Client, SessionId, WorkspaceId, exact
