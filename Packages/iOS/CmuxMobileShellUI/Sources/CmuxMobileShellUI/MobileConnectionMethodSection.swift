@@ -62,9 +62,8 @@ struct MobileConnectionMethodSection: View {
             L10n.string(
                 "mobile.settings.connectionMethod.tailscaleFooter",
                 defaultValue: """
-                Connects over your Tailscale network first. \
-                Scan the Tailscale pairing code shown on your Mac once \
-                (cmux Settings → Tailscale Pairing) to enable it for that Mac.
+                Install Tailscale on this iPhone and your Mac, then connect both to the same Tailscale network. \
+                On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here once.
                 """
             )
         }

@@ -134736,13 +134736,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale pairing code. Keep both devices on the same Tailscale network."
+            "value": "Tailscale pairing code. Keep Tailscale connected on both devices on the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale ペアリングコードです。この Mac と iPhone を同じ Tailscale ネットワークに接続してください。"
+            "value": "Tailscale ペアリングコードです。両方のデバイスで Tailscale を同じ Tailscale ネットワークに接続したままにしてください。"
           }
         }
       }
@@ -135263,13 +135263,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac and iPhone both need Tailscale to connect over the internet."
+            "value": "Tailscale must be installed and connected on this Mac and your iPhone on the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターネット経由で接続するには、Mac と iPhone の両方に Tailscale が必要です。"
+            "value": "この Mac と iPhone の両方に Tailscale をインストールし、同じ Tailscale ネットワークに接続する必要があります。"
           }
         }
       }
@@ -135280,13 +135280,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not detected. Install Tailscale on this Mac and iPhone, using the same account."
+            "value": "Tailscale is not connected on this Mac. Install it on both devices and connect both to the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検出されませんでした。この Mac と iPhone の両方に、同じアカウントで Tailscale をインストールしてください。"
+            "value": "この Mac で Tailscale が接続されていません。両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。"
           }
         }
       }
@@ -135297,13 +135297,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reachable over Tailscale."
+            "value": "Tailscale is connected on this Mac. It must also be installed and connected on your iPhone on the same Tailscale network."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 経由で接続できます。"
+            "value": "この Mac は Tailscale に接続済みです。iPhone にも Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。"
           }
         }
       }

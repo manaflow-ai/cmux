@@ -143,17 +143,26 @@ struct MobilePairingView: View {
         case .some(true):
             return String(
                 localized: "mobile.pairing.req.tailscale.reachable",
-                defaultValue: "Reachable over Tailscale."
+                defaultValue: """
+                Tailscale is connected on this Mac. It must also be installed and connected \
+                on your iPhone on the same Tailscale network.
+                """
             )
         case .some(false):
             return String(
                 localized: "mobile.pairing.req.tailscale.missing",
-                defaultValue: "Not detected. Install Tailscale on this Mac and iPhone, using the same account."
+                defaultValue: """
+                Tailscale is not connected on this Mac. Install it on both devices \
+                and connect both to the same Tailscale network.
+                """
             )
         case .none:
             return String(
                 localized: "mobile.pairing.req.tailscale.hint",
-                defaultValue: "Your Mac and iPhone both need Tailscale to connect over the internet."
+                defaultValue: """
+                Tailscale must be installed and connected on this Mac and your iPhone \
+                on the same Tailscale network.
+                """
             )
         }
     }
@@ -209,7 +218,10 @@ struct MobilePairingView: View {
                 .foregroundStyle(.orange)
             Text(String(
                 localized: "mobile.pairing.req.tailscale.missing",
-                defaultValue: "Not detected. Install Tailscale on this Mac and iPhone, using the same account."
+                defaultValue: """
+                Tailscale is not connected on this Mac. Install it on both devices \
+                and connect both to the same Tailscale network.
+                """
             ))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -286,7 +298,10 @@ struct MobilePairingView: View {
 
             Text(String(
                 localized: "mobile.pairing.codeMode.tailscaleDetail",
-                defaultValue: "Tailscale pairing code. Keep both devices on the same Tailscale network."
+                defaultValue: """
+                Tailscale pairing code. Keep Tailscale connected on both devices \
+                on the same Tailscale network.
+                """
             ))
             .cmuxFont(.caption)
             .foregroundStyle(.secondary)
