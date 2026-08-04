@@ -61,7 +61,11 @@ struct MobileConnectionMethodSection: View {
         case .tailscale:
             L10n.string(
                 "mobile.settings.connectionMethod.tailscaleFooter",
-                defaultValue: "Connects only over your Tailscale network. If Tailscale is unavailable, cmux stays disconnected instead of using Iroh. Scan the Tailscale pairing code shown on your Mac once (cmux Settings → Pair iPhone) to enable it for that Mac."
+                defaultValue: """
+                Connects only over Tailscale. If unavailable, cmux stays disconnected instead of using Iroh. \
+                Install Tailscale on both devices, join the same network, then scan the pairing code shown by \
+                cmux on your Mac once.
+                """
             )
         }
     }

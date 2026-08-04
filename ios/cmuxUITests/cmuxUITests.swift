@@ -196,7 +196,7 @@ final class cmuxUITests: XCTestCase {
         tap(tailscaleMethod, in: app)
         XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts[
-            "Connect only over your Tailscale network. Scan the pairing code shown on your Mac."
+            "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
         ].waitForExistence(timeout: 4))
         tap(automaticMethod, in: app)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
@@ -207,8 +207,14 @@ final class cmuxUITests: XCTestCase {
         qrFallbackButton.tap()
 
         let scannerPreview = element("MobilePairingScannerPreview")
+        let scannerGuidance = element("MobilePairingScannerGuidance")
         let scannerCancel = app.buttons["MobileScannerCancelButton"]
         XCTAssertTrue(scannerPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
+        XCTAssertEqual(
+            scannerGuidance.label,
+            "On your Mac, open Tailscale Pairing in cmux to show the QR. Install Tailscale on both devices and connect them to the same Tailscale network first."
+        )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         capture("onboarding-05-scanner-fallback")
 
@@ -1741,6 +1747,148 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// The Composer pill scroller must clip between its neighboring controls;
+    /// it must not underlap them to render a blur or fade at either edge.
+    @MainActor
+    func testTaskComposerComposerPillScrollerUsesHardEdges() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "combined",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+
+        let options = app.buttons["MobileTaskComposerOptionsButton"]
+        let scroller = app.scrollViews["MobileTaskComposerPillScroller"]
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        XCTAssertTrue(options.waitForExistence(timeout: 3))
+        XCTAssertTrue(scroller.waitForExistence(timeout: 3))
+        XCTAssertTrue(submit.waitForExistence(timeout: 3))
+
+        XCTAssertGreaterThanOrEqual(
+            scroller.frame.minX,
+            options.frame.maxX,
+            "The scroller must begin after the fixed options control"
+        )
+        XCTAssertLessThanOrEqual(
+            scroller.frame.maxX,
+            submit.frame.minX,
+            "The scroller must end before the fixed submit control"
+        )
+
+        let agentPill = app.buttons["MobileTaskComposerAgentPill"]
+        XCTAssertTrue(agentPill.waitForExistence(timeout: 3))
+        tap(agentPill, in: app)
+        tapMenuItem(app.buttons["OpenCode"], in: app)
+
+        let modelPill = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
+        tap(modelPill, in: app)
+        tapMenuItem(app.buttons["Claude Opus 4.8"], in: app)
+        let modelXBeforeScroll = modelPill.frame.midX
+
+        scroller.swipeLeft(velocity: .slow)
+
+        XCTAssertLessThan(
+            modelPill.frame.midX,
+            modelXBeforeScroll,
+            "The constrained pill region must remain horizontally scrollable"
+        )
+        XCTAssertGreaterThanOrEqual(scroller.frame.minX, options.frame.maxX)
+        XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-hard-scroll-edges"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// A drag that begins in an overflowing prompt belongs to the text editor;
+    /// it must not dismiss the keyboard or move the enclosing sheet.
+    @MainActor
+    func testTaskComposerPromptScrollDoesNotDragSheet() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        let promptFrameBeforeScroll = prompt.frame
+
+        prompt.swipeUp(velocity: .slow)
+
+        XCTAssertTrue(
+            keyboard.exists,
+            "Scrolling the prompt must keep the editing keyboard presented"
+        )
+        XCTAssertTrue(prompt.exists, "Scrolling the prompt must not dismiss the composer sheet")
+        XCTAssertEqual(
+            prompt.frame.minY,
+            promptFrameBeforeScroll.minY,
+            accuracy: 2,
+            "Scrolling the prompt must not drag the enclosing sheet"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-prompt-scroll-owns-drag"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// Moving away from a long prompt's caret must leave the editor at the
+    /// user's chosen scroll position. Inserting at the visible top proves the
+    /// viewport did not silently return to the caret at the end of the draft.
+    @MainActor
+    func testTaskComposerPromptScrollAwayFromCaretRemainsAtTop() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT": "1",
+            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "combined",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+
+        for _ in 0..<3 {
+            prompt.swipeDown(velocity: .fast)
+        }
+
+        let modelPill = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
+        modelPill.tap()
+        tapMenuItem(app.buttons["Opus 4.8"], in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+
+        let marker = "TOP_SCROLL_MARKER"
+        prompt.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.12)).tap()
+        prompt.typeText(marker)
+
+        let value = try XCTUnwrap(prompt.value as? String)
+        let markerRange = try XCTUnwrap(value.range(of: marker))
+        let markerOffset = value[..<markerRange.lowerBound].utf16.count
+        XCTAssertLessThan(
+            markerOffset,
+            value.utf16.count / 3,
+            "The prompt returned to its bottom caret after the user scrolled to the top"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-prompt-scroll-position"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Switching templates without a template-specific directory must keep the
     /// selected Mac's focused project instead of restoring older task history.
     @MainActor
@@ -2644,9 +2792,9 @@ final class cmuxUITests: XCTestCase {
     /// foreground (no watchdog hang), the terminal still renders its known
     /// content (not a blank/frozen grid), the dock is coherent, and once the
     /// keyboard is down the grid has returned to (near) full height, which also
-    /// guards the "terminal not full height when keyboard closed" fix
-    /// (`scheduleKeyboardHideHeightResync` + the host-tested
-    /// `TerminalLetterboxGeometry.terminalContainerSize`).
+    /// guards the "terminal not full height when keyboard closed" fix through the
+    /// system keyboard guide plus the host-tested
+    /// `TerminalLetterboxGeometry.terminalContainerSize`.
     @MainActor
     func testKeyboardLayoutFuzzDoesNotFreeze() async throws {
         let server = try MobileSyncMockHostServer()
@@ -6546,6 +6694,56 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Verify the built app's two-part keyboard contract at steady state:
+    /// UIKit's keyboard guide resolves to the real software-keyboard edge, and the
+    /// visible composer/toolbar stack resolves to that same guide edge.
+    @MainActor
+    private func assertTerminalDockPinnedToSoftwareKeyboard(
+        _ dock: [String: String],
+        surface: XCUIElement,
+        keyboard: SoftwareKeyboardSnapshot,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init),
+              let composerMinY = dock["composerMinY"].flatMap(Double.init),
+              let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
+              let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
+            XCTFail(
+                "Missing keyboard-guide dock geometry for \(context). dock=\(dock)",
+                file: file,
+                line: line
+            )
+            return
+        }
+
+        let dockEdge = composerMaxY - composerMinY > 0.5 ? composerMaxY : toolbarMaxY
+        XCTAssertEqual(
+            dockEdge,
+            guideTop,
+            accuracy: 1,
+            "Dock must terminate at UIKeyboardLayoutGuide.topAnchor for \(context). dock=\(dock)",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            Double(surface.frame.minY) + guideTop,
+            Double(keyboard.frame.minY),
+            accuracy: 2,
+            "UIKeyboardLayoutGuide must resolve to the visible keyboard edge for "
+                + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+            file: file,
+            line: line
+        )
+        assertTerminalRenderBottomAttachedToViewport(
+            dock,
+            context: context,
+            file: file,
+            line: line
+        )
+    }
+
     /// Repeatedly open and close the composer via the toolbar compose button and assert
     /// the dock stays coherent each cycle. This is the primary "composer jank" repro:
     /// the round-9 reducer reads `fieldFocused` synchronously, but the field's focus is
@@ -6747,12 +6945,22 @@ final class cmuxUITests: XCTestCase {
         // The composer is open by default but unfocused. Focus the terminal's hidden
         // input proxy so this covers the reported keyboard-up → attach path.
         surface.tap()
-        waitForDock(in: app, describe: "terminal proxy owns the visible keyboard before photo picker") {
-            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+        _ = waitForDock(in: app, describe: "terminal proxy owns the visible keyboard before photo picker") {
+            $0["proxyFirstResponder"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "terminal"
+                && $0["inputActual"] == "terminal"
         }
-        XCTAssertTrue(
-            app.keyboards.firstMatch.waitForExistence(timeout: 4),
-            "Tapping the terminal should show the keyboard before opening attachments"
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "terminal before photo picker"
         )
 
         let attachButton = app.buttons[Composer.attachButton]
@@ -6769,17 +6977,99 @@ final class cmuxUITests: XCTestCase {
             waitForKeyboardDismissal(in: app),
             "Cancelling the photo picker should leave the keyboard visually closed"
         )
+        waitForDock(in: app, describe: "photo picker dismissal clears modal and responder state") {
+            $0["inputModal"] == "none" && $0["inputActual"] == "none"
+        }
 
         // A terminal tap must create a real responder transition and re-open the
         // keyboard, rather than no-op against a stale first-responder proxy.
         surface.tap()
-        waitForDock(in: app, describe: "terminal tap restores keyboard after photo picker cancellation") {
-            $0["proxyFirstResponder"] == "1" && $0["keyboardUp"] == "1"
+        _ = waitForDock(in: app, describe: "terminal tap restores keyboard after photo picker cancellation") {
+            $0["proxyFirstResponder"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "terminal"
+                && $0["inputActual"] == "terminal"
         }
-        XCTAssertTrue(
-            app.keyboards.firstMatch.waitForExistence(timeout: 4),
-            "Tapping the terminal after cancelling the photo picker should restore the keyboard"
+        guard let restoredKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: restoredKeyboard,
+            context: "first terminal tap after photo picker cancellation"
         )
+    }
+
+    /// Cancelling the picker must also leave the hosted composer able to claim
+    /// first responder on its first tap. Typing afterward proves the simultaneous
+    /// intent gesture did not replace the TextField's native editing gesture.
+    @MainActor
+    func testComposerTapRestoresKeyboardAfterCancellingPhotoPicker() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        let field = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(waitForHittable(field, timeout: 4))
+
+        field.tap()
+        _ = waitForDock(in: app, describe: "composer owns the visible keyboard before photo picker") {
+            $0["fieldFocused"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "composer"
+                && $0["inputActual"] == "composer"
+        }
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "composer before photo picker"
+        )
+
+        let attachButton = app.buttons[Composer.attachButton]
+        XCTAssertTrue(attachButton.waitForExistence(timeout: 4))
+        attachButton.tap()
+        let cancelButton = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancelButton.waitForExistence(timeout: 6))
+        cancelButton.tap()
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        waitForDock(in: app, describe: "picker dismissal leaves no stale composer owner") {
+            $0["inputModal"] == "none" && $0["inputActual"] == "none"
+        }
+
+        field.tap()
+        _ = waitForDock(in: app, describe: "first composer tap restores keyboard after picker") {
+            $0["fieldFocused"] == "1"
+                && $0["keyboardUp"] == "1"
+                && $0["inputRequested"] == "composer"
+                && $0["inputActual"] == "composer"
+        }
+        guard let restoredKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: restoredKeyboard,
+            context: "first composer tap after photo picker cancellation"
+        )
+        field.typeText("x")
+        _ = waitForDock(in: app, describe: "composer remains editable after restored focus") { _ in
+            (self.storeComposer(in: app)["draftLength"].flatMap(Int.init) ?? 0) == 1
+        }
     }
 
     /// Rapid double-toggle: two compose taps with no settle in between. This is the
