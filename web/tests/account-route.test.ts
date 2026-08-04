@@ -915,6 +915,24 @@ describe("account deletion route", () => {
     ]);
   });
 
+  test("keeps Stack identity when hosted tenant deletion is unconfirmed", async () => {
+    hostedTenantDeleteResponse = { ok: true };
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 2,
+    });
+    expect(hostedTenantDeleteRequests).toHaveLength(1);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(accountLifecycleEvents).toEqual([
+      "subrouter-delete:account-user-1",
+    ]);
+  });
+
   test("uses the refreshed Stack token for hosted tenant deletion", async () => {
     authoritativeAccessToken = "refreshed-access";
 

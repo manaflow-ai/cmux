@@ -23,8 +23,12 @@ let authJson = {
   accessToken: "cookie-access",
   refreshToken: "cookie-refresh",
 };
+let authJsonError: Error | null = null;
 const getUser = mock(async () => currentUser);
-const getAuthJson = mock(async () => authJson);
+const getAuthJson = mock(async () => {
+  if (authJsonError) throw authJsonError;
+  return authJson;
+});
 const signOut = mock(async () => {});
 let hostedCutoverReady = true;
 const hostedSubrouterCutoverReadyForTeam = mock(async () => hostedCutoverReady);
@@ -84,6 +88,7 @@ beforeEach(() => {
     accessToken: "cookie-access",
     refreshToken: "cookie-refresh",
   };
+  authJsonError = null;
   calls = [];
   listedAccounts = [];
   hostedCutoverReady = true;
@@ -285,6 +290,18 @@ describe("hosted Subrouter account routes", () => {
         refreshToken: "refresh-token",
       },
     });
+  });
+
+  test("maps a Stack token refresh outage to service unavailable", async () => {
+    authJsonError = new Error("Stack refresh unavailable");
+
+    const response = await accountsRoute.GET(
+      request("/api/subrouter/accounts"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "service_unavailable" });
+    expect(calls).toHaveLength(0);
   });
 
   test("strips unknown account fields returned by the Go service", async () => {
