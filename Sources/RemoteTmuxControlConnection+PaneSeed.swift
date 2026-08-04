@@ -188,6 +188,7 @@ extension RemoteTmuxControlConnection {
     func discardPendingPaneSeeds() {
         pendingPaneSeeds.removeAll(keepingCapacity: false)
         pendingPaneSeedByteCount = 0
+        deferredPaneSeedBudgetRecoveryPaneIDs.removeAll(keepingCapacity: false)
         pendingPaneVisibleRepaintSeedIDs.removeAll(keepingCapacity: false)
         deferredPaneVisibleRepaints.removeAll(keepingCapacity: false)
         pendingReconnectSeedIDs.removeAll(keepingCapacity: false)
@@ -206,6 +207,7 @@ extension RemoteTmuxControlConnection {
         pendingPaneVisibleRepaintSeedIDs = pendingPaneVisibleRepaintSeedIDs.filter {
             livePanes.contains($0.key)
         }
+        deferredPaneSeedBudgetRecoveryPaneIDs.formIntersection(livePanes)
         deferredPaneVisibleRepaints.formIntersection(livePanes)
         pendingReconnectPaneIDs.removeAll { !livePanes.contains($0) }
         for seedID in removedSeedIDs { resolveReconnectSeed(seedID) }
@@ -214,6 +216,7 @@ extension RemoteTmuxControlConnection {
     func discardPendingPaneSeeds(paneId: Int) {
         let removedSeeds = pendingPaneSeeds.removeValue(forKey: paneId) ?? []
         let removedSeedIDs = removedSeeds.map(\.id)
+        deferredPaneSeedBudgetRecoveryPaneIDs.remove(paneId)
         releasePendingPaneSeedBytes(removedSeeds.reduce(0) { $0 + $1.retainedByteCount })
         pendingPaneVisibleRepaintSeedIDs[paneId] = nil
         deferredPaneVisibleRepaints.remove(paneId)
@@ -302,25 +305,57 @@ extension RemoteTmuxControlConnection {
     ///
     /// Dropping this pane's retained bytes is safe because the re-seed is an authoritative
     /// `capture-pane`: the content is re-derived from tmux's own grid rather than remembered. Freeing
-    /// them first is also what makes room for the re-seed to be admitted.
+    /// them first is also what makes room for the re-seed to be admitted. If sibling seeds still hold
+    /// too much of the aggregate budget, the pane stays in the deferred recovery set and the next byte
+    /// release retries it. The set and one scheduled turn bound duplicate work.
     ///
-    /// The re-seed is deferred to the next main-actor turn on purpose. This runs inside the reservation
-    /// that just failed, and seeding re-enters that same reservation, so a synchronous call recurses
-    /// until the stack overflows — measured, not theorised.
+    /// The first re-seed attempt is deferred to the next main-actor turn on purpose. This runs inside
+    /// the reservation that just failed, and seeding re-enters that same reservation, so a synchronous
+    /// call recurses until the stack overflows — measured, not theorised.
     private func recoverPaneSeedBudget(paneId: Int, event: String) {
         record("\(event) %\(paneId)")
         discardPendingPaneSeeds(paneId: paneId)
+        deferredPaneSeedBudgetRecoveryPaneIDs.insert(paneId)
+        schedulePaneSeedBudgetRecoveryIfNeeded()
+    }
+
+    /// Starts every pane recovery that currently fits, retaining blocked panes for a later release.
+    private func pumpPaneSeedBudgetRecoveries() {
+        guard connectionState == .connected else { return }
+        for paneId in deferredPaneSeedBudgetRecoveryPaneIDs.sorted() {
+            guard connectionState == .connected else { return }
+            guard seedPane(paneId: paneId, clearScrollback: true) != nil else {
+                if connectionState == .connected {
+                    record("pane-seed-recovery-deferred %\(paneId)")
+                }
+                continue
+            }
+            deferredPaneSeedBudgetRecoveryPaneIDs.remove(paneId)
+        }
+    }
+
+    /// Defers recovery out of the failing reservation and coalesces duplicate requests.
+    private func schedulePaneSeedBudgetRecoveryIfNeeded() {
+        guard connectionState == .connected,
+              !deferredPaneSeedBudgetRecoveryPaneIDs.isEmpty,
+              !paneSeedBudgetRecoveryTaskScheduled else { return }
+        paneSeedBudgetRecoveryTaskScheduled = true
         Task { @MainActor [weak self] in
-            guard let self, !self.exited else { return }
-            _ = self.seedPane(paneId: paneId, clearScrollback: true)
+            guard let self else { return }
+            self.pumpPaneSeedBudgetRecoveries()
+            self.paneSeedBudgetRecoveryTaskScheduled = false
         }
     }
 
     private func reservePendingPaneSeedBytes(_ count: Int, paneId: Int) -> Bool {
-        guard count >= 0,
-              count <= pendingPaneSeedByteLimit,
-              pendingPaneSeedByteCount <= pendingPaneSeedByteLimit - count else {
-            recoverPaneSeedBudget(paneId: paneId, event: "pane-seed-total-backpressure")
+        guard count >= 0, count <= pendingPaneSeedByteLimit else {
+            record("pane-seed-reservation-too-large %\(paneId)")
+            return false
+        }
+        guard pendingPaneSeedByteCount <= pendingPaneSeedByteLimit - count else {
+            if !deferredPaneSeedBudgetRecoveryPaneIDs.contains(paneId) {
+                recoverPaneSeedBudget(paneId: paneId, event: "pane-seed-total-backpressure")
+            }
             return false
         }
         pendingPaneSeedByteCount += count
@@ -329,6 +364,7 @@ extension RemoteTmuxControlConnection {
 
     private func releasePendingPaneSeedBytes(_ count: Int) {
         pendingPaneSeedByteCount = max(0, pendingPaneSeedByteCount - count)
+        schedulePaneSeedBudgetRecoveryIfNeeded()
     }
 
     /// Repaints panes whose verified tmux assignment grew since the last

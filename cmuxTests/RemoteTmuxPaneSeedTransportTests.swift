@@ -522,7 +522,7 @@ import Testing
     /// remedy: the budget path called `beginReconnecting()` under an explicit connected guard, so a
     /// producer running out of room restarted a healthy stream and the reattach reseeded every pane
     /// with `clearScrollback`. One pane's ceiling cost every other pane its scrollback.
-    @Test func aggregateConnectionSeedBudgetReleasesBytesWithoutRestartingTheStream() throws {
+    @Test func aggregateConnectionSeedBudgetReleasesBytesWithoutRestartingTheStream() async throws {
         let fixture = attachedConnection(pendingPaneSeedByteLimit: 5)
         defer { fixture.close() }
         _ = try #require(
@@ -575,6 +575,16 @@ import Testing
                 .contains { $0.hasPrefix("pane-seed-backpressure") },
             "a total-budget overflow recovers the pane once, not again under the per-pane marker"
         )
+
+        // The injected five-byte budget cannot fit the 11-byte clear-scrollback framing. Recovery
+        // must remain deferred instead of recursively scheduling another attempt every actor turn.
+        await Task.yield()
+        await Task.yield()
+        let events = fixture.connection.snapshot().recentEvents
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(fixture.connection.deferredPaneSeedBudgetRecoveryPaneIDs == [8])
+        #expect(events.filter { $0.hasPrefix("pane-seed-total-backpressure") }.count == 1)
+        #expect(events.filter { $0.hasPrefix("pane-seed-reservation-too-large") }.count == 1)
     }
 
     /// Crossing one pane's live catch-up ceiling takes the pane-local recovery path.
@@ -656,6 +666,44 @@ import Testing
                 .filter { $0.hasPrefix("pane-seed-total-backpressure") }.count == 1,
             "capacity release should start the one deferred recovery without duplicating it"
         )
+    }
+
+    /// Ending the connection cancels a budget recovery that is still waiting for capacity.
+    @Test func deferredPaneSeedBudgetRecoveryStopsWithConnection() async throws {
+        let fixture = attachedConnection(pendingPaneSeedByteLimit: 16)
+        defer { fixture.close() }
+        _ = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 7,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 7,
+            data: Data(repeating: UInt8(ascii: "a"), count: 10)
+        ))
+        _ = try #require(
+            fixture.connection.beginPaneSeed(
+                paneId: 8,
+                clearScrollback: false,
+                kind: .fullHistory
+            )
+        )
+        #expect(fixture.connection.absorbPaneOutputIntoPendingSeed(
+            paneId: 8,
+            data: Data(repeating: UInt8(ascii: "b"), count: 7)
+        ))
+        await Task.yield()
+        await Task.yield()
+        #expect(fixture.connection.deferredPaneSeedBudgetRecoveryPaneIDs == [8])
+
+        fixture.connection.stop()
+        await Task.yield()
+
+        #expect(fixture.connection.connectionState == .ended)
+        #expect(fixture.connection.deferredPaneSeedBudgetRecoveryPaneIDs.isEmpty)
+        #expect(fixture.connection.pendingPaneSeeds.isEmpty)
     }
 
     @Test func connectionSeedCountersReleaseOnFinishPruneAndDisconnect() throws {
