@@ -174,19 +174,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["signin.apple"].exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
-        let tailscaleMethod = app.buttons["MobileOnboardingConnectionMethodTailscale"]
-        let automaticMethod = app.buttons["MobileOnboardingConnectionMethodAutomatic"]
-        XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
-        XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
-        tap(tailscaleMethod, in: app)
-        XCTAssertTrue(tailscaleMethod.isSelected)
-        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].exists)
-        XCTAssertTrue(app.staticTexts[
-            "Connect only over your Tailscale network. Scan the pairing code shown on your Mac."
-        ].exists)
-        tap(automaticMethod, in: app)
-        XCTAssertTrue(automaticMethod.isSelected)
-        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         assertStableChrome(includeFooter: false)
         capture("onboarding-03-connect")
 
@@ -202,6 +189,19 @@ final class cmuxUITests: XCTestCase {
         assertPageVisible(connectScene, timeout: 8)
         XCTAssertTrue(app.buttons["Check Again"].exists)
         XCTAssertTrue(app.buttons["Use QR Code Instead"].exists)
+        let tailscaleMethod = app.buttons["MobileOnboardingConnectionMethodTailscale"]
+        let automaticMethod = app.buttons["MobileOnboardingConnectionMethodAutomatic"]
+        XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
+        XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
+        tap(tailscaleMethod, in: app)
+        XCTAssertTrue(tailscaleMethod.isSelected)
+        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].exists)
+        XCTAssertTrue(app.staticTexts[
+            "Connect only over your Tailscale network. Scan the pairing code shown on your Mac."
+        ].exists)
+        tap(automaticMethod, in: app)
+        XCTAssertTrue(automaticMethod.isSelected)
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         capture("onboarding-04-resumed-connect")
 
         let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]

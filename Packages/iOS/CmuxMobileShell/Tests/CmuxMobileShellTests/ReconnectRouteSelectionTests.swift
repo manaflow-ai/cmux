@@ -602,6 +602,7 @@ import Testing
             macDeviceID: "test-mac",
             displayName: "Test Mac",
             routes: [tailscale, iroh],
+            instanceTag: "default",
             markActive: true,
             stackUserID: "user-1",
             teamID: nil,
@@ -609,7 +610,7 @@ import Testing
         )
         try await pairedStore.authorizeUserTailscaleRoutes(
             macDeviceID: "test-mac",
-            instanceTag: nil,
+            instanceTag: "default",
             stackUserID: "user-1",
             teamID: nil,
             routes: [tailscale]
