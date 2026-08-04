@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 import Testing
 import struct CmuxSettings.AppCatalogSection
@@ -13,43 +14,58 @@ import struct CmuxSettings.AppCatalogSection
 @Suite(.serialized)
 struct CommandClickHTMLOpenRoutingTests {
     @Test
-    func hoverFilesystemProbePoolRunsOneAndRetainsOnlyLatestPendingJob() {
-        let pool = WordPathHoverFilesystemProbePool(
+    func hoverFilesystemProbePoolRunsOneAndRetainsOnlyLatestPendingJob() async {
+        let pool = WordPathFilesystemResolutionCoordinator(
             label: "command-hover-probe-test-\(UUID().uuidString)"
         )
-        let firstStarted = DispatchSemaphore(value: 0)
+        let firstStarted = AsyncStream<Void>.makeStream()
         let releaseFirst = DispatchSemaphore(value: 0)
-        let secondDiscarded = DispatchSemaphore(value: 0)
-        let secondRan = DispatchSemaphore(value: 0)
-        let thirdFinished = DispatchSemaphore(value: 0)
+        let secondDiscarded = AsyncStream<Void>.makeStream()
+        let thirdFinished = AsyncStream<Void>.makeStream()
+        let secondRan = AtomicBooleanGate(false)
 
-        pool.submit(.init(
+        pool.submit(
             id: UUID(),
-            run: {
-                firstStarted.signal()
+            isUserInitiated: false,
+            work: {
+                firstStarted.continuation.yield()
                 releaseFirst.wait()
+                return { @MainActor in }
             },
             discarded: {}
-        ))
-        #expect(firstStarted.wait(timeout: .now() + 1) == .success)
+        )
+        var firstStartedIterator = firstStarted.stream.makeAsyncIterator()
+        _ = await firstStartedIterator.next()
 
-        pool.submit(.init(
+        pool.submit(
             id: UUID(),
-            run: { secondRan.signal() },
-            discarded: { secondDiscarded.signal() }
-        ))
-        pool.submit(.init(
+            isUserInitiated: false,
+            work: {
+                secondRan.storeRelease(true)
+                return { @MainActor in }
+            },
+            discarded: { secondDiscarded.continuation.yield() }
+        )
+        pool.submit(
             id: UUID(),
-            run: {
-                thirdFinished.signal()
+            isUserInitiated: false,
+            work: {
+                thirdFinished.continuation.yield()
+                return { @MainActor in }
             },
             discarded: {}
-        ))
+        )
 
-        #expect(secondDiscarded.wait(timeout: .now() + 1) == .success)
+        var secondDiscardedIterator = secondDiscarded.stream.makeAsyncIterator()
+        _ = await secondDiscardedIterator.next()
         releaseFirst.signal()
-        #expect(thirdFinished.wait(timeout: .now() + 1) == .success)
-        #expect(secondRan.wait(timeout: .now()) == .timedOut)
+        var thirdFinishedIterator = thirdFinished.stream.makeAsyncIterator()
+        _ = await thirdFinishedIterator.next()
+        #expect(!secondRan.loadAcquire())
+
+        firstStarted.continuation.finish()
+        secondDiscarded.continuation.finish()
+        thirdFinished.continuation.finish()
     }
 
     @Test

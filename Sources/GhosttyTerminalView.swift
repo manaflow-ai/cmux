@@ -3630,63 +3630,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
 
-    private enum WordPathResolutionSource: String, Sendable {
-        case quicklook
-        case snapshot
-    }
-
-    private struct WordPathResolution: Sendable {
-        let path: String
-        let source: WordPathResolutionSource
-        let rawToken: String
-    }
-
-    private struct WordPathQuicklookSnapshot: Equatable, Sendable {
-        let word: String?
-        let viewportOffsetStart: Int
-        let viewportOffsetLength: Int
-    }
-
-    private struct WordPathVisibleLineSnapshot: Equatable, Sendable {
-        let line: String
-        let column: Int
-    }
-
-    private struct WordPathResolutionSnapshot: Equatable, Sendable {
-        let workingDirectory: String
-        let point: WordPathVisibleLineSnapshot?
-        let quicklook: WordPathQuicklookSnapshot?
-        let viewport: WordPathVisibleLineSnapshot?
-    }
-
-    private struct WordPathHoverResolutionIdentity: Equatable, Sendable {
-        let key: WordPathHoverCacheKey
-        let quicklook: WordPathQuicklookSnapshot?
-    }
-
-    private struct WordPathHoverResolutionRequest: Sendable {
-        let identity: WordPathHoverResolutionIdentity
-        let snapshot: WordPathResolutionSnapshot
-        let renderedFrameGeneration: UInt64
-
-        var key: WordPathHoverCacheKey {
-            identity.key
-        }
-
-        func updatingRenderedFrameGeneration(_ generation: UInt64) -> Self {
-            Self(
-                identity: identity,
-                snapshot: snapshot,
-                renderedFrameGeneration: generation
-            )
-        }
-    }
-
-    private struct WordPathHoverCacheEntry {
-        let request: WordPathHoverResolutionRequest
-        let resolution: WordPathResolution?
-    }
-
     static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
         AppDelegate.shared?.focusLog.append(message)
@@ -3730,12 +3673,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// with terminal output without enabling frame notifications app-wide.
     private var wordPathHoverRenderedFrameObserver: NSObjectProtocol?
     private var wordPathHoverRenderedFrameDemandRelease: (() -> Void)?
-    private var wordPathHoverRenderedFrameRefreshTask: Task<Void, Never>?
+    private var wordPathHoverRenderedFrameRefreshTimer: DispatchSourceTimer?
     private var wordPathHoverRenderedFrameGeneration: UInt64 = 0
     private var wordPathHoverRefreshPoint: NSPoint?
     private var wordPathHoverResolutionJobID: UUID?
-    private var wordPathHoverResolutionCancellation: WordPathHoverFilesystemProbeCancellation?
+    private var wordPathHoverResolutionCancellation: AtomicBooleanGate?
     private var wordPathHoverResolutionTaskRequest: WordPathHoverResolutionRequest?
+    private var wordPathClickResolutionJobID: UUID?
+    private var wordPathClickResolutionCancellation: AtomicBooleanGate?
+    private var wordPathClickResolutionCompletion:
+        (@MainActor @Sendable (WordPathResolution?) -> Void)?
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
@@ -6601,35 +6548,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    /// Attempt to open the word under the mouse cursor as a file path, resolved
-    /// against the terminal panel's current working directory.
-    private func tryOpenWordAsPath(at point: NSPoint? = nil) {
-        guard let resolution = resolveWordUnderCursorPath(at: point) else { return }
-
-        #if DEBUG
-        cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
-        #endif
-
-        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
-    }
-
-    /// Check if the word under the mouse cursor resolves to an existing file/directory
-    /// in the terminal panel's CWD. Returns the resolved absolute path, or nil.
-    private func resolveWordUnderCursorAsPath(at point: NSPoint? = nil) -> String? {
-        resolveWordUnderCursorPath(at: point)?.path
-    }
-
-    private func resolveWordUnderCursorPath(
-        at point: NSPoint? = nil,
-        usesHoverWorkingDirectory: Bool = false
-    ) -> WordPathResolution? {
-        guard let snapshot = wordPathResolutionSnapshot(
-            at: point,
-            usesHoverWorkingDirectory: usesHoverWorkingDirectory
-        ) else { return nil }
-        return Self.resolveWordPathSnapshot(snapshot, isCancelled: { false })
-    }
-
     private func wordPathResolutionSnapshot(
         at point: NSPoint?,
         usesHoverWorkingDirectory: Bool
@@ -6859,7 +6777,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             : nil
         if let refreshPoint, pointIsUsableForWordResolution(refreshPoint) {
             wordPathHoverRefreshPoint = refreshPoint
-            startWordPathHoverRenderedFrameObservationIfNeeded()
         } else {
             wordPathHoverRefreshPoint = nil
             stopWordPathHoverRenderedFrameObservation()
@@ -6887,6 +6804,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let resolution = cachedWordPathHoverResolution(at: point)
+        if resolution != nil || wordPathHoverResolutionJobID != nil {
+            startWordPathHoverRenderedFrameObservationIfNeeded()
+        } else {
+            stopWordPathHoverRenderedFrameObservation()
+        }
         setWordPathHoverActive(resolution != nil)
 #if DEBUG
         if cmdHeld || hoverWasActive || wordPathHoverActive || resolution != nil {
@@ -7022,20 +6944,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func startWordPathHoverResolution(_ request: WordPathHoverResolutionRequest) {
         precondition(wordPathHoverResolutionJobID == nil)
         let jobID = UUID()
-        let cancellation = WordPathHoverFilesystemProbeCancellation()
+        let cancellation = AtomicBooleanGate(false)
         wordPathHoverResolutionJobID = jobID
         wordPathHoverResolutionCancellation = cancellation
         wordPathHoverResolutionTaskRequest = request
 
-        WordPathHoverFilesystemProbePool.shared.submit(.init(
+        WordPathFilesystemResolutionCoordinator.shared.submit(
             id: jobID,
-            run: { [weak self, cancellation, request] in
+            isUserInitiated: false,
+            work: { [weak self, cancellation, request] in
                 let resolution = Self.resolveWordPathSnapshot(
                     request.snapshot,
-                    isCancelled: { cancellation.isCancelled }
+                    isCancelled: { cancellation.loadAcquire() }
                 )
-                let shouldApply = !cancellation.isCancelled
-                Task { @MainActor [weak self] in
+                let shouldApply = !cancellation.loadAcquire()
+                return { @MainActor [weak self] in
                     self?.finishWordPathHoverResolution(
                         jobID: jobID,
                         request: request,
@@ -7045,11 +6968,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             },
             discarded: { [weak self] in
-                Task { @MainActor [weak self] in
-                    self?.discardWordPathHoverResolution(jobID: jobID)
-                }
+                self?.discardWordPathHoverResolution(jobID: jobID)
             }
-        ))
+        )
     }
 
     private func finishWordPathHoverResolution(
@@ -7087,6 +7008,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             resolution: resolution
         )
         setWordPathHoverActive(resolution != nil)
+        if resolution == nil {
+            cachedWordPathHover = nil
+            stopWordPathHoverRenderedFrameObservation()
+        }
     }
 
     private func discardWordPathHoverResolution(jobID: UUID) {
@@ -7094,12 +7019,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         wordPathHoverResolutionJobID = nil
         wordPathHoverResolutionCancellation = nil
         wordPathHoverResolutionTaskRequest = nil
+        cachedWordPathHover = nil
+        setWordPathHoverActive(false)
+        stopWordPathHoverRenderedFrameObservation()
     }
 
     private func cancelWordPathHoverResolution() {
         guard let jobID = wordPathHoverResolutionJobID else { return }
-        wordPathHoverResolutionCancellation?.cancel()
-        WordPathHoverFilesystemProbePool.shared.cancelPending(id: jobID)
+        wordPathHoverResolutionCancellation?.storeRelease(true)
+        WordPathFilesystemResolutionCoordinator.shared.cancelPending(id: jobID)
         wordPathHoverResolutionJobID = nil
         wordPathHoverResolutionCancellation = nil
         wordPathHoverResolutionTaskRequest = nil
@@ -7160,6 +7088,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cachedWordPathHover = nil
         cancelWordPathHoverResolution()
         if clearContainer {
+            cancelWordPathClickResolution()
             wordPathHoverRefreshPoint = nil
             stopWordPathHoverRenderedFrameObservation()
             cachedTerminalLinkOpenContainer = nil
@@ -7179,6 +7108,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         }
         wordPathHoverRenderedFrameDemandRelease = retainLocalRenderedFrameNotifications()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .distantFuture)
+        timer.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                self?.refreshWordPathHoverAfterRenderedFrame()
+            }
+        }
+        wordPathHoverRenderedFrameRefreshTimer = timer
+        timer.resume()
     }
 
     private func stopWordPathHoverRenderedFrameObservation() {
@@ -7188,8 +7126,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         wordPathHoverRenderedFrameDemandRelease?()
         wordPathHoverRenderedFrameDemandRelease = nil
-        wordPathHoverRenderedFrameRefreshTask?.cancel()
-        wordPathHoverRenderedFrameRefreshTask = nil
+        wordPathHoverRenderedFrameRefreshTimer?.cancel()
+        wordPathHoverRenderedFrameRefreshTimer = nil
         cancelWordPathHoverResolution()
     }
 
@@ -7210,17 +7148,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Frame notifications can arrive at display cadence. Debounce terminal
         // text capture until output has been quiet for 200 ms, so sustained
         // output never repeatedly copies hundreds of terminal lines.
-        wordPathHoverRenderedFrameRefreshTask?.cancel()
-        wordPathHoverRenderedFrameRefreshTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .milliseconds(200))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled, let self else { return }
-            self.wordPathHoverRenderedFrameRefreshTask = nil
-            self.refreshWordPathHoverAfterRenderedFrame()
-        }
+        wordPathHoverRenderedFrameRefreshTimer?.schedule(
+            deadline: .now() + .milliseconds(200),
+            leeway: .milliseconds(25)
+        )
     }
 
     private func refreshWordPathHoverAfterRenderedFrame() {
@@ -7300,9 +7231,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func handleCommandClickRelease(
         at point: NSPoint,
         modifierFlags: NSEvent.ModifierFlags,
-        ghosttyConsumed: Bool
-    ) -> WordPathResolution? {
-        guard let surface else { return nil }
+        ghosttyConsumed: Bool,
+        completion: (@MainActor @Sendable (WordPathResolution?) -> Void)? = nil
+    ) -> Bool {
+        guard let surface else {
+            completion?(nil)
+            return false
+        }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: modifierFlags)
         let cmdHeld = modifierFlags.contains(.command)
         let resolvedPoint = preferredPointerPoint(from: point)
@@ -7326,7 +7261,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
 #endif
-            return nil
+            completion?(nil)
+            return false
         }
 
         // Refresh ghostty's cached mouse position so quicklook_word reads
@@ -7343,7 +7279,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Click routing always resolves fresh. Hover caching is only a cursor
         // optimization and cannot decide which path opens.
         invalidateWordPathHoverResolution()
-        guard let resolution = resolveWordUnderCursorPath(at: resolvedPoint) else {
+        guard let resolvedPoint,
+              let terminalSurface,
+              let snapshot = wordPathResolutionSnapshot(
+                  at: resolvedPoint,
+                  usesHoverWorkingDirectory: false
+              ) else {
 #if DEBUG
             runtimeDebugLog(
                 hypothesisID: "h2",
@@ -7360,8 +7301,111 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 ]
             )
 #endif
-            return nil
+            completion?(nil)
+            return false
         }
+
+        startWordPathClickResolution(
+            snapshot: snapshot,
+            surfaceID: terminalSurface.id,
+            surfaceGeneration: terminalSurface.runtimeSurfaceGeneration,
+            ghosttyConsumed: ghosttyConsumed,
+            point: point,
+            resolvedPoint: resolvedPoint,
+            modifierFlags: modifierFlags,
+            completion: completion
+        )
+        return true
+    }
+
+    private func startWordPathClickResolution(
+        snapshot: WordPathResolutionSnapshot,
+        surfaceID: UUID,
+        surfaceGeneration: UInt64,
+        ghosttyConsumed: Bool,
+        point: NSPoint,
+        resolvedPoint: NSPoint,
+        modifierFlags: NSEvent.ModifierFlags,
+        completion: (@MainActor @Sendable (WordPathResolution?) -> Void)?
+    ) {
+        cancelWordPathClickResolution()
+        let jobID = UUID()
+        let cancellation = AtomicBooleanGate(false)
+        wordPathClickResolutionJobID = jobID
+        wordPathClickResolutionCancellation = cancellation
+        wordPathClickResolutionCompletion = completion
+
+        WordPathFilesystemResolutionCoordinator.shared.submit(
+            id: jobID,
+            isUserInitiated: true,
+            work: { [weak self, cancellation, snapshot] in
+                let resolution = Self.resolveWordPathSnapshot(
+                    snapshot,
+                    isCancelled: { cancellation.loadAcquire() }
+                )
+                let shouldApply = !cancellation.loadAcquire()
+                return { @MainActor [weak self] in
+                    self?.finishWordPathClickResolution(
+                        jobID: jobID,
+                        surfaceID: surfaceID,
+                        surfaceGeneration: surfaceGeneration,
+                        ghosttyConsumed: ghosttyConsumed,
+                        point: point,
+                        resolvedPoint: resolvedPoint,
+                        modifierFlags: modifierFlags,
+                        resolution: resolution,
+                        shouldApply: shouldApply
+                    )
+                }
+            },
+            discarded: { [weak self] in
+                self?.discardWordPathClickResolution(jobID: jobID)
+            }
+        )
+    }
+
+    private func finishWordPathClickResolution(
+        jobID: UUID,
+        surfaceID: UUID,
+        surfaceGeneration: UInt64,
+        ghosttyConsumed: Bool,
+        point: NSPoint,
+        resolvedPoint: NSPoint,
+        modifierFlags: NSEvent.ModifierFlags,
+        resolution: WordPathResolution?,
+        shouldApply: Bool
+    ) {
+        guard jobID == wordPathClickResolutionJobID else { return }
+        let completion = wordPathClickResolutionCompletion
+        wordPathClickResolutionJobID = nil
+        wordPathClickResolutionCancellation = nil
+        wordPathClickResolutionCompletion = nil
+
+        guard shouldApply,
+              let terminalSurface,
+              terminalSurface.id == surfaceID,
+              terminalSurface.runtimeSurfaceGeneration == surfaceGeneration,
+              let resolution else {
+#if DEBUG
+            runtimeDebugLog(
+                hypothesisID: "h2",
+                name: "command_click_release",
+                expected: "cmd-click should resolve the token under the pointer",
+                actual: "no_resolution",
+                data: [
+                    "flags": debugModifierString(modifierFlags),
+                    "ghostty_consumed": ghosttyConsumed,
+                    "point_x": point.x,
+                    "point_y": point.y,
+                    "resolved_point_x": resolvedPoint.x,
+                    "resolved_point_y": resolvedPoint.y
+                ]
+            )
+#endif
+            completion?(nil)
+            return
+        }
+
         guard !ghosttyConsumed || resolution.source == .snapshot else {
 #if DEBUG
             var payload: [String: Any] = [
@@ -7369,9 +7413,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 "ghostty_consumed": ghosttyConsumed,
                 "point_x": point.x,
                 "point_y": point.y,
-                "resolved_point_x": resolvedPoint?.x ?? -1,
-                "resolved_point_y": resolvedPoint?.y ?? -1,
-                "suppress_path_hover": suppressCommandPathHover
+                "resolved_point_x": resolvedPoint.x,
+                "resolved_point_y": resolvedPoint.y,
+                "suppress_path_hover": false
             ]
             for (key, value) in runtimeDebugResolutionPayload(resolution) {
                 payload[key] = value
@@ -7384,7 +7428,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 data: payload
             )
 #endif
-            return nil
+            completion?(nil)
+            return
         }
 
         #if DEBUG
@@ -7396,9 +7441,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "ghostty_consumed": ghosttyConsumed,
             "point_x": point.x,
             "point_y": point.y,
-            "resolved_point_x": resolvedPoint?.x ?? -1,
-            "resolved_point_y": resolvedPoint?.y ?? -1,
-            "suppress_path_hover": suppressCommandPathHover
+            "resolved_point_x": resolvedPoint.x,
+            "resolved_point_y": resolvedPoint.y,
+            "suppress_path_hover": false
         ]
         for (key, value) in runtimeDebugResolutionPayload(resolution) {
             payload[key] = value
@@ -7412,23 +7457,34 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         #endif
 
+        let openedResolution = openCommandClickResolution(
+            resolution,
+            terminalSurface: terminalSurface
+        )
+        completion?(openedResolution)
+    }
+
+    private func openCommandClickResolution(
+        _ resolution: WordPathResolution,
+        terminalSurface: TerminalSurface
+    ) -> WordPathResolution {
         // Resolution already rejected remote terminals before touching the
         // local filesystem. Route supported files through the same container
         // coordinator as structured Ghostty links so Workspace and Dock
         // terminals share browser behavior and deferred state validation.
-        if let termSurface = terminalSurface,
-           CommandClickFileOpenRouter.shouldRouteInCmux(path: resolution.path) {
+        if CommandClickFileOpenRouter.shouldRouteInCmux(path: resolution.path) {
             let coordinator = TerminalLinkOpenCoordinator(
                 externalOpen: { url in
                     PreferredEditorService(defaults: .standard).open(url)
                     return true
                 }
             )
-            if coordinator.open(
-                TerminalLinkOpenRequest(
+            if coordinator.openResolvedLocalFile(
+                URL(fileURLWithPath: resolution.path),
+                request: TerminalLinkOpenRequest(
                     rawValue: resolution.path,
-                    sourceWorkspaceId: termSurface.tabId,
-                    sourcePanelId: termSurface.id,
+                    sourceWorkspaceId: terminalSurface.tabId,
+                    sourcePanelId: terminalSurface.id,
                     workingDirectory: nil
                 )
             ) {
@@ -7438,6 +7494,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
         return resolution
+    }
+
+    private func discardWordPathClickResolution(jobID: UUID) {
+        guard jobID == wordPathClickResolutionJobID else { return }
+        let completion = wordPathClickResolutionCompletion
+        wordPathClickResolutionJobID = nil
+        wordPathClickResolutionCancellation = nil
+        wordPathClickResolutionCompletion = nil
+        completion?(nil)
+    }
+
+    private func cancelWordPathClickResolution() {
+        guard let jobID = wordPathClickResolutionJobID else { return }
+        wordPathClickResolutionCancellation?.storeRelease(true)
+        WordPathFilesystemResolutionCoordinator.shared.cancelPending(id: jobID)
+        discardWordPathClickResolution(jobID: jobID)
     }
 
     private func clampedDebugPoint(_ point: NSPoint) -> NSPoint {
@@ -7541,9 +7613,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return payload
     }
 
-    func debugSimulateCommandClick(at point: NSPoint) -> [String: Any] {
+    func debugSimulateCommandClick(
+        at point: NSPoint,
+        completion: @escaping @MainActor @Sendable ([String: Any]) -> Void
+    ) {
         guard let surface else {
-            return ["error": "Missing surface"]
+            completion(["error": "Missing surface"])
+            return
         }
 
         let clampedPoint = clampedDebugPoint(point)
@@ -7554,22 +7630,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, mods)
         let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
         let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
-        let resolution = handleCommandClickRelease(
+        handleCommandClickRelease(
             at: clampedPoint,
             modifierFlags: flags,
-            ghosttyConsumed: releaseConsumed
+            ghosttyConsumed: releaseConsumed,
+            completion: { resolution in
+                var payload: [String: Any] = [
+                    "pressHandled": pressHandled ? "1" : "0",
+                    "releaseConsumed": releaseConsumed ? "1" : "0",
+                ]
+                if let resolution {
+                    payload["openedPath"] = resolution.path
+                    payload["resolutionSource"] = resolution.source.rawValue
+                    payload["rawToken"] = resolution.rawToken
+                }
+                completion(payload)
+            }
         )
-
-        var payload: [String: Any] = [
-            "pressHandled": pressHandled ? "1" : "0",
-            "releaseConsumed": releaseConsumed ? "1" : "0",
-        ]
-        if let resolution {
-            payload["openedPath"] = resolution.path
-            payload["resolutionSource"] = resolution.source.rawValue
-            payload["rawToken"] = resolution.rawToken
-        }
-        return payload
     }
 
     func debugSimulateStationaryCommandClick(at point: NSPoint) -> [String: Any] {
@@ -7996,6 +8073,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     deinit {
         stopWordPathHoverRenderedFrameObservation()
+        cancelWordPathClickResolution()
         keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
@@ -8819,8 +8897,14 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugSimulateCommandHoverDetails(at: debugPointInSurface(point))
     }
 
-    func debugSimulateCommandClick(at point: NSPoint) -> [String: Any] {
-        surfaceView.debugSimulateCommandClick(at: debugPointInSurface(point))
+    func debugSimulateCommandClick(
+        at point: NSPoint,
+        completion: @escaping @MainActor @Sendable ([String: Any]) -> Void
+    ) {
+        surfaceView.debugSimulateCommandClick(
+            at: debugPointInSurface(point),
+            completion: completion
+        )
     }
 
     func debugSimulateStationaryCommandClick(at point: NSPoint) -> [String: Any] {

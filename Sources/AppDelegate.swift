@@ -2768,27 +2768,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     break
                 }
 
-                let result = terminalPanel.hostedView.debugSimulateCommandClick(at: hitPoint)
-                payload["lastCommandResult"] = result
-                if let openedPath = result["openedPath"] as? String {
-                    payload["lastCommandOpenedPath"] = openedPath
-                    let canonicalOpenedPath = (openedPath as NSString).resolvingSymlinksInPath
-                    let openedInFilePreview = workspace.panels.values.contains { panel in
-                        guard let filePreview = panel as? FilePreviewPanel else { return false }
-                        return (filePreview.filePath as NSString).resolvingSymlinksInPath == canonicalOpenedPath
+                lastHandledCommandID = commandID
+                terminalPanel.hostedView.debugSimulateCommandClick(at: hitPoint) { result in
+                    var completionPayload: [String: Any] = [
+                        "lastCommandId": commandID,
+                        "lastCommandAction": action,
+                        "lastCommandSucceeded": "0",
+                        "lastCommandResult": result
+                    ]
+                    if let openedPath = result["openedPath"] as? String {
+                        completionPayload["lastCommandOpenedPath"] = openedPath
+                        let canonicalOpenedPath = (openedPath as NSString).resolvingSymlinksInPath
+                        let openedInFilePreview = workspace.panels.values.contains { panel in
+                            guard let filePreview = panel as? FilePreviewPanel else { return false }
+                            return (filePreview.filePath as NSString).resolvingSymlinksInPath == canonicalOpenedPath
+                        }
+                        let openedInMarkdownViewer = workspace.panels.values.contains { panel in
+                            guard let markdown = panel as? MarkdownPanel else { return false }
+                            return (markdown.filePath as NSString).resolvingSymlinksInPath == canonicalOpenedPath
+                        }
+                        completionPayload["lastCommandOpenedInFilePreview"] = openedInFilePreview ? "1" : "0"
+                        completionPayload["lastCommandOpenedInMarkdownViewer"] = openedInMarkdownViewer ? "1" : "0"
+                        completionPayload["lastCommandSucceeded"] = "1"
+                    } else if let error = result["error"] as? String {
+                        completionPayload["lastCommandError"] = error
+                    } else {
+                        completionPayload["lastCommandError"] = "Command click did not open a path"
                     }
-                    let openedInMarkdownViewer = workspace.panels.values.contains { panel in
-                        guard let markdown = panel as? MarkdownPanel else { return false }
-                        return (markdown.filePath as NSString).resolvingSymlinksInPath == canonicalOpenedPath
-                    }
-                    payload["lastCommandOpenedInFilePreview"] = openedInFilePreview ? "1" : "0"
-                    payload["lastCommandOpenedInMarkdownViewer"] = openedInMarkdownViewer ? "1" : "0"
-                    payload["lastCommandSucceeded"] = "1"
-                } else if let error = result["error"] as? String {
-                    payload["lastCommandError"] = error
-                } else {
-                    payload["lastCommandError"] = "Command click did not open a path"
+                    writeState(
+                        terminalPanel: terminalPanel,
+                        window: window,
+                        ready: true,
+                        additionalPayload: completionPayload
+                    )
                 }
+                return
 
             case "stationary_cmd_click_token":
                 guard let hitPoint = commandPoint(

@@ -103,6 +103,26 @@ struct TerminalLinkOpenCoordinator {
         }
     }
 
+    /// Routes a local file whose existence was already validated off the main actor.
+    ///
+    /// Command-click uses this entrypoint to avoid repeating the filesystem
+    /// probe while preserving the same container lookup and deferred-open path
+    /// as structured terminal links.
+    @discardableResult
+    func openResolvedLocalFile(
+        _ fileURL: URL,
+        request: TerminalLinkOpenRequest
+    ) -> Bool {
+        guard fileURL.isFileURL else { return false }
+        let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
+        return routeLocalFile(
+            fileURL,
+            request: request,
+            container: container,
+            unavailableReason: "resolved file container unavailable"
+        )
+    }
+
     private func routeLocalFile(
         _ fileURL: URL,
         request: TerminalLinkOpenRequest,

@@ -2443,7 +2443,16 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		905200000000000000000003 /* WKWebView+BrowserUserAgentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905200000000000000000004 /* WKWebView+BrowserUserAgentPolicy.swift */; };
 		805600000000000000000003 /* WKWebView+BrowserViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805600000000000000000004 /* WKWebView+BrowserViewport.swift */; };
 		D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */; };
+		B89390000000000000000001 /* WordPathFilesystemResolutionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89390000000000000000002 /* WordPathFilesystemResolutionCoordinator.swift */; };
+		B89390000000000000000011 /* WordPathHoverCacheEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89390000000000000000012 /* WordPathHoverCacheEntry.swift */; };
 		859130000000000000000001 /* WordPathHoverCacheKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859130000000000000000002 /* WordPathHoverCacheKey.swift */; };
+		B8939000000000000000000D /* WordPathHoverResolutionIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8939000000000000000000E /* WordPathHoverResolutionIdentity.swift */; };
+		B8939000000000000000000F /* WordPathHoverResolutionRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89390000000000000000010 /* WordPathHoverResolutionRequest.swift */; };
+		B89390000000000000000007 /* WordPathQuicklookSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89390000000000000000008 /* WordPathQuicklookSnapshot.swift */; };
+		B89390000000000000000005 /* WordPathResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89390000000000000000006 /* WordPathResolution.swift */; };
+		B8939000000000000000000B /* WordPathResolutionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8939000000000000000000C /* WordPathResolutionSnapshot.swift */; };
+		B89390000000000000000003 /* WordPathResolutionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89390000000000000000004 /* WordPathResolutionSource.swift */; };
+		B89390000000000000000009 /* WordPathVisibleLineSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8939000000000000000000A /* WordPathVisibleLineSnapshot.swift */; };
 		C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000008 /* Workspace+AgentChat.swift */; };
 		A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */; };
 		8777E0018777E0018777E001 /* Workspace+AttentionFlashRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777E0028777E0028777E002 /* Workspace+AttentionFlashRouting.swift */; };
@@ -5035,7 +5044,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		905200000000000000000004 /* WKWebView+BrowserUserAgentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+BrowserUserAgentPolicy.swift"; sourceTree = "<group>"; };
 		805600000000000000000004 /* WKWebView+BrowserViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+BrowserViewport.swift"; sourceTree = "<group>"; };
 		D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+CmuxPrintOperation.swift"; sourceTree = "<group>"; };
+		B89390000000000000000002 /* WordPathFilesystemResolutionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathFilesystemResolutionCoordinator.swift; sourceTree = "<group>"; };
+		B89390000000000000000012 /* WordPathHoverCacheEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathHoverCacheEntry.swift; sourceTree = "<group>"; };
 		859130000000000000000002 /* WordPathHoverCacheKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathHoverCacheKey.swift; sourceTree = "<group>"; };
+		B8939000000000000000000E /* WordPathHoverResolutionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathHoverResolutionIdentity.swift; sourceTree = "<group>"; };
+		B89390000000000000000010 /* WordPathHoverResolutionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathHoverResolutionRequest.swift; sourceTree = "<group>"; };
+		B89390000000000000000008 /* WordPathQuicklookSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathQuicklookSnapshot.swift; sourceTree = "<group>"; };
+		B89390000000000000000006 /* WordPathResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathResolution.swift; sourceTree = "<group>"; };
+		B8939000000000000000000C /* WordPathResolutionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathResolutionSnapshot.swift; sourceTree = "<group>"; };
+		B89390000000000000000004 /* WordPathResolutionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathResolutionSource.swift; sourceTree = "<group>"; };
+		B8939000000000000000000A /* WordPathVisibleLineSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathVisibleLineSnapshot.swift; sourceTree = "<group>"; };
 		C0DE43000000000000000008 /* Workspace+AgentChat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentChat.swift"; sourceTree = "<group>"; };
 		A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AgentLifecycle.swift"; sourceTree = "<group>"; };
 		8777E0028777E0028777E002 /* Workspace+AttentionFlashRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+AttentionFlashRouting.swift"; sourceTree = "<group>"; };
@@ -6177,7 +6195,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */,
 				E89950010000000000000002 /* GhosttyFlashOverlayView.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				B89390000000000000000002 /* WordPathFilesystemResolutionCoordinator.swift */,
+				B89390000000000000000012 /* WordPathHoverCacheEntry.swift */,
 				859130000000000000000002 /* WordPathHoverCacheKey.swift */,
+				B8939000000000000000000E /* WordPathHoverResolutionIdentity.swift */,
+				B89390000000000000000010 /* WordPathHoverResolutionRequest.swift */,
+				B89390000000000000000008 /* WordPathQuicklookSnapshot.swift */,
+				B89390000000000000000006 /* WordPathResolution.swift */,
+				B8939000000000000000000C /* WordPathResolutionSnapshot.swift */,
+				B89390000000000000000004 /* WordPathResolutionSource.swift */,
+				B8939000000000000000000A /* WordPathVisibleLineSnapshot.swift */,
 				E89950040000000000000002 /* KeyboardCopyModeGridMetrics.swift */,
 				E89950030000000000000002 /* KeyboardCopyModeResolvedCell.swift */,
 				E89950020000000000000002 /* KeyboardCopyModeSelectionKind.swift */,
@@ -9978,7 +10005,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				905200000000000000000003 /* WKWebView+BrowserUserAgentPolicy.swift in Sources */,
 				805600000000000000000003 /* WKWebView+BrowserViewport.swift in Sources */,
 				D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */,
+				B89390000000000000000001 /* WordPathFilesystemResolutionCoordinator.swift in Sources */,
+				B89390000000000000000011 /* WordPathHoverCacheEntry.swift in Sources */,
 				859130000000000000000001 /* WordPathHoverCacheKey.swift in Sources */,
+				B8939000000000000000000D /* WordPathHoverResolutionIdentity.swift in Sources */,
+				B8939000000000000000000F /* WordPathHoverResolutionRequest.swift in Sources */,
+				B89390000000000000000007 /* WordPathQuicklookSnapshot.swift in Sources */,
+				B89390000000000000000005 /* WordPathResolution.swift in Sources */,
+				B8939000000000000000000B /* WordPathResolutionSnapshot.swift in Sources */,
+				B89390000000000000000003 /* WordPathResolutionSource.swift in Sources */,
+				B89390000000000000000009 /* WordPathVisibleLineSnapshot.swift in Sources */,
 				C0DE43000000000000000007 /* Workspace+AgentChat.swift in Sources */,
 				A6AC73020000000000000001 /* Workspace+AgentLifecycle.swift in Sources */,
 				8777E0018777E0018777E001 /* Workspace+AttentionFlashRouting.swift in Sources */,
