@@ -499,6 +499,49 @@ struct WorkstreamTaskToolTodoTests {
         #expect(!store.ownedTaskIds(forWorkstream: "restored-199").isEmpty)
     }
 
+    /// Claude runs concurrent TaskUpdate hooks, so a delayed one can arrive
+    /// after a newer update. Its reported transition origin is what lets the
+    /// stale delta be rejected instead of regressing the row.
+    @Test("A stale concurrent update does not regress the task state")
+    func staleConcurrentUpdateIsRejected() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        createTask(store, "s1", subject: "task", id: "1")
+        store.ingest(toolCall(
+            "s1",
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"completed"}"#,
+            response: #"{"task":{"id":"1"},"statusChange":{"from":"in_progress","to":"completed"}}"#
+        ))
+        #expect(latestTodos(store)?.first?.state == .completed)
+
+        // A delayed in_progress update, whose transition started from pending,
+        // must not undo the completion that already landed. (cmux never saw
+        // the intermediate in_progress, which is exactly the lagging-view case
+        // the check tolerates on the way in.)
+        store.ingest(toolCall(
+            "s1",
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"in_progress"}"#,
+            response: #"{"task":{"id":"1"},"statusChange":{"from":"pending","to":"in_progress"}}"#
+        ))
+        #expect(latestTodos(store)?.first?.state == .completed)
+    }
+
+    /// A result whose reported origin matches what we hold is current and
+    /// must still apply.
+    @Test("A matching transition origin still applies")
+    func matchingTransitionOriginApplies() {
+        let store = WorkstreamStore(ringCapacity: 50)
+        createTask(store, "s1", subject: "task", id: "1")
+        store.ingest(toolCall(
+            "s1",
+            tool: "TaskUpdate",
+            input: #"{"taskId":"1","status":"in_progress"}"#,
+            response: #"{"task":{"id":"1"},"statusChange":{"from":"pending","to":"in_progress"}}"#
+        ))
+        #expect(latestTodos(store)?.first?.state == .inProgress)
+    }
+
     @Test("Non-task tool calls stay tool telemetry")
     func otherToolsUnaffected() {
         let store = WorkstreamStore(ringCapacity: 50)

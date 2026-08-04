@@ -141,6 +141,24 @@ struct WorkstreamTaskToolTodos: Sendable {
                 return .list(todos)
             }
             let state = input.flatMap(taskState(in:)) ?? resultTask.flatMap(taskState(in:))
+            // Claude runs concurrent TaskUpdate hooks, so socket arrival order
+            // is not the task store's mutation order: a delayed in_progress
+            // delta can land after the completion that superseded it. When the
+            // result reports the transition it made and that transition did
+            // not start from the completed state we already hold, it predates
+            // our view and would permanently regress the row.
+            //
+            // Scoped to completed on purpose. cmux's view legitimately lags
+            // the task store for intermediate states — it never sees a
+            // transition whose hook did not reach it — so treating any
+            // mismatch as stale would drop ordinary updates.
+            if let index = todos.firstIndex(where: { $0.id == id }),
+               todos[index].state == .completed,
+               state != .completed,
+               let previous = reportedPreviousState(in: response),
+               previous != .completed {
+                return .ignored
+            }
             guard let index = todos.firstIndex(where: { $0.id == id }) else {
                 // A task created before cmux was watching (resumed session, or
                 // hooks installed mid-run). Adoptable only when the payload
@@ -234,12 +252,34 @@ private func taskContent(in dict: [String: Any]) -> String? {
     return nil
 }
 
+/// The state a result says the task moved *from*, when it reports one.
+///
+/// Claude's TaskUpdate result carries a `statusChange`; using its origin as an
+/// optimistic-concurrency check is what lets concurrently delivered hooks be
+/// ordered by the task store's own view rather than by arrival.
+private func reportedPreviousState(in response: [String: Any]?) -> WorkstreamTaskTodo.State? {
+    guard let response else { return nil }
+    let change = (response["statusChange"] as? [String: Any])
+        ?? (response["status_change"] as? [String: Any])
+    guard let change else { return nil }
+    for key in ["from", "previous", "old"] {
+        if let raw = change[key] as? String {
+            return taskStateFromRawStatus(raw)
+        }
+    }
+    return nil
+}
+
 private func taskRawStatus(in dict: [String: Any]) -> String? {
     (dict["status"] as? String) ?? (dict["state"] as? String)
 }
 
 private func taskState(in dict: [String: Any]) -> WorkstreamTaskTodo.State? {
     guard let raw = taskRawStatus(in: dict) else { return nil }
+    return taskStateFromRawStatus(raw)
+}
+
+private func taskStateFromRawStatus(_ raw: String) -> WorkstreamTaskTodo.State? {
     switch raw {
     case "completed", "done": return .completed
     case "inProgress", "in_progress", "active": return .inProgress
