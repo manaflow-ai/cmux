@@ -41,17 +41,23 @@ struct HermesAgentIndexTests {
         #expect(result.sessions.first?.modified == Date(timeIntervalSince1970: 22))
     }
 
-    @Test("Searches messages and skips directory scoped requests")
-    func searchesMessagesAndSkipsDirectoryScopedRequests() throws {
+    @Test("Searches messages and scopes sessions by directory")
+    func searchesMessagesAndScopesSessionsByDirectory() throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
         try makeHermesStateDB(at: dbURL)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         try exec(dbURL, """
-        INSERT INTO sessions (id, source, model, started_at, title)
-        VALUES ('session-a', 'cli', 'model-a', 10, 'General');
+        INSERT INTO sessions (id, source, model, started_at, title, cwd)
+        VALUES
+          ('session-a', 'cli', 'model-a', 10, 'General', '\(repo.path)'),
+          ('session-b', 'cli', 'model-b', 20, 'Other', '\(root.path)');
         INSERT INTO messages (session_id, role, content, timestamp)
-        VALUES ('session-a', 'assistant', 'Needle text', 11);
+        VALUES
+          ('session-a', 'assistant', 'Needle text', 11),
+          ('session-b', 'assistant', 'Needle text elsewhere', 21);
         """)
 
         let found = HermesAgentIndex.loadSessions(
@@ -62,15 +68,88 @@ struct HermesAgentIndexTests {
             stateDBPath: dbURL.path
         )
         let scoped = HermesAgentIndex.loadSessions(
+            needle: "needle",
+            cwdFilter: repo.path,
+            offset: 0,
+            limit: 10,
+            stateDBPath: dbURL.path
+        )
+        let unmatched = HermesAgentIndex.loadSessions(
             needle: "",
-            cwdFilter: "/tmp/repo",
+            cwdFilter: root.appendingPathComponent("missing").path,
             offset: 0,
             limit: 10,
             stateDBPath: dbURL.path
         )
 
-        #expect(found.sessions.map(\.sessionId) == ["session-a"])
-        #expect(scoped.sessions.isEmpty)
+        #expect(found.sessions.map(\.sessionId) == ["session-b", "session-a"])
+        #expect(scoped.sessions.map(\.sessionId) == ["session-a"])
+        #expect(unmatched.sessions.isEmpty)
+    }
+
+    @Test("Directory scoping follows Hermes real-path cwd records")
+    func directoryScopingMatchesSymlinkedWorkingDirectory() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        let linkedRepo = root.appendingPathComponent("linked-repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: linkedRepo, withDestinationURL: repo)
+        try exec(dbURL, """
+        INSERT INTO sessions (id, source, model, started_at, title, cwd)
+        VALUES ('symlink-session', 'cli', 'model-a', 10, 'Linked repo', '\(repo.path)');
+        """)
+
+        let scoped = HermesAgentIndex.loadSessions(
+            needle: "",
+            cwdFilter: linkedRepo.path,
+            offset: 0,
+            limit: 10,
+            stateDBPath: dbURL.path
+        )
+
+        #expect(scoped.sessions.map(\.sessionId) == ["symlink-session"])
+    }
+
+    @Test("Unfiltered loading remains compatible with state databases that predate cwd")
+    func unfilteredLoadingSupportsLegacySchema() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("legacy-state.db", isDirectory: false)
+        try exec(dbURL, """
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          source TEXT NOT NULL,
+          model TEXT,
+          started_at REAL NOT NULL,
+          ended_at REAL,
+          title TEXT
+        );
+        CREATE TABLE messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          content TEXT,
+          tool_name TEXT,
+          tool_calls TEXT,
+          timestamp REAL NOT NULL
+        );
+        INSERT INTO sessions (id, source, model, started_at, title)
+        VALUES ('legacy-session', 'cli', 'model-a', 10, 'Legacy');
+        """)
+
+        let result = HermesAgentIndex.loadSessions(
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10,
+            stateDBPath: dbURL.path
+        )
+
+        #expect(result.errors.isEmpty)
+        #expect(result.sessions.map(\.sessionId) == ["legacy-session"])
     }
 
     @Test("Loads transcript and decodes Hermes JSON content")
@@ -137,6 +216,7 @@ struct HermesAgentIndexTests {
           cost_status TEXT,
           cost_source TEXT,
           pricing_version TEXT,
+          cwd TEXT,
           title TEXT,
           api_call_count INTEGER DEFAULT 0
         );
