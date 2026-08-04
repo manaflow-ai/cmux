@@ -429,6 +429,8 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         #expect(presentationWindow.frame == snapshot.restingVisibleFrame)
         #expect(presentationWindow.isVisible)
         #expect(presentationWindow.parent == nil)
+        #expect(presentationWindow.isExcludedFromWindowsMenu)
+        #expect(presentationWindow.collectionBehavior.contains(.ignoresCycle))
         #expect(
             presentationWindow.contentView?.identifier?.rawValue
                 == "FloatingWindowParkingPresentation.\(dock.id.uuidString)"
