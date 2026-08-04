@@ -280,6 +280,9 @@ jobs:
       - name: Validate the crash-report scan
         run: python3 scripts/crash-reports-since.py --self-test
 
+      - name: Validate the unit-test execution counter
+        run: python3 tests/test_ci_executed_test_count.py
+
   remote-daemon-tests:
     needs: changes
     if: ${{ needs.changes.outputs.go == 'true' }}
@@ -1017,8 +1020,14 @@ jobs:
           # directory and the copy is what survives into the artifact.
           #
           # A report above zero proves a crash; zero does not prove none, because ReportCrash
-          # writes asynchronously and can land after this runs. So this backs the restart check
-          # up instead of replacing it.
+          # writes asynchronously and can land after this runs. ReportCrash is a persistent
+          # launchd service and exposes no supported flush, wait, or completion interface; a
+          # fixed delay or a momentarily quiet directory would still race it. The grading
+          # invariant therefore remains the runner's restart line above: a host death before all
+          # verdicts are emitted requires a replacement launch and fails the shard. A teardown
+          # death after the final verdict loses no verdicts, and this scan catches it when the
+          # report is already available. The scan is supplementary evidence, not a negative
+          # completion protocol.
           #
           # Attribution assumes this job has the crash directory to itself, which holds because
           # the macOS runners are ephemeral per-job Tart VMs (docs/ci-runners.md). On a shared,
@@ -1046,20 +1055,17 @@ jobs:
           # a suite, or a suite that no longer exists, leaves xcodebuild reporting success having
           # done no work at all.
           #
-          # Both harnesses have to be counted. swift-testing prints a line per test; XCTest prints
-          # none of those and only reports "Executed N tests" — a shard of XCTest suites therefore
-          # looks empty if you count swift-testing lines alone.
-          # `|| true` on both: this step runs under `set -euo pipefail`, so a log with no match makes
-          # grep exit 1 and aborts the step before the "no tests executed" error below can print —
-          # turning the exact case this check exists to catch into an unexplained failure.
-          SWIFT_TESTS=$(grep -c "✔ Test \|✘ Test " "$TEST_OUTPUT" || true)
-          XCTESTS=$(grep -oE "Executed [0-9]+ test" "$TEST_OUTPUT" | grep -oE "[0-9]+" | sort -rn | head -1 || true)
-          TESTS_SEEN=$(( ${SWIFT_TESTS:-0} + ${XCTESTS:-0} ))
+          # Both harnesses have numeric summaries, but in different shapes. Parse those rather than
+          # counting lines beginning with "✔ Test": Swift Testing's zero-test summary itself begins
+          # "✔ Test run with 0 tests", so that line made an empty shard look nonempty. The helper
+          # takes the largest reported count because XCTest emits nested suite summaries; summing
+          # them would count the same tests repeatedly.
+          TESTS_SEEN=$(python3 scripts/ci/executed_test_count.py "$TEST_OUTPUT")
           if [ "$TESTS_SEEN" -eq 0 ]; then
             echo "::error::no tests executed for this shard; its selectors matched nothing"
             exit 1
           fi
-          echo "shard executed ${TESTS_SEEN} tests with no host deaths"
+          echo "shard reported at least ${TESTS_SEEN} executed tests with no host deaths"
 
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
