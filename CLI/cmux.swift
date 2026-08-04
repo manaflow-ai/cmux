@@ -7706,11 +7706,12 @@ struct CMUXCLI {
         let (surfaceOpt, rem2) = parseOption(rem1, name: "--surface")
         let (actionOpt, rem3) = parseOption(rem2, name: "--action")
         let (titleOpt, rem4) = parseOption(rem3, name: "--title")
-        let (urlOpt, rem5) = parseOption(rem4, name: "--url")
-        let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
-        let (windowOpt, rem7) = parseOption(rem6, name: "--window")
+        let (colorOpt, rem5) = parseOption(rem4, name: "--color")
+        let (urlOpt, rem6) = parseOption(rem5, name: "--url")
+        let (focusOpt, rem7) = parseOption(rem6, name: "--focus")
+        let (windowOpt, rem8) = parseOption(rem7, name: "--window")
 
-        var positional = rem7
+        var positional = rem8
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -7752,11 +7753,23 @@ struct CMUXCLI {
             allowFocused: allowFocusedFallback
         )
 
-        let inferredTitle = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = (titleOpt ?? (inferredTitle.isEmpty ? nil : inferredTitle))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inferredValue = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (
+            titleOpt ?? (action == "rename" && !inferredValue.isEmpty ? inferredValue : nil)
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if action == "rename", (title?.isEmpty ?? true) {
             throw CLIError(message: "tab-action rename requires --title <text> (or a trailing title)")
+        }
+
+        let color = (
+            colorOpt ?? (action == "set_color" && !inferredValue.isEmpty ? inferredValue : nil)
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if action == "set_color", (color?.isEmpty ?? true) {
+            throw CLIError(message: String(
+                localized: "cli.error.tabActionSetColorRequiresColor",
+                defaultValue: "tab-action set-color requires --color <name|#hex> (or a trailing color)"
+            ))
         }
 
         var params: [String: Any] = ["action": action]
@@ -7772,6 +7785,9 @@ struct CMUXCLI {
         if let title, !title.isEmpty {
             params["title"] = title
         }
+        if let color, !color.isEmpty {
+            params["color"] = color
+        }
         if let urlOpt, !urlOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["url"] = urlOpt.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -7781,6 +7797,7 @@ struct CMUXCLI {
         if let tabHandle = formatTabHandle(payload, idFormat: idFormat) { summaryParts.append("tab=\(tabHandle)") }
         if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) { summaryParts.append("workspace=\(workspaceHandle)") }
         if let closed = payload["closed"] { summaryParts.append("closed=\(closed)") }
+        if let color = payload["color"] as? String { summaryParts.append("color=\(color)") }
         if let enabled = payload["full_width_tab_mode"] { summaryParts.append("full_width_tab_mode=\(enabled)") }
         if let created = formatCreatedTabHandle(payload, idFormat: idFormat) { summaryParts.append("created=\(created)") }
         appendCreatedWorkspaceSummaryParts(from: payload, idFormat: idFormat, to: &summaryParts)
@@ -16261,7 +16278,7 @@ struct CMUXCLI {
               cmux workspace-action clear-color
             """
         case "tab-action":
-            return """
+            return String(localized: "cli.help.tabAction", defaultValue: """
             Usage: cmux tab-action --action <name> [flags]
 
             Perform horizontal tab context-menu actions from CLI/socket.
@@ -16273,6 +16290,7 @@ struct CMUXCLI {
               move-to-new-workspace
               reload | duplicate
               pin | unpin | mark-unread | toggle-full-width-tab
+              set-color | clear-color
 
             Flags:
               --action <name>              Action name (required if not positional)
@@ -16281,15 +16299,22 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
               --window <id|ref|index>      Window context for workspace/tab refs and indexes
               --title <text>               Title for rename (or pass trailing title text)
+              --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
               --url <url>                  Optional URL for new-browser-right
               --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)
+
+            Named colors:
+              Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
+              Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal
 
             Example:
               cmux tab-action --tab tab:3 --action pin
               cmux tab-action --action close-right
               cmux tab-action --tab tab:2 --action move-to-new-workspace
               cmux tab-action --tab tab:2 --action rename --title "build logs"
-            """
+              cmux tab-action --tab tab:2 --action set-color --color Purple
+              cmux tab-action --surface surface:2 clear-color
+            """)
         case "move-tab-to-new-workspace", "detach-tab":
             return Self.moveTabToNewWorkspaceCommandHelp
         case "rename-tab":
@@ -36122,7 +36147,7 @@ export default CMUXSessionRestore;
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
-          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
+          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--url <url>] [--focus <true|false>]
           surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           rename-tab [--workspace <id|ref|index>] [--tab <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <title>
           drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]

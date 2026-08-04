@@ -15,6 +15,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     public let typeRawValue: String
     /// The resolved display title.
     public let title: String
+    /// The surface's custom pane color as normalized `#RRGGBB`, if set.
+    public let customColor: String?
     /// Whether this surface is the workspace's focused surface.
     public let isFocused: Bool
     /// The enclosing pane's identifier, if it resolved.
@@ -59,6 +61,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     ///   - surfaceID: The surface's panel identifier.
     ///   - typeRawValue: The panel type's raw value.
     ///   - title: The resolved display title.
+    ///   - customColor: The surface's custom pane color, if set.
     ///   - isFocused: Whether this surface is focused.
     ///   - paneID: The enclosing pane's identifier, if resolved.
     ///   - indexInPane: The surface's index within its pane, if resolved.
@@ -74,6 +77,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         surfaceID: UUID,
         typeRawValue: String,
         title: String,
+        customColor: String? = nil,
         isFocused: Bool,
         paneID: UUID?,
         indexInPane: Int?,
@@ -94,6 +98,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         self.surfaceID = surfaceID
         self.typeRawValue = typeRawValue
         self.title = title
+        self.customColor = customColor
         self.isFocused = isFocused
         self.paneID = paneID
         self.indexInPane = indexInPane

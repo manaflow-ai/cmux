@@ -496,6 +496,7 @@ extension Workspace {
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
+        panelCustomColors.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
         pinMutationTokensByPanelId.removeValue(forKey: panelId)
         manualUnreadPanelIds.remove(panelId)

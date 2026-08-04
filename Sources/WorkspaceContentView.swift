@@ -101,6 +101,7 @@ private struct WorkspacePanelContentHostView: View {
 final class TmuxWorkspacePaneOverlayModel {
     private(set) var unreadRects: [CGRect] = []
     private(set) var flashRect: CGRect?
+    private(set) var customPaneBorders: [TmuxWorkspacePaneColorBorder] = []
     private(set) var activePaneBorderRect: CGRect?
     private(set) var activePaneBorderColorHex: String?
     private(set) var flashStartedAt: Date?
@@ -115,6 +116,7 @@ final class TmuxWorkspacePaneOverlayModel {
     ) {
         unreadRects = state.unreadRects
         flashRect = state.flashRect
+        customPaneBorders = state.customPaneBorders
         activePaneBorderRect = state.activePaneBorderRect
         activePaneBorderColorHex = state.activePaneBorderColorHex
         flashReason = state.flashReason
@@ -139,6 +141,7 @@ final class TmuxWorkspacePaneOverlayModel {
     func clear() {
         unreadRects = []
         flashRect = nil
+        customPaneBorders = []
         activePaneBorderRect = nil
         activePaneBorderColorHex = nil
         flashStartedAt = nil

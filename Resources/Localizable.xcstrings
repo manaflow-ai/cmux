@@ -36147,6 +36147,23 @@
         }
       }
     },
+    "cli.error.invalidColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid color. Use a hex value (#RRGGBB) or a named color."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色が無効です。16 進数（#RRGGBB）または名前付きの色を指定してください。"
+          }
+        }
+      }
+    },
     "cli.error.markNotificationReadSelector": {
       "extractionState": "manual",
       "localizations": {
@@ -36181,6 +36198,23 @@
         }
       }
     },
+    "cli.error.missingColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色が指定されていないか、無効です"
+          }
+        }
+      }
+    },
     "cli.error.openNotificationRequiresId": {
       "extractionState": "manual",
       "localizations": {
@@ -36211,6 +36245,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ssh-session-attach: --workspace の値を指定してください"
+          }
+        }
+      }
+    },
+    "cli.error.tabActionSetColorRequiresColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color requires --color <name|#hex> (or a trailing color)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tab-action set-color には --color <name|#hex>（または末尾の色指定）が必要です"
           }
         }
       }
@@ -38043,6 +38094,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mosh 終端傳輸：\n  --transport <ssh|mosh>  互動式終端傳輸方式（預設：ssh）\n\nSSH 管理遠端功能，Mosh 只承載終端。如果本機或遠端缺少 Mosh，cmux 會說明原因並使用 SSH。\n\n範例：\n  cmux ssh dev@my-host --transport mosh"
+          }
+        }
+      }
+    },
+    "cli.help.tabAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux tab-action --action <name> [flags]\n\nPerform horizontal tab context-menu actions from CLI/socket.\n\nActions:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nFlags:\n  --action <name>              Action name (required if not positional)\n  --tab <id|ref|index>         Target tab (accepts tab:<n> or surface:<n>; default: $CMUX_TAB_ID, then $CMUX_SURFACE_ID, then focused tab)\n  --surface <id|ref|index>     Alias for --tab (backward compatibility)\n  --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Window context for workspace/tab refs and indexes\n  --title <text>               Title for rename (or pass trailing title text)\n  --color <name|#hex>          Color for set-color (name or #RRGGBB hex)\n  --url <url>                  Optional URL for new-browser-right\n  --focus <true|false>         Focus the destination when supported (default: false for move-to-new-workspace)\n\nNamed colors:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nExample:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux tab-action --action <name> [flags]\n\nCLI/ソケットから横タブのコンテキストメニュー操作を実行します。\n\nActions:\n  rename | clear-name\n  close-left | close-right | close-others\n  new-terminal-right | new-browser-right\n  move-to-new-workspace\n  reload | duplicate\n  pin | unpin | mark-unread | toggle-full-width-tab\n  set-color | clear-color\n\nFlags:\n  --action <name>              操作名（位置引数で指定しない場合は必須）\n  --tab <id|ref|index>         対象タブ（tab:<n> または surface:<n> を指定可能。デフォルト: $CMUX_TAB_ID、次に $CMUX_SURFACE_ID、次にフォーカス中のタブ）\n  --surface <id|ref|index>     --tab の別名（後方互換性のため）\n  --workspace <id|ref|index>   ワークスペースコンテキスト（デフォルト: current/$CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      ワークスペース/タブ参照とインデックスのウィンドウコンテキスト\n  --title <text>               rename のタイトル（または末尾にタイトルテキストを指定）\n  --color <name|#hex>          set-color の色（名前または #RRGGBB 形式の 16 進数）\n  --url <url>                  new-browser-right の任意の URL\n  --focus <true|false>         対応する操作で移動先へフォーカス（move-to-new-workspace のデフォルト: false）\n\nNamed colors:\n  Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,\n  Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal\n\nExample:\n  cmux tab-action --tab tab:3 --action pin\n  cmux tab-action --action close-right\n  cmux tab-action --tab tab:2 --action move-to-new-workspace\n  cmux tab-action --tab tab:2 --action rename --title \"build logs\"\n  cmux tab-action --tab tab:2 --action set-color --color Purple\n  cmux tab-action --surface surface:2 clear-color"
           }
         }
       }

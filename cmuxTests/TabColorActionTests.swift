@@ -48,6 +48,10 @@ struct TabColorActionTests {
         #expect(setPayload["color"] == .string("#7A4FD8"))
         #expect(manager.selectedTabId == selectedWorkspace.id)
         #expect(try surfaceColor(coordinator: coordinator, params: routingParams) == .string("#7A4FD8"))
+        #expect(
+            targetWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first(where: { $0.id == targetSurfaceID })?.customColor == "#7A4FD8"
+        )
 
         let clearResult = coordinator.handle(ControlRequest(
             id: .string("clear-color"),
@@ -64,6 +68,10 @@ struct TabColorActionTests {
         #expect(clearPayload["color"] == .null)
         #expect(manager.selectedTabId == selectedWorkspace.id)
         #expect(try surfaceColor(coordinator: coordinator, params: routingParams) == .null)
+        #expect(
+            targetWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first(where: { $0.id == targetSurfaceID })?.customColor == nil
+        )
     }
 
     private func surfaceColor(

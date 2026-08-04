@@ -12,6 +12,8 @@ public enum ControlTabActionResolution: Sendable, Equatable {
         case title(String)
         /// `pin` / `unpin` — the `pinned` flag.
         case pinned(Bool)
+        /// `set_color` / `clear_color` — the resulting custom color.
+        case color(String?)
         /// `toggle_full_width_tab` — the resulting full-width tab mode flag.
         case fullWidthTabMode(Bool)
         /// `duplicate` / `new_terminal_right` / `new_browser_right` — the
@@ -77,6 +79,9 @@ public enum ControlTabActionResolution: Sendable, Equatable {
     case unknownAction
     /// `rename` without a usable `title`.
     case invalidTitle
+    /// `set_color` without a usable color. Named colors are present when the
+    /// input was non-empty but did not resolve.
+    case invalidColor(namedColors: [String]?)
     /// `new_browser_right` with an unparsable `url`.
     case invalidURL(rawURL: String)
     /// `reload` on a non-browser surface.

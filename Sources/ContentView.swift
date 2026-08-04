@@ -1060,7 +1060,10 @@ struct ContentView: View {
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let resolvedActivePaneBorderColorHex = WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
         let shouldShowActivePaneBorder = shouldShowActivePaneBorder(for: workspace, colorHex: resolvedActivePaneBorderColorHex)
-        guard usesWorkspacePaneOverlay || shouldShowActivePaneBorder else { return nil }
+        let shouldShowCustomPaneBorders = shouldShowCustomPaneBorders(for: workspace)
+        guard usesWorkspacePaneOverlay || shouldShowActivePaneBorder || shouldShowCustomPaneBorders else {
+            return nil
+        }
 
         let layoutSnapshot = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
             cachedSnapshot: workspace.tmuxLayoutSnapshot,
@@ -1138,6 +1141,37 @@ struct ContentView: View {
             flashRect = nil
         }
 
+        let customPaneBorders: [TmuxWorkspacePaneColorBorder]
+        if shouldShowCustomPaneBorders, let layoutSnapshot {
+            customPaneBorders = layoutSnapshot.panes.compactMap { pane in
+                guard let selectedTabId = pane.selectedTabId,
+                      let tabUUID = UUID(uuidString: selectedTabId),
+                      let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: tabUUID)),
+                      let panel = workspace.panels[panelId],
+                      let colorHex = workspace.panelCustomColors[panelId].flatMap(
+                          WorkspaceTabColorSettings.normalizedHex
+                      ) else {
+                    return nil
+                }
+                let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
+                    layoutSnapshot: layoutSnapshot,
+                    paneId: workspace.paneId(forPanelId: panelId)
+                )
+                let exactRect = contentView.flatMap {
+                    Self.tmuxWorkspacePaneExactRect(for: panel, in: $0)
+                }
+                guard let rect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
+                    exactRect: exactRect,
+                    paneRect: paneRect
+                ) else {
+                    return nil
+                }
+                return TmuxWorkspacePaneColorBorder(rect: rect, colorHex: colorHex)
+            }
+        } else {
+            customPaneBorders = []
+        }
+
         let activePaneBorderRect: CGRect?
         if shouldShowActivePaneBorder,
            let panelId = workspace.focusedPanelId,
@@ -1155,12 +1189,16 @@ struct ContentView: View {
             activePaneBorderRect = nil
         }
 
-        if unreadRects.isEmpty, flashRect == nil, activePaneBorderRect == nil {
+        if unreadRects.isEmpty,
+           flashRect == nil,
+           customPaneBorders.isEmpty,
+           activePaneBorderRect == nil {
             guard usesWorkspacePaneOverlay else { return nil }
             return TmuxWorkspacePaneOverlayRenderState(
                 workspaceId: workspace.id,
                 unreadRects: [],
                 flashRect: nil,
+                customPaneBorders: [],
                 activePaneBorderRect: nil,
                 activePaneBorderColorHex: nil,
                 flashToken: workspace.tmuxWorkspaceFlashToken,
@@ -1172,6 +1210,7 @@ struct ContentView: View {
             workspaceId: workspace.id,
             unreadRects: unreadRects,
             flashRect: flashRect,
+            customPaneBorders: customPaneBorders,
             activePaneBorderRect: activePaneBorderRect,
             activePaneBorderColorHex: activePaneBorderRect == nil ? nil : resolvedActivePaneBorderColorHex,
             flashToken: workspace.tmuxWorkspaceFlashToken,
@@ -1198,11 +1237,18 @@ struct ContentView: View {
         colorHex != nil && workspace.layoutMode != .canvas && !fileExplorerState.rightSidebarOwnsInputFocus && workspace.bonsplitController.allPaneIds.count > 1
     }
 
+    private func shouldShowCustomPaneBorders(for workspace: Workspace) -> Bool {
+        workspace.layoutMode != .canvas && !workspace.panelCustomColors.isEmpty
+    }
+
     private func shouldScheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow) -> Bool {
         if TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay { return true }
         if WindowTmuxWorkspacePaneOverlayController.controller(for: window, createIfNeeded: false)?.hasRenderedState == true { return true }
         guard let workspace = tabManager.selectedWorkspace else { return false }
-        return shouldShowActivePaneBorder(for: workspace, colorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex))
+        return shouldShowActivePaneBorder(
+            for: workspace,
+            colorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
+        ) || shouldShowCustomPaneBorders(for: workspace)
     }
 
     private func scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow?) {
@@ -2786,6 +2832,7 @@ struct ContentView: View {
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
@@ -2906,6 +2953,13 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceLayoutModeDidChange)) { notification in
+            guard (notification.object as? Workspace)?.id == tabManager.selectedTabId else { return }
+            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+            for: Workspace.panelCustomColorDidChangeNotification
+        )) { notification in
             guard (notification.object as? Workspace)?.id == tabManager.selectedTabId else { return }
             refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
         })

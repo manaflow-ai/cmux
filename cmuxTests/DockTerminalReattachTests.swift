@@ -77,6 +77,7 @@ extension DockSocketLifecycleTests {
             cachedTitle: cachedTitle,
             customTitle: customTitle,
             customTitleSource: customTitleSource,
+            customColor: nil,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
             restorableAgent: restorableAgent,

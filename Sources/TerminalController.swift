@@ -4730,30 +4730,31 @@ class TerminalController {
                 finish()
 
             case "set_color":
-                guard let colorRaw = v2String(params, "color"),
-                      !colorRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    result = .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
+                switch WorkspaceTabColorSettings.resolveColorInput(v2String(params, "color")) {
+                case .missing:
+                    result = .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "cli.error.missingColor",
+                            defaultValue: "Missing or invalid color"
+                        ),
+                        data: nil
+                    )
                     return
-                }
-                let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Resolve named colors from the effective palette, including file-defined additions.
-                let effectivePalette = WorkspaceTabColorSettings.palette()
-                let hex: String
-                if let entry = effectivePalette.first(where: {
-                    $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
-                }) {
-                    hex = entry.hex
-                } else if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
-                    hex = normalized
-                } else {
-                    let colorNames = effectivePalette.map(\.name)
-                    result = .err(code: "invalid_params", message: "Invalid color. Use a hex value (#RRGGBB) or a named color.", data: [
-                        "named_colors": colorNames
-                    ])
+                case .invalid(let colorNames):
+                    result = .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "cli.error.invalidColor",
+                            defaultValue: "Invalid color. Use a hex value (#RRGGBB) or a named color."
+                        ),
+                        data: ["named_colors": colorNames]
+                    )
                     return
+                case .resolved(let hex):
+                    tabManager.setTabColor(tabId: workspace.id, color: hex)
+                    finish(["color": hex])
                 }
-                tabManager.setTabColor(tabId: workspace.id, color: hex)
-                finish(["color": hex])
 
             case "clear_color":
                 tabManager.setTabColor(tabId: workspace.id, color: nil)

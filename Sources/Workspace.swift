@@ -719,6 +719,7 @@ extension Workspace {
             title: panelTitle,
             customTitle: customTitle,
             customTitleSource: customTitleSource,
+            customColor: panelCustomColors[panelId],
             directory: directory,
             directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
             directoryRequiresRemoteTrust: directoryRequiresRemoteTrust ? true : nil,
@@ -1848,6 +1849,7 @@ extension Workspace {
         }
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
+        _ = setPanelCustomColor(panelId: panelId, colorHex: snapshot.customColor)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
         // The bonsplit tab header only refreshes when `updateTab` is called; the writes
@@ -2096,6 +2098,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
+    )
+    static let panelCustomColorDidChangeNotification = Notification.Name(
+        "cmux.workspacePanelCustomColorDidChange"
     )
     let id: UUID
     /// Restart-stable workspace identifier persisted for durable deep links.
@@ -2431,6 +2436,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
+    @Published var panelCustomColors: [UUID: String] = [:]
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
@@ -4576,6 +4582,34 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
+    @discardableResult
+    func setPanelCustomColor(panelId: UUID, colorHex: String?) -> Bool {
+        guard panels[panelId] != nil else { return false }
+
+        let normalizedColor: String?
+        if let colorHex {
+            guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorHex) else {
+                return false
+            }
+            normalizedColor = normalized
+        } else {
+            normalizedColor = nil
+        }
+
+        guard panelCustomColors[panelId] != normalizedColor else { return true }
+        if let normalizedColor {
+            panelCustomColors[panelId] = normalizedColor
+        } else {
+            panelCustomColors.removeValue(forKey: panelId)
+        }
+        NotificationCenter.default.post(
+            name: Self.panelCustomColorDidChangeNotification,
+            object: self,
+            userInfo: ["panelId": panelId]
+        )
+        return true
+    }
+
     func isPanelPinned(_ panelId: UUID) -> Bool {
         pinnedPanelIds.contains(panelId)
     }
@@ -5357,6 +5391,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
+        panelCustomColors = panelCustomColors.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         pinMutationTokensByPanelId = pinMutationTokensByPanelId.filter { validSurfaceIds.contains($0.key) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
@@ -9748,6 +9783,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         bindSurface(newTabId, toPanelId: detached.panelId)
         panels[detached.panelId] = detached.panel
+        _ = setPanelCustomColor(panelId: detached.panelId, colorHex: detached.customColor)
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
             configureTerminalPanel(terminalPanel)
@@ -12561,6 +12597,7 @@ extension Workspace: BonsplitDelegate {
                 customTitleSource: panelCustomTitles[panelId] != nil
                     ? (panelCustomTitleSources[panelId] ?? .user)
                     : nil,
+                customColor: panelCustomColors[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,
