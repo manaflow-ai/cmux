@@ -551,6 +551,17 @@ final class AutomationSocketUITests: XCTestCase {
             }
             productDirectories.append(productsDirectory)
         }
+        for bundleURL in [Bundle.main.bundleURL, Bundle(for: Self.self).bundleURL] {
+            let components = bundleURL.standardizedFileURL.path.split(separator: "/")
+            guard let productsIndex = components.firstIndex(of: "Products"),
+                  productsIndex + 1 < components.count else {
+                continue
+            }
+            let productsPath = "/" + components
+                .prefix(productsIndex + 2)
+                .joined(separator: "/")
+            productDirectories.append(URL(fileURLWithPath: productsPath, isDirectory: true))
+        }
 
         var candidates: [URL] = []
         for directory in productDirectories {
