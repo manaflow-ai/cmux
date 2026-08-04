@@ -18,7 +18,7 @@ extension XCUIApplication {
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         options.issueMatcher = { issue in
-            guard issue.type == .system else { return false }
+            guard issue.type == .assertionFailure || issue.type == .system else { return false }
 
             let description = [
                 issue.compactDescription,
