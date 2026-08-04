@@ -32,6 +32,9 @@ process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-0000000000
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
 process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??=
   "0123456789abcdef0123456789abcdef-test";
+process.env.SUBROUTER_ALLOWED_TEAM_IDS ??= "*";
+process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS ??= "0";
+process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS ??= "10000";
 
 const ACCOUNT_USER_ID = "account-user-1";
 const originalPostHogPersonalApiKey = process.env.POSTHOG_PERSONAL_API_KEY;
@@ -82,10 +85,14 @@ const updateStackUser = mock(async () => {
 });
 const getUser = mock(async () => stackUser(stackUserIds.shift()));
 let authoritativeAccessToken = "access-token";
-const getAuthJson = mock(async () => ({
-  accessToken: authoritativeAccessToken,
-  refreshToken: "refresh-token",
-}));
+let stackAuthJsonError: Error | null = null;
+const getAuthJson = mock(async () => {
+  if (stackAuthJsonError) throw stackAuthJsonError;
+  return {
+    accessToken: authoritativeAccessToken,
+    refreshToken: "refresh-token",
+  };
+});
 const transaction = mock(async (...args: unknown[]) => {
   const [callback] = args as [(tx: MockTransaction) => Promise<void>];
   routeEvents.push("transaction");
@@ -658,6 +665,7 @@ beforeEach(() => {
   stackDeleteError = null;
   stackUserIds = [];
   authoritativeAccessToken = "access-token";
+  stackAuthJsonError = null;
   getAuthJson.mockClear();
   process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN =
     "0123456789abcdef0123456789abcdef-test";
@@ -721,6 +729,22 @@ afterEach(() => {
 });
 
 describe("account deletion route", () => {
+  test("returns retryable service unavailable when Stack token refresh fails", async () => {
+    stackAuthJsonError = new Error("Stack refresh unavailable");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(transaction).not.toHaveBeenCalled();
+    expect(postHogDeleteRequests).toHaveLength(0);
+    expect(hostedTenantDeleteRequests).toHaveLength(0);
+  });
+
   test("requires native auth headers", async () => {
     const response = await DELETE(new Request("https://cmux.test/api/account", { method: "DELETE" }));
 
