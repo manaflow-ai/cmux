@@ -59,6 +59,32 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
     }
 }
 
+private actor RuntimeOperationGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            if isOpen {
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+            }
+        }
+    }
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        let pendingWaiters = waiters
+        waiters.removeAll(keepingCapacity: false)
+        for waiter in pendingWaiters {
+            waiter.resume()
+        }
+    }
+}
+
 @Suite struct TerminalSurfaceRuntimeTeardownCoordinatorTests {
     @Test func ticketDistinguishesDeadlineFromEventualCompletion() async {
         let completion = TerminalSurfaceRuntimeTeardownCompletion()
@@ -166,6 +192,97 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await secondTicket.wait(timeout: .seconds(1)))
     }
 
+    @Test func nativeCreationWaitsForEarlierTeardown() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let freeStarted = AsyncStream<Void>.makeStream()
+        let releaseFree = DispatchSemaphore(value: 0)
+        let creationCount = OSAllocatedUnfairLock(initialState: 0)
+        defer {
+            releaseFree.signal()
+            freeStarted.continuation.finish()
+        }
+
+        let teardownTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.creationWaitsForTeardown",
+            surface: surface,
+            callbackContext: nil,
+            freeSurface: { _ in
+                freeStarted.continuation.yield()
+                _ = releaseFree.wait(timeout: .distantFuture)
+            }
+        )
+        var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
+        _ = await freeStartedIterator.next()
+
+        let creationTicket = coordinator.enqueueRuntimeCreation(
+            id: UUID(),
+            reason: "test.afterTeardown"
+        ) {
+            creationCount.withLock { $0 += 1 }
+        }
+
+        #expect(
+            await creationTicket.wait(timeout: .milliseconds(100)) == false,
+            "native creation overlapped an earlier native free"
+        )
+        #expect(creationCount.withLock { $0 } == 0)
+
+        releaseFree.signal()
+        #expect(await teardownTicket.wait(timeout: .seconds(1)))
+        #expect(await creationTicket.wait(timeout: .seconds(1)))
+        #expect(creationCount.withLock { $0 } == 1)
+    }
+
+    @Test func nativeTeardownWaitsForEarlierCreation() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let creationStarted = AsyncStream<Void>.makeStream()
+        let releaseCreation = RuntimeOperationGate()
+        let freeCount = OSAllocatedUnfairLock(initialState: 0)
+        defer {
+            creationStarted.continuation.finish()
+            Task { await releaseCreation.open() }
+        }
+
+        let creationTicket = coordinator.enqueueRuntimeCreation(
+            id: UUID(),
+            reason: "test.creation"
+        ) {
+            creationStarted.continuation.yield()
+            await releaseCreation.wait()
+        }
+        var creationStartedIterator =
+            creationStarted.stream.makeAsyncIterator()
+        _ = await creationStartedIterator.next()
+
+        let teardownTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.afterCreation",
+            surface: surface,
+            callbackContext: nil,
+            freeSurface: { _ in
+                freeCount.withLock { $0 += 1 }
+            }
+        )
+
+        #expect(
+            await teardownTicket.wait(timeout: .milliseconds(100)) == false,
+            "native free overlapped an earlier native creation"
+        )
+        #expect(freeCount.withLock { $0 } == 0)
+
+        await releaseCreation.open()
+        #expect(await creationTicket.wait(timeout: .seconds(1)))
+        #expect(await teardownTicket.wait(timeout: .seconds(1)))
+        #expect(freeCount.withLock { $0 } == 1)
+    }
+
     @Test func queuedCloseNativeFreesEventuallyDrain() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let surfaces = (0..<3).map { _ in
@@ -259,7 +376,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         }
 
         let isolatedReservation = try #require(
-            await coordinator.reserveIsolatedHibernationTeardown()
+            await coordinator.reserveHibernationTeardown()
         )
         let isolatedTicket = coordinator.enqueueRuntimeTeardown(
             id: UUID(),
@@ -269,8 +386,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: nil,
-            executionLane: .isolatedHibernation,
-            isolatedHibernationReservation: isolatedReservation,
+            hibernationReservation: isolatedReservation,
             freeSurface: { _ in
                 isolatedFreeStarted.continuation.yield()
                 _ = releaseIsolatedFree.wait(timeout: .distantFuture)
@@ -280,9 +396,9 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         _ = await isolatedFreeIterator.next()
 
         let secondReservation = try #require(
-            await coordinator.reserveIsolatedHibernationTeardown()
+            await coordinator.reserveHibernationTeardown()
         )
-        #expect(await coordinator.reserveIsolatedHibernationTeardown() == nil)
+        #expect(await coordinator.reserveHibernationTeardown() == nil)
         let secondIsolatedTicket = coordinator.enqueueRuntimeTeardown(
             id: UUID(),
             workspaceId: UUID(),
@@ -291,8 +407,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: nil,
-            executionLane: .isolatedHibernation,
-            isolatedHibernationReservation: secondReservation,
+            hibernationReservation: secondReservation,
             freeSurface: { _ in
                 secondIsolatedFreeCount.withLock { $0 += 1 }
             }
@@ -319,7 +434,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(closeFreeCount.withLock { $0 } == 0)
         #expect(await isolatedTicket.wait(timeout: .zero) == false)
         #expect(secondIsolatedFreeCount.withLock { $0 } == 0)
-        #expect(await coordinator.reserveIsolatedHibernationTeardown() == nil)
+        #expect(await coordinator.reserveHibernationTeardown() == nil)
 
         releaseIsolatedFree.signal()
         #expect(await isolatedTicket.wait(timeout: .seconds(1)))
@@ -329,9 +444,9 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(closeFreeCount.withLock { $0 } == 1)
 
         let nextReservation = try #require(
-            await coordinator.reserveIsolatedHibernationTeardown()
+            await coordinator.reserveHibernationTeardown()
         )
-        await coordinator.cancelIsolatedHibernationTeardown(nextReservation)
+        await coordinator.cancelHibernationTeardown(nextReservation)
     }
 
     @Test func staleIsolatedReservationFallsBackToSerializedFree() async throws {
@@ -340,9 +455,9 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         defer { surface.deallocate() }
         let freeCount = OSAllocatedUnfairLock(initialState: 0)
         let staleReservation = try #require(
-            await coordinator.reserveIsolatedHibernationTeardown()
+            await coordinator.reserveHibernationTeardown()
         )
-        await coordinator.cancelIsolatedHibernationTeardown(staleReservation)
+        await coordinator.cancelHibernationTeardown(staleReservation)
 
         let ticket = coordinator.enqueueRuntimeTeardown(
             id: UUID(),
@@ -352,8 +467,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: nil,
-            executionLane: .isolatedHibernation,
-            isolatedHibernationReservation: staleReservation,
+            hibernationReservation: staleReservation,
             freeSurface: { _ in
                 freeCount.withLock { $0 += 1 }
             }

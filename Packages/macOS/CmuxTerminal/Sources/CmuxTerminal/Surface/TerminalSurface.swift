@@ -278,6 +278,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         RuntimeSurfaceCreationSource?
     weak var configurationReloadDeferredRuntimeSurfaceView:
         (any TerminalSurfaceNativeViewing)?
+    var queuedRuntimeSurfaceCreationSource: RuntimeSurfaceCreationSource?
+    weak var queuedRuntimeSurfaceCreationView:
+        (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
     var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?

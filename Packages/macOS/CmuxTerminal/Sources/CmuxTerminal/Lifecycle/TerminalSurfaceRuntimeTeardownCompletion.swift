@@ -1,6 +1,6 @@
 import Foundation
 
-/// One native-free completion shared by the enqueueing surface and teardown worker.
+/// One native-operation completion shared by an enqueueing caller and worker.
 actor TerminalSurfaceRuntimeTeardownCompletion {
     private var didFinish = false
     private var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]

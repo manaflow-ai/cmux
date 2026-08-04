@@ -6,18 +6,70 @@ internal import Dispatch
 internal import CMUXDebugLog
 #endif
 
-/// Coordinates native `ghostty_surface_free` calls off the close/deinit paths.
+private struct TerminalSurfaceRuntimeCreationRequest: @unchecked Sendable {
+    let id: UUID
+    let reason: String
+    let operation: @MainActor @Sendable () async -> Void
+    let completion: TerminalSurfaceRuntimeTeardownCompletion
+}
+
+/// An awaitable test seam for one queued native surface creation.
+struct TerminalSurfaceRuntimeCreationTicket: Sendable {
+    private let completion: TerminalSurfaceRuntimeTeardownCompletion
+
+    init(completion: TerminalSurfaceRuntimeTeardownCompletion) {
+        self.completion = completion
+    }
+
+    func wait(timeout: Duration) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await completion.wait()
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                    return false
+                } catch {
+                    return false
+                }
+            }
+            let completed = await group.next() ?? false
+            group.cancelAll()
+            return completed
+        }
+    }
+}
+
+private struct TerminalSurfaceRuntimeQueuedTeardown: @unchecked Sendable {
+    let request: TerminalSurfaceRuntimeTeardownRequest
+    let hibernationReservation: TerminalSurfaceRuntimeTeardownReservation?
+}
+
+private struct TerminalSurfaceRuntimeQueuedScreenTail: @unchecked Sendable {
+    let request: TerminalSurfaceRuntimeScreenTailRequest
+    let continuation: CheckedContinuation<String?, Never>
+}
+
+private enum TerminalSurfaceRuntimeNativeOperation: @unchecked Sendable {
+    case creation(TerminalSurfaceRuntimeCreationRequest)
+    case screenTail(TerminalSurfaceRuntimeQueuedScreenTail)
+    case teardown(TerminalSurfaceRuntimeQueuedTeardown)
+}
+
+/// Coordinates every native surface creation, borrowed read, and free.
 ///
-/// Close/deinit frees run one at a time on a utility worker. Ghostty teardown
-/// mutates renderer state that is also used during surface creation, so close
-/// frees must not overlap each other. Each admitted hibernation owns one
-/// independently startable utility slot. Deadline observers report, but never
-/// block the main actor on, stuck frees. The app constructs exactly one instance
-/// and injects it through
+/// Native operations drain through one process-wide queue. Creation executes on
+/// the main actor because it reads AppKit view state. Bounded reads and blocking
+/// frees execute on one utility worker. The queue never starts the next operation
+/// until the current operation returns, so `ghostty_surface_new`, borrowed native
+/// reads, and `ghostty_surface_free` cannot overlap. Deadline observers report,
+/// but never block the main actor on, stuck frees. The app constructs exactly one
+/// instance and injects it through
 /// ``TerminalSurfaceRuntimeDependencies``.
 public actor TerminalSurfaceRuntimeTeardownCoordinator {
-    /// Largest batch that can own independently startable native-free slots.
-    public static let maximumIsolatedHibernationTeardownCount = 2
+    /// Largest hibernation batch that can reserve pending native teardowns.
+    public static let maximumHibernationTeardownCount = 2
 
     private let timeout: Duration = .seconds(5)
 #if DEBUG
@@ -28,45 +80,73 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
 #else
     private var pendingReasonsById: [UUID: String] = [:]
 #endif
-    private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
+    private var queuedOperations: [TerminalSurfaceRuntimeNativeOperation] = []
+    private var nextQueuedOperationIndex = 0
     private var isWorkerRunning = false
-    private let isolatedHibernationQueues: [DispatchQueue]
-    private nonisolated let isolatedHibernationAdmission =
+    private nonisolated let nativeWorkerQueue: DispatchQueue
+    private nonisolated let hibernationAdmission =
         TerminalSurfaceRuntimeTeardownAdmission()
 
-    /// Creates the process's teardown coordinator.
+    /// Creates the process's native surface lifecycle coordinator.
     public init() {
-        isolatedHibernationQueues = (
-            0..<Self.maximumIsolatedHibernationTeardownCount
-        ).map { executionSlot in
-            DispatchQueue(
-                label: "com.cmux.terminal-surface-hibernation-teardown.\(executionSlot)",
-                qos: .utility
+        nativeWorkerQueue = DispatchQueue(
+            label: "com.cmux.terminal-surface-native-lifecycle",
+            qos: .utility
+        )
+    }
+
+    @MainActor
+    func reserveHibernationTeardown()
+        -> TerminalSurfaceRuntimeTeardownReservation? {
+        hibernationAdmission.reserve()
+    }
+
+    @MainActor
+    func cancelHibernationTeardown(
+        _ reservation: TerminalSurfaceRuntimeTeardownReservation
+    ) {
+        hibernationAdmission.release(reservation)
+    }
+
+    /// Reads a bounded screen tail on the native lifecycle worker.
+    func readScreenTailVT(
+        _ request: TerminalSurfaceRuntimeScreenTailRequest
+    ) async -> String? {
+        await withCheckedContinuation { continuation in
+            queuedOperations.append(
+                .screenTail(
+                    TerminalSurfaceRuntimeQueuedScreenTail(
+                        request: request,
+                        continuation: continuation
+                    )
+                )
             )
+            startWorkerIfNeeded()
         }
     }
 
-    @MainActor
-    func reserveIsolatedHibernationTeardown()
-        -> TerminalSurfaceRuntimeTeardownReservation? {
-        isolatedHibernationAdmission.reserve()
-    }
-
-    @MainActor
-    func cancelIsolatedHibernationTeardown(
-        _ reservation: TerminalSurfaceRuntimeTeardownReservation
-    ) {
-        isolatedHibernationAdmission.release(reservation)
-    }
-
-    /// Reads a bounded screen tail away from the main actor and before any
-    /// subsequently enqueued native free for the same surface.
+    /// Queues one main-actor native creation behind all earlier native work.
     ///
-    /// The request performs no suspension while it holds the borrowed pointer;
-    /// actor serialization therefore makes the read and a later free mutually
-    /// exclusive.
-    func readScreenTailVT(_ request: TerminalSurfaceRuntimeScreenTailRequest) -> String? {
-        request.read()
+    /// Production operations must not suspend while they own the queue. The
+    /// async shape exists so concurrency tests can hold a creation operation at
+    /// a deterministic boundary without blocking the main actor.
+    @discardableResult
+    nonisolated func enqueueRuntimeCreation(
+        id: UUID,
+        reason: String,
+        operation: @escaping @MainActor @Sendable () async -> Void
+    ) -> TerminalSurfaceRuntimeCreationTicket {
+        let completion = TerminalSurfaceRuntimeTeardownCompletion()
+        let request = TerminalSurfaceRuntimeCreationRequest(
+            id: id,
+            reason: reason,
+            operation: operation,
+            completion: completion
+        )
+        Task {
+            await self.enqueue(.creation(request))
+        }
+        return TerminalSurfaceRuntimeCreationTicket(completion: completion)
     }
 
     /// Queues a native-surface free from any isolation (the surface model's
@@ -141,8 +221,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
-        executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .serializedClose,
-        isolatedHibernationReservation:
+        hibernationReservation:
             TerminalSurfaceRuntimeTeardownReservation? = nil,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void = { surface in
             ghostty_surface_free(surface)
@@ -163,78 +242,110 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         )
         Task {
             await self.enqueue(
-                request,
-                executionLane: executionLane,
-                isolatedHibernationReservation: isolatedHibernationReservation
+                .teardown(
+                    TerminalSurfaceRuntimeQueuedTeardown(
+                        request: request,
+                        hibernationReservation:
+                            hibernationReservation
+                    )
+                )
             )
         }
         return ticket
     }
 
-    func enqueue(
-        _ request: TerminalSurfaceRuntimeTeardownRequest,
-        executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .serializedClose,
-        isolatedHibernationReservation:
-            TerminalSurfaceRuntimeTeardownReservation? = nil
-    ) async {
-        pendingReasonsById[request.id] = request.reason
-        switch executionLane {
-        case .isolatedHibernation:
-            if let isolatedHibernationReservation,
-               let executionSlot = await isolatedHibernationAdmission.executionSlot(
-                   for: isolatedHibernationReservation
-               ),
-               isolatedHibernationQueues.indices.contains(executionSlot) {
-                // Each reservation exclusively owns one queue until its native free
-                // returns. Ghostty locks its shared surface registry, while renderer
-                // and IO joins are surface-owned, so separate surfaces may tear down
-                // concurrently. This bounds blocked native workers at two without
-                // letting one stuck pane strand another admitted pane.
+    private func enqueue(_ operation: TerminalSurfaceRuntimeNativeOperation) {
+        if case let .teardown(queuedTeardown) = operation {
+            pendingReasonsById[queuedTeardown.request.id] =
+                queuedTeardown.request.reason
+        }
+        queuedOperations.append(operation)
+        startWorkerIfNeeded()
+    }
+
+    private func startWorkerIfNeeded() {
+        guard !isWorkerRunning else { return }
+        isWorkerRunning = true
+        Task(priority: .utility) {
+            await self.drainQueuedOperations()
+        }
+    }
+
+    private func drainQueuedOperations() async {
+        while let operation = nextOperationForWorker() {
+            switch operation {
+            case let .creation(request):
+#if DEBUG
+                logDebugEvent(
+                    "surface.lifecycle.nativeCreate.begin surface=\(request.id.uuidString.prefix(5)) " +
+                    "reason=\(request.reason)"
+                )
+#endif
+                await request.operation()
+                await request.completion.finish()
+#if DEBUG
+                logDebugEvent(
+                    "surface.lifecycle.nativeCreate.end surface=\(request.id.uuidString.prefix(5)) " +
+                    "reason=\(request.reason)"
+                )
+#endif
+            case let .screenTail(queuedRead):
+                let result = await readScreenTailOnNativeWorker(
+                    queuedRead.request
+                )
+                queuedRead.continuation.resume(returning: result)
+            case let .teardown(queuedTeardown):
+                let request = queuedTeardown.request
                 Task {
                     await self.observeTimeout(id: request.id)
                 }
-                isolatedHibernationQueues[executionSlot].async {
-                    self.freeNativeSurface(request)
-                    Task {
-                        await self.isolatedHibernationAdmission.release(
-                            isolatedHibernationReservation
-                        )
-                        await self.finishFree(request)
-                        await self.complete(id: request.id)
-                    }
+                await freeNativeSurfaceOnWorker(request)
+                await finishFree(request)
+                if let reservation = queuedTeardown.hibernationReservation {
+                    await hibernationAdmission.release(reservation)
                 }
-                return
-            }
-            if let isolatedHibernationReservation {
-                await isolatedHibernationAdmission.release(
-                    isolatedHibernationReservation
-                )
-            }
-        case .serializedClose:
-            break
-        }
-        queuedRequests.append(request)
-        if !isWorkerRunning {
-            isWorkerRunning = true
-            Task.detached(priority: .utility) {
-                while let request = await self.nextRequestForWorker() {
-                    Task {
-                        await self.observeTimeout(id: request.id)
-                    }
-                    self.freeNativeSurface(request)
-                    await self.finishFree(request)
-                    await self.complete(id: request.id)
-                }
+                complete(id: request.id)
             }
         }
     }
 
-    private func nextRequestForWorker() -> TerminalSurfaceRuntimeTeardownRequest? {
-        guard !queuedRequests.isEmpty else {
+    private func nextOperationForWorker()
+        -> TerminalSurfaceRuntimeNativeOperation?
+    {
+        guard nextQueuedOperationIndex < queuedOperations.count else {
+            queuedOperations.removeAll(keepingCapacity: true)
+            nextQueuedOperationIndex = 0
             isWorkerRunning = false
             return nil
         }
-        return queuedRequests.removeFirst()
+        let operation = queuedOperations[nextQueuedOperationIndex]
+        nextQueuedOperationIndex += 1
+        if nextQueuedOperationIndex == queuedOperations.count {
+            queuedOperations.removeAll(keepingCapacity: true)
+            nextQueuedOperationIndex = 0
+        }
+        return operation
+    }
+
+    private nonisolated func readScreenTailOnNativeWorker(
+        _ request: TerminalSurfaceRuntimeScreenTailRequest
+    ) async -> String? {
+        await withCheckedContinuation { continuation in
+            nativeWorkerQueue.async {
+                continuation.resume(returning: request.read())
+            }
+        }
+    }
+
+    private nonisolated func freeNativeSurfaceOnWorker(
+        _ request: TerminalSurfaceRuntimeTeardownRequest
+    ) async {
+        await withCheckedContinuation { continuation in
+            nativeWorkerQueue.async {
+                self.freeNativeSurface(request)
+                continuation.resume()
+            }
+        }
     }
 
     private nonisolated func freeNativeSurface(

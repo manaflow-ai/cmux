@@ -164,14 +164,14 @@ import Testing
     @Test func hibernationAdmissionFailurePreservesLiveRuntimeSurface() throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let firstReservation = try #require(
-            coordinator.reserveIsolatedHibernationTeardown()
+            coordinator.reserveHibernationTeardown()
         )
         let secondReservation = try #require(
-            coordinator.reserveIsolatedHibernationTeardown()
+            coordinator.reserveHibernationTeardown()
         )
         defer {
-            coordinator.cancelIsolatedHibernationTeardown(firstReservation)
-            coordinator.cancelIsolatedHibernationTeardown(secondReservation)
+            coordinator.cancelHibernationTeardown(firstReservation)
+            coordinator.cancelHibernationTeardown(secondReservation)
         }
 
         let surface = makeSurface(runtimeTeardown: coordinator)
