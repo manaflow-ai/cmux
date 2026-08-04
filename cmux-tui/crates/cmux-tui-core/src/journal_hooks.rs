@@ -801,6 +801,13 @@ mod tests {
     }
 
     #[test]
+    fn hook_delivery_workers_are_strictly_bounded() {
+        assert_eq!(delivery_worker_count(1), 4);
+        assert_eq!(delivery_worker_count(8), 16);
+        assert_eq!(delivery_worker_count(usize::MAX), 32);
+    }
+
+    #[test]
     fn compiled_hook_regex_matches_cached_payload_bytes() {
         let mut manifest = manifest();
         manifest.filter.regex = Some(crate::JournalHookRegex {
