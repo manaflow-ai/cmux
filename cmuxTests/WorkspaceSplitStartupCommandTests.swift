@@ -2,7 +2,6 @@ import XCTest
 import CmuxTerminal
 import Bonsplit
 import AppKit
-import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -115,12 +114,10 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             "cmux.json split ratio should be applied to the Bonsplit model before rendering"
         )
 
-        let hostingView = NSHostingView(
-            rootView: BonsplitView(controller: workspace.bonsplitController) { _, _ in
-                Color.clear
-            } emptyPane: { _ in
-                Color.clear
-            }
+        let bonsplitViewController = BonsplitViewController(
+            controller: workspace.bonsplitController,
+            content: { _, _ in NSViewController() },
+            emptyPane: { _ in NSViewController() }
         )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 500),
@@ -130,15 +127,16 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
+        let initialContentBounds = try XCTUnwrap(window.contentView).bounds
+        bonsplitViewController.view.frame = initialContentBounds
+        bonsplitViewController.view.autoresizingMask = [.width, .height]
+        window.contentViewController = bonsplitViewController
         let contentView = try XCTUnwrap(window.contentView)
-        hostingView.frame = contentView.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
 
         window.makeKeyAndOrderFront(nil)
         contentView.layoutSubtreeIfNeeded()
         _ = try waitForWorkspaceSplitView(
-            in: hostingView,
+            in: bonsplitViewController.view,
             contentView: contentView,
             expectedDividerPosition: expectedDividerPosition,
             accuracy: 0.03
