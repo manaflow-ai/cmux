@@ -1,6 +1,10 @@
 # Build a cmux-tui Frontend
 
-This is the canonical integration path for an external cmux-tui frontend. This document narrates the complete protocol-v9 flow. Rich frontends should consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.
+This guide covers the private protocol-v10 frontend interface. Applications
+and extensions should use [`cmux.protocol/1`](resource-api-v1.md) and its typed
+terminal, browser, sidebar, and session streams.
+
+Rich frontends consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.
 
 The complete command schemas are in [`commands.md`](commands.md), event schemas and scoping are in [`events.md`](events.md), and styled-cell details are in [`render.md`](render.md).
 
@@ -16,18 +20,18 @@ Every WebSocket authenticates before protocol commands. A static or previously i
 {"auth":{"token":"replace-with-a-secret"}}
 ```
 
-Only then send protocol requests. See [`transports.md`](transports.md#authentication-preamble) for rejection and bind rules.
+Only then send protocol requests. See [`transports.md`](transports.md#authentication-and-pairing) for rejection and bind rules.
 
 ## 2. Identify And Select Capabilities
 
-Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 9` before enabling protocol-v9 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
+Send [`identify`](commands.md#identify) immediately after connecting. Verify `data.app == "cmux-tui"` and `data.protocol == 10` before enabling protocol-v10 behavior. Preserve request `id` values and route every non-event response back to the pending request with that id.
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":9,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":10,"session":"main","pid":12345}}
 ```
 
-Require `protocol == 9` for the complete flow in this guide, including stack layouts and `new-pane`. Stable split ids and `set-split-ratio` remain available on protocol 8. Render mode, `read-scrollback`, bracketed-paste handling, and lifecycle deltas remain available on protocol 7. A frontend may fall back to protocol-v6 byte attach; it must not send newer fields to an older server.
+Require `protocol == 10` for the complete flow in this guide, including per-surface client sizing. Stack layouts and `new-pane` remain available on protocol 9. Stable split ids and `set-split-ratio` remain available on protocol 8. Render mode, `read-scrollback`, bracketed-paste handling, and lifecycle deltas remain available on protocol 7. A frontend may fall back to protocol-v6 byte attach; it must not send newer fields to an older server.
 
 ## 3. Load And Track The Workspace Tree
 
@@ -84,11 +88,11 @@ render-state -> (render-delta | scroll-changed)* -> detached
 
 The initial snapshot and render tap are registered under one lock, so there is no missing or duplicated frame between them. Attach events may arrive before the attach command response.
 
-Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v9, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
+Call [`list-agents`](commands.md#list-agents) to read current agent records, optionally filtered by surface or state. Agent producers report state through [`report-agent`](commands.md#report-agent); a presentation-only frontend normally reads and displays these records rather than inventing its own agent state. There is no dedicated agent-change event in protocol v10, so re-fetch after a frontend reports state and when tree or surface lifecycle events make the presentation stale.
 
-`render-state.scrollback_rows` and later count changes tell the frontend whether history exists. Fetch visible history in bounded pages with [`read-scrollback`](commands.md#read-scrollback); do not assume indexes remain stable across eviction or resize reflow.
+`render-state.scrollback_rows` and later count changes tell the frontend whether history exists. Fetch visible history in bounded pages with [`read-scrollback`](commands.md#read-scrollback); do not assume indexes remain stable across eviction or resize reflow. Merge pages and project absolute graphics anchors only when the page `epoch` equals the render `history_epoch`; suppress graphics and reload the page after a mismatch.
 
-Browser surfaces use their separate browser attach events rather than terminal render rows.
+Browser surfaces use default attach mode. The initial `browser-state` contains URL, title, lifecycle status, frame-stall state, and the latest frame when available. Later `browser-state` and `frame` events update metadata and pixels separately. Send pointer input with `browser-mouse` and `browser-wheel`, keyboard input with `browser-key` or `browser-insert-text`, and navigation through `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, and `browser-activate`. Each command acknowledges queueing with `{}`; observe the attach stream for eventual state.
 
 ## 5. Byte Mode For Terminal Piping
 
@@ -103,6 +107,8 @@ Render mode is preferred for xterm.js-style web UIs and future Swift frontends b
 ## 6. Send Input And Resize
 
 Use [`send-key`](commands.md#send-key) for named keys and terminal-mode-aware encoding. Use [`send`](commands.md#send) for UTF-8 text or raw bytes. For a paste action, set `paste:true`; the server adds bracketed-paste markers only when the target terminal currently has DEC mode 2004 enabled and otherwise sends the payload unchanged.
+
+Protocol v9 render mode has no PTY mouse or focus-input command. A render frontend cannot reproduce mouse-aware applications such as vim or tmux without maintaining its own terminal modes and using byte input. `send-mouse` and `send-focus` are required vNext primitives.
 
 When the active frontend's geometry changes, convert pixels to cells and call [`resize-surface`](commands.md#resize-surface) with the final `cols` and `rows`. A smaller passive frontend should crop or pan the authoritative grid instead of fighting another client with resize loops. Render and byte clients share one surface size.
 
@@ -119,13 +125,13 @@ Each line is one WebSocket text frame. `C>` is client-to-server and `S>` is serv
 ```text
 C> {"auth":{"token":"secret"}}
 C> {"id":1,"cmd":"identify"}
-S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":9,"session":"main","pid":12345}}
+S> {"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":10,"session":"main","pid":12345}}
 C> {"id":2,"cmd":"subscribe","tree_events":"deltas"}
 S> {"id":2,"ok":true,"data":{}}
 C> {"id":3,"cmd":"list-workspaces"}
 S> {"id":3,"ok":true,"data":{"workspaces":[...]}}
 C> {"id":4,"cmd":"attach-surface","surface":1,"mode":"render"}
-S> {"event":"render-state","surface":1,"size":{"cols":3,"rows":1},"cursor":{"x":2,"y":0,"style":"block","blink":true,"visible":true,"color":null},"default_fg":"#d8d9da","default_bg":"#131415","scrollback_rows":0,"rows":[{"row":0,"runs":[{"text":"$ x","fg":null,"bg":null,"attrs":0}]}]}
+S> {"event":"render-state","surface":1,"size":{"cols":3,"rows":1},"cursor":{"x":2,"y":0,"style":"block","blink":true,"visible":true,"color":null},"default_fg":"#d8d9da","default_bg":"#131415","scrollback_rows":0,"history_epoch":1,"rows":[{"row":0,"runs":[{"text":"$ x","fg":null,"bg":null,"attrs":0}]}]}
 S> {"id":4,"ok":true,"data":{}}
 C> {"id":5,"cmd":"send","surface":1,"text":"echo ready\n"}
 S> {"id":5,"ok":true,"data":{}}

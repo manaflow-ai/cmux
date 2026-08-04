@@ -63,6 +63,24 @@ extension GhosttySurfaceView {
         return await visibleTextSnapshot(surface: surface, generation: generation)
     }
 
+    /// Last settled visible snapshot and the generation it describes.
+    ///
+    /// Callers compare `generation` with ``visibleArtifactCountGeneration``.
+    /// A missing or stale cache cannot authorize immediate focus because newer
+    /// output may have placed an artifact path under the tapped cell.
+    public func cachedVisibleTextForArtifactHitTesting() -> (
+        text: String,
+        columns: Int,
+        generation: UInt64
+    )? {
+        guard let text = lastVisibleArtifactSnapshotText,
+              let columns = lastVisibleArtifactSnapshotColumns,
+              let generation = lastVisibleArtifactSnapshotGeneration else {
+            return nil
+        }
+        return (text, columns, generation)
+    }
+
     /// Re-arms one visible-frame artifact count after the terminal settles.
     ///
     /// This is internal so the local scrollback extension can use the same
@@ -84,6 +102,8 @@ extension GhosttySurfaceView {
         visibleArtifactCountTask = nil
         visibleArtifactCountSettleFrames = artifactFilesEnabled && !isDismantled ? 0 : nil
         lastVisibleArtifactSnapshotText = nil
+        lastVisibleArtifactSnapshotColumns = nil
+        lastVisibleArtifactSnapshotGeneration = nil
         lastReportedVisibleArtifactCount = 0
         delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
     }
@@ -121,11 +141,15 @@ extension GhosttySurfaceView {
                   let snapshot = await self.visibleTextForArtifactHitTesting(),
                   !Task.isCancelled,
                   self.artifactFilesEnabled,
-                  self.visibleArtifactSnapshotGeneration == generation,
-                  snapshot.text != self.lastVisibleArtifactSnapshotText else {
+                  self.visibleArtifactSnapshotGeneration == generation else {
                 return
             }
+            guard snapshot.text != self.lastVisibleArtifactSnapshotText
+                    || snapshot.columns != self.lastVisibleArtifactSnapshotColumns
+                    || generation != self.lastVisibleArtifactSnapshotGeneration else { return }
             self.lastVisibleArtifactSnapshotText = snapshot.text
+            self.lastVisibleArtifactSnapshotColumns = snapshot.columns
+            self.lastVisibleArtifactSnapshotGeneration = generation
             let count = TerminalArtifactPathDetector().paths(in: snapshot.text).count
             self.delegate?.ghosttySurfaceView(
                 self,

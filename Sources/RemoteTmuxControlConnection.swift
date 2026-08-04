@@ -101,6 +101,7 @@ final class RemoteTmuxControlConnection {
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
+    var newPaneCompletions: [UUID: (Int?) -> Void] = [:]
     /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
     /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
     /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
@@ -829,6 +830,9 @@ final class RemoteTmuxControlConnection {
             applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
+        case .clientDetached:
+            record("client-detached")
+            replayRecordedSizeClaims()
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()
