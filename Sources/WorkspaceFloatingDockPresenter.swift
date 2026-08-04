@@ -517,7 +517,7 @@ final class WorkspaceFloatingDockPresenter {
             nextRevealedDockId = revealedStashedDockId
         } else {
             nextRevealedDockId = stashedDockOrder.reversed().first {
-                controllers[$0]?.containsParkingRestingPoint(mouseLocation) == true
+                controllers[$0]?.containsParkingHoverActivationPoint(mouseLocation) == true
             }
         }
         guard nextRevealedDockId != revealedStashedDockId else { return }

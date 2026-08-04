@@ -127,7 +127,7 @@ struct WorkspaceFloatingDockScreenPlacementTests {
 
         #expect(migrated.restoreFrame == CGRect(x: 2_200, y: 750, width: 400, height: 300))
         #expect(migrated.visibleScreenFrame == destinationScreen)
-        #expect(destinationScreen.intersection(migrated.parkedFrame).width == 80)
+        #expect(destinationScreen.intersection(migrated.parkedFrame).width == 48)
     }
 
     @Test
@@ -141,14 +141,14 @@ struct WorkspaceFloatingDockScreenPlacementTests {
         )
 
         let parkedVisibleFrame = ownerScreen.intersection(snapshot.parkedFrame)
-        #expect(parkedVisibleFrame.width == 80)
+        #expect(parkedVisibleFrame.width == 48)
         #expect(parkedVisibleFrame.maxX == ownerScreen.maxX)
-        #expect(snapshot.parkedFrame.width == 80)
+        #expect(snapshot.parkedFrame.width == 48)
         #expect(rightNeighbor.intersection(snapshot.parkedFrame).isNull)
         let revealedVisibleFrame = ownerScreen.intersection(snapshot.revealedFrame)
-        #expect(revealedVisibleFrame.width == 176)
+        #expect(revealedVisibleFrame.width == 144)
         #expect(revealedVisibleFrame.maxX == ownerScreen.maxX)
-        #expect(snapshot.revealedFrame.width == 176)
+        #expect(snapshot.revealedFrame.width == 144)
         #expect(snapshot.containsRevealedPoint(CGPoint(
             x: revealedVisibleFrame.minX - 10,
             y: snapshot.revealedFrame.midY
@@ -178,9 +178,9 @@ struct WorkspaceFloatingDockScreenPlacementTests {
 
         #expect(migrated.restoreFrame.size == snapshot.restoreFrame.size)
         let migratedVisibleFrame = leftScreen.intersection(migrated.parkedFrame)
-        #expect(migratedVisibleFrame.width == 80)
+        #expect(migratedVisibleFrame.width == 48)
         #expect(migratedVisibleFrame.maxX == leftScreen.maxX)
-        #expect(migrated.parkedFrame.width == 80)
+        #expect(migrated.parkedFrame.width == 48)
         #expect(rightScreen.intersection(migrated.parkedFrame).isNull)
     }
 
@@ -204,7 +204,7 @@ struct WorkspaceFloatingDockScreenPlacementTests {
             ownerScreen.intersection($0.parkedFrame).maxX == ownerScreen.maxX
         })
         #expect(snapshots[0].parkedFrame.width == 620)
-        #expect(snapshots[1].parkedFrame.width == 80)
+        #expect(snapshots[1].parkedFrame.width == 48)
     }
 }
 
@@ -225,7 +225,7 @@ struct WorkspaceFloatingDockParkingRegressionTests {
             visibleScreenFrame: screen
         ).parkedFrame
 
-        #expect(screen.intersection(regularParked).width == 80)
+        #expect(screen.intersection(regularParked).width == 48)
         #expect(screen.intersection(narrowParked).width == 16)
         #expect(regularParked.size == regularWindow.size)
         #expect(narrowParked.size == narrowWindow.size)
@@ -241,10 +241,19 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         )
 
         #expect(snapshot.restoreFrame == restoreFrame)
-        #expect(screen.intersection(snapshot.parkedFrame).width == 80)
-        #expect(screen.intersection(snapshot.revealedFrame).width == 176)
+        #expect(screen.intersection(snapshot.parkedFrame).width == 48)
+        #expect(screen.intersection(snapshot.revealedFrame).width == 144)
         #expect(snapshot.parkedFrame.size == restoreFrame.size)
         #expect(snapshot.revealedFrame.size == restoreFrame.size)
+        #expect(snapshot.hoverActivationFrame.width == 144)
+        #expect(snapshot.containsHoverActivationPoint(CGPoint(
+            x: snapshot.restingVisibleFrame.minX - 80,
+            y: snapshot.restingVisibleFrame.midY
+        )))
+        #expect(!snapshot.containsHoverActivationPoint(CGPoint(
+            x: snapshot.restingVisibleFrame.minX - 97,
+            y: snapshot.restingVisibleFrame.midY
+        )))
         #expect(snapshot.containsRevealedPoint(CGPoint(
             x: snapshot.revealedFrame.minX - 10,
             y: snapshot.revealedFrame.midY
@@ -280,8 +289,8 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         })
         for index in snapshots.indices.dropFirst() {
             #expect(
-                snapshots[index - 1].restingHitFrame.maxY
-                    <= snapshots[index].restingHitFrame.minY
+                snapshots[index - 1].hoverActivationFrame.maxY
+                    <= snapshots[index].hoverActivationFrame.minY
             )
         }
     }
@@ -414,7 +423,7 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         dock.setStashed(true)
         controller.showStashed(snapshot: snapshot, animated: false)
 
-        #expect(snapshot.parkedFrame.width == 80)
+        #expect(snapshot.parkedFrame.width == 48)
         #expect(controller.window?.frame == snapshot.parkedFrame)
         #expect(dock.screenFrame == restoreFrame)
     }

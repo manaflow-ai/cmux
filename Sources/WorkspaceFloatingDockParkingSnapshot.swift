@@ -6,9 +6,11 @@ import AppKit
 /// `3b632db585ceeb5208c7e4ec4a43cf9c05804b34`. cmux independently implements
 /// the geometry and native-window lifecycle for its workspace-owned panels.
 struct WorkspaceFloatingDockParkingSnapshot: Equatable {
-    /// Keeps the real window identifiable at rest by exposing its native titlebar chrome.
-    static let restingPeekWidth = WindowChromeMetrics.nativeTrafficLightLeadingInset
+    /// Keeps the real window identifiable at rest while exposing less than the
+    /// full native traffic-light cluster.
+    static let restingPeekWidth: CGFloat = 48
     static let maximumRestingPeekFraction: CGFloat = 0.2
+    static let hoverActivationDistance: CGFloat = 96
     static let hoverRevealDistance: CGFloat = 96
     static let hoverExitTolerance: CGFloat = 15
     static let preferredTargetHeight: CGFloat = 100
@@ -18,7 +20,7 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
     let parkedFrame: CGRect
     let revealedFrame: CGRect
     let restingVisibleFrame: CGRect
-    let restingHitFrame: CGRect
+    let hoverActivationFrame: CGRect
     let hoverExitFrame: CGRect
 
     init(
@@ -26,8 +28,8 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
         visibleScreenFrame: CGRect,
         availableScreenFrames: [CGRect] = [],
         parkedMinY: CGFloat? = nil,
-        restingTargetMinY: CGFloat? = nil,
-        restingTargetHeight: CGFloat? = nil
+        hoverTargetMinY: CGFloat? = nil,
+        hoverTargetHeight: CGFloat? = nil
     ) {
         let parkedVisibleWidth = Self.parkedVisibleWidth(for: restoreFrame.width)
         let revealedVisibleWidth = min(
@@ -63,30 +65,34 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
         self.revealedFrame = revealedFrame
         let visibleSlice = parkedFrame.intersection(visibleScreenFrame)
         self.restingVisibleFrame = visibleSlice
-        if let restingTargetMinY, let restingTargetHeight {
-            self.restingHitFrame = CGRect(
+        let hoverTargetFrame: CGRect
+        if let hoverTargetMinY, let hoverTargetHeight {
+            hoverTargetFrame = CGRect(
                 x: visibleSlice.minX,
-                y: restingTargetMinY,
+                y: hoverTargetMinY,
                 width: visibleSlice.width,
-                height: restingTargetHeight
+                height: hoverTargetHeight
             ).intersection(visibleScreenFrame)
         } else {
-            self.restingHitFrame = visibleSlice
+            hoverTargetFrame = visibleSlice
         }
+        self.hoverActivationFrame = hoverTargetFrame
+            .insetBy(dx: -Self.hoverActivationDistance, dy: 0)
+            .intersection(visibleScreenFrame)
         let revealedVisibleFrame = revealedFrame.intersection(visibleScreenFrame)
         self.hoverExitFrame = CGRect(
             x: revealedVisibleFrame.minX,
-            y: restingHitFrame.minY,
+            y: hoverTargetFrame.minY,
             width: revealedVisibleFrame.width,
-            height: restingHitFrame.height
+            height: hoverTargetFrame.height
         ).insetBy(
             dx: -Self.hoverExitTolerance,
             dy: -Self.hoverExitTolerance
         )
     }
 
-    func containsRestingPoint(_ point: CGPoint) -> Bool {
-        !restingHitFrame.isNull && restingHitFrame.contains(point)
+    func containsHoverActivationPoint(_ point: CGPoint) -> Bool {
+        !hoverActivationFrame.isNull && hoverActivationFrame.contains(point)
     }
 
     func containsRevealedPoint(_ point: CGPoint) -> Bool {
@@ -174,8 +180,8 @@ struct WorkspaceFloatingDockParkingSnapshot: Equatable {
                 visibleScreenFrame: visibleScreenFrame,
                 availableScreenFrames: availableScreenFrames,
                 parkedMinY: arrangedOrigins[index],
-                restingTargetMinY: targetStackMinY + (CGFloat(index) * targetHeight),
-                restingTargetHeight: targetHeight
+                hoverTargetMinY: targetStackMinY + (CGFloat(index) * targetHeight),
+                hoverTargetHeight: targetHeight
             )
         }
     }

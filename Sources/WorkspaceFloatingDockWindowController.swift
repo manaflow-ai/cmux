@@ -50,6 +50,8 @@ struct WorkspaceFloatingDockBackdropAppearance {
 /// Owns the native child panel for one workspace floating Dock.
 @MainActor
 final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowDelegate {
+    private static let hoverRevealAnimationDuration: TimeInterval = 0.1
+
     private enum Presentation {
         case visible
         case parked(WorkspaceFloatingDockParkingSnapshot)
@@ -550,12 +552,12 @@ final class WorkspaceFloatingDockWindowController: NSWindowController, NSWindowD
             snapshot: parkingSnapshot,
             showsAccessory: isRevealed,
             animated: animated,
-            duration: 0.16
+            duration: Self.hoverRevealAnimationDuration
         )
     }
 
-    func containsParkingRestingPoint(_ screenPoint: NSPoint) -> Bool {
-        parkingSnapshot?.containsRestingPoint(screenPoint) == true
+    func containsParkingHoverActivationPoint(_ screenPoint: NSPoint) -> Bool {
+        parkingSnapshot?.containsHoverActivationPoint(screenPoint) == true
     }
 
     func containsParkingRevealedPoint(_ screenPoint: NSPoint) -> Bool {
