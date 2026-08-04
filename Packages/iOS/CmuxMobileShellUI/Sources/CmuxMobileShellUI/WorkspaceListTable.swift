@@ -26,8 +26,6 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let openWorkspaceChanges: (@MainActor (MobileWorkspacePreview) -> Void)?
 
     let connectionRequiresReauth: Bool
-    let connectionRecoveryFailed: Bool
-    let isRecoveringConnection: Bool
     let connectionError: String?
     let host: String
     let isInitialConnectionLoading: Bool
@@ -35,6 +33,8 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let initialConnectionDescription: String?
     let enablesReorder: Bool
     let moveRows: ((IndexSet, Int) -> Void)?
+    let canDropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Bool)?
+    let dropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Void)?
 
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
@@ -49,7 +49,6 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
     let toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
     let showAll: () -> Void
-    let retryConnectionRecovery: (() -> Void)?
     let signOut: (() -> Void)?
     let retryInitialConnection: (() -> Void)?
     let showAddDevice: (() -> Void)?
