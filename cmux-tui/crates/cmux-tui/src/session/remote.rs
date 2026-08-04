@@ -3502,6 +3502,8 @@ struct DeferredAttachTestWriter {
     attach_started: std::sync::mpsc::SyncSender<()>,
     release_attach: Option<Receiver<()>>,
     first_resize_failure: Option<(std::sync::mpsc::SyncSender<()>, Receiver<()>)>,
+    attach_lease: Option<String>,
+    requests: Option<Sender<Value>>,
 }
 
 #[cfg(test)]
@@ -3519,19 +3521,24 @@ impl RemoteMessageWriter for DeferredAttachTestWriter {
             .as_ref()
             .cloned()
             .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+        if let Some(requests) = &self.requests {
+            requests.send(request.clone()).map_err(io::Error::other)?;
+        }
         if request.get("cmd").and_then(Value::as_str) == Some("attach-surface") {
             self.attach_started.send(()).map_err(io::Error::other)?;
             let release = self
                 .release_attach
                 .take()
                 .ok_or_else(|| io::Error::other("attach release already consumed"))?;
+            let lease = self.attach_lease.clone();
             std::thread::spawn(move || {
                 let _ = release.recv();
                 let Some(session) = session.upgrade() else { return };
                 let Some(response) = session.pending.lock().unwrap().remove(&id) else {
                     return;
                 };
-                let _ = response.response.send(json!({"id": id, "ok": true, "data": null}));
+                let data = lease.map_or(Value::Null, |lease| json!({"lease": lease}));
+                let _ = response.response.send(json!({"id": id, "ok": true, "data": data}));
             });
             return Ok(());
         }
@@ -3605,6 +3612,10 @@ fn test_session_with_deferred_attach_control(
             attach_started: attach_started_tx,
             release_attach: Some(release_attach_rx),
             first_resize_failure,
+            attach_lease: capabilities
+                .contains(VIEW_ATTACHMENT_LEASE_CAPABILITY)
+                .then(|| "test-view-lease".to_string()),
+            requests: None,
         }),
         None,
         capabilities,
@@ -3612,6 +3623,30 @@ fn test_session_with_deferred_attach_control(
     *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
     session.tree_stale.store(false, Ordering::Release);
     (session, attach_started_rx, release_attach_tx)
+}
+
+#[cfg(test)]
+fn test_session_with_deferred_leased_attach()
+-> (Arc<RemoteSession>, Receiver<()>, Sender<()>, Receiver<Value>) {
+    let session_slot = Arc::new(Mutex::new(None));
+    let (attach_started_tx, attach_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_attach_tx, release_attach_rx) = channel();
+    let (request_tx, request_rx) = channel();
+    let session = test_session_with_writer(
+        Box::new(DeferredAttachTestWriter {
+            session: session_slot.clone(),
+            attach_started: attach_started_tx,
+            release_attach: Some(release_attach_rx),
+            first_resize_failure: None,
+            attach_lease: Some("test-view-lease".to_string()),
+            requests: Some(request_tx),
+        }),
+        None,
+        HashSet::from([VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
+    );
+    *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+    session.tree_stale.store(false, Ordering::Release);
+    (session, attach_started_rx, release_attach_tx, request_rx)
 }
 
 #[cfg(test)]
@@ -5391,6 +5426,30 @@ mod tests {
         assert!(worker.join().unwrap().unwrap().is_none());
         assert!(session.surface(7).is_none());
         assert!(session.retired_surfaces.lock().unwrap().contains(&7));
+    }
+
+    #[test]
+    fn retired_surface_releases_an_inflight_attach_lease() {
+        let (session, attach_started_rx, release_attach_tx, requests) =
+            test_session_with_deferred_leased_attach();
+        let attaching = session.clone();
+        let worker = std::thread::spawn(move || {
+            attaching.try_ensure_surface_with_kind(7, SurfaceKind::Pty, Some((80, 24)))
+        });
+        attach_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let attach = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(attach["cmd"], "attach-surface");
+
+        session.retire_surface(7);
+        release_attach_tx.send(()).unwrap();
+
+        assert!(worker.join().unwrap().unwrap().is_none());
+        let release = requests
+            .recv_timeout(Duration::from_secs(1))
+            .expect("retired in-flight attach must release its server lease");
+        assert_eq!(release["cmd"], "detach-attached-view");
+        assert_eq!(release["surface"], 7);
+        assert_eq!(release["lease"], "test-view-lease");
     }
 
     #[cfg(unix)]
