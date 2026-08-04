@@ -226,6 +226,12 @@ fi
 chmod 0600 "$server_token_file"
 : > "$server_token_file"
 first_ready="$(docker logs "$container" 2>&1 | grep 'server ready' | head -n 1)"
+server_binding="${first_ready#* binding=}"
+server_binding="${server_binding%% *}"
+if [[ ! "$server_binding" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]]; then
+    record "FAIL server binding is invalid"
+    exit 1
+fi
 port_bindings="$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$container")"
 published_ports="$(docker port "$container")"
 record "container_port_bindings=$port_bindings"
@@ -252,7 +258,8 @@ fi
 grep 'provider ready' "$provider_log" | tee -a "$transcript"
 
 "$host_binary" probe \
-    --socket "$provider_socket" | tee -a "$transcript"
+    --socket "$provider_socket" \
+    --machine-id "$server_binding" | tee -a "$transcript"
 record "detach_reattach_before_restart=ok"
 
 docker restart "$container" >/dev/null
@@ -269,7 +276,8 @@ fi
 record "container_endpoint_device_tag_and_binding_stable=ok"
 
 "$host_binary" probe \
-    --socket "$provider_socket" | tee -a "$transcript"
+    --socket "$provider_socket" \
+    --machine-id "$server_binding" | tee -a "$transcript"
 record "reattach_after_restart=ok"
 grep -E 'connected machine=.*path=relay' "$provider_log" | tail -n 3 | tee -a "$transcript"
 record "acceptance=pass completed=$(date -u +%Y-%m-%dT%H:%M:%SZ)"

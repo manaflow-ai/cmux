@@ -337,6 +337,7 @@ pub struct RelayAccessResponse {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RegistrationPayload<'a> {
+    #[serde(rename = "route_contract_version")]
     route_contract_version: u32,
     device_id: Uuid,
     app_instance_id: Uuid,
@@ -631,5 +632,28 @@ mod tests {
         assert!(validate_root_https_url("http://relay.example.com/").is_err());
         assert!(validate_root_https_url("https://relay.example.com/path").is_err());
         assert!(validate_root_https_url("https://Relay.example.com/").is_err());
+    }
+
+    #[test]
+    fn registration_preserves_the_mixed_broker_wire_names() {
+        let endpoint_id = "aa".repeat(32);
+        let value = serde_json::to_value(RegistrationPayload {
+            route_contract_version: 1,
+            device_id: Uuid::nil(),
+            app_instance_id: Uuid::nil(),
+            tag: "tui-test",
+            platform: Platform::Linux,
+            display_name: Some("docker-stage1"),
+            endpoint_id: &endpoint_id,
+            identity_generation: 1,
+            pairing_enabled: true,
+            capabilities: vec!["cmux.tui.attach"],
+            path_hints: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(value["route_contract_version"], 1);
+        assert!(value.get("routeContractVersion").is_none());
+        assert_eq!(value["deviceId"], Uuid::nil().to_string());
+        assert_eq!(value["endpointId"], endpoint_id);
     }
 }
