@@ -106,10 +106,7 @@ final class GlobalSearchCoordinator {
         await refreshLivePanelTitles(contexts: contexts, index: index)
         guard !Task.isCancelled else { return }
 
-        for context in contexts {
-            guard !Task.isCancelled else { return }
-            await captureManager.refreshPanelContent(for: context)
-        }
+        await captureManager.refreshPanelContent(for: contexts)
     }
 
     func refreshLivePanelTitles() async {

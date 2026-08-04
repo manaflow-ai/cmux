@@ -10,10 +10,15 @@ final class GlobalSearchPopoverPresentation {
         @escaping @MainActor () -> Void
     ) -> DebounceCancellation
 
+    private enum SelectionUpdate: Equatable {
+        case reset
+        case preserveCurrentHit
+    }
+
     var query = "" {
         didSet {
             guard isPresented, query != oldValue else { return }
-            scheduleSearch(query)
+            scheduleSearch(query, selectionUpdate: .reset)
         }
     }
     private(set) var results: [GlobalSearchResultRow] = []
@@ -30,6 +35,7 @@ final class GlobalSearchPopoverPresentation {
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var keyMonitor: Any?
+    @ObservationIgnored private var resultsQuery = ""
 
     private let searchDebounceMilliseconds = 80
     private let browseResultLimit = 20
@@ -88,7 +94,7 @@ final class GlobalSearchPopoverPresentation {
                 return
             }
             refreshTask = nil
-            scheduleSearch(query)
+            searchIndexDidChange()
         }
     }
 
@@ -114,10 +120,15 @@ final class GlobalSearchPopoverPresentation {
 
     func searchIndexDidChange() {
         guard isPresented else { return }
-        scheduleSearch(query)
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return }
+        scheduleSearch(query, selectionUpdate: .preserveCurrentHit)
     }
 
-    private func scheduleSearch(_ nextQuery: String) {
+    private func scheduleSearch(
+        _ nextQuery: String,
+        selectionUpdate: SelectionUpdate
+    ) {
         cancelSearchWork()
         let generation = searchWorkGeneration
         let trimmed = nextQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -136,11 +147,19 @@ final class GlobalSearchPopoverPresentation {
             let cancelDebounce = cancelScheduledSearchDebounce
             cancelScheduledSearchDebounce = nil
             cancelDebounce?()
-            startSearch(trimmed, generation: generation)
+            startSearch(
+                trimmed,
+                generation: generation,
+                selectionUpdate: selectionUpdate
+            )
         }
     }
 
-    private func startSearch(_ trimmedQuery: String, generation: Int) {
+    private func startSearch(
+        _ trimmedQuery: String,
+        generation: Int,
+        selectionUpdate: SelectionUpdate
+    ) {
         guard isPresented,
               searchWorkGeneration == generation else {
             return
@@ -166,10 +185,21 @@ final class GlobalSearchPopoverPresentation {
                   !Task.isCancelled else {
                 return
             }
-            results = hits.enumerated().map { offset, hit in
+            let selectedHitID: String? = if selectionUpdate == .preserveCurrentHit,
+                                            resultsQuery == trimmedQuery,
+                                            results.indices.contains(selectedIndex) {
+                results[selectedIndex].hit.id
+            } else {
+                nil
+            }
+            let updatedResults = hits.enumerated().map { offset, hit in
                 GlobalSearchResultRow(hit: hit, query: trimmedQuery, index: offset)
             }
-            selectedIndex = 0
+            results = updatedResults
+            resultsQuery = trimmedQuery
+            selectedIndex = selectedHitID.flatMap { selectedHitID in
+                updatedResults.firstIndex(where: { $0.hit.id == selectedHitID })
+            } ?? 0
         }
     }
 
@@ -194,6 +224,7 @@ final class GlobalSearchPopoverPresentation {
         results = hits.enumerated().map { offset, hit in
             GlobalSearchResultRow(hit: hit, query: "", index: offset)
         }
+        resultsQuery = ""
         selectedIndex = 0
     }
 

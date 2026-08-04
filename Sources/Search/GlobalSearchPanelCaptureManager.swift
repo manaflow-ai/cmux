@@ -40,13 +40,48 @@ final class GlobalSearchPanelCaptureManager {
     /// return before the active query can see them. Independent browser events
     /// continue to use the per-panel debounce below.
     func refreshPanelContent(for context: GlobalSearchPanelContext) async {
+        let deadline = GlobalSearchPanelCaptureDeadline(
+            milliseconds: refreshCaptureDeadlineMilliseconds
+        )
+        defer { deadline.cancel() }
+        await refreshPanelContent(for: context, deadline: deadline)
+    }
+
+    /// Reconciles all content for one Search presentation within one shared
+    /// deadline. Once the budget expires, later panels are left for lifecycle
+    /// captures or the next presentation instead of accumulating more work.
+    func refreshPanelContent(for contexts: [GlobalSearchPanelContext]) async {
+        let deadline = GlobalSearchPanelCaptureDeadline(
+            milliseconds: refreshCaptureDeadlineMilliseconds
+        )
+        defer { deadline.cancel() }
+
+        for context in contexts {
+            guard !Task.isCancelled, !deadline.hasExpired else { return }
+            await refreshPanelContent(for: context, deadline: deadline)
+        }
+    }
+
+    private func refreshPanelContent(
+        for context: GlobalSearchPanelContext,
+        deadline: GlobalSearchPanelCaptureDeadline
+    ) async {
+        guard !deadline.hasExpired else { return }
         if let markdownPanel = context.panel as? MarkdownPanel {
             guard !indexedMarkdownPanelIDs.contains(context.panelID) else {
                 return
             }
-            await captureInitialMarkdownPanel(markdownPanel, context: context)
+            await captureInitialMarkdownPanel(
+                markdownPanel,
+                context: context,
+                deadline: deadline
+            )
         } else if let browserPanel = context.panel as? BrowserPanel {
-            await captureBrowserPanelForRefresh(browserPanel, context: context)
+            await captureBrowserPanelForRefresh(
+                browserPanel,
+                context: context,
+                deadline: deadline
+            )
         }
     }
 
@@ -114,7 +149,8 @@ final class GlobalSearchPanelCaptureManager {
 
     private func captureBrowserPanelForRefresh(
         _ panel: BrowserPanel,
-        context: GlobalSearchPanelContext
+        context: GlobalSearchPanelContext,
+        deadline: GlobalSearchPanelCaptureDeadline
     ) async {
         let panelID = panel.id
         let generation = contentIndexGeneration
@@ -130,7 +166,11 @@ final class GlobalSearchPanelCaptureManager {
             browserCaptureTasks[panelID] = task
         }
 
-        await awaitLatestCapture(forPanelID: panelID, generation: generation) {
+        await awaitLatestCapture(
+            forPanelID: panelID,
+            generation: generation,
+            deadline: deadline
+        ) {
             self.browserCaptureCompletions[panelID]
         }
     }
@@ -254,7 +294,8 @@ final class GlobalSearchPanelCaptureManager {
 
     private func captureInitialMarkdownPanel(
         _ panel: MarkdownPanel,
-        context: GlobalSearchPanelContext
+        context: GlobalSearchPanelContext,
+        deadline: GlobalSearchPanelCaptureDeadline
     ) async {
         let panelID = panel.id
         let generation = contentIndexGeneration
@@ -270,7 +311,11 @@ final class GlobalSearchPanelCaptureManager {
             markdownCaptureTasks[panelID] = task
         }
 
-        await awaitLatestCapture(forPanelID: panelID, generation: generation) {
+        await awaitLatestCapture(
+            forPanelID: panelID,
+            generation: generation,
+            deadline: deadline
+        ) {
             self.markdownCaptureCompletions[panelID]
         }
     }
@@ -535,13 +580,9 @@ final class GlobalSearchPanelCaptureManager {
     private func awaitLatestCapture(
         forPanelID panelID: UUID,
         generation: UInt64,
+        deadline: GlobalSearchPanelCaptureDeadline,
         completion: () -> GlobalSearchPanelCaptureCompletion?
     ) async {
-        let deadline = GlobalSearchPanelCaptureDeadline(
-            milliseconds: refreshCaptureDeadlineMilliseconds
-        )
-        defer { deadline.cancel() }
-
         while !Task.isCancelled, contentIndexGeneration == generation {
             guard let currentCompletion = completion(),
                   panelContentRevisions[panelID] == currentCompletion.panelRevision else {

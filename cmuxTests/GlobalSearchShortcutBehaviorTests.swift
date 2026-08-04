@@ -605,6 +605,124 @@ extension GlobalSearchShortcutBehaviorTests {
     }
 
     @MainActor
+    @Test func sameQueryIndexChangesCoalesceAndPreserveLatestSelection() async throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try makeMainWindow(appDelegate: appDelegate)
+        let refreshFinished = GlobalSearchAsyncSignal()
+        let refreshSearchStarted = GlobalSearchAsyncSignal()
+        let releaseRefreshSearch = GlobalSearchAsyncSignal()
+        let debounce = ControlledGlobalSearchDebounceScheduler()
+        let stableHit = makeSearchHit(id: "stable", title: "Stable")
+        let initialHits = [
+            makeSearchHit(id: "initial-0", title: "Initial zero"),
+            stableHit,
+            makeSearchHit(id: "initial-2", title: "Initial two")
+        ]
+        let updatedHits = [
+            makeSearchHit(id: "updated-0", title: "Updated zero"),
+            makeSearchHit(id: "updated-1", title: "Updated one"),
+            stableHit
+        ]
+        let hitStore = GlobalSearchHitStore(hits: initialHits)
+        let searchCount = GlobalSearchCounter()
+        let presentation = GlobalSearchPopoverPresentation(
+            coordinator: GlobalSearchCoordinator.shared,
+            refreshLiveIndex: { refreshFinished.signal() },
+            search: { _ in
+                searchCount.increment()
+                if searchCount.value == 2 {
+                    refreshSearchStarted.signal()
+                    await releaseRefreshSearch.wait()
+                }
+                return hitStore.hits
+            },
+            scheduleSearchDebounce: { _, action in
+                debounce.schedule(action)
+            }
+        )
+        defer {
+            releaseRefreshSearch.signal()
+            presentation.endPresentation()
+            closeWindow(window, appDelegate: appDelegate)
+        }
+
+        presentation.beginPresentation()
+        await refreshFinished.wait()
+        presentation.query = "same"
+        debounce.fire()
+        #expect(
+            await waitUntil {
+                presentation.results.map(\.hit.id) == initialHits.map(\.id)
+            }
+        )
+
+        hitStore.hits = updatedHits
+        presentation.searchIndexDidChange()
+        presentation.searchIndexDidChange()
+        debounce.fire()
+        await refreshSearchStarted.wait()
+        presentation.selectResult(at: 1)
+        releaseRefreshSearch.signal()
+
+        #expect(
+            await waitUntil {
+                presentation.results.map(\.hit.id) == updatedHits.map(\.id)
+            }
+        )
+        #expect(
+            searchCount.value == 2,
+            "Repeated index invalidations must coalesce into one rerun"
+        )
+        #expect(
+            presentation.selectedIndex == 2,
+            "A same-query rerun must follow the currently highlighted hit by stable ID"
+        )
+        #expect(presentation.results[presentation.selectedIndex].hit.id == stableHit.id)
+    }
+
+    @MainActor
+    @Test func emptyQueryIndexChangesDoNotReloadBrowseResults() async throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try makeNamedMainWindow(
+            appDelegate: appDelegate,
+            initialWorkspaceTitle: "Browse first"
+        )
+        let tabManager = try #require(appDelegate.tabManagerFor(windowId: harness.windowID))
+        _ = tabManager.addWorkspace(
+            title: "Browse second",
+            select: false,
+            eagerLoadTerminal: true,
+            autoWelcomeIfNeeded: false
+        )
+        let refreshCount = GlobalSearchCounter()
+        let presentation = GlobalSearchPopoverPresentation(
+            coordinator: GlobalSearchCoordinator.shared,
+            refreshLiveIndex: { refreshCount.increment() }
+        )
+        defer {
+            presentation.endPresentation()
+            closeWindow(harness.window, appDelegate: appDelegate)
+        }
+
+        presentation.beginPresentation()
+        #expect(await waitUntil { refreshCount.value == 1 })
+        await Task.yield()
+        try #require(presentation.results.count >= 2)
+        presentation.selectResult(at: 1)
+        let browseResultIDs = presentation.results.map(\.hit.id)
+
+        presentation.searchIndexDidChange()
+        await Task.yield()
+
+        #expect(presentation.query.isEmpty)
+        #expect(presentation.results.map(\.hit.id) == browseResultIDs)
+        #expect(
+            presentation.selectedIndex == 1,
+            "Indexed content cannot change empty-query browse rows, so it must not reset their selection"
+        )
+    }
+
+    @MainActor
     @Test func globalSearchContextsUseWorkspaceOwnedPanelTitles() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let harness = try makeNamedMainWindow(
@@ -1097,6 +1215,79 @@ extension GlobalSearchShortcutBehaviorTests {
         await secondRefreshTask.value
     }
 
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func presentationDeadlineStopsStartingLaterBrowserCaptures() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-browser-batch-timeout-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let workspaceID = UUID()
+        let firstPanel = BrowserPanel(
+            workspaceId: workspaceID,
+            renderInitialNavigation: false
+        )
+        let secondPanel = BrowserPanel(
+            workspaceId: workspaceID,
+            renderInitialNavigation: false
+        )
+        let index = try SearchIndex(databaseURL: directoryURL.appendingPathComponent("search.sqlite3"))
+        let indexRequestStarted = GlobalSearchAsyncSignal()
+        let releaseIndexRequest = GlobalSearchAsyncSignal()
+        let indexRequestCount = GlobalSearchCounter()
+        let refreshFinished = GlobalSearchCounter()
+        let captureManager = GlobalSearchPanelCaptureManager(
+            indexProvider: {
+                indexRequestCount.increment()
+                indexRequestStarted.signal()
+                await releaseIndexRequest.wait()
+                return index
+            },
+            cancelPanelPurge: { _ in }
+        )
+        defer {
+            releaseIndexRequest.signal()
+            captureManager.cancelCaptures(forPanelID: firstPanel.id)
+            captureManager.cancelCaptures(forPanelID: secondPanel.id)
+            firstPanel.close()
+            secondPanel.close()
+        }
+        let contexts = [firstPanel, secondPanel].map { panel in
+            GlobalSearchPanelContext(
+                windowID: UUID(),
+                windowTitle: "Window",
+                workspaceID: workspaceID,
+                workspaceTitle: "Workspace",
+                panelID: panel.id,
+                panelTitle: panel.displayTitle,
+                panel: panel
+            )
+        }
+
+        let refreshTask = Task { @MainActor in
+            await captureManager.refreshPanelContent(for: contexts)
+            refreshFinished.increment()
+        }
+        await indexRequestStarted.wait()
+        #expect(
+            await waitUntil(timeout: 2) {
+                refreshFinished.value == 1
+            },
+            "One presentation-wide deadline must bound the complete panel refresh"
+        )
+        #expect(
+            indexRequestCount.value == 1,
+            "An expired presentation budget must not start a capture for the next browser panel"
+        )
+
+        releaseIndexRequest.signal()
+        await refreshTask.value
+    }
+
     private func makeSearchHit(id: String, title: String) -> SearchIndexHit {
         SearchIndexHit(
             id: id,
@@ -1361,6 +1552,15 @@ private final class GlobalSearchCounter {
 
     func increment() {
         value += 1
+    }
+}
+
+@MainActor
+private final class GlobalSearchHitStore {
+    var hits: [SearchIndexHit]
+
+    init(hits: [SearchIndexHit]) {
+        self.hits = hits
     }
 }
 
