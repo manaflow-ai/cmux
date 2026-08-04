@@ -369,7 +369,6 @@ public enum HermesAgentHookAllowlist {
     }
 
     private static func isCmuxOwnedCommand(_ command: String) -> Bool {
-        command.contains("cmux-hermes-agent-hook-v2")
-            || command.contains("hooks hermes-agent ")
+        HermesAgentHookCommandOwnership().containsOwnedCommand(command)
     }
 }

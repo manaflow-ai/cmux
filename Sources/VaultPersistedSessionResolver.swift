@@ -18,36 +18,19 @@ struct VaultPersistedSessionResolver {
     private var freshProcessCountByKey: [LookupKey: Int] = [:]
     private var cachedResolutionByKey: [LookupKey: CachedResolution] = [:]
 
-    mutating func registerFreshProcesses(
-        processes: [CmuxTopProcessInfo],
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
-        registryProvider: (String?) -> CmuxVaultAgentRegistry
+    mutating func registerFreshProcess(
+        observed: VaultObservedAgentProcess,
+        cwd: String?,
+        registration: CmuxVaultAgentRegistration
     ) {
-        for process in processes {
-            guard process.cmuxWorkspaceID != nil,
-                  process.cmuxSurfaceID != nil,
-                  let processArguments = processArgumentsProvider(process.pid) else {
-                continue
-            }
-            let observed = VaultObservedAgentProcess(
-                processName: process.name,
-                processPath: process.path,
-                arguments: processArguments.arguments,
-                environment: processArguments.environment
-            )
-            let cwd = Self.normalized(
-                observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
-            )
-            guard let cwd,
-                  let registration = registryProvider(cwd).matchingRegistration(for: observed),
-                  case .persistedStore(let store) = registration.sessionIdSource,
-                  registration.persistedSessionStoreCapability == store,
-                  store.explicitSessionID(arguments: observed.arguments) == nil,
-                  let key = lookupKey(store: store, environment: observed.environment, cwd: cwd) else {
-                continue
-            }
-            freshProcessCountByKey[key, default: 0] += 1
+        guard let cwd,
+              case .persistedStore(let store) = registration.sessionIdSource,
+              registration.persistedSessionStoreCapability == store,
+              store.explicitSessionID(arguments: observed.arguments) == nil,
+              let key = lookupKey(store: store, environment: observed.environment, cwd: cwd) else {
+            return
         }
+        freshProcessCountByKey[key, default: 0] += 1
     }
 
     mutating func uniqueSessionID(
@@ -98,10 +81,5 @@ struct VaultPersistedSessionResolver {
             storePath: (storePath as NSString).standardizingPath,
             canonicalCwd: canonicalCwd
         )
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }

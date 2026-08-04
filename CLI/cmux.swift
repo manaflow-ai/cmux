@@ -29557,6 +29557,7 @@ export default CMUXSessionRestore;
     }
 
     private func installAgentHooks(_ def: AgentHookDef) throws {
+        try Self.validateHookInstallDispatch(for: def)
         if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
         if def.name == "pi" { try installPiExtensionHooks(def); return }
         if def.name == "omp" { try installOmpExtensionHooks(def); return }

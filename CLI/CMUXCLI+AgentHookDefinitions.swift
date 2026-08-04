@@ -380,6 +380,20 @@ extension CMUXCLI {
         return "/tmp/cmux-debug-\(slug).sock"
     }
 
+    static func validateHookInstallDispatch(for def: AgentHookDef) throws {
+        guard case .pinned = def.dispatch,
+              pinnedAgentHookSocketPath() == nil else {
+            return
+        }
+        throw CLIError(message: String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.error.pinnedTargetMissing",
+                defaultValue: "cmux cannot install %@ hooks without a target socket. Run this command inside cmux, or set CMUX_SOCKET_PATH or CMUX_TAG and try again."
+            ),
+            def.displayName
+        ))
+    }
+
     private static func pinnedHookShellTraceCommand(
         agentName: String,
         phase: String,

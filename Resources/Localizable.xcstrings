@@ -40260,6 +40260,23 @@
         }
       }
     },
+    "cli.hooks.error.pinnedTargetMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot install %@ hooks without a target socket. Run this command inside cmux, or set CMUX_SOCKET_PATH or CMUX_TAG and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象のソケットがないため、cmux は %@ の hooks をインストールできません。cmux 内でこのコマンドを実行するか、CMUX_SOCKET_PATH または CMUX_TAG を設定してから再試行してください。"
+          }
+        }
+      }
+    },
     "cli.hooks.kimi.aborted": {
       "extractionState": "manual",
       "localizations": {

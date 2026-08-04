@@ -279,6 +279,33 @@ struct HermesFirstClassSupportTests {
         #expect(config.contains(socketPath))
     }
 
+    @Test("Hermes hook install fails closed without a pinned cmux target")
+    func hookInstallRequiresPinnedTarget() throws {
+        let root = try temporaryDirectory(prefix: "cmux-hermes-hooks-no-target")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: HermesFirstClassBundleToken.self)
+        let configURL = hermesHome.appendingPathComponent("config.yaml")
+        let allowlistURL = hermesHome.appendingPathComponent("shell-hooks-allowlist.json")
+
+        let result = try runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "hermes-agent", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "HERMES_HOME": hermesHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+        )
+
+        #expect(result.status != 0)
+        #expect(result.output.contains("CMUX_SOCKET_PATH"))
+        #expect(!FileManager.default.fileExists(atPath: configURL.path))
+        #expect(!FileManager.default.fileExists(atPath: allowlistURL.path))
+    }
+
     private struct Fixture {
         let root: URL
         let hermesHome: URL

@@ -2,6 +2,15 @@ import Foundation
 import CMUXAgentLaunch
 import SQLite3
 
+private struct VaultAgentProcessCandidate {
+    let process: CmuxTopProcessInfo
+    let workspaceID: UUID
+    let panelID: UUID
+    let observed: VaultObservedAgentProcess
+    let cwd: String?
+    let registration: CmuxVaultAgentRegistration
+}
+
 extension AgentLaunchCommandSnapshot {
     init(
         processDetectedLauncher launcher: String,
@@ -97,16 +106,10 @@ extension RestorableAgentSessionIndex {
         }
 
         var persistedSessionResolver = VaultPersistedSessionResolver()
-        persistedSessionResolver.registerFreshProcesses(
-            processes: scopedProcesses,
-            processArgumentsProvider: cachedProcessArguments,
-            registryProvider: registryForWorkingDirectory
-        )
-
-        let nativeKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+        var candidates: [VaultAgentProcessCandidate] = []
         for process in scopedProcesses {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID,
+            guard let workspaceID = process.cmuxWorkspaceID,
+                  let panelID = process.cmuxSurfaceID,
                   let processArguments = cachedProcessArguments(process.pid) else {
                 continue
             }
@@ -118,8 +121,31 @@ extension RestorableAgentSessionIndex {
             )
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
-            guard let registration = processRegistry.matchingRegistration(for: observed),
-                  registration.processDetectedSnapshotIsRestorable(for: observed),
+            guard let registration = processRegistry.matchingRegistration(for: observed) else {
+                continue
+            }
+            persistedSessionResolver.registerFreshProcess(
+                observed: observed,
+                cwd: cwd,
+                registration: registration
+            )
+            candidates.append(VaultAgentProcessCandidate(
+                process: process,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                observed: observed,
+                cwd: cwd,
+                registration: registration
+            ))
+        }
+
+        let nativeKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+        for candidate in candidates {
+            let process = candidate.process
+            let observed = candidate.observed
+            let cwd = candidate.cwd
+            let registration = candidate.registration
+            guard registration.processDetectedSnapshotIsRestorable(for: observed),
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
@@ -160,7 +186,7 @@ extension RestorableAgentSessionIndex {
                 ),
                 registration: registration
             )
-            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            let key = PanelKey(workspaceId: candidate.workspaceID, panelId: candidate.panelID)
             resolved[key] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt,
