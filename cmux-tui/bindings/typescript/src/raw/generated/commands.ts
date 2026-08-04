@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
+/* cmux-tui mux protocol 10, IR 486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7. */
 
 
 import type * as T from "./types.js";
@@ -324,6 +324,15 @@ export interface IdsRequest extends CmuxRequestBase {
   cmd: "ids";
   "kind"?: ("workspace" | "screen" | "pane" | "surface") | null;
 }
+
+/** Protocol v10; authority: control. */
+export interface JournalFrontendEventRequest extends CmuxRequestBase {
+  cmd: "journal-frontend-event";
+  "event": T.FrontendJournalEvent;
+}
+export type JournalFrontendEventResult = {
+  "committed": true;
+};
 
 /** Protocol v6; authority: control. */
 export interface ListAgentsRequest extends CmuxRequestBase {
@@ -863,6 +872,7 @@ export type CmuxRequest =
   | GetFrontendProjectionRequest
   | IdentifyRequest
   | IdsRequest
+  | JournalFrontendEventRequest
   | ListAgentsRequest
   | ListClientsRequest
   | ListTerminalsRequest
@@ -1194,6 +1204,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "journal-frontend-event": {
+    request: JournalFrontendEventRequest;
+    result: JournalFrontendEventResult;
+    authority: "control";
+    since: 10;
+    capability: "frontend-journal-v1";
     stream: null;
   };
   "list-agents": {

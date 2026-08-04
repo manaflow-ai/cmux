@@ -44,6 +44,7 @@ public final class Commands {
     public static final CommandMetadata GET_FRONTEND_PROJECTION = new CommandMetadata("get-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata JOURNAL_FRONTEND_EVENT = new CommandMetadata("journal-frontend-event", Authority.CONTROL, 10, "frontend-journal-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_AGENTS = new CommandMetadata("list-agents", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_CLIENTS = new CommandMetadata("list-clients", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_TERMINALS = new CommandMetadata("list-terminals", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
@@ -140,6 +141,7 @@ public final class Commands {
         values.put("get-frontend-projection", GET_FRONTEND_PROJECTION);
         values.put("identify", IDENTIFY);
         values.put("ids", IDS);
+        values.put("journal-frontend-event", JOURNAL_FRONTEND_EVENT);
         values.put("list-agents", LIST_AGENTS);
         values.put("list-clients", LIST_CLIENTS);
         values.put("list-terminals", LIST_TERMINALS);

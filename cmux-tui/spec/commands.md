@@ -652,6 +652,37 @@ object{frontend:string,scope:string,subject_key:string,schema_version:uint32,pro
 Missing projections return revision/schema `0` and `projection:null`.
 Documents larger than 1 MiB are rejected.
 
+### journal-frontend-event
+
+| Field | Value |
+| --- | --- |
+| name | `journal-frontend-event` |
+| status | implemented |
+| since | protocol 10 |
+
+Appends one frontend observation to the session journal. The server derives
+the producer identity from the authenticated control client rather than
+accepting it from the request.
+
+Params contain one `event` tagged by `kind`:
+
+```text
+object{kind:"focus",event_id:string,generation:string,target:"pane"|"machine_rail"|"workspace_rail",workspace_id?:string,screen_id?:string,pane_id?:string,tab_id?:string,content_id?:string}
+| object{kind:"resize",event_id:string,generation:string,cols:uint16,rows:uint16,cell_width:uint16,cell_height:uint16}
+| object{kind:"viewport",event_id:string,generation:string,screen_id?:string,offset:uint64,target:uint64,settled:boolean}
+```
+
+`event_id` provides idempotency. `generation` rejects observations from a
+stale frontend attachment. Focus identities are optional because the rails
+have no pane or tab. Viewport observations record both the current and target
+offset so replay can distinguish motion from a settled position.
+
+Result:
+
+```text
+object{committed:boolean}
+```
+
 ### export-layout
 
 | Field | Value |

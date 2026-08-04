@@ -63,6 +63,11 @@ class CursorStyle(str, Enum):
     UNDERLINE = 'underline'
     BAR = 'bar'
 
+class FrontendFocusTarget(str, Enum):
+    PANE = 'pane'
+    MACHINE_RAIL = 'machine_rail'
+    WORKSPACE_RAIL = 'workspace_rail'
+
 class NotificationLevel(str, Enum):
     INFO = 'info'
     WARNING = 'warning'
@@ -373,6 +378,44 @@ class ExportedPane:
 class FocusDirectionResult:
     __cmux_schema_path__: ClassVar[str] = 'types/FocusDirectionResult'
     pane: Id
+
+
+@dataclass(frozen=True)
+class FrontendJournalEventFocus:
+    __cmux_schema_path__: ClassVar[str] = 'types/FrontendJournalEvent/variants/focus'
+    event_id: str
+    generation: str
+    kind: Literal['focus']
+    target: FrontendFocusTarget
+    content_id: Union[str, None, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
+    screen_id: Union[str, None, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
+    workspace_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FrontendJournalEventResize:
+    __cmux_schema_path__: ClassVar[str] = 'types/FrontendJournalEvent/variants/resize'
+    cell_height: int
+    cell_width: int
+    cols: int
+    event_id: str
+    generation: str
+    kind: Literal['resize']
+    rows: int
+
+
+@dataclass(frozen=True)
+class FrontendJournalEventViewport:
+    __cmux_schema_path__: ClassVar[str] = 'types/FrontendJournalEvent/variants/viewport'
+    event_id: str
+    generation: str
+    kind: Literal['viewport']
+    offset: int
+    settled: bool
+    target: int
+    screen_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1233,6 +1276,18 @@ class IdentifyRequest:
 class IdsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/ids/request'
     kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class JournalFrontendEventRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/journal-frontend-event/request'
+    event: FrontendJournalEvent
+
+
+@dataclass(frozen=True)
+class JournalFrontendEventResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/journal-frontend-event/result'
+    committed: Literal[True]
 
 
 @dataclass(frozen=True)
@@ -2215,6 +2270,7 @@ class WorkspaceRenamedEvent(EventBase):
 Base64 = str
 ColorHex = str
 DeclarativeLayout = Union[DeclarativeLayoutLeaf, DeclarativeLayoutSplit, DeclarativeLayoutStack]
+FrontendJournalEvent = Union[FrontendJournalEventFocus, FrontendJournalEventResize, FrontendJournalEventViewport]
 Id = int
 JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
@@ -2236,6 +2292,7 @@ __all__ = [
     'AgentState',
     'ClientTransport',
     'CursorStyle',
+    'FrontendFocusTarget',
     'NotificationLevel',
     'PaneDirection',
     'RenderGraphicFormat',
@@ -2263,6 +2320,9 @@ __all__ = [
     'ExportLayoutResult',
     'ExportedPane',
     'FocusDirectionResult',
+    'FrontendJournalEventFocus',
+    'FrontendJournalEventResize',
+    'FrontendJournalEventViewport',
     'FrontendProjection',
     'GetCellPixelsResult',
     'IdMapping',
@@ -2353,6 +2413,8 @@ __all__ = [
     'GetFrontendProjectionRequest',
     'IdentifyRequest',
     'IdsRequest',
+    'JournalFrontendEventRequest',
+    'JournalFrontendEventResult',
     'ListAgentsRequest',
     'ListClientsRequest',
     'ListTerminalsRequest',
@@ -2460,6 +2522,7 @@ __all__ = [
     'Base64',
     'ColorHex',
     'DeclarativeLayout',
+    'FrontendJournalEvent',
     'Id',
     'JsonValue',
     'Layout',

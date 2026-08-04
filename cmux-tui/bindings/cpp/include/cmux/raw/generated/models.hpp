@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350";
+inline constexpr std::string_view kProtocolIrSha256 = "486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -40,6 +40,8 @@ struct EmptyResult;
 struct ExportLayoutResult;
 struct ExportedPane;
 struct FocusDirectionResult;
+enum class FrontendFocusTarget;
+struct FrontendJournalEvent;
 struct FrontendProjection;
 struct GetCellPixelsResult;
 struct Id;
@@ -140,6 +142,8 @@ struct GetCellPixelsRequest;
 struct GetFrontendProjectionRequest;
 struct IdentifyRequest;
 struct IdsRequest;
+struct JournalFrontendEventRequest;
+struct JournalFrontendEventResult;
 struct ListAgentsRequest;
 struct ListClientsRequest;
 struct ListClientsResult;
@@ -249,6 +253,9 @@ enum class CopyResultMode;
 struct DeclarativeLayoutLeaf;
 struct DeclarativeLayoutSplit;
 struct DeclarativeLayoutStack;
+struct FrontendJournalEventFocus;
+struct FrontendJournalEventResize;
+struct FrontendJournalEventViewport;
 enum class IdMappingKind;
 struct LayoutLeaf;
 struct LayoutSplit;
@@ -981,6 +988,50 @@ struct FrameEvent {
     friend bool operator==(const FrameEvent&, const FrameEvent&) = default;
 };
 
+enum class FrontendFocusTarget {
+    pane,
+    machine_rail,
+    workspace_rail,
+};
+
+struct FrontendJournalEventFocus {
+    Field<std::string> content_id{};
+    std::string event_id{};
+    std::string generation{};
+    Field<std::string> pane_id{};
+    Field<std::string> screen_id{};
+    Field<std::string> tab_id{};
+    FrontendFocusTarget target{};
+    Field<std::string> workspace_id{};
+    friend bool operator==(const FrontendJournalEventFocus&, const FrontendJournalEventFocus&) = default;
+};
+
+struct FrontendJournalEventResize {
+    std::uint16_t cell_height{};
+    std::uint16_t cell_width{};
+    std::uint16_t cols{};
+    std::string event_id{};
+    std::string generation{};
+    std::uint16_t rows{};
+    friend bool operator==(const FrontendJournalEventResize&, const FrontendJournalEventResize&) = default;
+};
+
+struct FrontendJournalEventViewport {
+    std::string event_id{};
+    std::string generation{};
+    std::uint64_t offset{};
+    Field<std::string> screen_id{};
+    bool settled{};
+    std::uint64_t target{};
+    friend bool operator==(const FrontendJournalEventViewport&, const FrontendJournalEventViewport&) = default;
+};
+
+struct FrontendJournalEvent {
+    using Variant = std::variant<FrontendJournalEventFocus, FrontendJournalEventResize, FrontendJournalEventViewport>;
+    Variant value{};
+    friend bool operator==(const FrontendJournalEvent&, const FrontendJournalEvent&) = default;
+};
+
 struct JsonValue {
     Json value{};
     friend bool operator==(const JsonValue&, const JsonValue&) = default;
@@ -1091,6 +1142,15 @@ struct IdsRequest {
 struct IdsResult {
     std::vector<IdMapping> ids{};
     friend bool operator==(const IdsResult&, const IdsResult&) = default;
+};
+
+struct JournalFrontendEventRequest {
+    FrontendJournalEvent event{};
+    friend bool operator==(const JournalFrontendEventRequest&, const JournalFrontendEventRequest&) = default;
+};
+
+struct JournalFrontendEventResult {
+    friend bool operator==(const JournalFrontendEventResult&, const JournalFrontendEventResult&) = default;
 };
 
 struct KittyGraphicsState {
@@ -2410,6 +2470,18 @@ struct Codec<FocusDirectionResult> {
 };
 
 template <>
+struct Codec<FrontendFocusTarget> {
+    static Result<Json> encode(const FrontendFocusTarget& value);
+    static Result<FrontendFocusTarget> decode(const Json& value);
+};
+
+template <>
+struct Codec<FrontendJournalEvent> {
+    static Result<Json> encode(const FrontendJournalEvent& value);
+    static Result<FrontendJournalEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<FrontendProjection> {
     static Result<Json> encode(const FrontendProjection& value);
     static Result<FrontendProjection> decode(const Json& value);
@@ -3007,6 +3079,18 @@ template <>
 struct Codec<IdsRequest> {
     static Result<Json> encode(const IdsRequest& value);
     static Result<IdsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<JournalFrontendEventRequest> {
+    static Result<Json> encode(const JournalFrontendEventRequest& value);
+    static Result<JournalFrontendEventRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<JournalFrontendEventResult> {
+    static Result<Json> encode(const JournalFrontendEventResult& value);
+    static Result<JournalFrontendEventResult> decode(const Json& value);
 };
 
 template <>
@@ -3661,6 +3745,24 @@ template <>
 struct Codec<DeclarativeLayoutStack> {
     static Result<Json> encode(const DeclarativeLayoutStack& value);
     static Result<DeclarativeLayoutStack> decode(const Json& value);
+};
+
+template <>
+struct Codec<FrontendJournalEventFocus> {
+    static Result<Json> encode(const FrontendJournalEventFocus& value);
+    static Result<FrontendJournalEventFocus> decode(const Json& value);
+};
+
+template <>
+struct Codec<FrontendJournalEventResize> {
+    static Result<Json> encode(const FrontendJournalEventResize& value);
+    static Result<FrontendJournalEventResize> decode(const Json& value);
+};
+
+template <>
+struct Codec<FrontendJournalEventViewport> {
+    static Result<Json> encode(const FrontendJournalEventViewport& value);
+    static Result<FrontendJournalEventViewport> decode(const Json& value);
 };
 
 template <>

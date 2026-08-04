@@ -114,6 +114,9 @@ class GeneratedClientMixin:
     def ids(self, *, kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = MISSING) -> IdsResult:
         return self._invoke_command('ids', IdsRequest(kind=kind))
 
+    def journal_frontend_event(self, event: FrontendJournalEvent) -> JournalFrontendEventResult:
+        return self._invoke_command('journal-frontend-event', JournalFrontendEventRequest(event=event))
+
     def list_agents(self, surface: Union[Id, None, MissingType] = MISSING, *, state: Union[AgentState, None, MissingType] = MISSING) -> ListAgentsResult:
         return self._invoke_command('list-agents', ListAgentsRequest(surface=surface, state=state))
 
@@ -323,6 +326,7 @@ GeneratedClientMixin.get_cell_pixels.__cmux_command__ = COMMANDS['get-cell-pixel
 GeneratedClientMixin.get_frontend_projection.__cmux_command__ = COMMANDS['get-frontend-projection']
 GeneratedClientMixin.identify.__cmux_command__ = COMMANDS['identify']
 GeneratedClientMixin.ids.__cmux_command__ = COMMANDS['ids']
+GeneratedClientMixin.journal_frontend_event.__cmux_command__ = COMMANDS['journal-frontend-event']
 GeneratedClientMixin.list_agents.__cmux_command__ = COMMANDS['list-agents']
 GeneratedClientMixin.list_clients.__cmux_command__ = COMMANDS['list-clients']
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']

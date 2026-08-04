@@ -137,6 +137,7 @@
   "commands": {
     "control": [
       "identify",
+      "journal-frontend-event",
       "ping",
       "set-client-info",
       "list-clients",

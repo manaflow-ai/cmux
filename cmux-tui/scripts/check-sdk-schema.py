@@ -17,6 +17,7 @@ SPEC = TUI / "spec"
 BINDINGS = TUI / "bindings"
 SERVER = TUI / "crates/cmux-tui-core/src/server.rs"
 RUNTIME_NAMED_REQUEST_REFS = {
+    "crate::FrontendJournalEvent": "FrontendJournalEvent",
     "ProtocolKeyInput": "TerminalKeyInput",
 }
 

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
+/* cmux-tui mux protocol 10, IR 486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -134,6 +134,36 @@ export type ExportedPane = {
 export type FocusDirectionResult = {
   "pane": Id;
 };
+
+export type FrontendFocusTarget = "pane" | "machine_rail" | "workspace_rail";
+
+export type FrontendJournalEvent = ({ "kind": "focus" } & {
+  "content_id"?: (string) | null;
+  "event_id": string;
+  "generation": string;
+  "kind": "focus";
+  "pane_id"?: (string) | null;
+  "screen_id"?: (string) | null;
+  "tab_id"?: (string) | null;
+  "target": FrontendFocusTarget;
+  "workspace_id"?: (string) | null;
+}) | ({ "kind": "resize" } & {
+  "cell_height": number;
+  "cell_width": number;
+  "cols": number;
+  "event_id": string;
+  "generation": string;
+  "kind": "resize";
+  "rows": number;
+}) | ({ "kind": "viewport" } & {
+  "event_id": string;
+  "generation": string;
+  "kind": "viewport";
+  "offset": bigint;
+  "screen_id"?: (string) | null;
+  "settled": boolean;
+  "target": bigint;
+});
 
 export type FrontendProjection = {
   "frontend": string;

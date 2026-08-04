@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350.
+// cmux-tui mux protocol 10, IR 486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -238,6 +238,58 @@ pub struct ExportedPane {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FocusDirectionResult {
     pub pane: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FrontendFocusTarget {
+    #[serde(rename = "pane")]
+    Pane,
+    #[serde(rename = "machine_rail")]
+    MachineRail,
+    #[serde(rename = "workspace_rail")]
+    WorkspaceRail,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum FrontendJournalEvent {
+    #[serde(rename = "focus")]
+    Focus {
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        content_id: Optional<String>,
+        event_id: String,
+        generation: String,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        pane_id: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        screen_id: Optional<String>,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        tab_id: Optional<String>,
+        target: FrontendFocusTarget,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        workspace_id: Optional<String>,
+    },
+    #[serde(rename = "resize")]
+    Resize {
+        cell_height: u16,
+        cell_width: u16,
+        cols: u16,
+        event_id: String,
+        generation: String,
+        rows: u16,
+    },
+    #[serde(rename = "viewport")]
+    Viewport {
+        event_id: String,
+        generation: String,
+        offset: u64,
+        #[serde(default, skip_serializing_if = "Optional::is_missing")]
+        screen_id: Optional<String>,
+        settled: bool,
+        target: u64,
+    },
 }
 
 #[rustfmt::skip]

@@ -75,6 +75,7 @@ public:
     [[nodiscard]] Result<FrontendProjection> get_frontend_projection(const GetFrontendProjectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<IdentifyResult> identify(const IdentifyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<IdsResult> ids(const IdsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JournalFrontendEventResult> journal_frontend_event(const JournalFrontendEventRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ListAgentsResult> list_agents(const ListAgentsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ListClientsResult> list_clients(const ListClientsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ListTerminalsResult> list_terminals(const ListTerminalsRequest& request = {}, RequestOptions options = {});

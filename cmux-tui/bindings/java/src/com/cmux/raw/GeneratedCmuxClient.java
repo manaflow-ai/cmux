@@ -183,6 +183,11 @@ public abstract class GeneratedCmuxClient {
         return IdsResult.fromWire(result);
     }
 
+    public final JournalFrontendEventResult journalFrontendEvent(JournalFrontendEventRequest request) throws CmuxException {
+        Object result = execute(Commands.JOURNAL_FRONTEND_EVENT, request.toWire());
+        return JournalFrontendEventResult.fromWire(result);
+    }
+
     public final ListAgentsResult listAgents(ListAgentsRequest request) throws CmuxException {
         Object result = execute(Commands.LIST_AGENTS, request.toWire());
         return ListAgentsResult.fromWire(result);

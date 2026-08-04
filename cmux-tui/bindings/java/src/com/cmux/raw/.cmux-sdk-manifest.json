@@ -272,8 +272,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "de0a2a553db5edba17b4b28c472059e9403dd407b4ea0d93ca3e2d59114f5ce2",
-      "size": 21994
+      "sha256": "5637970437b48fe4a45342b118513dea12798160c6ab13cdaf574d2a302ccc47",
+      "size": 22259
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -411,6 +411,31 @@
       "size": 4641
     },
     {
+      "path": "FrontendFocusTarget.java",
+      "sha256": "38dc243f8e0760d272c9c969781a78acef1401cb83593a037dd83777d651f5f8",
+      "size": 965
+    },
+    {
+      "path": "FrontendJournalEvent.java",
+      "sha256": "7aedd12937e31a202dd4c857be11cf84ed13ce6cff2d3d0a66253d7be4ad7d32",
+      "size": 773
+    },
+    {
+      "path": "FrontendJournalEventFocus.java",
+      "sha256": "ad65167200d19d2969dabab29acf28668a450e58307467de51bf8708f1f07ab8",
+      "size": 7150
+    },
+    {
+      "path": "FrontendJournalEventResize.java",
+      "sha256": "00bdf0539117c23e142b8c43679b47cdfa2446e09c8e6060e939dd48527042eb",
+      "size": 5744
+    },
+    {
+      "path": "FrontendJournalEventViewport.java",
+      "sha256": "0817eea65833468b9099809666423e66993b9cadf64e6dca548acdbe276cd04a",
+      "size": 5833
+    },
+    {
       "path": "FrontendProjection.java",
       "sha256": "354e5556dbdb9a9c9cec08e3fdeb5c90545ca08bc1939ea80be88ec06c983632",
       "size": 6598
@@ -422,8 +447,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "7fca834f19533a0fb525d2bbac09930f5aad1a018035d60035b8ce170a1d9664",
-      "size": 21326
+      "sha256": "f7d6a3de679d571cd7763006d5591c2206cb110e8e8661c6b6b9f013d30155f6",
+      "size": 21602
     },
     {
       "path": "GetCellPixelsRequest.java",
@@ -484,6 +509,16 @@
       "path": "IdsResult.java",
       "sha256": "e7d564deb5069396421c91febce6d1ac41475c2440efc3f21e58926241f6f625",
       "size": 1873
+    },
+    {
+      "path": "JournalFrontendEventRequest.java",
+      "sha256": "38857e31920f4e6dd39606fbcd82b859a61c55d44de60c28dd871e54490b74af",
+      "size": 2119
+    },
+    {
+      "path": "JournalFrontendEventResult.java",
+      "sha256": "afb152fb35f7b7b7a7a87e335798db9567117381eb9ce326fc106f971ed61094",
+      "size": 1593
     },
     {
       "path": "KittyGraphicsState.java",
@@ -737,7 +772,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "fa738484567eb60411b02de02f126c89473a8a9ab7d1bce1a10b9b8d4a1b7423",
+      "sha256": "50818e4de9671597f12372727e8154b1b41cf251453836bdaad9a3936016a17c",
       "size": 3967
     },
     {
@@ -1312,7 +1347,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350",
+  "ir_sha256": "486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7",
   "language": "java",
   "mux_protocol": 10,
   "schema_version": 2

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = '17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350'
+IR_SHA256 = '486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7'
 
 
 @dataclass(frozen=True)
@@ -482,6 +482,17 @@ COMMANDS = {
         None,
         {
             'kind': CommandFieldMetadata(None, None),
+        },
+    ),
+    'journal-frontend-event': CommandMetadata(
+        'journal-frontend-event',
+        'control',
+        10,
+        'frontend-journal-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'event': CommandFieldMetadata(None, None),
         },
     ),
     'list-agents': CommandMetadata(

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350. */
+/* cmux-tui mux protocol 10, IR 486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350" as const;
+export const SDK_IR_SHA256 = "486d7ea5514cfb02071d352d4ac7893ab233aeba39ed66a3939930f1490b1ce7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -448,6 +448,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Short ids are snapshot-local labels; command parameters accept numeric ids only."
+    ]
+  },
+  "journal-frontend-event": {
+    "authority": "control",
+    "since": 10,
+    "capability": "frontend-journal-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The server derives producer identity from the authenticated control client."
     ]
   },
   "list-agents": {
@@ -2227,6 +2237,228 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "FrontendFocusTarget": {
+    "kind": "enum",
+    "values": [
+      "pane",
+      "machine_rail",
+      "workspace_rail"
+    ]
+  },
+  "FrontendJournalEvent": {
+    "kind": "tagged_union",
+    "tag": "kind",
+    "variants": {
+      "focus": {
+        "additional_properties": false,
+        "fields": {
+          "content_id": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "event_id": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "generation": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "kind": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "focus"
+            }
+          },
+          "pane_id": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "screen_id": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "tab_id": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "target": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "FrontendFocusTarget"
+            }
+          },
+          "workspace_id": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "resize": {
+        "additional_properties": false,
+        "fields": {
+          "cell_height": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            }
+          },
+          "cell_width": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            }
+          },
+          "cols": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            }
+          },
+          "event_id": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "generation": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "kind": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "resize"
+            }
+          },
+          "rows": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "viewport": {
+        "additional_properties": false,
+        "fields": {
+          "event_id": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "generation": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "kind": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "viewport"
+            }
+          },
+          "offset": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            }
+          },
+          "screen_id": {
+            "default": null,
+            "nullable": true,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "settled": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            }
+          },
+          "target": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            }
+          }
+        },
+        "kind": "object"
+      }
+    }
   },
   "FrontendProjection": {
     "additional_properties": false,
@@ -6808,6 +7040,36 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "IdsResult"
+    }
+  },
+  "journal-frontend-event": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "event": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "FrontendJournalEvent"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "committed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "literal",
+            "value": true
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "list-agents": {

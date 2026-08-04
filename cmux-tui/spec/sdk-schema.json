@@ -1777,6 +1777,228 @@
       },
       "additional_properties": false
     },
+    "FrontendFocusTarget": {
+      "kind": "enum",
+      "values": [
+        "pane",
+        "machine_rail",
+        "workspace_rail"
+      ]
+    },
+    "FrontendJournalEvent": {
+      "kind": "tagged_union",
+      "tag": "kind",
+      "variants": {
+        "focus": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "focus"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "event_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "generation": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "target": {
+              "type": {
+                "kind": "ref",
+                "name": "FrontendFocusTarget"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "workspace_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            },
+            "screen_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            },
+            "pane_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            },
+            "tab_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            },
+            "content_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            }
+          },
+          "additional_properties": false
+        },
+        "resize": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "resize"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "event_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "generation": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "cols": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint16"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "rows": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint16"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "cell_width": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint16"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "cell_height": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint16"
+              },
+              "presence": "required",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        },
+        "viewport": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "viewport"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "event_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "generation": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "screen_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "optional",
+              "nullable": true,
+              "default": null
+            },
+            "offset": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint64"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "target": {
+              "type": {
+                "kind": "scalar",
+                "name": "uint64"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "settled": {
+              "type": {
+                "kind": "scalar",
+                "name": "boolean"
+              },
+              "presence": "required",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        }
+      }
+    },
     "ExportedPane": {
       "kind": "object",
       "fields": {
@@ -3802,6 +4024,43 @@
       },
       "stream": null,
       "constraints": []
+    },
+    "journal-frontend-event": {
+      "authority": "control",
+      "since": 10,
+      "capability": "frontend-journal-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "event": {
+            "type": {
+              "kind": "ref",
+              "name": "FrontendJournalEvent"
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "committed": {
+            "type": {
+              "kind": "literal",
+              "value": true
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "stream": null,
+      "constraints": [
+        "The server derives producer identity from the authenticated control client."
+      ]
     },
     "ping": {
       "authority": "control",
