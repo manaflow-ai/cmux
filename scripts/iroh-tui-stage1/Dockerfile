@@ -10,7 +10,11 @@ RUN apt-get update \
 
 WORKDIR /source
 COPY . .
-RUN ./scripts/install-zig-ci.sh
+RUN ZIG_FORCE_LOCAL_INSTALL=1 ZIG_INSTALL_ROOT=/opt/zig ./scripts/install-zig-ci.sh \
+    && zig_version="$(./scripts/ghostty-zig-version.sh)" \
+    && ln -s "/opt/zig/zig-$(uname -m)-linux-${zig_version}/zig" /usr/local/bin/zig \
+    && /usr/local/bin/zig version
+ENV ZIG=/usr/local/bin/zig
 RUN cargo build \
     --manifest-path cmux-tui/Cargo.toml \
     --locked \

@@ -85,6 +85,7 @@ record "source=$build_commit"
 record "build_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 docker build \
+    --progress plain \
     --file "$REPO_ROOT/scripts/iroh-tui-stage1/Dockerfile" \
     --build-arg "CMUX_TUI_BUILD_COMMIT=$build_commit" \
     --tag "$image" \
@@ -99,6 +100,7 @@ cargo build \
 
 server_token="$(mint_enrollment_token)"
 provider_token="$(mint_enrollment_token)"
+unset CMUX_BROKER_ACCESS_TOKEN CMUX_BROKER_REFRESH_TOKEN
 printf '%s\n' "$provider_token" \
     | "$host_binary" enroll \
         --state-root "$demo_root/provider-state" \
