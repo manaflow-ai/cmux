@@ -186,17 +186,44 @@ public final class WorkstreamStore {
         return outcome
     }
 
-    /// Every agent task id this workstream has ever owned, including tasks it
+    /// Every agent task id this workstream currently owns, including tasks it
     /// has since deleted.
-    ///
-    /// The workspace-checklist sync uses this to retire exactly the rows this
-    /// agent owns and leave rows owned by the user, or by another agent
-    /// sharing the workspace, untouched.
     ///
     /// - Parameter workstreamId: The workstream (agent session) id.
     /// - Returns: The owned agent task ids, empty when nothing was accumulated.
     public func ownedTaskIds(forWorkstream workstreamId: String) -> Set<String> {
         taskToolTodosByWorkstream[workstreamId]?.ownedIds ?? []
+    }
+
+    /// Whether this workstream has any accumulated task state.
+    ///
+    /// - Parameter workstreamId: The workstream (agent session) id.
+    /// - Returns: `false` when the accumulator is absent or empty, meaning a
+    ///   caller holding persisted rows should seed it before the next delta.
+    public func hasTaskTodos(forWorkstream workstreamId: String) -> Bool {
+        guard let accumulator = taskToolTodosByWorkstream[workstreamId] else { return false }
+        return !accumulator.isEmpty
+    }
+
+    /// Restores a workstream's task list from rows recovered elsewhere.
+    ///
+    /// The in-memory accumulator is process-local, so an app restart, a
+    /// dropped event, or LRU eviction leaves it empty while the workspace
+    /// checklist still holds the agent's rows. Seeding from those rows lets an
+    /// ordinary status-only `TaskUpdate` land instead of being ignored as an
+    /// unknown id.
+    ///
+    /// - Parameters:
+    ///   - workstreamId: The workstream (agent session) id.
+    ///   - todos: The recovered tasks, in display order.
+    public func seedTaskTodos(forWorkstream workstreamId: String, todos: [WorkstreamTaskTodo]) {
+        guard !todos.isEmpty else { return }
+        var accumulator = taskToolTodosByWorkstream[workstreamId] ?? WorkstreamTaskToolTodos()
+        guard accumulator.isEmpty else { return }
+        accumulator.seed(with: todos)
+        taskToolTodosByWorkstream[workstreamId] = accumulator
+        taskToolWorkstreamsByRecency.removeAll { $0 == workstreamId }
+        taskToolWorkstreamsByRecency.append(workstreamId)
     }
 
     // MARK: - Actions

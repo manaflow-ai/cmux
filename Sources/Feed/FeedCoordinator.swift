@@ -119,6 +119,9 @@ final class FeedCoordinator: @unchecked Sendable {
     @MainActor
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
+        // Restore any persisted task state for this workstream before the
+        // delta lands, so a post-restart update is not dropped as unknown.
+        recoverAgentTodosIfNeeded(for: event)
         store.ingest(event)
         if let item = store.items.last {
             applyAgentTodos(from: item, event: event)

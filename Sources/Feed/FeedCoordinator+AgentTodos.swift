@@ -12,52 +12,87 @@ import Foundation
 /// so the checklist only ever filled from an explicit `cmux todo set`.
 /// See https://github.com/manaflow-ai/cmux/issues/8960.
 extension FeedCoordinator {
+    /// Restores a workstream's task list from its persisted checklist rows
+    /// before a delta is applied.
+    ///
+    /// The store's accumulator is process-local, so an app restart, a dropped
+    /// event, or LRU eviction leaves it empty while the rows are still on
+    /// disk. Without this, the ordinary status-only `TaskUpdate` that follows
+    /// names an id the store has never seen and is dropped, stranding the
+    /// checklist. The rows carry their own `agentTaskRef`, so recovery is
+    /// exact rather than a guess.
+    @MainActor
+    func recoverAgentTodosIfNeeded(for event: WorkstreamEvent) {
+        guard let toolName = event.toolName, isWorkstreamTaskTool(toolName) else { return }
+        guard let store, !store.hasTaskTodos(forWorkstream: event.sessionId) else { return }
+        guard let workspace = Self.resolveTodoWorkspace(for: event) else { return }
+
+        let restored = workspace.todoState.checklist.compactMap { item -> WorkstreamTaskTodo? in
+            guard let ref = item.agentTaskRef, ref.workstreamId == event.sessionId else { return nil }
+            return WorkstreamTaskTodo(
+                id: ref.taskId,
+                content: item.text,
+                state: Self.todoState(for: item.state)
+            )
+        }
+        store.seedTaskTodos(forWorkstream: event.sessionId, todos: restored)
+    }
+
     @MainActor
     func applyAgentTodos(from item: WorkstreamItem, event: WorkstreamEvent) {
         guard case .todos(let todos) = item.payload else { return }
-        guard let store else { return }
         guard let workspace = Self.resolveTodoWorkspace(for: event) else { return }
 
         let workstreamId = item.workstreamId
-        let ownedIds = Set(
-            store.ownedTaskIds(forWorkstream: workstreamId).map {
-                workstreamChecklistItemId(workstreamId: workstreamId, taskId: $0)
-            }
-        )
-        // Nothing owned and nothing reported means this producer has never
-        // contributed a row; applying it could only churn.
-        guard !ownedIds.isEmpty || !todos.isEmpty else { return }
-
         let tasks = todos.map { todo in
             WorkspaceAgentChecklistTask(
                 id: todo.stableChecklistItemId(workstreamId: workstreamId),
+                ref: WorkspaceAgentTaskRef(workstreamId: workstreamId, taskId: todo.id),
                 text: todo.content,
                 state: Self.checklistState(for: todo.state)
             )
         }
-        // Whole-list producers (TodoWrite, the OpenCode plugin) keep no
-        // accumulator, so fall back to owning exactly what they just reported.
-        let owned = ownedIds.isEmpty ? Set(tasks.map(\.id)) : ownedIds
         guard let replacements = workspaceAgentChecklistReplacement(
             existing: workspace.todoState.checklist,
             agentTasks: tasks,
-            ownedIds: owned
+            workstreamId: workstreamId
         ) else { return }
         workspace.replaceChecklist(with: replacements)
         WorkspaceTodoFeature.markUsed()
     }
 
+    /// Resolves the workspace whose checklist this event may mutate.
+    ///
+    /// Only the event's own `workspace_id` (the running terminal's
+    /// `CMUX_WORKSPACE_ID`) is trusted, and the write fails closed without it.
+    /// Deliberately not `resolveAttentionTarget`: that falls back to the
+    /// retained hook-session JSON on disk, which is fine for routing a
+    /// transient notification but would let a stale record write rows into the
+    /// workspace a resumed or moved session used to live in. It would also put
+    /// a synchronous file read and JSON parse on the main actor for every task
+    /// event.
     @MainActor
     private static func resolveTodoWorkspace(for event: WorkstreamEvent) -> Workspace? {
-        guard let target = resolveAttentionTarget(event: event),
-              let tabManager = AppDelegate.shared?.tabManagerFor(tabId: target.workspaceId)
+        guard let raw = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let workspaceId = UUID(uuidString: raw),
+              let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
         else { return nil }
-        return tabManager.tabs.first { $0.id == target.workspaceId }
+        return tabManager.tabs.first { $0.id == workspaceId }
     }
 
     private static func checklistState(
         for state: WorkstreamTaskTodo.State
     ) -> WorkspaceChecklistItem.State {
+        switch state {
+        case .pending: return .pending
+        case .inProgress: return .inProgress
+        case .completed: return .completed
+        }
+    }
+
+    private static func todoState(
+        for state: WorkspaceChecklistItem.State
+    ) -> WorkstreamTaskTodo.State {
         switch state {
         case .pending: return .pending
         case .inProgress: return .inProgress

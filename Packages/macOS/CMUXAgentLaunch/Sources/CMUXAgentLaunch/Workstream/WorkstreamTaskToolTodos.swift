@@ -55,6 +55,23 @@ struct WorkstreamTaskToolTodos: Sendable {
     /// The ids this workstream currently owns.
     var ownedIds: Set<String> { ownedIdSet }
 
+    /// Whether anything has been accumulated yet.
+    var isEmpty: Bool { todos.isEmpty && ownedIdSet.isEmpty }
+
+    /// Restores a task list recovered from persisted checklist rows.
+    ///
+    /// Used after an app restart, a dropped event, or eviction, so an ordinary
+    /// status-only `TaskUpdate` finds its row instead of being ignored as an
+    /// unknown id.
+    ///
+    /// - Parameter restored: The tasks recovered for this workstream, in
+    ///   display order.
+    mutating func seed(with restored: [WorkstreamTaskTodo]) {
+        todos = restored
+        for todo in restored { claimId(todo.id) }
+        trimToCap()
+    }
+
     /// Applies one **completed** task-tool call.
     ///
     /// - Parameters:

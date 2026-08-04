@@ -217,4 +217,48 @@ struct WorkspaceTodoSnapshotTests {
         #expect(item.attachments[1].pixelWidth == nil)
         #expect(item.attachments[1].pixelHeight == nil)
     }
+
+    /// The agent task reference must survive the session snapshot round trip.
+    /// Without it a restarted app cannot tell which rows an agent owns, so a
+    /// resumed status-only `TaskUpdate` is dropped as an unknown id.
+    /// https://github.com/manaflow-ai/cmux/issues/8960
+    @Test
+    func agentTaskRefRoundTripsThroughTheSessionSnapshot() throws {
+        let ref = WorkspaceAgentTaskRef(workstreamId: "claude-session-1", taskId: "7")
+        let item = WorkspaceChecklistItem(
+            text: "ship it",
+            state: .inProgress,
+            origin: .agent,
+            agentTaskRef: ref
+        )
+        let encoded = try JSONEncoder().encode(SessionChecklistItemSnapshot(item: item))
+        let decoded = try JSONDecoder().decode(SessionChecklistItemSnapshot.self, from: encoded)
+        #expect(decoded.agentTaskRef == ref)
+        #expect(decoded.checklistItem?.agentTaskRef == ref)
+        #expect(decoded.checklistItem?.id == item.id)
+    }
+
+    /// Manifests written before the reference existed still decode, and their
+    /// rows are simply unowned.
+    @Test
+    func snapshotsWithoutAnAgentTaskRefDecodeAsUnowned() throws {
+        let legacy = #"{"id":"\#(UUID().uuidString)","text":"legacy","state":"pending","origin":"agent"}"#
+        let decoded = try JSONDecoder().decode(
+            SessionChecklistItemSnapshot.self,
+            from: Data(legacy.utf8)
+        )
+        #expect(decoded.agentTaskRef == nil)
+        #expect(decoded.checklistItem?.agentTaskRef == nil)
+    }
+
+    /// An item with no agent reference must not add the key to the manifest.
+    @Test
+    func userItemsDoNotEmitAnAgentTaskRefKey() throws {
+        let snapshot = SessionChecklistItemSnapshot(
+            item: WorkspaceChecklistItem(text: "mine", state: .pending, origin: .user)
+        )
+        let encoded = try JSONEncoder().encode(snapshot)
+        let json = String(decoding: encoded, as: UTF8.self)
+        #expect(!json.contains("agentTaskRef"))
+    }
 }

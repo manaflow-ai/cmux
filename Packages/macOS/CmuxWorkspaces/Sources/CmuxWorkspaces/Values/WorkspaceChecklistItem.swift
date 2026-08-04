@@ -27,6 +27,9 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
     public var origin: Origin
     /// User-owned image files attached to the item.
     public var attachments: [WorkspaceChecklistAttachment]
+    /// The agent task this row mirrors, when an agent created it. Persisted so
+    /// the row's owner survives restarts and dropped events.
+    public var agentTaskRef: WorkspaceAgentTaskRef?
 
     /// Number of attachments available for compact UI counts.
     public var attachmentCount: Int {
@@ -39,13 +42,15 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         text: String,
         state: State = .pending,
         origin: Origin = .user,
-        attachments: [WorkspaceChecklistAttachment] = []
+        attachments: [WorkspaceChecklistAttachment] = [],
+        agentTaskRef: WorkspaceAgentTaskRef? = nil
     ) {
         self.id = id
         self.text = text
         self.state = state
         self.origin = origin
         self.attachments = attachments
+        self.agentTaskRef = agentTaskRef
     }
 
     /// Checks whether any attachment file is currently missing.
@@ -59,6 +64,7 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         case state
         case origin
         case attachments
+        case agentTaskRef
     }
 
     public init(from decoder: any Decoder) throws {
@@ -68,6 +74,7 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         self.state = try container.decode(State.self, forKey: .state)
         self.origin = try container.decode(Origin.self, forKey: .origin)
         self.attachments = (try? container.decode(LossyWorkspaceChecklistAttachments.self, forKey: .attachments))?.attachments ?? []
+        self.agentTaskRef = try? container.decodeIfPresent(WorkspaceAgentTaskRef.self, forKey: .agentTaskRef)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -76,6 +83,7 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         try container.encode(text, forKey: .text)
         try container.encode(state, forKey: .state)
         try container.encode(origin, forKey: .origin)
+        try container.encodeIfPresent(agentTaskRef, forKey: .agentTaskRef)
         if !attachments.isEmpty {
             try container.encode(attachments, forKey: .attachments)
         }
