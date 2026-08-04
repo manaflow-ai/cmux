@@ -867,6 +867,8 @@
       "concepts": "Koncepti",
       "anchorTitle": "Sidreni radni prostor",
       "anchorDesc": "Svaku grupu posjeduje tačno jedan radni prostor koji se naziva sidro. Zaglavlje grupe u bočnoj traci predstavlja sidro — za njega ne postoji poseban red. Klikom na područje naziva u zaglavlju fokusiraju se paneli sidra; klikom na strelicu prebacuje se sklapanje.",
+      "anchorNew": "Sidro grupe je prilikom stvaranja uvijek potpuno novi radni prostor; grupisanje odabira ili stvaranje grupe nikada ne promovira neki od postojećih radnih prostora u sidro. (Kasnije zatvaranje sidra ipak promovira prvog preostalog člana grupe; pogledajte u nastavku.) Radni direktorij sidra nasljeđuje se od prvog odabranog radnog prostora pri grupisanju odabira ili od aktivnog radnog prostora pri stvaranju putem CLI-ja bez opcije --cwd.",
+      "anchorClose": "Zatvaranjem sidrenog radnog prostora zatvara se samo taj radni prostor, a prvi preostali član grupe (prvi koji se još uvijek nalazi u redoslijedu grupe) postaje novo sidro, tako da grupa i ostali članovi ostaju netaknuti (promovisani član zatim prikazuje naziv grupe kao zaglavlje). Kada je sidro jedini radni prostor grupe, grupa se uklanja. Da biste pretvorili grupu u negrupisane radne prostore, upotrijebite Razgrupiši radne prostore; da biste zatvorili svaki radni prostor u grupi, upotrijebite Obriši grupu.",
       "identityTitle": "Identitet grupe",
       "identityDesc": "Grupa ima naziv, ikonu (SF Symbol, podrazumijevano folder.fill) i opcionalnu prilagođenu boju. Oni su nezavisni od vlastitih prilagođavanja sidrenog radnog prostora. Boja i ikona sidra se prilikom kreiranja preuzimaju iz grupe, ali se nakon toga mogu razlikovati.",
       "pinningTitle": "Prikvačivanje",
@@ -3524,7 +3526,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije."
+    "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
+    "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
+    "signedOutSignIn": "Prijavite se"
   },
   "platforms": {
     "macos": "macOS",
@@ -3601,6 +3605,37 @@
       "primaryCta": "Preuzmite .deb",
       "requirements": "Debian ili Ubuntu · x64",
       "installBody": "Preuzmite Debian paket i instalirajte ga pomoću upravitelja paketa. Odaberite prijenosni ZIP za instalaciju po korisniku i ažuriranja unutar aplikacije."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Dobro došli u cmux Pro 🎉",
+      "fallbackName": "prijatelju",
+      "greeting": "Zdravo {name},",
+      "thanks": "Hvala što ste se pridružili cmux Pro! Još uvijek dovršavamo cijelo Pro iskustvo, a pristup oblaku stiže uskoro.",
+      "cloudStatus": "Kada pokrenemo pristup oblaku, dodat ćemo na vaš račun kredite za korištenje prema broju mjeseci pretplate.",
+      "currentBenefit": "Do tada je vaša Pro pogodnost rani pristup cmuxu na iOS-u. Prijavite se putem poveznice ispod, a Apple će vam poslati TestFlight pozivnicu nakon registracije.",
+      "testflightLink": "Prijavite se za TestFlight: {url}",
+      "testflightLinkLabel": "Prijavite se za TestFlight",
+      "signoff": "Drago nam je što ste ovdje!\ncmux tim"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro je aktivan",
+    "title": "Dobro došli u cmux Pro",
+    "body": "Pro funkcije su još u razvoju. Pristup oblaku stiže uskoro, uz kredite za korištenje koji se prikupljaju za svaki mjesec pretplate. Pro trenutno uključuje pristup cmux iOS aplikaciji putem TestFlighta.",
+    "done": "Idi na kontrolnu ploču",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS aplikacija",
+        "body": "Koristite cmux na svom telefonu.",
+        "action": "Pridružite se iOS beti"
+      },
+      "billing": {
+        "title": "Upravljajte planom",
+        "body": "Pregledajte plan, račune i mogućnosti otkazivanja.",
+        "action": "Upravljaj planom"
+      }
     }
   }
 }

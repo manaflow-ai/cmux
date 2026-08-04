@@ -17,6 +17,7 @@ interface PendingCompletion {
   lastAssistantMessage?: string;
   notificationType: string;
   turnId: string;
+  suppressNotification: boolean;
 }
 
 interface SessionState {
@@ -375,18 +376,38 @@ function textFromContent(content: unknown): string | null {
   return parts.join("\n") || null;
 }
 
-function lastAssistantMessage(event: unknown): string | undefined {
+interface AssistantCompletion {
+  lastAssistantMessage?: string;
+  suppressNotification: boolean;
+}
+
+function assistantCompletionFrom(event: unknown): AssistantCompletion {
   const messagesValue = objectValue(event, ["messages"]);
   const messages = Array.isArray(messagesValue) ? messagesValue : [];
+  let suppressNotification = false;
+  let inspectedLatestAssistant = false;
+  // Resolve text and interruption metadata in one reverse pass. agent_end may
+  // carry a large message array, so notification support must not rescan it.
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message || typeof message !== "object") continue;
-    const typed = message as { role?: unknown; content?: unknown };
+    const typed = message as {
+      role?: unknown;
+      content?: unknown;
+      stopReason?: unknown;
+      cmuxSuppressNotification?: unknown;
+    };
     if (typed.role !== "assistant") continue;
+    if (!inspectedLatestAssistant) {
+      // Input extensions may normalize an abort to `stop` to keep Pi's UI quiet;
+      // the marker preserves the interruption intent across that normalization.
+      suppressNotification = typed.stopReason === "aborted" || typed.cmuxSuppressNotification === true;
+      inspectedLatestAssistant = true;
+    }
     const text = firstString(textFromContent(typed.content));
-    if (text) return text;
+    if (text) return { lastAssistantMessage: text, suppressNotification };
   }
-  return undefined;
+  return { suppressNotification };
 }
 
 function sessionIdFrom(ctx: ExtensionContext): string | null {
@@ -466,16 +487,26 @@ function settleTurn(sessionStates: Map<string, SessionState>, sessionId: string)
   return completion;
 }
 
-function warn(ctx: PiExtensionContextSnapshot | null, message: string, details: Record<string, unknown> = {}): void {
+function warn(
+  ctx: PiExtensionContextSnapshot | null,
+  message: string,
+  details: Record<string, unknown> = {},
+  notifyUser = false,
+): void {
   const payload = { source: "cmux-pi-extension", level: "warning", message, ...details };
   try {
     console.warn(JSON.stringify(payload));
   } catch (_) {
     console.warn(`[cmux-pi-extension] ${message}`);
   }
-  try {
-    ctx?.notifyWarning?.();
-  } catch (_) {}
+  // Hook transport is best-effort telemetry. Keep routine command failures in
+  // the terminal instead of interrupting Pi with a generic toast; reserve the
+  // UI warning for an unexpected extension-task exception.
+  if (notifyUser) {
+    try {
+      ctx?.notifyWarning?.();
+    } catch (_) {}
+  }
 }
 
 function cmuxExecutable(): string {

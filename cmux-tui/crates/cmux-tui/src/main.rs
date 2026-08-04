@@ -28,6 +28,38 @@ mod provider_authority;
 #[cfg(unix)]
 mod provider_notice_identity;
 mod pty_input;
+#[cfg(unix)]
+mod remote_cli;
+#[cfg(not(unix))]
+mod remote_cli {
+    const REMOTE_COMMANDS: &[&str] = &[
+        "connect",
+        "ssh",
+        "forward",
+        "rpc",
+        "enroll",
+        "known-daemons",
+        "remote-probe",
+        "remote-link",
+        "remote-sidecar",
+        "remote-stop",
+        "install-self",
+    ];
+
+    pub fn is_remote_invocation(args: &[String]) -> bool {
+        args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+    }
+
+    pub fn run(_: &[String], _: &str) -> i32 {
+        eprintln!(
+            "cmux-tui: remote daemon commands require Unix sockets and are unsupported on {}",
+            std::env::consts::OS
+        );
+        1
+    }
+}
+#[cfg(unix)]
+mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod ui;
@@ -35,13 +67,14 @@ mod ui;
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
 use std::ffi::OsString;
-use std::io::{self, IsTerminal};
+use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::net::Shutdown;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceKind, SurfaceOptions};
+use cmux_tui_core::resource::TerminalPublicId;
+use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::BearerToken;
 use machine::{
@@ -246,20 +279,26 @@ fn harden_provider_secret_process() -> io::Result<()> {
 }
 
 const USAGE: &str = "\
-cmux-tui - terminal multiplexer backed by libghostty-vt
+cmux - terminal multiplexer and resource client
 
-USAGE:
-  cmux-tui [OPTIONS]           Start a session (TUI + control socket)
-  cmux-tui attach [OPTIONS]    Attach to an existing session or one terminal
-  cmux-tui relay [OPTIONS]     Relay stdio to a session's socket
+USAGE
+  cmux [OPTIONS]           Start a session
+  cmux daemon [OPTIONS]    Start a headless session and remote daemon
+  cmux connect <ROUTE>     Attach through an authenticated remote route
+  cmux ssh <HOST>          Bootstrap and attach over direct SSH
+  cmux forward <ROUTE>     Forward a workspace TCP service locally
+  cmux rpc <ROUTE>         Run workspace coding-agent RPC requests
+  cmux enroll <ACTION>     Enroll, approve, list, or revoke devices
+  cmux known-daemons       List client-pinned daemon identities and routes
+  cmux attach [OPTIONS]    Attach to a session or one terminal
+  cmux relay [OPTIONS]     Relay protocol bytes over stdio
   {machine_agent_usage}
-  cmux-tui <verb> [OPTIONS]    Run one control-socket command
-  cmux-tui plugin <subcommand> Manage sidebar plugins locally
+  cmux <scope> --help      Discover resource commands
 
-OPTIONS:
+START OPTIONS
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
-  --surface <id>     With attach, show only this terminal (numeric or short id).
+  --terminal <id>    With attach, show only this terminal (use `cmux terminal list`).
   --state <path>     Durable session-state root (default: platform state dir).
   --ephemeral        Keep workspace state in memory for this run only.
   --machine-provider <path>
@@ -275,62 +314,25 @@ OPTIONS:
   --ws <addr>        Also listen for WebSocket clients (default: off).
   --ws-token <token> Allow a static-token bypass for interactive pairing.
   --ws-insecure-bind Allow a non-loopback WebSocket bind (no TLS; use a proxy).
+  --remote          Run the authenticated remote daemon with this session.
+  --remote-ws <addr> Listen for direct remote WebSocket links.
+  --remote-ws-insecure-bind  Allow plaintext remote WebSocket off loopback.
+  --remote-http <addr> Listen for bearer-authenticated workspace HTTP RPC on loopback.
+  --remote-state-dir <path>  Override remote identity and runtime state.
+  --remote-link-socket <path> Override the local authenticated link socket.
+  --remote-admin-socket <path> Override the owner-only admin socket.
+  --remote-resume-lease-seconds <seconds>
+                    Retain crashed-client replay state for 1-86400 seconds.
+  --relay <url> --relay-slot <routing-key>
+                    Register with a relay; repeat up to four groups.
+  --relay-ticket-file <path>  Refresh the relay ticket from a file.
+  --relay-ticket-command <program> [--relay-ticket-command-arg <arg>]
+                    Refresh the relay ticket from an argv-based command.
+  --iroh            Publish an Iroh route for NAT traversal and mobile use.
+  --advertise <url> Add a non-secret route hint to enrollment invitations.
   --term <value>     TERM for child shells (default: xterm-256color).
   -h, --help         Show this help.
-  -V, --version      Print the cmux-tui version.
-
-KEYS (prefix: Ctrl-b)
-  t  new tab in pane   B    new browser tab    Alt-n  auto-layout new pane
-  Tab/BackTab  next/prev tab
-  0-9  select screen
-  %  split right       \"  split down          x/X  close tab/pane
-  ,  rename screen     $    rename workspace   c    new screen
-  n/p  next/prev screen
-  h/j/k/l or arrows    move focus              d    quit (attach: detach)
-  (/)  prev/next workspace   W  new workspace   D  close workspace
-  w    next workspace alias  Alt-{ / Alt-}  prev/next workspace
-  z  maximize/restore pane
-  s  show/hide sidebar m    compact/full sidebar
-  e  toggle sidebar view    S    focus sidebar  ?  keyboard shortcuts
-  {layout_shortcuts}
-  <  browser back      >    browser forward     r/u  browser reload/edit URL
-  Ctrl-b  send a literal Ctrl-b
-
-MOUSE
-  Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
-  to select text or open the cmux pane menu. Right-click a pane for
-  rename, new pane/tab, split/close, and maximize; menus
-  show configured keyboard shortcuts. Right-click anywhere in the sidebar for sidebar
-  controls. Right-click a workspace row or status-bar screen for its
-  local rename/close actions. Click
-  tab-bar entries to switch tabs (+ for a new tab), and status-bar
-  screen entries to switch screens (+ for a new screen). The shortcut
-  modal supports wheel, an overflow-only terminal-style scrollbar, and Esc close.
-
-CLI VERBS
-  identify, ping, set-client-info, list-clients, detach-client, set-client-sizing,
-  reload-config, set-window-title, clear-window-title,
-  list-workspaces, export-layout, apply-layout, send,
-  read-screen, read-scrollback, clear-history, vt-state, new-tab, new-browser-tab, new-workspace,
-  new-screen, new-pane, new-pane-right, split, set-ratio, set-split-ratio,
-  set-viewport-pane-width, undo-layout,
-  pane-neighbor, focus-direction,
-  swap-pane, zoom-pane, process-info, set-default-colors,
-  close-surface, close-pane, close-screen, close-workspace,
-  rename-pane, rename-surface, rename-screen, rename-workspace,
-  resize-surface, release-surface-size, focus-pane, select-tab, select-screen,
-  select-workspace, move-tab, move-workspace, scroll-surface,
-  subscribe, attach-surface, wait-for, run, send-key, copy, ids,
-  notify, list-agents, report-agent
-
-PLUGIN VERBS (local; no socket protocol command)
-  plugin install <git-url> [--name <name>] [--force]
-  plugin list [--json]
-  plugin use <name>
-  plugin use --builtin
-  plugin disable
-  plugin update <name>
-  plugin remove <name>
+  -V, --version      Print the cmux version.
 ";
 
 fn usage_for(catalog: &localization::Catalog) -> String {
@@ -338,12 +340,11 @@ fn usage_for(catalog: &localization::Catalog) -> String {
 }
 
 fn usage_for_platform(catalog: &localization::Catalog, supports_machine_agent: bool) -> String {
-    let usage = if supports_machine_agent {
+    if supports_machine_agent {
         USAGE.replace("  {machine_agent_usage}\n", &format!("  {}\n", catalog.machine_agent.usage))
     } else {
         USAGE.replace("  {machine_agent_usage}\n", "")
-    };
-    usage.replace("  {layout_shortcuts}\n", &format!("{}\n", catalog.layout.startup_shortcuts))
+    }
 }
 
 fn usage() -> String {
@@ -355,7 +356,7 @@ struct Args {
     attach: bool,
     session: String,
     socket: Option<PathBuf>,
-    surface: Option<String>,
+    terminal: Option<String>,
     state: Option<PathBuf>,
     ephemeral: bool,
     machine_provider: Option<PathBuf>,
@@ -369,7 +370,39 @@ struct Args {
     ws: Option<String>,
     ws_token: Option<String>,
     ws_insecure_bind: bool,
+    remote: bool,
+    remote_ws: Option<String>,
+    remote_ws_insecure_bind: bool,
+    remote_http: Option<String>,
+    remote_state_dir: Option<PathBuf>,
+    remote_link_socket: Option<PathBuf>,
+    remote_admin_socket: Option<PathBuf>,
+    remote_resume_lease_seconds: u64,
+    relay_endpoints: Vec<String>,
+    relay_slots: Vec<String>,
+    relay_credentials: Vec<RelayCredentialArg>,
+    iroh: bool,
+    advertised_routes: Vec<String>,
     term: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum RelayCredentialArg {
+    File(PathBuf),
+    Command { program: String, args: Vec<String> },
+}
+
+impl std::fmt::Debug for RelayCredentialArg {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File(path) => formatter.debug_tuple("File").field(path).finish(),
+            Self::Command { program, args } => formatter
+                .debug_struct("Command")
+                .field("program", program)
+                .field("argument_count", &args.len())
+                .finish(),
+        }
+    }
 }
 
 impl Args {
@@ -378,6 +411,7 @@ impl Args {
             && ws_addr.is_none()
             && ws_token.is_none()
             && !self.ws_insecure_bind
+            && !self.remote
             && self.term.is_none()
     }
 }
@@ -391,7 +425,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         attach: false,
         session: "main".to_string(),
         socket: None,
-        surface: None,
+        terminal: None,
         state: None,
         ephemeral: false,
         machine_provider: None,
@@ -405,12 +439,33 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         ws: None,
         ws_token: None,
         ws_insecure_bind: false,
+        remote: false,
+        remote_ws: None,
+        remote_ws_insecure_bind: false,
+        remote_http: None,
+        remote_state_dir: None,
+        remote_link_socket: None,
+        remote_admin_socket: None,
+        remote_resume_lease_seconds: 120,
+        relay_endpoints: Vec::new(),
+        relay_slots: Vec::new(),
+        relay_credentials: Vec::new(),
+        iroh: false,
+        advertised_routes: Vec::new(),
         term: None,
     };
     let mut args = args.into_iter().peekable();
-    if args.peek().map(|s| s.as_str()) == Some("attach") {
-        out.attach = true;
-        args.next();
+    match args.peek().map(|s| s.as_str()) {
+        Some("attach") => {
+            out.attach = true;
+            args.next();
+        }
+        Some("daemon") => {
+            out.remote = true;
+            out.headless = true;
+            args.next();
+        }
+        _ => {}
     }
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -420,6 +475,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--socket" => {
                 out.socket =
                     Some(args.next().ok_or_else(|| "--socket needs a value".to_string())?.into());
+            }
+            "--terminal" => {
+                out.terminal =
+                    Some(args.next().ok_or_else(|| "--terminal needs a value".to_string())?);
             }
             "--machine-provider" => {
                 if out.machine_provider.is_some() {
@@ -475,10 +534,6 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     args.next().ok_or_else(|| "--cloud-identity needs a value".to_string())?.into(),
                 );
             }
-            "--surface" => {
-                out.surface =
-                    Some(args.next().ok_or_else(|| "--surface needs a value".to_string())?);
-            }
             "--state" => {
                 out.state =
                     Some(args.next().unwrap_or_else(|| usage_exit("--state needs a value")).into());
@@ -493,6 +548,111 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     Some(args.next().ok_or_else(|| "--ws-token needs a value".to_string())?);
             }
             "--ws-insecure-bind" => out.ws_insecure_bind = true,
+            "--remote" => out.remote = true,
+            "--remote-ws" => {
+                out.remote_ws =
+                    Some(args.next().unwrap_or_else(|| usage_exit("--remote-ws needs a value")));
+                out.remote = true;
+            }
+            "--remote-ws-insecure-bind" => {
+                out.remote_ws_insecure_bind = true;
+                out.remote = true;
+            }
+            "--remote-http" => {
+                out.remote_http =
+                    Some(args.next().unwrap_or_else(|| usage_exit("--remote-http needs a value")));
+                out.remote = true;
+            }
+            "--remote-state-dir" => {
+                out.remote_state_dir = Some(
+                    args.next()
+                        .unwrap_or_else(|| usage_exit("--remote-state-dir needs a value"))
+                        .into(),
+                );
+                out.remote = true;
+            }
+            "--remote-link-socket" => {
+                out.remote_link_socket = Some(
+                    args.next()
+                        .unwrap_or_else(|| usage_exit("--remote-link-socket needs a value"))
+                        .into(),
+                );
+                out.remote = true;
+            }
+            "--remote-admin-socket" => {
+                out.remote_admin_socket = Some(
+                    args.next()
+                        .unwrap_or_else(|| usage_exit("--remote-admin-socket needs a value"))
+                        .into(),
+                );
+                out.remote = true;
+            }
+            "--remote-resume-lease-seconds" => {
+                let value = args
+                    .next()
+                    .unwrap_or_else(|| usage_exit("--remote-resume-lease-seconds needs a value"));
+                out.remote_resume_lease_seconds = value.parse().unwrap_or_else(|_| {
+                    usage_exit("--remote-resume-lease-seconds must be an integer")
+                });
+                if !(1..=86_400).contains(&out.remote_resume_lease_seconds) {
+                    usage_exit("--remote-resume-lease-seconds must be between 1 and 86400");
+                }
+                out.remote = true;
+            }
+            "--relay" => {
+                out.relay_endpoints
+                    .push(args.next().unwrap_or_else(|| usage_exit("--relay needs a value")));
+                out.remote = true;
+            }
+            "--relay-slot" => {
+                out.relay_slots
+                    .push(args.next().unwrap_or_else(|| usage_exit("--relay-slot needs a value")));
+                out.remote = true;
+            }
+            "--relay-ticket" => {
+                return Err(localization::catalog()
+                    .remote_client
+                    .inline_relay_ticket_rejected
+                    .to_string());
+            }
+            "--relay-ticket-file" => {
+                out.relay_credentials.push(RelayCredentialArg::File(
+                    args.next()
+                        .unwrap_or_else(|| usage_exit("--relay-ticket-file needs a value"))
+                        .into(),
+                ));
+                out.remote = true;
+            }
+            "--relay-ticket-command" => {
+                out.relay_credentials.push(RelayCredentialArg::Command {
+                    program: args
+                        .next()
+                        .unwrap_or_else(|| usage_exit("--relay-ticket-command needs a value")),
+                    args: Vec::new(),
+                });
+                out.remote = true;
+            }
+            "--relay-ticket-command-arg" => {
+                let argument = args
+                    .next()
+                    .unwrap_or_else(|| usage_exit("--relay-ticket-command-arg needs a value"));
+                match out.relay_credentials.last_mut() {
+                    Some(RelayCredentialArg::Command { args, .. }) => args.push(argument),
+                    _ => {
+                        usage_exit("--relay-ticket-command-arg must follow --relay-ticket-command")
+                    }
+                }
+                out.remote = true;
+            }
+            "--iroh" => {
+                out.iroh = true;
+                out.remote = true;
+            }
+            "--advertise" => {
+                out.advertised_routes
+                    .push(args.next().unwrap_or_else(|| usage_exit("--advertise needs a value")));
+                out.remote = true;
+            }
             "--term" => {
                 out.term = Some(args.next().ok_or_else(|| "--term needs a value".to_string())?);
             }
@@ -501,14 +661,14 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 std::process::exit(0);
             }
             "-V" | "--version" => {
-                println!("cmux-tui {}", version_string());
+                println!("cmux {}", version_string());
                 std::process::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
-    if out.surface.is_some() && !out.attach {
-        return Err("--surface requires `cmux-tui attach`".to_string());
+    if out.terminal.is_some() && !out.attach {
+        return Err("--terminal requires `cmux attach`".to_string());
     }
     Ok(out)
 }
@@ -528,6 +688,149 @@ fn version_string() -> String {
         (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
         (None, _) => env!("CARGO_PKG_VERSION").to_string(),
     }
+}
+
+#[cfg(unix)]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(windows)]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(unix)]
+fn shell_prompt() -> &'static str {
+    ""
+}
+
+#[cfg(windows)]
+fn shell_prompt() -> &'static str {
+    "PowerShell> "
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum SchemaSocketOwner {
+    Absent,
+    Matching { pid: u32, generation: String },
+    ForcedHandoffUnsupported,
+    Different,
+    Unverified,
+}
+
+fn schema_socket_owner(
+    socket_path: &Path,
+    expected_session: &str,
+    expected_registry_id: Option<&str>,
+) -> SchemaSocketOwner {
+    let stream = match cmux_tui_core::platform::transport::connect(socket_path) {
+        Ok(stream) => stream,
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            return SchemaSocketOwner::Absent;
+        }
+        Err(_) => return SchemaSocketOwner::Unverified,
+    };
+    let timeout = Some(std::time::Duration::from_millis(500));
+    if stream.set_read_timeout(timeout).is_err() || stream.set_write_timeout(timeout).is_err() {
+        return SchemaSocketOwner::Unverified;
+    }
+    let Ok(mut writer) = stream.try_clone_box() else {
+        return SchemaSocketOwner::Unverified;
+    };
+    if writer.write_all(b"{\"id\":0,\"cmd\":\"identify\"}\n").and_then(|()| writer.flush()).is_err()
+    {
+        return SchemaSocketOwner::Unverified;
+    }
+    let mut reader = BufReader::new(stream).take(64 * 1024);
+    let mut line = String::new();
+    if reader.read_line(&mut line).is_err() || !line.ends_with('\n') {
+        return SchemaSocketOwner::Unverified;
+    }
+    let Ok(response) = serde_json::from_str::<serde_json::Value>(&line) else {
+        return SchemaSocketOwner::Unverified;
+    };
+    let data = &response["data"];
+    if response["id"] != 0 || response["ok"] != true || data["app"] != "cmux-tui" {
+        return SchemaSocketOwner::Unverified;
+    }
+    let Some(expected_registry_id) = expected_registry_id else {
+        return SchemaSocketOwner::Unverified;
+    };
+    if data["session"] != expected_session || data["registry_id"] != expected_registry_id {
+        return SchemaSocketOwner::Different;
+    }
+    if !data["capabilities"].as_array().is_some_and(|capabilities| {
+        capabilities
+            .iter()
+            .any(|capability| capability == cmux_tui_core::server::DAEMON_HANDOFF_FORCE_CAPABILITY)
+    }) {
+        return SchemaSocketOwner::ForcedHandoffUnsupported;
+    }
+    let Some(pid) = data["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()) else {
+        return SchemaSocketOwner::Unverified;
+    };
+    let Some(generation) = data["generation"].as_str().filter(|generation| !generation.is_empty())
+    else {
+        return SchemaSocketOwner::Unverified;
+    };
+    SchemaSocketOwner::Matching { pid, generation: generation.to_string() }
+}
+
+fn workspace_schema_startup_error(
+    error: anyhow::Error,
+    session: &str,
+    socket_path: &Path,
+) -> anyhow::Error {
+    let Some(schema) = error.downcast_ref::<cmux_tui_core::UnsupportedWorkspaceRegistrySchema>()
+    else {
+        return error;
+    };
+    let messages = &localization::catalog().startup;
+    let socket = socket_path.display().to_string();
+    let socket_recovery = match schema_socket_owner(socket_path, session, schema.registry_id()) {
+        SchemaSocketOwner::Matching { pid, generation } => {
+            let request = serde_json::to_string(&serde_json::json!({
+                "cmd": "shutdown-daemon",
+                "force": true,
+                "generation": generation,
+                "id": 1,
+                "pid": pid,
+            }))
+            .expect("daemon shutdown request is serializable");
+            let stop_command = format!(
+                "{}cmux --socket {} raw command --request-json {}",
+                shell_prompt(),
+                shell_quote(&socket),
+                shell_quote(&request),
+            );
+            format!("{}\n  {stop_command}", messages.stop_newer_server)
+        }
+        SchemaSocketOwner::Absent => messages.no_server_listening.to_string(),
+        SchemaSocketOwner::ForcedHandoffUnsupported => {
+            messages.forced_handoff_unsupported.to_string()
+        }
+        SchemaSocketOwner::Different => messages.different_server.to_string(),
+        SchemaSocketOwner::Unverified => messages.server_not_verified.to_string(),
+    };
+    let separate_session = format!("{session}-separate");
+    let separate_command =
+        format!("{}cmux --session {}", shell_prompt(), shell_quote(&separate_session));
+    anyhow::anyhow!(format!(
+        "{}\n{}: {}\n{}\n{}\n{}\n  {}",
+        messages.schema_too_new(session, &version_string()),
+        messages.session_socket,
+        socket,
+        socket_recovery,
+        messages.saved_state_requires_newer,
+        messages.start_separate_session,
+        separate_command,
+    ))
 }
 
 impl Args {
@@ -667,6 +970,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.ws_insecure_bind {
         conflicts.push("--ws-insecure-bind");
     }
+    if args.remote {
+        conflicts.push("remote daemon options");
+    }
     if args.term.is_some() {
         conflicts.push("--term");
     }
@@ -699,9 +1005,9 @@ fn main() {
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
         std::process::exit(exit_code);
     }
-    if raw_args.first().map(|arg| arg.as_str()) == Some("help") {
-        cli::print_help(&usage());
-        std::process::exit(0);
+    if remote_cli::is_remote_invocation(&raw_args) {
+        discard_provider_secret_environment();
+        std::process::exit(remote_cli::run(&raw_args, &usage()));
     }
     if raw_args.first().map(|arg| arg.as_str()) == Some("relay") {
         let args = parse_args(raw_args.into_iter().skip(1));
@@ -795,29 +1101,32 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| cmux_tui_core::server::default_socket_path(&args.session));
     let config = config::load();
-    let remote = if args.surface.is_some() {
-        RemoteSession::connect_for_surface_attach(&socket_path)?
+    let messages = &localization::catalog().attach;
+    let terminal = args
+        .terminal
+        .as_deref()
+        .map(|reference| {
+            TerminalPublicId::parse(reference.to_string())
+                .map_err(|_| anyhow::anyhow!(messages.unknown_terminal(reference)))
+        })
+        .transpose()?;
+    let remote = if terminal.is_some() {
+        RemoteSession::connect_for_terminal_attach(&socket_path)?
     } else {
         RemoteSession::connect(&socket_path)?
     };
-    let surface_only = if let Some(reference) = args.surface.as_deref() {
+    let surface_only = if let Some(terminal) = terminal.as_ref() {
         let tree = remote.refresh_tree()?;
-        let messages = &localization::catalog().attach;
         let surface = tree
-            .resolve_surface(reference)
-            .map_err(|_| anyhow::anyhow!(messages.ambiguous_terminal(reference)))?
-            .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(reference)))?;
-        let tab = tree.surface(surface).expect("resolved surface must remain in the snapshot");
-        if tab.kind != SurfaceKind::Pty {
-            anyhow::bail!(messages.browser_not_terminal(reference));
-        }
+            .resolve_terminal(terminal)
+            .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(terminal.as_str())))?;
         if !remote.supports_surface_subscription_filter() {
             anyhow::bail!(messages.filtered_subscription_unavailable);
         }
         remote.scope_events_to_surface(surface)?;
         let tree = remote.refresh_tree()?;
-        if tree.surface(surface).is_none() {
-            anyhow::bail!(messages.unknown_terminal(reference));
+        if tree.resolve_terminal(terminal) != Some(surface) {
+            anyhow::bail!(messages.unknown_terminal(terminal.as_str()));
         }
         Some(surface)
     } else {
@@ -830,6 +1139,45 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
         Session::Remote(remote),
         surface_only,
     )
+}
+
+#[cfg(unix)]
+fn relay_daemon_options(
+    endpoints: Vec<String>,
+    slots: Vec<String>,
+    credentials: Vec<RelayCredentialArg>,
+) -> anyhow::Result<Vec<remote_runtime::RelayDaemonOptions>> {
+    const MAX_DAEMON_RELAYS: usize = 4;
+    if endpoints.len() != slots.len() || endpoints.len() != credentials.len() {
+        anyhow::bail!(
+            "each relay registration needs one --relay, one --relay-slot, and one relay credential source"
+        );
+    }
+    if endpoints.len() > MAX_DAEMON_RELAYS {
+        anyhow::bail!("a daemon supports at most {MAX_DAEMON_RELAYS} relay registrations");
+    }
+    endpoints
+        .into_iter()
+        .zip(slots)
+        .zip(credentials)
+        .map(|((endpoint, slot), credentials)| {
+            let credentials = match credentials {
+                RelayCredentialArg::File(path) => {
+                    cmux_remote::provider::RelayCredentialSource::file(path)
+                }
+                RelayCredentialArg::Command { program, args } => {
+                    cmux_remote::provider::RelayCredentialSource::command(program, args)
+                }
+            };
+            Ok(remote_runtime::RelayDaemonOptions {
+                endpoint: endpoint
+                    .parse()
+                    .map_err(|error| anyhow::anyhow!("invalid relay endpoint: {error}"))?,
+                slot,
+                credentials,
+            })
+        })
+        .collect()
 }
 
 /// Copy the control protocol byte-for-byte between stdio and a local session.
@@ -949,6 +1297,8 @@ fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
 ) -> anyhow::Result<()> {
+    #[cfg(not(unix))]
+    reject_unsupported_remote_options(&args)?;
     if args.ephemeral && args.state.is_some() {
         anyhow::bail!("--ephemeral and --state are mutually exclusive");
     }
@@ -982,6 +1332,31 @@ fn run_server(
             None,
         );
     }
+
+    #[cfg(unix)]
+    let (remote_relays, remote_direct_websocket, remote_workspace_http) = if args.remote {
+        let relays =
+            relay_daemon_options(args.relay_endpoints, args.relay_slots, args.relay_credentials)?;
+        let direct_websocket = args
+            .remote_ws
+            .map(|address| {
+                address
+                    .parse()
+                    .map_err(|error| anyhow::anyhow!("invalid remote WebSocket address: {error}"))
+            })
+            .transpose()?;
+        let workspace_http = args
+            .remote_http
+            .map(|address| {
+                address
+                    .parse()
+                    .map_err(|error| anyhow::anyhow!("invalid remote HTTP address: {error}"))
+            })
+            .transpose()?;
+        (relays, direct_websocket, workspace_http)
+    } else {
+        (Vec::new(), None, None)
+    };
 
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
@@ -1035,10 +1410,11 @@ fn run_server(
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
-        }?;
+        }
+        .map_err(|error| workspace_schema_startup_error(error, &args.session, &socket_path))?;
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
-    mux.set_default_colors(config.terminal_defaults);
+    mux.seed_default_colors_if_no_durable_override(config.terminal_defaults);
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
@@ -1048,7 +1424,7 @@ fn run_server(
         Some(addr) => {
             let addr = addr
                 .parse()
-                .map_err(|error| anyhow::anyhow!("invalid WebSocket address {addr:?}: {error}"))?;
+                .map_err(|error| anyhow::anyhow!("invalid WebSocket address: {error}"))?;
             Some(cmux_tui_core::server::serve_websocket(
                 mux.clone(),
                 addr,
@@ -1063,19 +1439,90 @@ fn run_server(
     }
     cmux_tui_core::server::serve(mux.clone(), Some(socket_path.clone()))?;
 
+    #[cfg(unix)]
+    let remote_runtime = if args.remote {
+        let runtime = remote_runtime::start_daemon_runtime(
+            socket_path.clone(),
+            remote_runtime::DaemonRuntimeOptions {
+                session: args.session.clone(),
+                state_dir: args.remote_state_dir,
+                link_socket: args.remote_link_socket,
+                admin_socket: args.remote_admin_socket,
+                direct_websocket: remote_direct_websocket,
+                allow_insecure_non_loopback: args.remote_ws_insecure_bind,
+                workspace_http: remote_workspace_http,
+                relays: remote_relays,
+                iroh: args.iroh,
+                advertised_routes: args.advertised_routes,
+                resume_lease: std::time::Duration::from_secs(args.remote_resume_lease_seconds),
+                replaceable_sidecar: false,
+            },
+        )?;
+        eprintln!(
+            "cmux-tui: remote daemon {}, link {}, admin {}",
+            runtime.info().daemon_fingerprint,
+            runtime.info().link_socket.display(),
+            runtime.info().admin_socket.display()
+        );
+        for route in &runtime.info().routes {
+            eprintln!("cmux-tui: remote route {route}");
+        }
+        Some(runtime)
+    } else {
+        None
+    };
+
     let machine_runtime = (config.machine_sidebar.enabled || !config.machines.is_empty())
         .then(|| MachineRuntime::new(socket_path.clone(), config.machines.clone()));
     let result = if args.headless {
-        run_headless(&mux, &socket_path)
+        #[cfg(unix)]
+        {
+            run_headless(&mux, &socket_path, || {
+                remote_runtime
+                    .as_ref()
+                    .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            run_headless(&mux, &socket_path, || false)
+        }
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime)
     } else {
         run_tui(Session::Local(mux.clone()), args.session, None)
     };
+    #[cfg(unix)]
+    if let Some(runtime) = remote_runtime {
+        runtime.shutdown()?;
+    }
     drop(websocket_server);
     mux.shutdown();
     cmux_tui_core::server::cleanup(&socket_path);
     result
+}
+
+#[cfg(not(unix))]
+fn reject_unsupported_remote_options(args: &Args) -> anyhow::Result<()> {
+    let requested = args.remote
+        || args.remote_ws.is_some()
+        || args.remote_ws_insecure_bind
+        || args.remote_http.is_some()
+        || args.remote_state_dir.is_some()
+        || args.remote_link_socket.is_some()
+        || args.remote_admin_socket.is_some()
+        || !args.relay_endpoints.is_empty()
+        || !args.relay_slots.is_empty()
+        || !args.relay_credentials.is_empty()
+        || args.iroh
+        || !args.advertised_routes.is_empty();
+    if requested {
+        anyhow::bail!(
+            "remote daemon mode requires Unix sockets and is unsupported on {}",
+            std::env::consts::OS
+        );
+    }
+    Ok(())
 }
 
 fn run_tui(
@@ -1264,7 +1711,13 @@ fn publish_session_default_colors(
     if surface_only.is_some() {
         return Ok(());
     }
-    session.set_default_colors(colors)
+    match session {
+        Session::Local(mux) => {
+            mux.seed_default_colors_if_no_durable_override(colors);
+            Ok(())
+        }
+        Session::Remote(remote) => remote.set_default_colors(colors),
+    }
 }
 
 fn run_tui_once(
@@ -1300,13 +1753,23 @@ fn run_tui_once(
     )
 }
 
-fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {
+fn run_headless<F>(
+    mux: &Arc<Mux>,
+    socket_path: &Path,
+    remote_runtime_finished: F,
+) -> anyhow::Result<()>
+where
+    F: Fn() -> bool,
+{
     eprintln!("cmux-tui: headless, control socket at {}", socket_path.display());
     // Keep the process alive; the control socket drives everything and
     // the mux reaps exited surfaces itself.
     let events = mux.subscribe();
     loop {
         if shutdown_requested() || mux.daemon_shutdown_requested() {
+            break;
+        }
+        if remote_runtime_finished() {
             break;
         }
         match events.recv_timeout(std::time::Duration::from_millis(250)) {
@@ -1320,8 +1783,114 @@ fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result
 }
 
 fn usage_exit(msg: &str) -> ! {
-    eprintln!("cmux-tui: {msg}\n\n{}", usage());
+    eprintln!("cmux: {msg}\n\n{}", usage());
     std::process::exit(2);
+}
+
+#[cfg(all(test, unix))]
+mod remote_args_tests {
+    use super::*;
+
+    #[test]
+    fn daemon_accepts_native_and_durable_object_relay_registrations() {
+        let args = parse_args(
+            [
+                "daemon",
+                "--relay",
+                "relay+wss://relay.example",
+                "--relay-slot",
+                "native-route-key",
+                "--relay-ticket-command",
+                "native-ticket-command",
+                "--relay",
+                "relay+do://worker.example",
+                "--relay-slot",
+                "do-route-key",
+                "--relay-ticket-file",
+                "/tmp/do-ticket",
+            ]
+            .map(str::to_string),
+        );
+
+        let relays =
+            relay_daemon_options(args.relay_endpoints, args.relay_slots, args.relay_credentials)
+                .unwrap();
+        assert_eq!(relays.len(), 2);
+        assert_eq!(relays[0].endpoint.as_str(), "relay+wss://relay.example");
+        assert_eq!(relays[1].endpoint.as_str(), "relay+do://worker.example");
+    }
+
+    #[test]
+    fn daemon_rejects_inline_relay_ticket() {
+        const CHILD_ENV: &str = "CMUX_DAEMON_RELAY_TICKET_LOCALE_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("remote_args_tests::daemon_rejects_inline_relay_ticket")
+                .arg("--exact")
+                .arg("--nocapture")
+                .env(CHILD_ENV, "1")
+                .env("LC_ALL", "ja_JP.UTF-8")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "Japanese daemon relay-ticket rejection child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
+        let marker = "inline-daemon-secret-marker";
+        let error = parse_args_result(
+            [
+                "daemon",
+                "--relay",
+                "relay+wss://relay.example",
+                "--relay-slot",
+                "routing-key",
+                "--relay-ticket",
+                marker,
+            ]
+            .map(str::to_string),
+        )
+        .expect_err("inline daemon relay ticket was accepted");
+        assert!(!error.contains(marker));
+        assert_eq!(
+            error,
+            localization::catalog_for_locale("ja_JP.UTF-8")
+                .remote_client
+                .inline_relay_ticket_rejected
+        );
+    }
+
+    #[test]
+    fn remote_state_directory_enables_remote_daemon_mode() {
+        let args = parse_args(["--remote-state-dir", "/tmp/cmux-remote-state"].map(str::to_string));
+
+        assert!(args.remote);
+        assert_eq!(args.remote_state_dir, Some(PathBuf::from("/tmp/cmux-remote-state")));
+    }
+
+    #[test]
+    fn remote_http_enables_remote_daemon_mode() {
+        let args = parse_args(["--remote-http", "127.0.0.1:8765"].map(str::to_string));
+
+        assert!(args.remote);
+        assert_eq!(args.remote_http.as_deref(), Some("127.0.0.1:8765"));
+    }
+
+    #[test]
+    fn malformed_relay_endpoint_errors_do_not_echo_credentials() {
+        let error = relay_daemon_options(
+            vec!["relay+wss://dont-leak-me@[".into()],
+            vec!["routing-key".into()],
+            vec![RelayCredentialArg::File("/tmp/relay-ticket".into())],
+        )
+        .expect_err("malformed relay endpoint should fail");
+
+        assert!(!error.to_string().contains("dont-leak-me"));
+    }
 }
 
 #[cfg(test)]
@@ -1332,9 +1901,16 @@ mod tests {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
     }
 
+    #[cfg(windows)]
     #[test]
-    fn surface_only_attach_does_not_publish_session_default_colors() {
-        let mux = Mux::new("surface-only-color-test", SurfaceOptions::default());
+    fn recovery_commands_identify_the_powershell_dialect() {
+        assert_eq!(shell_prompt(), "PowerShell> ");
+        assert_eq!(shell_quote(r"C:\future session.sock"), r"'C:\future session.sock'");
+    }
+
+    #[test]
+    fn scoped_terminal_attach_does_not_publish_session_default_colors() {
+        let mux = Mux::new("scoped-terminal-color-test", SurfaceOptions::default());
         let original = cmux_tui_core::DefaultColors {
             fg: Some(cmux_tui_core::Rgb { r: 1, g: 2, b: 3 }),
             ..Default::default()
@@ -1350,7 +1926,7 @@ mod tests {
         assert_eq!(
             mux.default_colors(),
             original,
-            "single-surface attach must retain the session and sibling surfaces' colors"
+            "scoped terminal attach must retain the session and sibling tabs' colors"
         );
 
         publish_session_default_colors(&session, client, None).unwrap();
@@ -1679,7 +2255,6 @@ mod tests {
     #[test]
     fn startup_help_lists_all_provider_entrypoints() {
         let usage = usage();
-        assert!(usage.contains("--surface <id>"));
         assert!(usage.contains("--machine-provider <path>"));
         assert!(usage.contains("--machine-provider-command <program> [arg ...] --"));
         assert!(usage.contains("--cloud"));
@@ -1702,31 +2277,42 @@ mod tests {
         let english = localization::catalog_for_locale("en_US.UTF-8");
         let usage = usage_for_platform(english, false);
         assert!(!usage.contains("machine-agent"));
-        assert!(usage.contains("cmux-tui relay"));
+        assert!(usage.contains("cmux relay"));
+        assert!(!usage.contains("cmux-tui"));
         assert!(!usage.lines().any(|line| !line.is_empty() && line.trim().is_empty()));
     }
 
     #[test]
-    fn single_surface_attach_is_scoped_to_attach_mode() {
-        let parsed = args(&["attach", "--session", "agents", "--surface", "s:abc123"]);
-        assert!(parsed.attach);
-        assert_eq!(parsed.session, "agents");
-        assert_eq!(parsed.surface.as_deref(), Some("s:abc123"));
-        assert!(parse_args_result(["--surface".into(), "s:abc123".into()]).is_err());
-        assert!(parse_args_result(["attach".into(), "--surface".into()]).is_err());
+    fn old_single_target_attach_flag_is_rejected() {
+        let removed = ["--sur", "face"].concat();
+        assert!(parse_args_result([removed.clone(), "s:abc123".into()]).is_err());
+        assert!(parse_args_result(["attach".into(), removed, "s:abc123".into()]).is_err());
     }
 
     #[test]
-    fn startup_help_lists_column_action() {
+    fn terminal_attach_is_scoped_to_attach_mode() {
+        let terminal = "term_0123456789abcdef0123456789abcdef";
+        let parsed = args(&["attach", "--session", "agents", "--terminal", terminal]);
+        assert!(parsed.attach);
+        assert_eq!(parsed.session, "agents");
+        assert_eq!(parsed.terminal.as_deref(), Some(terminal));
+        assert!(parse_args_result(["--terminal".into(), terminal.into()]).is_err());
+        assert!(parse_args_result(["attach".into(), "--terminal".into()]).is_err());
+    }
+
+    #[test]
+    fn startup_help_stays_focused_on_process_modes() {
         let english = usage_for_platform(localization::catalog_for_locale("en_US.UTF-8"), true);
-        assert!(english.contains("g  new 2/3 column right"));
-        assert!(english.contains("new-pane-right"));
-        assert!(english.contains("U    undo layout"));
-        assert!(english.contains("undo-layout"));
+        assert!(english.contains("cmux <scope> --help"));
+        assert!(english.contains("--terminal <id>"));
+        assert!(!english.contains("cmux-tui"));
+        assert!(!english.contains("KEYS"));
+        assert!(!english.contains("CLI VERBS"));
 
         let japanese = usage_for_platform(localization::catalog_for_locale("ja_JP.UTF-8"), true);
-        assert!(japanese.contains("g  右に 2/3 幅の列を追加"));
-        assert!(japanese.contains("U    レイアウトを元に戻す"));
+        assert!(japanese.contains("cmux <scope> --help"));
+        assert!(!japanese.contains("cmux-tui"));
+        assert!(!japanese.contains("KEYS"));
     }
 
     #[test]
@@ -1744,6 +2330,8 @@ mod tests {
             "--ws-token",
             "secret",
             "--ws-insecure-bind",
+            "--remote-ws",
+            "127.0.0.1:8443",
             "--term",
             "xterm-direct",
         ]);
@@ -1757,6 +2345,7 @@ mod tests {
             "--ws",
             "--ws-token",
             "--ws-insecure-bind",
+            "remote daemon options",
             "--term",
         ] {
             assert!(error.contains(conflict), "missing {conflict:?} in {error:?}");

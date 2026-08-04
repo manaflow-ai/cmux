@@ -185,6 +185,22 @@ public protocol MobilePairedMacStoring: Sendable {
 
     /// Remove all paired Macs.
     func removeAll() async throws
+
+    /// Record device-local authorization for Tailscale routes the user entered
+    /// as a pairing code from their Mac.
+    ///
+    /// The authorization event is the user reading the compatibility code off
+    /// the Mac's pairing window; only the exact scanned destinations become
+    /// dialable, only on this device (grants never sync or back up). Rows for
+    /// non-Tailscale or non-host/port routes are ignored. The scoped paired-Mac
+    /// row must already exist.
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws
 }
 
 extension MobilePairedMacStoring {

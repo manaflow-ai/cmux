@@ -128,10 +128,15 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
     }
 
     /// The latest event that marks a failed connection/lifecycle milestone.
+    /// A `cancelled` outcome is an abandoned attempt, not a failure: callers
+    /// cancel dials on supersession and teardown, so surfacing one here would
+    /// report routine churn as the connection's latest problem.
     public var lastFailureEvent: DiagnosticEvent? {
         events.last(where: { event in
-            event.code.isDiagnosticFailure
-                || event.diagnosticFailureKind.map { $0 != .none } == true
+            if let kind = event.diagnosticFailureKind {
+                return kind != .none && kind != .cancelled
+            }
+            return event.code.isDiagnosticFailure
         })
     }
 

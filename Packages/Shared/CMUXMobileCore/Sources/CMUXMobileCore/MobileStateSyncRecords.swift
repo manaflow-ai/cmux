@@ -236,6 +236,8 @@ public struct GroupSyncRecord: MobileSyncRecord {
     public let isCollapsed: Bool
     /// Whether the group is pinned on the Mac.
     public let isPinned: Bool
+    /// SF Symbol rendered by the corresponding group row on the Mac.
+    public let iconSymbol: String?
     /// The anchor workspace that owns this group.
     public let anchorWorkspaceID: String
     /// Position in the Mac's presented section order.
@@ -252,6 +254,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         name: String,
         isCollapsed: Bool,
         isPinned: Bool,
+        iconSymbol: String? = nil,
         anchorWorkspaceID: String,
         sortIndex: Int
     ) {
@@ -259,6 +262,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         self.name = name
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned
+        self.iconSymbol = iconSymbol
         self.anchorWorkspaceID = anchorWorkspaceID
         self.sortIndex = sortIndex
     }
@@ -268,6 +272,7 @@ public struct GroupSyncRecord: MobileSyncRecord {
         case name
         case isCollapsed = "is_collapsed"
         case isPinned = "is_pinned"
+        case iconSymbol = "icon_symbol"
         case anchorWorkspaceID = "anchor_workspace_id"
         case sortIndex = "sort_index"
     }

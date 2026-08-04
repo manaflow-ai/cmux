@@ -54,7 +54,9 @@ use serde_json::Value;
 use zeroize::Zeroize;
 
 #[cfg(unix)]
-use crate::session::{RemoteMessageReader, RemoteMessageWriter, RemoteTransport};
+use crate::session::{
+    RemoteMessageReader, RemoteMessageWriter, RemoteTransport, RemoteTransportAbort,
+};
 
 #[cfg(unix)]
 #[path = "machine_provider_transport.rs"]
@@ -1020,7 +1022,8 @@ impl ProviderClient {
         drop(deadline);
         Ok(RemoteTransport::new(
             Box::new(BoundedRemoteReader { inner: reader, guard: guard.clone() }),
-            Box::new(BoundedRemoteWriter { inner: writer, guard }),
+            Box::new(BoundedRemoteWriter { inner: writer, guard: guard.clone() }),
+            Arc::new(ProviderRemoteAbort { guard }),
         ))
     }
 
@@ -1356,6 +1359,15 @@ fn read_bounded_frame<R: BufRead>(
     reader: &mut R,
     limit: usize,
 ) -> Result<Option<Vec<u8>>, FrameReadFailure> {
+    read_bounded_frame_with_progress(reader, limit, &mut |_| {})
+}
+
+#[cfg(unix)]
+fn read_bounded_frame_with_progress<R: BufRead>(
+    reader: &mut R,
+    limit: usize,
+    on_progress: &mut dyn FnMut(&[u8]),
+) -> Result<Option<Vec<u8>>, FrameReadFailure> {
     let mut frame = Vec::new();
     loop {
         let available = reader.fill_buf().map_err(FrameReadFailure::Io)?;
@@ -1369,6 +1381,7 @@ fn read_bounded_frame<R: BufRead>(
             }
             frame.extend_from_slice(&available[..newline]);
             reader.consume(newline + 1);
+            on_progress(&frame);
             if frame.last() == Some(&b'\r') {
                 frame.pop();
             }
@@ -1381,6 +1394,7 @@ fn read_bounded_frame<R: BufRead>(
         let consumed = available.len();
         frame.extend_from_slice(available);
         reader.consume(consumed);
+        on_progress(&frame);
     }
 }
 
@@ -1414,8 +1428,19 @@ struct BoundedRemoteReader {
 #[cfg(unix)]
 impl RemoteMessageReader for BoundedRemoteReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
-        let frame = read_bounded_frame(&mut self.inner, MAX_TRANSPORT_FRAME_BYTES)
-            .map_err(frame_read_io_error)?;
+        self.receive_with_progress(&mut |_| {})
+    }
+
+    fn receive_with_progress(
+        &mut self,
+        on_progress: &mut dyn FnMut(&[u8]),
+    ) -> io::Result<Option<String>> {
+        let frame = read_bounded_frame_with_progress(
+            &mut self.inner,
+            MAX_TRANSPORT_FRAME_BYTES,
+            on_progress,
+        )
+        .map_err(frame_read_io_error)?;
         frame
             .map(|bytes| {
                 String::from_utf8(bytes)
@@ -1429,6 +1454,19 @@ impl RemoteMessageReader for BoundedRemoteReader {
 struct BoundedRemoteWriter {
     inner: Box<dyn Write + Send>,
     guard: ProviderIoGuard,
+}
+
+#[cfg(unix)]
+struct ProviderRemoteAbort {
+    guard: ProviderIoGuard,
+}
+
+#[cfg(unix)]
+impl RemoteTransportAbort for ProviderRemoteAbort {
+    fn abort(&self) -> io::Result<()> {
+        self.guard.close();
+        Ok(())
+    }
 }
 
 #[cfg(unix)]

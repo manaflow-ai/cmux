@@ -868,6 +868,8 @@
       "concepts": "Koncepty",
       "anchorTitle": "Kotwicowy workspace",
       "anchorDesc": "Każda grupa należy do dokładnie jednego workspace'a zwanego kotwicą. Nagłówek grupy w pasku bocznym jest reprezentacją kotwicy — nie ma dla niej osobnego wiersza. Kliknięcie obszaru nazwy w nagłówku ustawia fokus na panelach kotwicy; kliknięcie strzałki przełącza zwinięcie.",
+      "anchorNew": "Kotwicą grupy jest w chwili jej tworzenia zawsze zupełnie nowy workspace; ani grupowanie zaznaczenia, ani tworzenie grupy nigdy nie powodują awansu żadnego z istniejących workspace'ów do roli kotwicy. (Późniejsze zamknięcie kotwicy awansuje jednak pierwszego pozostałego członka grupy; zobacz poniżej). Katalog roboczy kotwicy jest dziedziczony z pierwszego zaznaczonego workspace'a podczas grupowania zaznaczenia lub z aktywnego workspace'a podczas tworzenia przez CLI bez --cwd.",
+      "anchorClose": "Zamknięcie kotwicowego workspace'a zamyka tylko ten workspace i awansuje pierwszego pozostałego członka grupy (pierwszego, który nadal znajduje się w kolejności grupy) do roli nowej kotwicy. Dzięki temu grupa i jej pozostali członkowie pozostają nienaruszeni (awansowany członek wyświetla następnie nazwę grupy jako nagłówek). Gdy kotwica jest jedynym workspace'em w grupie, grupa zostaje usunięta. Aby przekształcić grupę w niezgrupowane workspace'y, użyj „Rozgrupuj przestrzenie”; aby zamknąć wszystkie workspace'y w grupie, użyj „Usuń grupę”.",
       "identityTitle": "Tożsamość grupy",
       "identityDesc": "Grupa ma nazwę, ikonę (SF Symbol, domyślnie folder.fill) oraz opcjonalny niestandardowy kolor. Są one niezależne od własnych dostosowań kotwicowego workspace'a. Kolor i ikona kotwicy są przy tworzeniu inicjowane z grupy, ale później mogą się różnić.",
       "pinningTitle": "Przypinanie",
@@ -3524,7 +3526,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później."
+    "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
+    "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
+    "signedOutSignIn": "Zaloguj się"
   },
   "platforms": {
     "macos": "macOS",
@@ -3601,6 +3605,37 @@
       "primaryCta": "Pobierz .deb",
       "requirements": "Debian lub Ubuntu · x64",
       "installBody": "Pobierz pakiet Debiana i zainstaluj go za pomocą menedżera pakietów. Wybierz przenośny ZIP, aby zainstalować aplikację dla jednego użytkownika i korzystać z aktualizacji w aplikacji."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Witamy w cmux Pro 🎉",
+      "fallbackName": "przyjacielu",
+      "greeting": "Cześć {name},",
+      "thanks": "Dziękujemy za dołączenie do cmux Pro! Nadal dopracowujemy pełne doświadczenie Pro, a dostęp do chmury pojawi się już wkrótce.",
+      "cloudStatus": "Gdy uruchomimy dostęp do chmury, dodamy do Twojego konta kredyty na wykorzystanie odpowiadające liczbie miesięcy subskrypcji.",
+      "currentBenefit": "W międzyczasie korzyścią Pro jest wcześniejszy dostęp do cmux na iOS. Zarejestruj się przez poniższy link, a po rejestracji Apple wyśle Ci zaproszenie do TestFlight.",
+      "testflightLink": "Zarejestruj się w TestFlight: {url}",
+      "testflightLinkLabel": "Zarejestruj się w TestFlight",
+      "signoff": "Cieszymy się, że jesteś z nami!\nZespół cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro jest aktywny",
+    "title": "Witamy w cmux Pro",
+    "body": "Funkcje Pro są nadal rozwijane. Dostęp do chmury pojawi się wkrótce, a za każdy miesiąc subskrypcji będą naliczane kredyty na wykorzystanie. Obecnie Pro obejmuje dostęp do cmux na iOS przez TestFlight.",
+    "done": "Przejdź do panelu",
+    "steps": {
+      "iosApp": {
+        "title": "Aplikacja cmux na iOS",
+        "body": "Korzystaj z cmux na telefonie.",
+        "action": "Dołącz do bety iOS"
+      },
+      "billing": {
+        "title": "Zarządzaj planem",
+        "body": "Sprawdź plan, faktury i opcje anulowania.",
+        "action": "Zarządzaj planem"
+      }
     }
   }
 }
