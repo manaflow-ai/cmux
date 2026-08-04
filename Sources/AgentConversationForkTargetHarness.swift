@@ -55,7 +55,17 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Identifiable, Sen
         case .codex:
             "codex \(TerminalStartupShellQuoting.singleQuoted(handoffMessage))"
         case .opencode:
-            "opencode --prompt \(TerminalStartupShellQuoting.singleQuoted(handoffMessage))"
+            Self.openCodeStartupCommand(handoffMessage: handoffMessage)
         }
+    }
+
+    private static func openCodeStartupCommand(handoffMessage: String) -> String {
+        let quotedMessage = TerminalStartupShellQuoting.singleQuoted(handoffMessage)
+        return """
+        opencode_output=$(opencode run --format json -- \(quotedMessage)) || { printf '%s\\n' "$opencode_output"; exit 1; }
+        opencode_session=$(printf '%s\\n' "$opencode_output" | sed -n 's/.*"sessionID":"\\([^"]*\\)".*/\\1/p' | head -n 1)
+        [ -n "$opencode_session" ] || { printf '%s\\n' "$opencode_output"; exit 1; }
+        exec opencode --session "$opencode_session"
+        """
     }
 }
