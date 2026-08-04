@@ -4,8 +4,10 @@ import Foundation
 final class GlobalSearchPanelCaptureManager {
     private let browserCaptureDebounceMilliseconds = 250
     private let markdownCaptureDebounceMilliseconds = 250
+    private let refreshCaptureDeadlineMilliseconds = 1_000
     private let indexProvider: () async -> SearchIndex?
     private let cancelPanelPurge: (UUID) -> Void
+    private let contentDidChange: (UUID) -> Void
 
     private var contentIndexGeneration: UInt64 = 0
     private var indexedBrowserPanelIDs = Set<UUID>()
@@ -22,10 +24,12 @@ final class GlobalSearchPanelCaptureManager {
 
     init(
         indexProvider: @escaping () async -> SearchIndex?,
-        cancelPanelPurge: @escaping (UUID) -> Void
+        cancelPanelPurge: @escaping (UUID) -> Void,
+        contentDidChange: @escaping (UUID) -> Void = { _ in }
     ) {
         self.indexProvider = indexProvider
         self.cancelPanelPurge = cancelPanelPurge
+        self.contentDidChange = contentDidChange
     }
 
     /// Reconciles content during each Search presentation.
@@ -112,28 +116,23 @@ final class GlobalSearchPanelCaptureManager {
         _ panel: BrowserPanel,
         context: GlobalSearchPanelContext
     ) async {
-        let capture = beginBrowserCapture(for: panel)
-        let task = makeBrowserCaptureTask(
-            panel,
-            context: context,
-            taskID: capture.taskID,
-            generation: capture.generation,
-            panelRevision: capture.panelRevision
-        )
-        browserCaptureTasks[panel.id] = task
-
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
+        let panelID = panel.id
+        let generation = contentIndexGeneration
+        if browserCaptureCompletions[panelID] == nil {
+            let capture = beginBrowserCapture(for: panel)
+            let task = makeBrowserCaptureTask(
+                panel,
+                context: context,
+                taskID: capture.taskID,
+                generation: capture.generation,
+                panelRevision: capture.panelRevision
+            )
+            browserCaptureTasks[panelID] = task
         }
 
-        await awaitDirectSuccessorCapture(
-            forPanelID: panel.id,
-            generation: capture.generation,
-            startingRevision: capture.panelRevision,
-            completion: browserCaptureCompletions[panel.id]
-        )
+        await awaitLatestCapture(forPanelID: panelID, generation: generation) {
+            self.browserCaptureCompletions[panelID]
+        }
     }
 
     private func beginBrowserCapture(
@@ -257,28 +256,23 @@ final class GlobalSearchPanelCaptureManager {
         _ panel: MarkdownPanel,
         context: GlobalSearchPanelContext
     ) async {
-        let capture = beginMarkdownCapture(for: panel)
-        let task = makeMarkdownCaptureTask(
-            panel,
-            context: context,
-            taskID: capture.taskID,
-            generation: capture.generation,
-            panelRevision: capture.panelRevision
-        )
-        markdownCaptureTasks[panel.id] = task
-
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
+        let panelID = panel.id
+        let generation = contentIndexGeneration
+        if markdownCaptureCompletions[panelID] == nil {
+            let capture = beginMarkdownCapture(for: panel)
+            let task = makeMarkdownCaptureTask(
+                panel,
+                context: context,
+                taskID: capture.taskID,
+                generation: capture.generation,
+                panelRevision: capture.panelRevision
+            )
+            markdownCaptureTasks[panelID] = task
         }
 
-        await awaitDirectSuccessorCapture(
-            forPanelID: panel.id,
-            generation: capture.generation,
-            startingRevision: capture.panelRevision,
-            completion: markdownCaptureCompletions[panel.id]
-        )
+        await awaitLatestCapture(forPanelID: panelID, generation: generation) {
+            self.markdownCaptureCompletions[panelID]
+        }
     }
 
     private func beginMarkdownCapture(
@@ -348,6 +342,7 @@ final class GlobalSearchPanelCaptureManager {
                     return
                 }
                 self.indexedMarkdownPanelIDs.insert(panelID)
+                self.contentDidChange(panelID)
                 return
             }
 
@@ -373,6 +368,7 @@ final class GlobalSearchPanelCaptureManager {
                     return
                 }
                 self.indexedMarkdownPanelIDs.insert(panelID)
+                self.contentDidChange(panelID)
             } catch {
                 guard !Task.isCancelled else { return }
 #if DEBUG
@@ -519,6 +515,7 @@ final class GlobalSearchPanelCaptureManager {
                 return
             }
             indexedBrowserPanelIDs.insert(panelID)
+            contentDidChange(panelID)
         } catch {
             guard !Task.isCancelled else { return }
 #if DEBUG
@@ -533,24 +530,27 @@ final class GlobalSearchPanelCaptureManager {
         return revision
     }
 
-    /// A presentation refresh bridges only to the lifecycle capture that
-    /// directly superseded it. Later revisions remain owned by the lifecycle
-    /// event stream so continuous churn cannot hold the presentation open.
-    private func awaitDirectSuccessorCapture(
+    /// Follows the authoritative capture revision until it commits or the
+    /// presentation's single overall deadline expires.
+    private func awaitLatestCapture(
         forPanelID panelID: UUID,
         generation: UInt64,
-        startingRevision: UInt64,
-        completion: GlobalSearchPanelCaptureCompletion?
+        completion: () -> GlobalSearchPanelCaptureCompletion?
     ) async {
-        let successorRevision = startingRevision &+ 1
-        guard !Task.isCancelled,
-              contentIndexGeneration == generation,
-              panelContentRevisions[panelID] == successorRevision,
-              let completion,
-              completion.panelRevision == successorRevision else {
-            return
+        let deadline = GlobalSearchPanelCaptureDeadline(
+            milliseconds: refreshCaptureDeadlineMilliseconds
+        )
+        defer { deadline.cancel() }
+
+        while !Task.isCancelled, contentIndexGeneration == generation {
+            guard let currentCompletion = completion(),
+                  panelContentRevisions[panelID] == currentCompletion.panelRevision else {
+                return
+            }
+            guard await currentCompletion.wait(until: deadline) else {
+                return
+            }
         }
-        await completion.wait()
     }
 
     private func finishBrowserCaptureCompletion(
@@ -620,24 +620,44 @@ final class GlobalSearchPanelCaptureManager {
 private final class GlobalSearchPanelCaptureCompletion {
     let panelRevision: UInt64
 
+    private struct Waiter {
+        let continuation: CheckedContinuation<Bool, Never>
+        let deadline: GlobalSearchPanelCaptureDeadline
+    }
+
     private var isFinished = false
-    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var waiters: [UUID: Waiter] = [:]
 
     init(panelRevision: UInt64) {
         self.panelRevision = panelRevision
     }
 
-    func wait() async {
-        guard !isFinished, !Task.isCancelled else { return }
+    func wait(until deadline: GlobalSearchPanelCaptureDeadline) async -> Bool {
+        guard !isFinished, !deadline.hasExpired, !Task.isCancelled else {
+            return isFinished && !Task.isCancelled
+        }
         let waiterID = UUID()
 
-        await withTaskCancellationHandler {
+        return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                guard !isFinished, !Task.isCancelled else {
-                    continuation.resume()
+                guard !isFinished, !deadline.hasExpired, !Task.isCancelled else {
+                    continuation.resume(returning: isFinished && !Task.isCancelled)
                     return
                 }
-                waiters[waiterID] = continuation
+                waiters[waiterID] = Waiter(
+                    continuation: continuation,
+                    deadline: deadline
+                )
+                guard deadline.addExpirationHandler(
+                    id: waiterID,
+                    handler: { [weak self] in
+                        self?.expireWaiter(waiterID)
+                    }
+                ) else {
+                    waiters[waiterID] = nil
+                    continuation.resume(returning: false)
+                    return
+                }
             }
         } onCancel: {
             Task { @MainActor [weak self] in
@@ -649,14 +669,80 @@ private final class GlobalSearchPanelCaptureCompletion {
     func finish() {
         guard !isFinished else { return }
         isFinished = true
-        let pendingWaiters = Array(waiters.values)
+        let pendingWaiters = waiters
         waiters.removeAll()
-        for waiter in pendingWaiters {
-            waiter.resume()
+        for (waiterID, waiter) in pendingWaiters {
+            waiter.deadline.removeExpirationHandler(id: waiterID)
+            waiter.continuation.resume(returning: true)
         }
     }
 
     private func cancelWaiter(_ waiterID: UUID) {
-        waiters.removeValue(forKey: waiterID)?.resume()
+        guard let waiter = waiters.removeValue(forKey: waiterID) else { return }
+        waiter.deadline.removeExpirationHandler(id: waiterID)
+        waiter.continuation.resume(returning: false)
+    }
+
+    private func expireWaiter(_ waiterID: UUID) {
+        guard let waiter = waiters.removeValue(forKey: waiterID) else { return }
+        waiter.continuation.resume(returning: false)
+    }
+}
+
+@MainActor
+private final class GlobalSearchPanelCaptureDeadline {
+    typealias ExpirationHandler = @MainActor () -> Void
+
+    private(set) var hasExpired = false
+    private var isCancelled = false
+    private var expirationHandlers: [UUID: ExpirationHandler] = [:]
+    private let timer: DispatchSourceTimer
+
+    init(milliseconds: Int) {
+        timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now() + .milliseconds(max(0, milliseconds)),
+            leeway: .milliseconds(10)
+        )
+        timer.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                self?.expire()
+            }
+        }
+        timer.resume()
+    }
+
+    func addExpirationHandler(
+        id: UUID,
+        handler: @escaping ExpirationHandler
+    ) -> Bool {
+        guard !hasExpired, !isCancelled else { return false }
+        expirationHandlers[id] = handler
+        return true
+    }
+
+    func removeExpirationHandler(id: UUID) {
+        expirationHandlers[id] = nil
+    }
+
+    func cancel() {
+        guard !isCancelled else { return }
+        isCancelled = true
+        expirationHandlers.removeAll()
+        timer.setEventHandler {}
+        timer.cancel()
+    }
+
+    private func expire() {
+        guard !hasExpired, !isCancelled else { return }
+        hasExpired = true
+        let handlers = Array(expirationHandlers.values)
+        expirationHandlers.removeAll()
+        timer.setEventHandler {}
+        timer.cancel()
+        isCancelled = true
+        for handler in handlers {
+            handler()
+        }
     }
 }

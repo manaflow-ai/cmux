@@ -11,6 +11,7 @@ final class GlobalSearchCoordinator {
     private var indexState: SearchIndexState = .idle
     private var indexedTitleSnapshots: [UUID: GlobalSearchTitleSnapshot] = [:]
     private var titleIndexGeneration: UInt64 = 0
+    private weak var activePresentation: GlobalSearchPopoverPresentation?
     private lazy var captureManager = GlobalSearchPanelCaptureManager(
         indexProvider: { [weak self] in
             guard let self else { return nil }
@@ -18,6 +19,9 @@ final class GlobalSearchCoordinator {
         },
         cancelPanelPurge: { [weak self] panelID in
             self?.cancelPanelPurge(forPanelID: panelID)
+        },
+        contentDidChange: { [weak self] _ in
+            self?.activePresentation?.searchIndexDidChange()
         }
     )
     private lazy var popover = MenubarSearchPopover(coordinator: self)
@@ -58,6 +62,15 @@ final class GlobalSearchCoordinator {
 
     func isPaletteVisible() -> Bool {
         popover.isShown
+    }
+
+    func presentationDidBegin(_ presentation: GlobalSearchPopoverPresentation) {
+        activePresentation = presentation
+    }
+
+    func presentationDidEnd(_ presentation: GlobalSearchPopoverPresentation) {
+        guard activePresentation === presentation else { return }
+        activePresentation = nil
     }
 
     func search(query: String) async -> [SearchIndexHit] {

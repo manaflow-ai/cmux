@@ -75,6 +75,7 @@ final class GlobalSearchPopoverPresentation {
         query = ""
         reloadBrowseResults()
         isPresented = true
+        coordinator.presentationDidBegin(self)
         installKeyMonitorIfNeeded()
 
         let refreshLiveIndex = self.refreshLiveIndex
@@ -95,6 +96,7 @@ final class GlobalSearchPopoverPresentation {
     func endPresentation() -> Task<Void, Never>? {
         presentationGeneration &+= 1
         isPresented = false
+        coordinator.presentationDidEnd(self)
         cancelRefreshWork()
         let cancelledSearchTask = cancelSearchWork()
         removeKeyMonitor()
@@ -108,6 +110,11 @@ final class GlobalSearchPopoverPresentation {
 
     func activateSelectedResult() {
         activateResult(at: selectedIndex)
+    }
+
+    func searchIndexDidChange() {
+        guard isPresented else { return }
+        scheduleSearch(query)
     }
 
     private func scheduleSearch(_ nextQuery: String) {
