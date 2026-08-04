@@ -2,6 +2,20 @@ import AppKit
 import Carbon.HIToolbox
 import CmuxSimulatorUI
 
+nonisolated struct ApplicationCaptureActivity: Equatable, Sendable {
+    let paneWantsCapture: Bool
+    let hostAttached: Bool
+    let hostVisible: Bool
+
+    var ownsSession: Bool {
+        paneWantsCapture && hostAttached
+    }
+
+    var acceptsInput: Bool {
+        ownsSession && hostVisible
+    }
+}
+
 @MainActor
 final class ApplicationCaptureView: NSView {
     private static let firstFrameTimeout: TimeInterval = 8
@@ -110,6 +124,7 @@ final class ApplicationCaptureView: NSView {
     private var captureReadinessPublished = false
     private var inputReleaseGeneration = UUID()
     private var captureDesired = false
+    private var hostWindowAttached = false
     private var hostWindowVisible = false
     private var hasInputOwnership = false
     private var targetUnavailable = false
@@ -190,7 +205,19 @@ final class ApplicationCaptureView: NSView {
         remoteFrameView.onHostVisibilityChanged = { [weak self] visible in
             guard let self else { return }
             self.hostWindowVisible = visible
-            self.reconcileCaptureActivity()
+            if visible {
+                if self.shouldCaptureNow,
+                   self.session != nil,
+                   !self.firstFramePresented,
+                   self.livenessTask == nil {
+                    self.beginLivenessWatchdog(
+                        generation: self.captureGeneration
+                    )
+                }
+            } else {
+                self.stopLivenessWatchdog()
+                self.releaseForwardedInputs()
+            }
         }
         remoteFrameView.onTransportFailure = { [weak self] failure in
             guard let self else { return }
@@ -234,6 +261,8 @@ final class ApplicationCaptureView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        hostWindowAttached = window != nil
+        reconcileCaptureActivity()
         if window != nil {
             onMovedToWindow(self)
         }
@@ -736,16 +765,21 @@ final class ApplicationCaptureView: NSView {
     }
 
     private var shouldCaptureNow: Bool {
-        Self.shouldCapture(
-            captureDesired: captureDesired,
-            hostWindowVisible: hostWindowVisible
+        captureActivity.ownsSession
+    }
+
+    private var captureActivity: ApplicationCaptureActivity {
+        ApplicationCaptureActivity(
+            paneWantsCapture: captureDesired,
+            hostAttached: hostWindowAttached,
+            hostVisible: hostWindowVisible
         )
     }
 
     private var canForwardInput: Bool {
         Self.inputIsReady(
             hasInputOwnership: hasInputOwnership,
-            shouldCaptureNow: shouldCaptureNow,
+            activity: captureActivity,
             hasSession: session != nil,
             hasLease: lease != nil,
             attachmentAcknowledged: attachmentAcknowledged,
@@ -757,7 +791,7 @@ final class ApplicationCaptureView: NSView {
 
     static func inputIsReady(
         hasInputOwnership: Bool,
-        shouldCaptureNow: Bool,
+        activity: ApplicationCaptureActivity,
         hasSession: Bool,
         hasLease: Bool,
         attachmentAcknowledged: Bool,
@@ -766,7 +800,7 @@ final class ApplicationCaptureView: NSView {
         isStopping: Bool
     ) -> Bool {
         hasInputOwnership
-            && shouldCaptureNow
+            && activity.acceptsInput
             && hasSession
             && hasLease
             && attachmentAcknowledged
@@ -851,6 +885,7 @@ final class ApplicationCaptureView: NSView {
 
     private func beginLivenessWatchdog(generation: UUID) {
         stopLivenessWatchdog()
+        guard hostWindowVisible else { return }
         livenessState = ApplicationCaptureLivenessState(
             startedAt: ProcessInfo.processInfo.systemUptime
         )
@@ -867,6 +902,7 @@ final class ApplicationCaptureView: NSView {
                 let self,
                 self.captureGeneration == generation,
                 self.shouldCaptureNow,
+                self.hostWindowVisible,
                 self.session != nil,
                 let failure = self.livenessState?.failure(
                     at: ProcessInfo.processInfo.systemUptime,
@@ -1000,13 +1036,6 @@ final class ApplicationCaptureView: NSView {
         case .invalidTransport, .producerFailed:
             genericCaptureFailureDetail
         }
-    }
-
-    static func shouldCapture(
-        captureDesired: Bool,
-        hostWindowVisible: Bool
-    ) -> Bool {
-        captureDesired && hostWindowVisible
     }
 
     static func parseNamedKey(_ name: String) -> (keyCode: CGKeyCode, flags: CGEventFlags)? {

@@ -360,19 +360,30 @@ struct ApplicationSurfaceTests {
         #expect(await second.next() == nil)
     }
 
-    @Test func captureRequiresBothPaneIntentAndVisibleHostWindow() {
-        #expect(ApplicationCaptureView.shouldCapture(
-            captureDesired: true,
-            hostWindowVisible: true
-        ))
-        #expect(!ApplicationCaptureView.shouldCapture(
-            captureDesired: true,
-            hostWindowVisible: false
-        ))
-        #expect(!ApplicationCaptureView.shouldCapture(
-            captureDesired: false,
-            hostWindowVisible: true
-        ))
+    @Test func captureOwnershipIgnoresOcclusionButInputDoesNot() {
+        let visible = ApplicationCaptureActivity(
+            paneWantsCapture: true,
+            hostAttached: true,
+            hostVisible: true
+        )
+        #expect(visible.ownsSession)
+        #expect(visible.acceptsInput)
+
+        let occluded = ApplicationCaptureActivity(
+            paneWantsCapture: true,
+            hostAttached: true,
+            hostVisible: false
+        )
+        #expect(occluded.ownsSession)
+        #expect(!occluded.acceptsInput)
+
+        let detached = ApplicationCaptureActivity(
+            paneWantsCapture: true,
+            hostAttached: false,
+            hostVisible: false
+        )
+        #expect(!detached.ownsSession)
+        #expect(!detached.acceptsInput)
     }
 
     @Test func inputRequiresPaneOwnershipAttachmentAndFirstPresentedFrame() {
@@ -383,7 +394,11 @@ struct ApplicationSurfaceTests {
         ) -> Bool {
             ApplicationCaptureView.inputIsReady(
                 hasInputOwnership: hasInputOwnership,
-                shouldCaptureNow: true,
+                activity: ApplicationCaptureActivity(
+                    paneWantsCapture: true,
+                    hostAttached: true,
+                    hostVisible: true
+                ),
                 hasSession: true,
                 hasLease: true,
                 attachmentAcknowledged: attachmentAcknowledged,
