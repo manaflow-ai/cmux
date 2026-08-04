@@ -3983,7 +3983,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
-    func testCodexPromptSubmitRetiresPreviousMonitorLeaseForSameSession() throws {
+    func testCodexNestedPromptSubmitPreservesPreviousMonitorLeaseForSameSession() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -4056,8 +4056,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(secondResult.status, 0, secondResult.stderr)
         XCTAssertEqual(secondResult.stdout, "{}\n")
         XCTAssertTrue(
-            waitForCodexMonitorActiveLeaseTurns(in: root, expected: ["turn-two"], timeout: 3),
-            "Expected a new turn to retire the prior Codex monitor lease, saw \(codexMonitorActiveLeaseTurns(in: root))"
+            waitForCodexMonitorActiveLeaseTurns(in: root, expected: ["turn-one"], timeout: 3),
+            "Expected a nested prompt to preserve the parent Codex monitor lease, saw \(codexMonitorActiveLeaseTurns(in: root))"
         )
     }
 

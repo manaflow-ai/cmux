@@ -8152,7 +8152,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted]).write(to: storeURL, options: .atomic)
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
                     ? self.malformedRequestResponse(raw: line)
@@ -8187,9 +8187,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             timeout: 5
         )
 
+        // This path is expected to reject the stale mapping without ever opening
+        // the control socket. Stop the owned accept loop explicitly; closing the
+        // listener alone does not wake poll(2) on Darwin.
+        CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
         Darwin.close(listenerFD)
         listenerClosed = true
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")

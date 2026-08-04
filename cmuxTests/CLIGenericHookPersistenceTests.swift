@@ -1791,11 +1791,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(fallback.stdout, "{}\n")
 
         let fallbackCommands = Array(state.commands.dropFirst(fallbackCommandStart))
-        XCTAssertTrue(
+        XCTAssertFalse(
             fallbackCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
             },
-            "Expected empty Grok Notification payload to reuse the saved message, saw \(fallbackCommands)"
+            "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(fallbackCommands)"
         )
         XCTAssertTrue(
             fallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
@@ -1889,11 +1889,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(neutralFallback.stdout, "{}\n")
 
         let neutralFallbackCommands = Array(state.commands.dropFirst(neutralFallbackCommandStart))
-        XCTAssertTrue(
+        XCTAssertFalse(
             neutralFallbackCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
             },
-            "Expected empty payload to reuse the last terminal saved notification, saw \(neutralFallbackCommands)"
+            "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(neutralFallbackCommands)"
         )
         XCTAssertTrue(
             neutralFallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
