@@ -27116,6 +27116,35 @@ mod tests {
     }
 
     #[test]
+    fn mirror_retirement_before_tree_refresh_is_a_silent_attach_retirement() {
+        let surface = 7;
+        let (session, attach_started, release_attach) =
+            test_remote_session_with_deferred_attach();
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        attach_started.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        // The remote mirror can observe detach before the authoritative tree
+        // refresh reaches OrderedSession and retires its outer attach claim.
+        app.session.inner.forget_surface(surface);
+        release_attach.send(()).unwrap();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SurfaceAttachOutcome::Retired { surface: 7 },
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.is_none());
+        assert!(!app.tab_locations.contains_key(&surface));
+        assert!(!app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
     fn retiring_surface_does_not_swallow_attach_transport_failure() {
         let surface = 77;
         let reached = Arc::new(Barrier::new(2));
