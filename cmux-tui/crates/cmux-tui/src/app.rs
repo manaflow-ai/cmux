@@ -27048,6 +27048,28 @@ mod tests {
     }
 
     #[test]
+    fn server_confirmed_missing_surface_during_attach_is_a_silent_retirement() {
+        let surface = 77;
+        let session = crate::session::test_remote_session_with_missing_surface_attach(surface);
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert!(matches!(
+            &settled,
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SessionMutationOutcome::Success { tree: None },
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.is_none());
+        assert!(!app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+        assert!(!app.session.can_attach_surface(surface));
+    }
+
+    #[test]
     fn retiring_surface_does_not_swallow_attach_transport_failure() {
         let surface = 77;
         let reached = Arc::new(Barrier::new(2));

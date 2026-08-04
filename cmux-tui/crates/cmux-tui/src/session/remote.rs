@@ -3619,6 +3619,59 @@ pub(super) fn test_session_with_deferred_attach() -> (Arc<RemoteSession>, Receiv
 }
 
 #[cfg(test)]
+pub(super) fn test_session_with_missing_surface_attach(surface: SurfaceId) -> Arc<RemoteSession> {
+    struct MissingSurfaceAttachWriter {
+        session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
+        surface: SurfaceId,
+    }
+
+    impl RemoteMessageWriter for MissingSurfaceAttachWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request = serde_json::from_str::<Value>(message).map_err(io::Error::other)?;
+            let Some(id) = request.get("id").and_then(Value::as_u64) else {
+                return Ok(());
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(std::sync::Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            let payload = if request.get("cmd").and_then(Value::as_str) == Some("attach-surface") {
+                json!({"id": id, "ok": false, "error": format!("unknown surface {}", self.surface)})
+            } else {
+                json!({"id": id, "ok": true, "data": null})
+            };
+            response
+                .response
+                .send(payload)
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let session_slot = Arc::new(Mutex::new(None));
+    let session = test_session_with_writer(
+        Box::new(MissingSurfaceAttachWriter { session: session_slot.clone(), surface }),
+        None,
+        HashSet::new(),
+    );
+    *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+    session.tree_stale.store(false, Ordering::Release);
+    session
+}
+
+#[cfg(test)]
 pub(super) fn test_session_with_deferred_sized_attach()
 -> (Arc<RemoteSession>, Receiver<()>, Sender<()>) {
     test_session_with_deferred_attach_control(

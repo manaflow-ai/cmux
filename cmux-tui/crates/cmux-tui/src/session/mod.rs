@@ -2506,6 +2506,11 @@ pub(crate) fn test_remote_session_with_deferred_attach()
 }
 
 #[cfg(test)]
+pub(crate) fn test_remote_session_with_missing_surface_attach(surface: SurfaceId) -> Session {
+    Session::Remote(remote::test_session_with_missing_surface_attach(surface))
+}
+
+#[cfg(test)]
 pub(crate) fn test_remote_session_with_deferred_sized_attach()
 -> (Session, std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
     let (session, started, release) = remote::test_session_with_deferred_sized_attach();
