@@ -144,7 +144,7 @@ struct WorkspaceFloatingDockScreenPlacementTests {
         #expect(parkedVisibleFrame.width == 48)
         #expect(parkedVisibleFrame.maxX == ownerScreen.maxX)
         #expect(snapshot.parkedFrame.width == 48)
-        #expect(rightNeighbor.intersection(snapshot.parkedFrame).isNull)
+        #expect(rightNeighbor.intersection(snapshot.parkedFrame).isEmpty)
         let revealedVisibleFrame = ownerScreen.intersection(snapshot.revealedFrame)
         #expect(revealedVisibleFrame.width == 144)
         #expect(revealedVisibleFrame.maxX == ownerScreen.maxX)
@@ -181,7 +181,7 @@ struct WorkspaceFloatingDockScreenPlacementTests {
         #expect(migratedVisibleFrame.width == 48)
         #expect(migratedVisibleFrame.maxX == leftScreen.maxX)
         #expect(migrated.parkedFrame.width == 48)
-        #expect(rightScreen.intersection(migrated.parkedFrame).isNull)
+        #expect(rightScreen.intersection(migrated.parkedFrame).isEmpty)
     }
 
     @Test
@@ -198,7 +198,7 @@ struct WorkspaceFloatingDockScreenPlacementTests {
         )
 
         #expect(snapshots.allSatisfy {
-            upperRightNeighbor.intersection($0.parkedFrame).isNull
+            upperRightNeighbor.intersection($0.parkedFrame).isEmpty
         })
         #expect(snapshots.allSatisfy {
             ownerScreen.intersection($0.parkedFrame).maxX == ownerScreen.maxX
