@@ -153,14 +153,6 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.
 
-## Pane size shortcuts
-
-Cmd+Option+1, Cmd+Option+2, and Cmd+Option+3 set the focused pane's branch to 25%, 50%, or 75% of its nearest enclosing width split. Add Shift to apply the same fractions to the nearest enclosing height split. The percentage always describes the focused branch, including when it is the split's second child.
-
-Rebind these actions with `shortcuts.bindings.setPaneWidth25Percent`, `shortcuts.bindings.setPaneWidth50Percent`, `shortcuts.bindings.setPaneWidth75Percent`, `shortcuts.bindings.setPaneHeight25Percent`, `shortcuts.bindings.setPaneHeight50Percent`, and `shortcuts.bindings.setPaneHeight75Percent`.
-
-Fine-grained directional resizing is available through `shortcuts.bindings.growPaneLeft`, `shortcuts.bindings.growPaneRight`, `shortcuts.bindings.growPaneUp`, and `shortcuts.bindings.growPaneDown`. These actions are unbound by default to avoid taking terminal or pane-navigation shortcuts.
-
 ## `terminal.textBoxSubmitActions`
 
 Controls what the TextBox submit button does for new terminal sessions. Active agent sessions such as Claude, Codex, OpenCode, and Pi always use plain Text Entry so prompts go into the running agent instead of launching another command.
