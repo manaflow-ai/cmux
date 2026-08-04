@@ -10,6 +10,7 @@ import UserNotifications
 import CmuxGit
 import CmuxSidebarGit
 import CmuxSidebar
+import CmuxExtensionKit
 import CmuxTerminal
 import CmuxSettings
 
