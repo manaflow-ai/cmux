@@ -18922,6 +18922,25 @@ mod tests {
     }
 
     #[test]
+    fn enhanced_shifted_suffix_runs_uppercase_prefix_binding() {
+        let mux = Mux::new("enhanced-prefix-shift-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+
+        app.handle_keyboard(crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
+            key_event: KeyEvent::new(KeyCode::Char('s'), KeyModifiers::SHIFT),
+            shifted_key: Some('S'),
+            base_layout_key: Some('s'),
+            text: "S".to_string(),
+        }))
+        .unwrap();
+
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert!(!app.prefix_armed);
+    }
+
+    #[test]
     fn option_generated_text_does_not_match_alt_modeless_bindings() {
         let input = crate::keys::KeyboardInput::from_enhanced(EnhancedKeyEvent {
             key_event: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::ALT),
@@ -19430,6 +19449,33 @@ mod tests {
                 .and_then(MenuItem::shortcut),
             None
         );
+    }
+
+    #[test]
+    fn every_context_menu_exposes_sidebar_visibility() {
+        let (mux, _) = test_mux("global-sidebar-context-menu-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 20));
+        let content = app.pane_areas[0].content;
+
+        for point in [(content.x, content.y), (79, 19)] {
+            app.open_context_menu(point.0, point.1);
+            assert!(
+                app.menu.as_ref().is_some_and(|menu| {
+                    menu.levels[0].items.iter().any(|item| {
+                        item.action() == Some(MenuAction::ToggleSidebar { visible: false })
+                    })
+                }),
+                "right-click at {point:?} must offer Show Sidebar"
+            );
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
     }
 
     #[test]
@@ -22141,6 +22187,73 @@ mod tests {
 
         assert!(menu.handle_search_key(&KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL,)));
         assert_eq!(menu.levels[0].items.len(), 4_098);
+    }
+
+    #[test]
+    fn overflowing_connect_machine_menu_draws_and_wheels_a_scrollbar() {
+        let mux = Mux::new("connect-menu-scrollbar-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut ui = MachineUiState::new(MachineSnapshot {
+            machines: Vec::new(),
+            active: None,
+            capabilities: MachineCapabilities { create: false, connect: true },
+        });
+        ui.connection_targets = (0..40)
+            .map(|index| MachineConnectionTarget {
+                target: format!("ssh-host-{index:02}"),
+                name: format!("ssh-host-{index:02}"),
+            })
+            .collect();
+        app.machine_ui = Some(ui);
+        app.open_machine_connection_menu(1, 3);
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rect = app.menu.as_ref().unwrap().levels[0].rect;
+        let track_x = rect.x + rect.width.saturating_sub(2);
+        let buffer = terminal.backend().buffer();
+        assert!(
+            (rect.y + 1..rect.y + rect.height.saturating_sub(1))
+                .any(|y| matches!(buffer[(track_x, y)].symbol(), "▕" | "▐")),
+            "overflowing SSH host picker must render its scrollbar thumb"
+        );
+
+        let action = app.handle_scroll(track_x, rect.y + 1, true, KeyModifiers::NONE).unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert!(app.menu.as_ref().unwrap().levels[0].scroll_offset > 0);
+    }
+
+    #[test]
+    fn context_menu_scrollbar_track_clicks_and_drags() {
+        let mux = Mux::new("context-menu-scrollbar-pointer-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let items = (0..40)
+            .map(|index| MenuItem::LabeledAction {
+                label: format!("ssh-host-{index:02}"),
+                action: MenuAction::ConnectMachineTarget(index),
+            })
+            .collect();
+        app.menu = Some(ContextMenu::searchable(
+            1,
+            3,
+            "SSH hosts",
+            "type to filter",
+            items,
+            vec![MenuItem::Action(MenuAction::ConnectOtherMachine)],
+        ));
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rect = app.menu.as_ref().unwrap().levels[0].rect;
+        let track_x = rect.x + rect.width.saturating_sub(2);
+        let track_top = rect.y + 1;
+        let track_bottom = rect.y + rect.height.saturating_sub(2);
+
+        app.handle_left_down(track_x, track_bottom, KeyModifiers::NONE).unwrap();
+        assert!(app.menu.as_ref().unwrap().levels[0].scroll_offset > 0);
+        app.handle_left_drag(track_x, track_top).unwrap();
+        assert_eq!(app.menu.as_ref().unwrap().levels[0].scroll_offset, 0);
+        app.handle_left_up(track_x, track_top).unwrap();
+        assert!(app.menu.is_some());
     }
 
     #[test]
@@ -33255,6 +33368,10 @@ mod tests {
 
         app.open_machine_connection_menu(1, 3);
         assert_eq!(app.menu.as_ref().unwrap().levels[0].items[0].label(), Some("buildbox"));
+        assert_eq!(
+            app.menu.as_ref().unwrap().levels[0].items.last().and_then(MenuItem::label),
+            Some("Add SSH host…")
+        );
         assert_eq!(
             app.menu
                 .as_ref()

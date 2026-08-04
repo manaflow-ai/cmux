@@ -845,6 +845,16 @@ mod tests {
     }
 
     #[test]
+    fn typed_ssh_command_prefix_adds_the_same_host_alias() {
+        let mut runtime = MachineRuntime::new(PathBuf::from("/tmp/current.sock"), Vec::new());
+        let command = runtime.connect_machine("ssh cmux-lawrence").unwrap();
+        let alias = runtime.connect_machine("cmux-lawrence").unwrap();
+
+        assert_eq!(command, alias);
+        assert_eq!(runtime.name(command), Some("cmux-lawrence"));
+    }
+
+    #[test]
     fn client_catalog_machine_rename_is_session_local() {
         let machine = MachineConfig {
             id: "mini".into(),
