@@ -729,9 +729,16 @@ impl Session {
                 if remote
                     .supports_capability(cmux_tui_core::server::VIEW_ATTACHMENT_LEASE_CAPABILITY)
                 {
-                    let lease = remote
-                        .attachment_lease(id)
-                        .ok_or_else(|| anyhow::anyhow!("surface {id} has no attachment lease"))?;
+                    let Some(lease) = remote.attachment_lease(id) else {
+                        // The attachment may disappear before a queued release
+                        // reaches the session worker. With lease-aware peers,
+                        // no local lease means this view has nothing left to
+                        // release, so the operation has already converged.
+                        if let Some(surface) = remote.surface(id) {
+                            surface.clear_reported_size();
+                        }
+                        return Ok(());
+                    };
                     request = json!({
                         "cmd": "release-attached-view-size",
                         "surface": id,

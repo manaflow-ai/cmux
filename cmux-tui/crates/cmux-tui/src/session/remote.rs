@@ -3675,9 +3675,7 @@ pub(super) fn test_session_without_provider_authority() -> Arc<RemoteSession> {
 pub(super) fn test_session_with_view_attachment_leases() -> Arc<RemoteSession> {
     test_session_with_provider_context(
         None,
-        HashSet::from([
-            cmux_tui_core::server::VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()
-        ]),
+        HashSet::from([VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
     )
 }
 
