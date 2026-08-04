@@ -1605,13 +1605,13 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
 
         let nativeFreeStarted = expectation(description: "native free started")
         let fakeSurfaceToken = UInt(bitPattern: fakeSurface)
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
+        terminalPanel.surface.runtimeSurfaceFreeOverrideForInstanceTesting = { surface in
             guard UInt(bitPattern: surface) == fakeSurfaceToken else { return }
             XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
             nativeFreeStarted.fulfill()
         }
         defer {
-            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
+            terminalPanel.surface.runtimeSurfaceFreeOverrideForInstanceTesting = nil
         }
 
         manager.confirmCloseHandler = { _, _, _ in true }
