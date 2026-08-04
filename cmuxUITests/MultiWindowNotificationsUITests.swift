@@ -28,7 +28,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNotificationsRouteToCorrectWindow() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
@@ -119,7 +119,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNotificationsPopoverCanCloseViaShortcutAndEscape() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
@@ -160,7 +160,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNotificationsPopoverJumpToLatestButtonShowsShortcut() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
@@ -189,7 +189,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testEmptyNotificationsPopoverBlocksTerminalTyping() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
@@ -242,7 +242,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNotifyCLIDoesNotStealFocusAcrossWindows() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
@@ -402,7 +402,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testOpenNotificationCLISelectsWorkspaceSurfaceAndMarksRowRead() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
@@ -522,7 +522,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNewWorkspaceCLIWindowFlagTargetsSpecificWindow() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let title = "window-route-\(UUID().uuidString.prefix(8))"
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"

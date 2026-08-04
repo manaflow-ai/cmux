@@ -7,7 +7,7 @@ final class CloseWorkspaceConfirmDialogUITests: XCTestCase {
     }
 
     func testCmdShiftWShowsCloseWorkspaceConfirmationText() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         // Force the workspace-close path to require confirmation so we can assert the alert copy.
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()

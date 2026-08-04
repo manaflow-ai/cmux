@@ -86,10 +86,15 @@ struct CmxIrohBonjourRawBrowseEvent: Sendable {
 final class CmxIrohBonjourBrowseIngress: @unchecked Sendable {
     private let lock = NSLock()
     private let continuation: AsyncStream<CmxIrohBonjourRawBrowseEvent>.Continuation
+    private let serviceNameAllowlist: Set<String>?
     private var enqueuedKeys: Set<CmxIrohBonjourRawBrowseEvent.Key> = []
 
-    init(continuation: AsyncStream<CmxIrohBonjourRawBrowseEvent>.Continuation) {
+    init(
+        continuation: AsyncStream<CmxIrohBonjourRawBrowseEvent>.Continuation,
+        serviceNameAllowlist: Set<String>? = nil
+    ) {
         self.continuation = continuation
+        self.serviceNameAllowlist = serviceNameAllowlist
     }
 
     func offer(
@@ -135,7 +140,14 @@ final class CmxIrohBonjourBrowseIngress: @unchecked Sendable {
             )
         }
 
-        let shouldYield = lock.withLock { enqueuedKeys.insert(event.key).inserted }
+        let shouldYield = lock.withLock {
+            if case let .service(id, _) = event.key,
+               let serviceNameAllowlist,
+               !serviceNameAllowlist.contains(id.serviceName) {
+                return false
+            }
+            return enqueuedKeys.insert(event.key).inserted
+        }
         guard shouldYield else { return }
         if case .dropped = continuation.yield(event) {
             consumed(event.key)

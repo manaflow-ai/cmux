@@ -363,6 +363,7 @@ extension RemoteTmuxControlConnection {
         discardPendingPaneSeeds()
         failPendingActivityQueries()
         failPendingNewWindowRequests()
+        failPendingNewPaneRequests()
         failPendingWindowReorderVerifications()
         failPendingTrackedSends()
     }
