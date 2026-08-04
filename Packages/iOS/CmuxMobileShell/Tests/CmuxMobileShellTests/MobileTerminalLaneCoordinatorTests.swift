@@ -7,6 +7,64 @@ import Testing
 @Suite
 struct MobileTerminalLaneCoordinatorTests {
     @Test
+    func sameSurfaceOnAnotherPeerMovesInputWithoutClosingFirstPeer() async throws {
+        let firstLane = TerminalLaneTestConnection(
+            frames: [Self.frame(kind: .replay, sequence: 0, bytes: "")],
+            waitsAfterFrames: true
+        )
+        let secondLane = TerminalLaneTestConnection(
+            frames: [Self.frame(kind: .replay, sequence: 0, bytes: "")],
+            waitsAfterFrames: true
+        )
+        let provider = TerminalLaneTestProvider(lanes: [firstLane, secondLane])
+        let coordinator = MobileTerminalLaneCoordinator { request, surfaceID, cursor in
+            try await provider.callAsFunction(request, surfaceID, cursor: cursor)
+        }
+
+        await coordinator.ensure(Self.configuration(
+            providerRequest: try Self.request(
+                peerDeviceID: "mac-a",
+                endpointCharacter: "a"
+            ),
+            cursor: { nil },
+            consume: { _ in .accepted(outputReady: true) },
+            readinessChanged: { _ in }
+        ))
+        for _ in 0 ..< 100 where await provider.requestCount() < 1 {
+            await Task.yield()
+        }
+
+        await coordinator.ensure(Self.configuration(
+            providerRequest: try Self.request(
+                peerDeviceID: "mac-b",
+                endpointCharacter: "b"
+            ),
+            cursor: { nil },
+            consume: { _ in .accepted(outputReady: true) },
+            readinessChanged: { _ in }
+        ))
+        for _ in 0 ..< 100 where await provider.requestCount() < 2 {
+            await Task.yield()
+        }
+
+        var inputResult = MobileTerminalLaneCoordinator.InputResult.unavailable
+        for _ in 0 ..< 100 where inputResult != .sent {
+            inputResult = await coordinator.sendInput(
+                "second peer",
+                surfaceID: Self.surfaceID
+            )
+            if inputResult != .sent { await Task.yield() }
+        }
+
+        #expect(await provider.requestCount() == 2)
+        #expect(inputResult == .sent)
+        #expect(await firstLane.inputs().isEmpty)
+        #expect(await secondLane.inputs() == ["second peer"])
+        #expect(await firstLane.closeCount() == 0)
+        await coordinator.deactivateAll()
+    }
+
+    @Test
     func replayActivatesIndependentInputAndCancellationReturnsToFallback() async throws {
         let lane = TerminalLaneTestConnection(
             frames: [Self.frame(kind: .replay, sequence: 5, bytes: "abc")],
@@ -129,19 +187,25 @@ struct MobileTerminalLaneCoordinatorTests {
         )
     }
 
-    private static func request() throws -> CmxByteTransportRequest {
+    private static func request(
+        peerDeviceID: String = "mac",
+        endpointCharacter: Character = "a"
+    ) throws -> CmxByteTransportRequest {
         CmxByteTransportRequest(
             route: try CmxAttachRoute(
                 id: "iroh",
                 kind: .iroh,
                 endpoint: .peer(
                     identity: try CmxIrohPeerIdentity(
-                        endpointID: String(repeating: "a", count: 64)
+                        endpointID: String(
+                            repeating: String(endpointCharacter),
+                            count: 64
+                        )
                     ),
                     pathHints: []
                 )
             ),
-            expectedPeerDeviceID: "mac",
+            expectedPeerDeviceID: peerDeviceID,
             authorizationMode: .transportAdmission
         )
     }
@@ -225,6 +289,7 @@ private actor TerminalLaneTestProvider {
     }
 
     func requestedCursors() -> [UInt64?] { cursors }
+    func requestCount() -> Int { cursors.count }
 
     func waitUntilExhausted() async {
         if lanes.isEmpty, cursors.count >= 2 { return }

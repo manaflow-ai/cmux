@@ -3121,6 +3121,77 @@ import Testing
         control.cancel()
     }
 
+    @Test func onePeerSessionCanCarryControlAndFocusedRolesTogether() throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "multiplexed-role-owner",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56_584)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-b",
+            terminalID: "terminal-b",
+            macDeviceID: "mac-b",
+            macDisplayName: "Mac B",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-b",
+            client: client,
+            route: route,
+            ticket: ticket,
+            storedInstanceTag: "pflow",
+            authenticatedInstanceTag: "pflow",
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        let connection = MacConnection(
+            macDeviceID: "mac-b",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: "Mac B",
+            instanceTag: "pflow",
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        let shell = MobileShellComposite(runtime: runtime, isSignedIn: true)
+        let ownerKey = MacPairingKey(
+            macDeviceID: "mac-b",
+            instanceTag: "pflow"
+        )
+
+        shell.secondaryMacSubscriptions[ownerKey] = subscription
+        shell.connections[ownerKey] = connection
+
+        #expect(shell.secondaryMacSubscriptions[ownerKey] === subscription)
+        #expect(shell.connections[ownerKey]?.client === client)
+        #expect(shell.liveMacConnections == [
+            MobileMacConnectionSnapshot(
+                macDeviceID: "mac-b",
+                displayName: "Mac B",
+                instanceTag: "pflow",
+                role: .focused
+            ),
+        ])
+        subscription.detachKeepingClient()
+    }
+
     @Test func staleGenerationCannotDemoteOrInvalidateReusedFocusedClient() async throws {
         let router = LivenessHostRouter()
         let runtime = LivenessTestRuntime(
