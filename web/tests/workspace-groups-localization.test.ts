@@ -23,6 +23,7 @@ const translatedLocales = [
   "zh-TW",
 ] as const;
 const anchorKeys = ["anchorNew", "anchorClose"] as const;
+const untranslatedActionLabels = ["Ungroup Workspaces", "Delete Group"] as const;
 
 type WorkspaceGroupCatalog = {
   docs?: {
@@ -47,6 +48,10 @@ describe("workspace group documentation localization", () => {
         const translation = workspaceGroups?.[key];
         expect(translation).toBeString();
         expect(translation).not.toBe(englishMessages.docs.workspaceGroups[key]);
+      }
+
+      for (const label of untranslatedActionLabels) {
+        expect(workspaceGroups?.anchorClose).not.toContain(label);
       }
     });
   }
