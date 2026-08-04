@@ -1649,7 +1649,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testReloadConfigurationReloadsShortcutSettingsFile() throws {
+    func testReloadConfigurationReloadsShortcutSettingsFile() async throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1687,7 +1687,17 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        GhosttyApp.shared.reloadConfiguration(source: "test.reload_config")
+        let reloadCompleted = expectation(
+            description: "shortcut settings file reload completed"
+        )
+        XCTAssertTrue(
+            GhosttyApp.shared.reloadConfiguration(
+                source: "test.reload_config"
+            ) {
+                reloadCompleted.fulfill()
+            }
+        )
+        await fulfillment(of: [reloadCompleted], timeout: 10)
 
         XCTAssertEqual(
             KeyboardShortcutSettings.shortcut(for: .newTab),
@@ -1857,7 +1867,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), KeyboardShortcutSettings.Action.newTab.defaultShortcut)
     }
 
-    func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutWithoutFallingBackToDefault() throws {
+    func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutButFailClosed() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
 
@@ -1893,12 +1903,13 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             invalidShortcut
         )
         XCTAssertTrue(SystemWideHotkeySettings.isManagedBySettingsFile())
-        XCTAssertEqual(SystemWideHotkeySettings.shortcut(), invalidShortcut)
-        XCTAssertNotEqual(SystemWideHotkeySettings.shortcut(), SystemWideHotkeySettings.defaultShortcut)
-        XCTAssertNil(SystemWideHotkeySettings.shortcut().carbonHotKeyRegistration)
+        let effectiveShortcut = SystemWideHotkeySettings.shortcut()
+        XCTAssertEqual(effectiveShortcut, .unbound)
+        XCTAssertNotEqual(effectiveShortcut, SystemWideHotkeySettings.defaultShortcut)
+        XCTAssertNil(effectiveShortcut.carbonHotKeyRegistration)
     }
 
-    func testSystemWideHotkeyLegacyMigrationPreservesInvalidShortcut() throws {
+    func testSystemWideHotkeyLegacyMigrationStoresInvalidShortcutButFailsClosed() throws {
         let invalidShortcut = StoredShortcut(
             key: "b",
             command: false,
@@ -1911,9 +1922,11 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let defaults = UserDefaults.standard
         defaults.set(encodedShortcut, forKey: SystemWideHotkeySettings.legacyShortcutKey)
 
-        let migratedShortcut = SystemWideHotkeySettings.shortcut()
+        let effectiveShortcut = SystemWideHotkeySettings.shortcut()
 
-        XCTAssertEqual(migratedShortcut, invalidShortcut)
+        XCTAssertEqual(effectiveShortcut, .unbound)
+        XCTAssertNotEqual(effectiveShortcut, SystemWideHotkeySettings.defaultShortcut)
+        XCTAssertNil(effectiveShortcut.carbonHotKeyRegistration)
         XCTAssertNil(defaults.object(forKey: SystemWideHotkeySettings.legacyShortcutKey))
 
         let migratedData = try XCTUnwrap(
@@ -2232,7 +2245,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testReloadConfigurationReloadsManagedAppSettingsFromSettingsFile() throws {
+    func testReloadConfigurationReloadsManagedAppSettingsFromSettingsFile() async throws {
         let defaults = UserDefaults.standard
         let managedKey = SettingCatalog().app.newWorkspacePlacement.userDefaultsKey
         let previousValue = defaults.object(forKey: managedKey)
@@ -2288,7 +2301,17 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             to: settingsFileURL
         )
 
-        GhosttyApp.shared.reloadConfiguration(source: "test.reload_config_app_setting")
+        let reloadCompleted = expectation(
+            description: "managed app settings reload completed"
+        )
+        XCTAssertTrue(
+            GhosttyApp.shared.reloadConfiguration(
+                source: "test.reload_config_app_setting"
+            ) {
+                reloadCompleted.fulfill()
+            }
+        )
+        await fulfillment(of: [reloadCompleted], timeout: 10)
 
         XCTAssertEqual(UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.newWorkspacePlacement), .end)
     }
