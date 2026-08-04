@@ -37,7 +37,7 @@ struct OneShotTerminalLauncherStore {
     }
 
     /// Returns a directory that the terminal host can safely enter before
-    /// delivering launcher input, or nil so the launcher guard owns fallback.
+    /// delivering launcher input, or nil when the candidate is unavailable.
     static func enterableWorkingDirectory(
         _ value: String?,
         fileManager: FileManager = .default
@@ -53,6 +53,21 @@ struct OneShotTerminalLauncherStore {
             return nil
         }
         return trimmed
+    }
+
+    /// Resolves the owning shell's local cwd for restored startup input.
+    ///
+    /// The restore command may intentionally have no cwd (for example, a
+    /// registered agent with a `.ignore` policy), or its saved directory may
+    /// have disappeared. Pin the already-initialized host shell to home in
+    /// those cases so exiting the restored child never exposes the GUI app's
+    /// inherited launch cwd.
+    static func safeLocalHostShellWorkingDirectory(
+        _ value: String?,
+        fileManager: FileManager = .default
+    ) -> String {
+        enterableWorkingDirectory(value, fileManager: fileManager)
+            ?? fileManager.homeDirectoryForCurrentUser.path
     }
 
     /// Writes a private action payload and returns its one-shot script.

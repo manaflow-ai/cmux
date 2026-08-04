@@ -1401,10 +1401,12 @@ extension Workspace {
             let effectiveResumeBinding = unresolvedBindingLaunch != nil || restoredPersistentSSHResumeCommand != nil
                 ? resumeBinding
                 : nil
-            let savedWorkingDirectory = effectiveResumeBinding?.cwd
-                ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
-                ?? (restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
-                ?? (restoresUntrustedSavedDirectory ? nil : snapshot.directory)
+            let savedWorkingDirectory = TerminalWorkingDirectoryResolver.firstAvailable([
+                effectiveResumeBinding?.cwd,
+                restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory,
+                restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory,
+                restoresUntrustedSavedDirectory ? nil : snapshot.directory,
+            ])
             let workingDirectory = savedWorkingDirectory
                 ?? currentDirectory
             // A persisted terminal cwd can already be the stray fallback cwd
@@ -1412,7 +1414,10 @@ extension Workspace {
             // remember where the resume launcher actually sends the agent.
             let resumeSessionWorkingDirectory: String? = {
                 if unresolvedBindingLaunch != nil {
-                    return effectiveResumeBindingForStartup?.cwd ?? workingDirectory
+                    return TerminalWorkingDirectoryResolver.firstAvailable([
+                        effectiveResumeBindingForStartup?.cwd,
+                        workingDirectory,
+                    ])
                 }
                 guard let restorableAgent else { return savedWorkingDirectory }
                 if restorableAgent.registration?.cwd == .ignore {
@@ -1421,9 +1426,11 @@ extension Workspace {
                 if restoresRemoteWorkspaceTerminalSnapshot {
                     return workingDirectory
                 }
-                return restorableAgent.workingDirectory
-                    ?? restorableAgent.launchCommand?.workingDirectory
-                    ?? workingDirectory
+                return TerminalWorkingDirectoryResolver.firstAvailable([
+                    restorableAgent.workingDirectory,
+                    restorableAgent.launchCommand?.workingDirectory,
+                    workingDirectory,
+                ])
             }()
             let restoredBindingLaunch = unresolvedBindingLaunch
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
@@ -1557,7 +1564,7 @@ extension Workspace {
                     ? workingDirectory
                     : resumeSessionWorkingDirectory
                 guard restoredDirectoryIsLocalPath else { return candidate }
-                return OneShotTerminalLauncherStore.enterableWorkingDirectory(candidate)
+                return OneShotTerminalLauncherStore.safeLocalHostShellWorkingDirectory(candidate)
             }()
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? hostShellWorkingDirectory

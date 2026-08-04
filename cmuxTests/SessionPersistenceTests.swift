@@ -6491,10 +6491,16 @@ extension SessionPersistenceTests {
                     updatedAt: 10
                 ),
             ])
-            let snapshot = source.sessionSnapshot(
+            var snapshot = source.sessionSnapshot(
                 includeScrollback: false,
                 surfaceResumeBindingIndex: bindingIndex
             )
+            let snapshotPanelIndex = try XCTUnwrap(
+                snapshot.panels.firstIndex { $0.id == sourcePanelId }
+            )
+            // This fixture models a live agent at snapshot time. Restores
+            // correctly skip auto-resume when the captured agent was stopped.
+            snapshot.panels[snapshotPanelIndex].terminal?.wasAgentRunning = true
 
             let restored = Workspace()
             restored.restoreSessionSnapshot(snapshot)
@@ -6502,7 +6508,10 @@ extension SessionPersistenceTests {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let startupInput = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
 
-            XCTAssertNil(restoredPanel.requestedWorkingDirectory)
+            XCTAssertEqual(
+                restoredPanel.requestedWorkingDirectory,
+                FileManager.default.homeDirectoryForCurrentUser.path
+            )
             XCTAssertEqual(
                 startupInput,
                 " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex session-duplicate-turn\n"

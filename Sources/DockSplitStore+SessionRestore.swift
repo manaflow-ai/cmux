@@ -173,10 +173,12 @@ extension DockSplitStore {
             promptForApproval: true,
             approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
         )
-        let savedWorkingDirectory = resumeBinding?.cwd
-            ?? terminalSnapshot.workingDirectory
-            ?? restorableAgent?.workingDirectory
-            ?? snapshot.directory
+        let savedWorkingDirectory = TerminalWorkingDirectoryResolver.firstAvailable([
+            resumeBinding?.cwd,
+            terminalSnapshot.workingDirectory,
+            restorableAgent?.workingDirectory,
+            snapshot.directory,
+        ])
         let workingDirectory = savedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
         let unresolvedBindingLaunch = approvedResumeBinding.flatMap {
             policy.surfaceResumeStartupLaunch(
@@ -185,15 +187,20 @@ extension DockSplitStore {
         }
         let resumeSessionWorkingDirectory: String? = {
             if unresolvedBindingLaunch != nil {
-                return approvedResumeBinding?.cwd ?? workingDirectory
+                return TerminalWorkingDirectoryResolver.firstAvailable([
+                    approvedResumeBinding?.cwd,
+                    workingDirectory,
+                ])
             }
             guard let restorableAgent else { return savedWorkingDirectory }
             if restorableAgent.registration?.cwd == .ignore {
                 return nil
             }
-            return restorableAgent.workingDirectory
-                ?? restorableAgent.launchCommand?.workingDirectory
-                ?? workingDirectory
+            return TerminalWorkingDirectoryResolver.firstAvailable([
+                restorableAgent.workingDirectory,
+                restorableAgent.launchCommand?.workingDirectory,
+                workingDirectory,
+            ])
         }()
         let bindingLaunch = unresolvedBindingLaunch
         let tmuxStartCommand = restorableAgent == nil && bindingLaunch == nil
@@ -224,7 +231,7 @@ extension DockSplitStore {
         let hostShellWorkingDirectory: String? = {
             guard startupHandlesWorkingDirectory else { return workingDirectory }
             let candidate = tmuxLauncher != nil ? workingDirectory : resumeSessionWorkingDirectory
-            return OneShotTerminalLauncherStore.enterableWorkingDirectory(candidate)
+            return OneShotTerminalLauncherStore.safeLocalHostShellWorkingDirectory(candidate)
         }()
         let shouldReplayScrollback = policy.shouldReplaySessionScrollback(
             hasRestorableAgent: restorableAgent != nil,
