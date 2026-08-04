@@ -91,7 +91,7 @@ import Testing
             Issue.record("Expected CancellationError, got \(error)")
         }
         await transport.waitUntilFirstConnectFinished()
-        await cancellationSignal.waitUntilObserved()
+        #expect(await cancellationSignal.waitUntilObserved())
 
         let data = try await session.send(
             payload: second,
@@ -162,7 +162,6 @@ import Testing
 
 private actor MobileRPCConnectCancellationSignal {
     private var observed = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func record(_ event: MobileRPCTransportConnectEvent) {
         guard case let .failed(_, _, failure, _) = event,
@@ -170,17 +169,16 @@ private actor MobileRPCConnectCancellationSignal {
             return
         }
         observed = true
-        let pending = waiters
-        waiters.removeAll()
-        for waiter in pending {
-            waiter.resume()
-        }
     }
 
-    func waitUntilObserved() async {
-        guard !observed else { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+    func waitUntilObserved(
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !observed, clock.now < deadline {
+            await Task.yield()
         }
+        return observed
     }
 }

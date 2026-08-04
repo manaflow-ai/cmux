@@ -63,35 +63,8 @@ public enum CmxIrohTrustBrokerClientError:
         case let .rejected(statusCode, _):
             // A server failure cannot establish trust, so retrying the request
             // is safe while the lifecycle-owned start task remains current.
-            // 401 joins the retriable set: it already survived the broker
-            // client's single force-refresh retry, so it is a session
-            // transition still settling; a dead session exits through the auth
-            // coordinator's state clear, not through this loop.
-            return statusCode == 401
-                || statusCode == 408
-                || statusCode == 425
-                || statusCode == 429
-                || (500...599).contains(statusCode)
-        case .invalidBaseURL,
-             .missingAuthentication,
-             .invalidAuthentication,
-             .nonHTTPResponse,
-             .invalidResponse:
-            return false
-        }
-    }
-
-    /// Returns whether the broker could not answer, rather than denying an
-    /// authenticated request. Cached grants may only recover this failure set.
-    static func isAvailabilityFailure(_ error: any Error) -> Bool {
-        if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
-            return true
-        }
-        guard let brokerError = error as? Self else { return false }
-        switch brokerError {
-        case .connectivity, .rateLimited:
-            return true
-        case let .rejected(statusCode, _):
+            // An authentication rejection cannot establish initial trust. It
+            // must return to the auth lifecycle instead of retrying forever.
             return statusCode == 408
                 || statusCode == 425
                 || statusCode == 429

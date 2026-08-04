@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -308,6 +309,101 @@ struct AuthEnvironmentTests {
         #expect(appProWelcomeURL.host == "localhost")
         #expect(appProWelcomeURL.port == 9210)
         #expect(appProWelcomeURL.path == "/app-pro-welcome")
+    }
+
+    @MainActor
+    @Test("app web URLs carry the Ghostty colors and cmux product accent")
+    func appWebURLsCarryGhosttyColorsAndCmuxProductAccent() throws {
+        let base = try #require(URL(string: "https://cmux.com/app-pricing?interval=year&accent=%23000000"))
+        let theme = AppWebThemeSnapshot(
+            appearance: "dark",
+            background: "#112233",
+            foreground: "#DDEEFF",
+            accent: "#0091FF"
+        )
+
+        let url = ProUpgradePresenter.decoratedAppWebURL(base, theme: theme)
+        let query = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        let values = Dictionary(uniqueKeysWithValues: query.compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+
+        #expect(values["interval"] == "year")
+        #expect(values["appearance"] == "dark")
+        #expect(values["background"] == "#112233")
+        #expect(values["foreground"] == "#DDEEFF")
+        #expect(values["accent"] == "#0091FF")
+        #expect(values["accent_on_background"] == theme.accentOnBackground)
+        #expect(values["accent_on_foreground"] == theme.accentOnForeground)
+        #expect(values["cmux_app"] == "1")
+    }
+
+    @MainActor
+    @Test("app web appearance and product accent follow the Ghostty background")
+    func appWebAppearanceAndProductAccentFollowGhosttyBackground() throws {
+        let darkSnapshot = AppWebThemeSnapshot.resolved(
+            backgroundColor: try #require(NSColor(hex: "#101010")),
+            foregroundColor: try #require(NSColor(hex: "#F0F0F0"))
+        )
+        let lightSnapshot = AppWebThemeSnapshot.resolved(
+            backgroundColor: try #require(NSColor(hex: "#F0F0F0")),
+            foregroundColor: try #require(NSColor(hex: "#101010"))
+        )
+
+        #expect(darkSnapshot.appearance == "dark")
+        #expect(darkSnapshot.background == "#101010")
+        #expect(darkSnapshot.foreground == "#F0F0F0")
+        #expect(darkSnapshot.accent == "#0091FF")
+        #expect(lightSnapshot.appearance == "light")
+        #expect(lightSnapshot.background == "#F0F0F0")
+        #expect(lightSnapshot.foreground == "#101010")
+        #expect(lightSnapshot.accent == "#0088FF")
+        #expect(darkSnapshot.accentOnBackground == "#0091FF")
+        #expect(darkSnapshot.accentOnForeground != darkSnapshot.accent)
+        #expect(lightSnapshot.accentOnBackground != lightSnapshot.accent)
+        #expect(lightSnapshot.accentOnForeground == "#0088FF")
+    }
+
+    @MainActor
+    @Test("app web theme serializes translucent native colors as opaque RGB")
+    func appWebThemeSerializesTranslucentNativeColorsAsOpaqueRGB() {
+        let snapshot = AppWebThemeSnapshot.resolved(
+            backgroundColor: NSColor(
+                srgbRed: 17.0 / 255.0,
+                green: 34.0 / 255.0,
+                blue: 51.0 / 255.0,
+                alpha: 0.25
+            ),
+            foregroundColor: NSColor(
+                srgbRed: 221.0 / 255.0,
+                green: 238.0 / 255.0,
+                blue: 255.0 / 255.0,
+                alpha: 0.5
+            )
+        )
+
+        #expect(snapshot.background == "#112233")
+        #expect(snapshot.foreground == "#DDEEFF")
+    }
+
+    @MainActor
+    @Test("app web theme JavaScript updates every shared theme variable")
+    func appWebThemeJavaScriptUpdatesEverySharedThemeVariable() throws {
+        let theme = AppWebThemeSnapshot(
+            appearance: "light",
+            background: "#FAFAFA",
+            foreground: "#171717",
+            accent: "#0088FF"
+        )
+        let browserTheme = theme.browserTheme
+        let script = try #require(browserTheme.applyingJavaScript())
+
+        #expect(script.contains("[data-cmux-app-theme]"))
+        #expect(script.contains("--ghostty-background"))
+        #expect(script.contains("--ghostty-foreground"))
+        #expect(script.contains("--cmux-product-blue"))
+        #expect(script.contains("--cmux-product-blue-on-background"))
+        #expect(script.contains("--cmux-product-blue-on-foreground"))
     }
 
     @Test("app session handoff pins credentials to production or debug loopback")

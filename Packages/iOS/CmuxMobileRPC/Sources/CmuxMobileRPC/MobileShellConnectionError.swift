@@ -17,7 +17,9 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
     /// remain blocked to cap retained transports until cleanup finishes or the
     /// app process restarts.
     case routeCleanupBlocked
-    /// This exact route already has a connect attempt in flight.
+    /// The connect-attempt registry refused the dial because this exact route
+    /// already has a connect attempt in flight. The refusal is instantaneous
+    /// and never reached the network, so it must not masquerade as a timeout.
     case connectAttemptGated
     /// A manual host did not advertise a secure route.
     case insecureManualRoute
@@ -51,7 +53,7 @@ public enum MobileShellConnectionError: LocalizedError, DiagnosticFailureProvidi
         case .connectAttemptGated:
             return L10n.string(
                 "mobile.connection.connectAttemptGated",
-                defaultValue: "Connection is already reconnecting"
+                defaultValue: "Mobile sync connection is retrying"
             )
         case .insecureManualRoute:
             return "Manual host did not advertise a secure mobile sync route"

@@ -34,6 +34,38 @@ extension ReconnectRouteSelectionTests {
         #expect(attemptedKinds.allSatisfy { $0 == .iroh })
     }
 
+    @Test func recoveryWaitsForOldPhysicalTransportBeforeRedialing() async throws {
+        let closeGate = LivenessTransportCloseGate()
+        let fixture = try await makeRecoveryOwnerFixture(
+            firstTransportCloseGate: closeGate
+        )
+        defer {
+            Task { await closeGate.release() }
+            fixture.release()
+        }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let firstClient = try #require(fixture.store.remoteClient)
+
+        fixture.store.recoverDeadConnection(
+            trigger: .eventStreamEnded,
+            expectedClient: firstClient
+        )
+
+        #expect(await closeGate.waitUntilCloseStarted())
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+
+        await closeGate.release()
+        #expect(await fixture.factory.waitForAttemptCount(2))
+        #expect(try await pollUntil {
+            guard let replacement = fixture.store.remoteClient else { return false }
+            return replacement !== firstClient
+                && fixture.store.connectionState == .connected
+        })
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+    }
+
     @Test func livenessAndForegroundRecoveryCoalesceOnOneIrohReplacement() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
@@ -326,7 +358,7 @@ extension ReconnectRouteSelectionTests {
 
         let client = try #require(fixture.store.remoteClient)
         let listenerID = try #require(
-            fixture.store.terminalEventListenerID
+            fixture.store.lastSuccessfulTerminalSubscription?.listenerID
         )
         #expect(fixture.store.recordUsableTerminalSubscription(
             client: client,
@@ -564,7 +596,8 @@ extension ReconnectRouteSelectionTests {
 
     private func makeRecoveryOwnerFixture(
         backup: (any PairedMacBackingUp)? = nil,
-        heldConnectAttempts: Set<Int> = []
+        heldConnectAttempts: Set<Int> = [],
+        firstTransportCloseGate: LivenessTransportCloseGate? = nil
     ) async throws -> RecoveryOwnerFixture {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -572,7 +605,8 @@ extension ReconnectRouteSelectionTests {
         let factory = SequencedKindTransportFactory(
             router: router,
             box: box,
-            heldConnectAttempts: heldConnectAttempts
+            heldConnectAttempts: heldConnectAttempts,
+            firstTransportCloseGate: firstTransportCloseGate
         )
         let (inner, directory) = try makePairedMacStore()
         let diagnosticLog = DiagnosticLog(capacity: 128, role: .mobileClient)
@@ -637,34 +671,36 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
     private let router: LivenessHostRouter
     private let box: TransportBox
     private let heldConnectAttempts: Set<Int>
+    private let firstTransportCloseGate: LivenessTransportCloseGate?
     private let lock = NSLock()
     private var kinds: [CmxAttachTransportKind] = []
     private var connectFailure: DiagnosticFailureKind?
     private var heldReleased = false
     private var heldWaiters: [CheckedContinuation<Void, Never>] = []
-    private var attemptWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
 
     init(
         router: LivenessHostRouter,
         box: TransportBox,
-        heldConnectAttempts: Set<Int>
+        heldConnectAttempts: Set<Int>,
+        firstTransportCloseGate: LivenessTransportCloseGate?
     ) {
         self.router = router
         self.box = box
         self.heldConnectAttempts = heldConnectAttempts
+        self.firstTransportCloseGate = firstTransportCloseGate
     }
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         let (attempt, connectFailure) = lock.withLock { () -> (Int, DiagnosticFailureKind?) in
             kinds.append(route.kind)
             let count = kinds.count
-            let ready = attemptWaiters.filter { $0.0 <= count }
-            attemptWaiters.removeAll { $0.0 <= count }
-            for (_, waiter) in ready { waiter.resume() }
             return (count, self.connectFailure)
         }
         let transport = SequencedLivenessTransport(
-            base: LivenessTransport(router: router),
+            base: LivenessTransport(
+                router: router,
+                closeGate: attempt == 1 ? firstTransportCloseGate : nil
+            ),
             factory: self,
             attempt: attempt,
             connectFailure: connectFailure,
@@ -684,17 +720,17 @@ private final class SequencedKindTransportFactory: CmxByteTransportFactory, @unc
         lock.withLock { connectFailure = failure }
     }
 
-    func waitForAttemptCount(_ count: Int) async -> Bool {
-        if lock.withLock({ kinds.count >= count }) { return true }
-        await withCheckedContinuation { continuation in
-            let immediate = lock.withLock { () -> Bool in
-                if kinds.count >= count { return true }
-                attemptWaiters.append((count, continuation))
-                return false
-            }
-            if immediate { continuation.resume() }
+    func waitForAttemptCount(
+        _ count: Int,
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if lock.withLock({ kinds.count >= count }) { return true }
+            await Task.yield()
         }
-        return true
+        return lock.withLock { kinds.count >= count }
     }
 
     func waitForHeldRelease() async {

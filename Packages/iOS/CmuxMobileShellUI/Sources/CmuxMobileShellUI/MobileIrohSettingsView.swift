@@ -417,6 +417,8 @@ private extension MobileIrohSettingsView {
                 "mobile.iroh.diagnostics.failure.sendQueueOverflow",
                 defaultValue: "Send Queue Overflow"
             )
+        case .some(.routeGated):
+            L10n.string("mobile.iroh.diagnostics.failure.routeGated", defaultValue: "Route Gated")
         case .some(.superseded):
             L10n.string(
                 "mobile.iroh.diagnostics.failure.superseded",

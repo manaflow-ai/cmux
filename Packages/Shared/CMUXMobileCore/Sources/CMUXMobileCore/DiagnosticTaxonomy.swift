@@ -71,10 +71,10 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
     /// event queue overflowed while the transport stopped draining (for
     /// example the peer's network path died mid-write).
     case sendQueueOverflow = 24
-    /// The connect-attempt registry refused a dial because the route was held
-    /// by an in-flight or recently abandoned dial, or hard-gated after
-    /// repeated abandoned attempts. Distinguishes gate refusals from genuine
-    /// dial timeouts in exports.
+    /// The connect-attempt registry refused a dial because the exact route is
+    /// held by an in-flight connect attempt. Distinguishes gate refusals from
+    /// genuine dial timeouts in exports; a gated attempt never reached the
+    /// network.
     case routeGated = 25
     case unknown = 255
 

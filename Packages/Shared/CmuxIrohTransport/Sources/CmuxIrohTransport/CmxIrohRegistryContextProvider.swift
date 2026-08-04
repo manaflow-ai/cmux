@@ -162,7 +162,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             do {
                 discovery = try await refreshAuthoritativeDiscovery()
             } catch {
-                guard Self.isAvailabilityFailure(error),
+                guard Self.isConnectivity(error),
                       let cached = try await cachedPolicy(
                           for: request,
                           confirmedDiscovery: nil,
@@ -225,7 +225,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         } catch {
             // Backpressure may reuse an existing signed grant only after this
             // discovery has re-confirmed both exact endpoint authorities.
-            guard Self.isAvailabilityFailure(error)
+            guard Self.isConnectivity(error)
                     || CmxIrohBrokerCooldown.directiveSeconds(for: error) != nil,
                   let cached = try await cachedPolicy(
                       for: request,
@@ -719,10 +719,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         }
     }
 
-    private static func isAvailabilityFailure(_ error: any Error) -> Bool {
-        // Preserving already verified in-memory state during a refresh grants
-        // no new authority. A dial-time fallback does, so an authenticated
-        // rejection must never unlock the offline grant store.
-        CmxIrohTrustBrokerClientError.isAvailabilityFailure(error)
+    private static func isConnectivity(_ error: any Error) -> Bool {
+        (error as? CmxIrohTrustBrokerClientError) == .connectivity
     }
 }

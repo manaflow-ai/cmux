@@ -50,6 +50,7 @@ struct CmxIrohTrustBrokerClientTests {
         let response = try await client.register(prepared: prepared, signer: signer)
 
         #expect(response.binding.tag == "stable")
+        #expect(response.discoveryComplete == nil)
         #expect(await transport.requests().compactMap { $0.url?.path } == [
             "/api/devices/iroh/challenge",
             "/api/devices/iroh/register",
@@ -65,6 +66,7 @@ struct CmxIrohTrustBrokerClientTests {
         )
         responseObject["revision"] = 7
         responseObject["discovery"] = try Self.discoveryObject(revision: 7)
+        responseObject["discovery_complete"] = true
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 201, body: try Self.jsonString(responseObject)),
         ])
@@ -82,6 +84,7 @@ struct CmxIrohTrustBrokerClientTests {
         #expect(response.revision == 7)
         #expect(response.discovery?.revision == 7)
         #expect(response.discovery?.bindings.count == 1)
+        #expect(response.discoveryComplete == true)
     }
 
     @Test
@@ -476,7 +479,7 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
-    func paginatedDiscoveryRejectsAnAccountRevisionChange() async throws {
+    func paginatedDiscoveryRestartsAfterAnAccountRevisionChange() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(
                 status: 200,
@@ -494,12 +497,110 @@ struct CmxIrohTrustBrokerClientTests {
                     revision: 42
                 )
             ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-2",
+                    revision: 42
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 130,
+                    nextCursor: nil,
+                    revision: 42
+                )
+            ),
         ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.revision == 42)
+        #expect(discovery.bindings.count == 129)
+        #expect(await transport.requests().map { $0.url?.query } == [
+            "page_size=128",
+            "page_size=128&cursor=cursor-1",
+            "page_size=128",
+            "page_size=128&cursor=cursor-2",
+        ])
+    }
+
+    @Test
+    func paginatedDiscoveryRestartsAfterAStaleCursorRejection() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-1",
+                    revision: 41
+                )
+            ),
+            .json(status: 409, body: #"{"error":"discovery_cursor_stale"}"#),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 1 ..< 129,
+                    nextCursor: "cursor-2",
+                    revision: 42
+                )
+            ),
+            .json(
+                status: 200,
+                body: try Self.discoveryResponse(
+                    bindingRange: 129 ..< 130,
+                    nextCursor: nil,
+                    revision: 42
+                )
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let discovery = try await client.discover()
+
+        #expect(discovery.revision == 42)
+        #expect(discovery.bindings.count == 129)
+        #expect(await transport.requests().map { $0.url?.query } == [
+            "page_size=128",
+            "page_size=128&cursor=cursor-1",
+            "page_size=128",
+            "page_size=128&cursor=cursor-2",
+        ])
+    }
+
+    @Test
+    func paginatedDiscoveryBoundsRepeatedSnapshotRestarts() async throws {
+        let responses = try (0 ..< 3).flatMap { attempt in
+            let revision = 41 + attempt
+            return [
+                RecordingBrokerTransport.Response.json(
+                    status: 200,
+                    body: try Self.discoveryResponse(
+                        bindingRange: 1 ..< 129,
+                        nextCursor: "cursor-\(attempt)",
+                        revision: revision
+                    )
+                ),
+                RecordingBrokerTransport.Response.json(
+                    status: 200,
+                    body: try Self.discoveryResponse(
+                        bindingRange: 129 ..< 130,
+                        nextCursor: nil,
+                        revision: revision + 1
+                    )
+                ),
+            ]
+        }
+        let transport = RecordingBrokerTransport(responses: responses)
         let client = try makeClient(transport: transport)
 
         await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
             _ = try await client.discover()
         }
+        #expect(await transport.requests().count == 6)
     }
 
     @Test
@@ -595,13 +696,16 @@ struct CmxIrohTrustBrokerClientTests {
             "changed": true,
             "reset": false,
             "snapshot": snapshot,
+            "snapshot_complete": true,
         ])
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 200, body: responseBody),
         ])
         let client = try makeClient(transport: transport)
 
-        _ = try await client.syncConnectivity(knownRevision: nil)
+        let response = try await client.syncConnectivity(knownRevision: nil)
+
+        #expect(response.snapshotComplete == true)
 
         let captured = try #require(await transport.requests().first)
         let body = try #require(captured.httpBody)
@@ -632,6 +736,7 @@ struct CmxIrohTrustBrokerClientTests {
         #expect(response.revision == 42)
         #expect(response.snapshot?.revision == 42)
         #expect(response.snapshot?.bindings.count == 1)
+        #expect(response.snapshotComplete == nil)
 
         let mismatchedBody = try Self.jsonString([
             "protocol_version": 2,

@@ -76,7 +76,7 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func embeddedDiscoveryMustExactlyMatchTheRegistrationRevision() async throws {
+    func embeddedDiscoveryMayFollowTheRegistrationRevision() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let discovery = try ClientRuntimeTestFixture.discovery(
             binding: fixture.binding,
@@ -98,9 +98,11 @@ struct CmxIrohClientRuntimeTests {
             now: { fixture.now }
         )
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
-            try await runtime.start()
-        }
+        try await runtime.start()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await runtime.connectivityEngine.snapshot().routeRevision == 2)
+        await runtime.stop()
     }
 
     @Test
@@ -210,6 +212,44 @@ struct CmxIrohClientRuntimeTests {
 
         #expect(await broker.registrationCount == 1)
         #expect(await broker.syncCount == 0)
+        #expect(await runtime.connectivityEngine.snapshot().routeRevision == 1)
+        await runtime.stop()
+    }
+
+    @Test
+    func startupFetchesPaginatedDiscoveryWhenRegistrationAndSyncSnapshotsAreUnproven() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let truncatedRegistrationDiscovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            includeBinding: false,
+            revision: 1
+        )
+        let completeDiscovery = try ClientRuntimeTestFixture.discovery(
+            binding: fixture.binding,
+            revision: 1
+        )
+        let broker = TestRevisionedClientBroker(
+            binding: fixture.binding,
+            discoveries: [truncatedRegistrationDiscovery, completeDiscovery],
+            relay: fixture.relayResponse(),
+            embeddedRegistrationDiscovery: truncatedRegistrationDiscovery,
+            connectivitySnapshotsProvenComplete: nil
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.registrationCount == 1)
+        #expect(await broker.syncCount == 1)
+        #expect(await broker.discoveryCount == 1)
         #expect(await runtime.connectivityEngine.snapshot().routeRevision == 1)
         await runtime.stop()
     }
@@ -790,7 +830,7 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func foregroundTerminalBrokerFailureRevokesLocalPolicy() async throws {
+    func foregroundUnauthorizedBrokerFailurePreservesLocalPolicy() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
@@ -820,14 +860,13 @@ struct CmxIrohClientRuntimeTests {
         )
         await broker.setRegistrationError(terminal)
 
-        await #expect(throws: terminal) {
-            try await runtime.didBecomeActive()
-        }
+        try await runtime.didBecomeActive()
 
-        #expect(await runtime.snapshot().state == .failed)
-        #expect(await endpoint.observedCloseCallCount() == 1)
-        #expect(await offlineStore.deleteAllCount() == 1)
-        #expect(await recorder.observedPolicyInvalidationCount() == 1)
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        #expect(await offlineStore.deleteAllCount() == 0)
+        #expect(await recorder.observedPolicyInvalidationCount() == 0)
+        await runtime.stop()
     }
 
     @Test
@@ -1120,9 +1159,12 @@ private actor TestRevisionedClientBroker:
     private let blockedSyncCount: Int?
     private let blockedRegistrationCount: Int?
     private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
+    private let embeddedRegistrationDiscoveryIsComplete: Bool?
     private let registrationRevision: UInt64?
     private let registrationError: CmxIrohTrustBrokerClientError?
+    private let connectivitySnapshotsProvenComplete: Bool?
     private(set) var registrationCount = 0
+    private(set) var discoveryCount = 0
     private(set) var syncCount = 0
     private var blockedSyncReleased = false
     private var blockedRegistrationReleased = false
@@ -1134,19 +1176,24 @@ private actor TestRevisionedClientBroker:
         blockedSyncCount: Int? = nil,
         blockedRegistrationCount: Int? = nil,
         embedInitialDiscovery: Bool = false,
+        embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse? = nil,
+        embeddedRegistrationDiscoveryIsComplete: Bool? = nil,
         registrationRevision: UInt64? = nil,
-        registrationError: CmxIrohTrustBrokerClientError? = nil
+        registrationError: CmxIrohTrustBrokerClientError? = nil,
+        connectivitySnapshotsProvenComplete: Bool? = true
     ) {
         self.binding = binding
         self.discoveries = discoveries
         self.relay = relay
         self.blockedSyncCount = blockedSyncCount
         self.blockedRegistrationCount = blockedRegistrationCount
-        embeddedRegistrationDiscovery = embedInitialDiscovery
-            ? discoveries.first
-            : nil
+        self.embeddedRegistrationDiscovery = embeddedRegistrationDiscovery
+            ?? (embedInitialDiscovery ? discoveries.first : nil)
+        self.embeddedRegistrationDiscoveryIsComplete = embeddedRegistrationDiscoveryIsComplete
+            ?? (embedInitialDiscovery ? true : nil)
         self.registrationRevision = registrationRevision
         self.registrationError = registrationError
+        self.connectivitySnapshotsProvenComplete = connectivitySnapshotsProvenComplete
     }
 
     func register(
@@ -1166,7 +1213,8 @@ private actor TestRevisionedClientBroker:
                 ?? discoveries.first?.revision,
             binding: binding,
             relay: .issued(relay),
-            discovery: embeddedRegistrationDiscovery
+            discovery: embeddedRegistrationDiscovery,
+            discoveryComplete: embeddedRegistrationDiscoveryIsComplete
         )
     }
 
@@ -1185,11 +1233,13 @@ private actor TestRevisionedClientBroker:
         let discovery = discoveries.removeFirst()
         return CmxConnectivitySyncResponse(
             legacySnapshot: discovery,
-            knownRevision: knownRevision
+            knownRevision: knownRevision,
+            snapshotComplete: connectivitySnapshotsProvenComplete
         )
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
+        discoveryCount += 1
         guard let discovery = discoveries.first else {
             throw TestIrohTransportError.unsupported
         }

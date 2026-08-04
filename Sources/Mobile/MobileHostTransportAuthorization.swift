@@ -227,14 +227,6 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
         return connections.values.map(\.connection)
     }
 
-    /// Identified snapshot for diagnostics that must report which connection
-    /// was observed. The lock is never held across caller work or suspension.
-    func identifiedSnapshot() -> [(UUID, MobileHostConnection)] {
-        lock.lock()
-        defer { lock.unlock() }
-        return connections.map { ($0.key, $0.value.connection) }
-    }
-
     /// Returns one connection for connection-scoped event delivery.
     func connection(id: UUID) -> MobileHostConnection? {
         lock.lock()
@@ -256,23 +248,19 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
 
 }
 
-/// Thread-safe public route projection owned by one ``MobileHostService``.
-///
-/// The store is constructable so tests and future service instances cannot
-/// leak route state through process-global static mutation.
-final class MobileHostPublicStatusStore: @unchecked Sendable {
-    private let lock = NSLock()
-    private var legacyRoutes: [CmxAttachRoute] = []
-    private var irohRoute: CmxAttachRoute?
+enum MobileHostPublicStatusCache {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
+    private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
 
-    func update(routes nextRoutes: [CmxAttachRoute]) {
+    static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
         legacyRoutes = nextRoutes
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    func update(
+    static func update(
         irohIdentity identity: CmxIrohPeerIdentity?,
         pathHints: [CmxIrohPathHint] = []
     ) {
@@ -294,7 +282,22 @@ final class MobileHostPublicStatusStore: @unchecked Sendable {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    func removeAll() {
+    static func update(irohBinding binding: CmxIrohBrokerBindingMetadata) {
+        lock.lock()
+        irohRoute = try? CmxAttachRoute(
+            id: CmxAttachTransportKind.iroh.rawValue,
+            kind: .iroh,
+            endpoint: .peer(
+                identity: binding.endpointID,
+                pathHints: binding.pathHints
+            ),
+            priority: 0
+        )
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    static func removeAll() {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
@@ -302,19 +305,19 @@ final class MobileHostPublicStatusStore: @unchecked Sendable {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    func snapshot() -> [CmxAttachRoute] {
+    static func snapshot() -> [CmxAttachRoute] {
         lock.lock()
         defer { lock.unlock() }
         return mergedRoutesLocked()
     }
 
-    func hasIrohRoute() -> Bool {
+    static func hasIrohRoute() -> Bool {
         lock.lock()
         defer { lock.unlock() }
         return irohRoute != nil
     }
 
-    func result(
+    static func result(
         includeIdentity: Bool = false,
         additionalCapabilities: Set<String> = []
     ) -> MobileHostRPCResult {
@@ -331,7 +334,7 @@ final class MobileHostPublicStatusStore: @unchecked Sendable {
         )
     }
 
-    private func mergedRoutesLocked() -> [CmxAttachRoute] {
+    private static func mergedRoutesLocked() -> [CmxAttachRoute] {
         let routes = irohRoute.map { [$0] } ?? []
         return routes + legacyRoutes
     }

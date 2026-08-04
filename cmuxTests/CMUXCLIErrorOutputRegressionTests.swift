@@ -13,6 +13,7 @@ import Testing
     struct ProcessRunResult {
         let status: Int32
         let stdout: String
+        let stderr: String
         let timedOut: Bool
     }
 
@@ -50,6 +51,87 @@ import Testing
             XCTAssertTrue(result.stdout.contains("Usage: cmux \(command)"), result.stdout)
             XCTAssertFalse(result.stdout.contains("Failed to launch"), result.stdout)
         }
+    }
+
+    @Test func testSurfaceResumeSetCLIRejectsUnknownFlagWithoutReplacingBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-resume-flag-\(UUID().uuidString.prefix(8)).sock"
+        let approvedCommand = "codex resume approved-session"
+        let approvedResponse = try resumeBindingResponse(command: approvedCommand)
+        // The third response is only consumed by the buggy path: show, invalid set, show.
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [
+                approvedResponse,
+                approvedResponse,
+                try resumeBindingResponse(command: "--bad-flag"),
+            ]
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let before = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show", "--json"],
+            environment: environment,
+            timeout: 5,
+            separateStandardError: true
+        )
+        #expect(!before.timedOut, Comment(rawValue: before.stderr))
+        #expect(before.status == 0, Comment(rawValue: before.stderr))
+        let commandBefore = try resumeBindingCommand(from: before.stdout)
+        #expect(commandBefore == approvedCommand)
+
+        let rejected = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "set", "--bad-flag"],
+            environment: environment,
+            timeout: 5,
+            separateStandardError: true
+        )
+        #expect(!rejected.timedOut, Comment(rawValue: rejected.stderr))
+        #expect(rejected.status != 0, Comment(rawValue: rejected.stderr))
+        #expect(rejected.stdout.isEmpty, Comment(rawValue: rejected.stdout))
+        #expect(
+            rejected.stderr.contains("surface resume set: unknown flag '--bad-flag'"),
+            Comment(rawValue: rejected.stderr)
+        )
+        let knownFlags = [
+            "--checkpoint", "--checkpoint-id", "--cwd", "--kind", "--name",
+            "--shell", "--source", "--surface", "--window", "--workspace",
+        ].joined(separator: ", ")
+        #expect(
+            rejected.stderr.contains("Known flags: \(knownFlags)."),
+            Comment(rawValue: rejected.stderr)
+        )
+
+        let after = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show", "--json"],
+            environment: environment,
+            timeout: 5,
+            separateStandardError: true
+        )
+        #expect(!after.timedOut, Comment(rawValue: after.stderr))
+        #expect(after.status == 0, Comment(rawValue: after.stderr))
+        let commandAfter = try resumeBindingCommand(from: after.stdout)
+        #expect(commandAfter == commandBefore)
+
+        let methods = try responder.receivedRequests.map { request in
+            let data = Data(request.utf8)
+            let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            return try #require(payload["method"] as? String)
+        }
+        #expect(
+            methods == ["surface.resume.get", "surface.resume.get"],
+            "An unknown flag must be rejected before a binding mutation request is sent: \(methods)"
+        )
     }
 
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
@@ -112,28 +194,32 @@ import Testing
         let arguments = [executable.path, "space value", "quote'\"", "日本語", String(repeating: "x", count: 4_000)]
         let surfaceID = UUID().uuidString.lowercased()
         let workspaceID = UUID().uuidString.lowercased()
-        let response = try jsonResponse(result: [
-            "terminals": [[
-                "tty": "ttys9258",
-                "workspace_id": workspaceID,
-                "surface_id": surfaceID,
-            ]],
-            "restore_record": [
-                "mode": "direct",
-                "kind": "custom",
-                "checkpoint_id": checkpointID,
-                "source": "test",
-                "working_directory": workingDirectory.path,
-                "environment": ["RESTORE_VALUE": "値 with spaces"],
-                "launch_command": [
-                    "arguments": arguments,
-                    "executable_path": executable.path,
+        let response = try restoreResponse(
+            result: [
+                "terminals": [[
+                    "tty": "ttys9258",
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ]],
+                "restore_record": [
+                    "mode": "direct",
+                    "kind": "custom",
+                    "checkpoint_id": checkpointID,
+                    "source": "test",
                     "working_directory": workingDirectory.path,
                     "environment": ["RESTORE_VALUE": "値 with spaces"],
+                    "launch_command": [
+                        "arguments": arguments,
+                        "executable_path": executable.path,
+                        "working_directory": workingDirectory.path,
+                        "environment": ["RESTORE_VALUE": "値 with spaces"],
+                    ],
+                    "prepared_arguments": arguments,
                 ],
-                "prepared_arguments": arguments,
             ],
-        ])
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
         let socketPath = "/tmp/cmux-restore-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
@@ -166,7 +252,7 @@ import Testing
             )
             return try XCTUnwrap(object["method"] as? String)
         }
-        XCTAssertEqual(methods, ["debug.terminals", "surface.resume.get"])
+        XCTAssertEqual(methods, ["agent.resolve_delivery_target", "surface.resume.get"])
     }
 
     @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {
@@ -188,7 +274,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
 
         let checkpointID = "path-\(UUID().uuidString)"
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "direct",
                 "kind": "custom",
@@ -259,7 +345,7 @@ import Testing
 
         let checkpointID = "preflight-\(UUID().uuidString)"
         let launchEnvironment = ["CUSTOM_BASE_URL": "https://codex.example.test/v1"]
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "resumeAgent",
                 "kind": "hermes-agent",
@@ -342,7 +428,7 @@ import Testing
             "--session",
             checkpointID,
         ]
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "resumeAgent",
                 "kind": "cwd-agent",
@@ -392,7 +478,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
 
         let checkpointID = "legacy-\(UUID().uuidString)"
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "resumeAgent",
                 "kind": "codex",
@@ -434,7 +520,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
 
         let checkpointID = "fallback-\(UUID().uuidString)"
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "relaunchAgent",
                 "kind": "custom-relaunch",
@@ -504,7 +590,7 @@ import Testing
     @Test func testRestorePositionalFormFailsClosedWhenBindingIdentityDrifts() throws {
         let cliPath = try bundledCLIPath()
         let currentCheckpointID = UUID().uuidString.lowercased()
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "direct",
                 "kind": "codex",
@@ -586,7 +672,7 @@ import Testing
     @Test func testRestoreWaitsForControlSocketDuringAppStartup() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = UUID().uuidString.lowercased()
-        let response = try jsonResponse(result: [
+        let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "direct",
                 "kind": "custom",
@@ -629,7 +715,539 @@ import Testing
         let requiredResponder = try #require(responder)
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(requiredResponder.receivedRequests.count, 1)
+        XCTAssertEqual(requiredResponder.receivedRequests.count, 2)
+    }
+
+    @Test(arguments: ["pi", "grok"])
+    func testRestorePrefersLiveProcessTargetOverStaleAmbientRouting(kind: String) throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "\(kind)-\(UUID().uuidString.lowercased())"
+        let staleSurfaceID = UUID().uuidString
+        let staleTTYSurfaceID = UUID().uuidString
+        let currentSurfaceID = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let callerTargetResponse = try jsonResponse(result: [
+            "terminals": [[
+                "tty": "ttys9380",
+                "workspace_id": UUID().uuidString,
+                "surface_id": staleTTYSurfaceID,
+            ]],
+            "source": "pid",
+            "pid_resolution": "controlling_tty",
+            "workspace_id": workspaceID,
+            "surface_id": currentSurfaceID,
+        ])
+        let restoreResponse = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": kind,
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-stale-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [callerTargetResponse, restoreResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = staleSurfaceID
+        environment["TTY"] = "/dev/ttys9380"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", kind, checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+            "surface.resume.get",
+        ])
+        let callerTargetRequest = try #require(requests.first)
+        let callerTargetParams = try #require(callerTargetRequest["params"] as? [String: Any])
+        #expect((callerTargetParams["pid"] as? Int).map { $0 > 0 } == true)
+        #expect(callerTargetParams["pid_resolution"] as? String == "controlling_tty")
+        let restoreRequest = try #require(requests.last)
+        let restoreParams = try #require(restoreRequest["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == currentSurfaceID)
+        #expect(restoreParams["surface_id"] as? String != staleSurfaceID)
+        #expect(restoreParams["surface_id"] as? String != staleTTYSurfaceID)
+    }
+
+    @Test func testRelayRestoreFailsClosedOnFirstMissingTTYTarget() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let workspaceID = UUID().uuidString
+        let notFoundResponse = try jsonErrorResponse(
+            code: "not_found",
+            message: "No live delivery target"
+        )
+        let relayID = "relay-\(UUID().uuidString.lowercased())"
+        let responder = try RelaySocketResponder(
+            relayID: relayID,
+            responses: [notFoundResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = responder.endpoint
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_CLI_TTY_NAME"] = "0"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(
+            result.stdout.contains("the current cmux surface could not be identified"),
+            Comment(rawValue: result.stdout)
+        )
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(
+            requests.compactMap { $0["method"] as? String } == [
+                "agent.resolve_delivery_target"
+            ]
+        )
+        let params = try #require(requests.first?["params"] as? [String: Any])
+        #expect(params["tty_name"] as? String == "0")
+        #expect(params["tty_resolution"] as? String == "reported_tty")
+        #expect(params["workspace_id"] as? String == workspaceID)
+    }
+
+    @Test func testRestoreFailsClosedWhenLiveProcessTargetIsNotFound() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let staleSurfaceID = UUID().uuidString
+        let callerTargetResponse = try jsonErrorResponse(
+            code: "not_found",
+            message: "No live delivery target"
+        )
+        let socketPath = "/tmp/cmux-restore-ambiguous-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: callerTargetResponse
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = staleSurfaceID
+        environment["TTY"] = "/dev/ttys9380"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(
+            result.stdout.contains("the current cmux surface could not be identified"),
+            Comment(rawValue: result.stdout)
+        )
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(
+            requests.compactMap { $0["method"] as? String } == [
+                "agent.resolve_delivery_target"
+            ]
+        )
+    }
+
+    @Test func testRestoreUsesUniqueTTYBindingWhenLiveTargetMethodIsUnsupported() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let callerTargetResponse = try jsonErrorResponse(
+            code: "method_not_found",
+            message: "Unknown method"
+        )
+        let terminalsResponse = try jsonResponse(result: [
+            "terminals": [[
+                "tty": "ttys9380",
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ]],
+        ])
+        let restoreResponse = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-legacy-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [callerTargetResponse, terminalsResponse, restoreResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_TTY_NAME"] = "ttys9380"
+        environment["TTY"] = "/dev/ttys-stale"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+            "debug.terminals",
+            "surface.resume.get",
+        ])
+        let restoreRequest = try #require(requests.last)
+        let restoreParams = try #require(restoreRequest["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == surfaceID)
+    }
+
+    @Test func testRestoreScopesRelayTTYResolutionToAuthenticatedWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let siblingWorkspaceID = UUID().uuidString
+        let siblingSurfaceID = UUID().uuidString
+        let liveTargetResponse = try jsonResponse(result: [
+            "terminals": [
+                [
+                    "tty": "0",
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ],
+                [
+                    "tty": "0",
+                    "workspace_id": siblingWorkspaceID,
+                    "surface_id": siblingSurfaceID,
+                ],
+            ],
+            "source": "tty",
+            "tty_resolution": "reported_tty",
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let relayID = "relay-\(UUID().uuidString.lowercased())"
+        let responder = try RelaySocketResponder(
+            relayID: relayID,
+            responses: [liveTargetResponse, recordResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = responder.endpoint
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_CLI_TTY_NAME"] = "0"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+            "surface.resume.get",
+        ])
+        let targetParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(targetParams["tty_name"] as? String == "0")
+        #expect(targetParams["tty_resolution"] as? String == "reported_tty")
+        let restoreParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == surfaceID)
+        #expect(restoreParams["surface_id"] as? String != siblingSurfaceID)
+    }
+
+    @Test func testRestoreScopesLegacyRelayTTYFallbackToResolvedWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let staleWorkspaceID = UUID().uuidString
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let siblingWorkspaceID = UUID().uuidString
+        let siblingSurfaceID = UUID().uuidString
+        let workspaceResponse = try jsonResponse(result: [
+            "source": "workspace",
+            "workspace_id": workspaceID,
+            "surface_id": NSNull(),
+        ])
+        let terminalsResponse = try jsonResponse(result: [
+            "terminals": [
+                [
+                    "tty": "0",
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                ],
+                [
+                    "tty": "0",
+                    "workspace_id": siblingWorkspaceID,
+                    "surface_id": siblingSurfaceID,
+                ],
+            ],
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let relayID = "relay-\(UUID().uuidString.lowercased())"
+        let responder = try RelaySocketResponder(
+            relayID: relayID,
+            responses: [workspaceResponse, terminalsResponse, recordResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = responder.endpoint
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+        environment["CMUX_WORKSPACE_ID"] = staleWorkspaceID
+        environment["CMUX_CLI_TTY_NAME"] = "0"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+            "debug.terminals",
+            "surface.resume.get",
+        ])
+        let targetParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(targetParams["workspace_id"] as? String == staleWorkspaceID)
+        let restoreParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == surfaceID)
+        #expect(restoreParams["surface_id"] as? String != siblingSurfaceID)
+    }
+
+    @Test func testRestoreRejectsMalformedLiveProcessTargetWithoutFallingBack() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let callerTargetResponse = try jsonResponse(result: [
+            "terminals": [],
+            "source": "pid",
+            "pid_resolution": "controlling_tty",
+            "workspace_id": UUID().uuidString,
+            "surface_id": "not-a-surface-id",
+        ])
+        let restoreResponse = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-malformed-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [callerTargetResponse, restoreResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["TTY"] = "/dev/ttys9380"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(
+            result.stdout.contains("the current cmux surface could not be identified"),
+            Comment(rawValue: result.stdout)
+        )
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+        ])
+    }
+
+    @Test func testRestoreDoesNotReuseSocketAfterCallerTargetTimeout() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "pi-\(UUID().uuidString.lowercased())"
+        let currentSurfaceID = UUID().uuidString
+        let callerTargetResponse = try jsonResponse(result: [
+            "terminals": [[
+                "tty": "ttys9380",
+                "workspace_id": UUID().uuidString,
+                "surface_id": currentSurfaceID,
+            ]],
+            "source": "pid",
+            "pid_resolution": "controlling_tty",
+            "workspace_id": UUID().uuidString,
+            "surface_id": currentSurfaceID,
+        ])
+        let restoreResponse = try restoreResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-restore-timeout-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [callerTargetResponse, restoreResponse],
+            responseDelay: 0.3
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.2"
+        environment["TTY"] = "/dev/ttys9380"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "pi", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("Command timed out"), Comment(rawValue: result.stdout))
+        #expect(
+            !result.stdout.contains("this session has nothing to restore"),
+            Comment(rawValue: result.stdout)
+        )
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "agent.resolve_delivery_target",
+        ])
     }
 
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
@@ -1895,6 +2513,7 @@ import Testing
         let first = try UnixSocketResponder(
             path: socketPath,
             response: "",
+            closesAfterResponse: true,
             onRequest: { _ in firstRequest.signal() }
         )
         defer {
@@ -1946,7 +2565,11 @@ import Testing
 
     @Test func testEventsRelayReconnectDoesNotWaitOnFilesystemChanges() throws {
         let cliPath = try bundledCLIPath()
-        let relay = try RelayEventStreamResponder()
+        let relayID = "cmux-events-test-relay"
+        let relay = try RelaySocketResponder(
+            relayID: relayID,
+            responses: ["", #"{"type":"ack"}"#]
+        )
         defer { relay.stop() }
 
         var environment = ProcessInfo.processInfo.environment
@@ -1954,13 +2577,13 @@ import Testing
             environment.removeValue(forKey: key)
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_RELAY_ID"] = RelayEventStreamResponder.relayID
+        environment["CMUX_RELAY_ID"] = relayID
         environment["CMUX_RELAY_TOKEN"] = String(repeating: "00", count: 32)
 
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
-                "--socket", "127.0.0.1:\(relay.port)",
+                "--socket", relay.endpoint,
                 "events", "--reconnect", "--snapshot", "--no-ack",
                 "--timeout", "0.8",
             ],
@@ -1970,11 +2593,40 @@ import Testing
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
         #expect(result.status == 0, Comment(rawValue: result.stdout))
-        #expect(relay.receivedRequestCount == 2)
+        #expect(relay.receivedRequests.count == 2)
+    }
+
+    @Test func testEventsTransientClassificationUsesStableErrorKind() {
+        let cli = CMUXCLI(args: [])
+        let localizedMessage = "任意のローカライズ済みソケット障害"
+
+        #expect(cli.isTransientEventStreamError(CLIError(
+            message: localizedMessage,
+            kind: .transientSocketTransport
+        )))
+        #expect(!cli.isTransientEventStreamError(CLIError(
+            message: localizedMessage
+        )))
     }
 
     func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+    }
+
+    private func resumeBindingResponse(command: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "ok": true,
+            "result": ["resume_binding": ["command": command]],
+        ])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func resumeBindingCommand(from output: String) throws -> String {
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any]
+        )
+        let binding = try #require(payload["resume_binding"] as? [String: Any])
+        return try #require(binding["command"] as? String)
     }
 
     /// A throwaway home directory for hermetic CLI socket-resolution tests.
@@ -1994,6 +2646,33 @@ import Testing
     private func jsonResponse(result: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(
             withJSONObject: ["ok": true, "result": result],
+            options: []
+        )
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
+    }
+
+    private func restoreResponse(
+        result: [String: Any],
+        workspaceID: String? = nil,
+        surfaceID: String? = nil
+    ) throws -> String {
+        var result = result
+        result["source"] = "pid"
+        result["pid_resolution"] = "controlling_tty"
+        result["workspace_id"] = workspaceID ?? UUID().uuidString
+        result["surface_id"] = surfaceID ?? UUID().uuidString
+        return try jsonResponse(result: result)
+    }
+
+    private func jsonErrorResponse(code: String, message: String) throws -> String {
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "ok": false,
+                "error": [
+                    "code": code,
+                    "message": message,
+                ],
+            ],
             options: []
         )
         return try XCTUnwrap(String(data: data, encoding: .utf8))
@@ -2112,7 +2791,7 @@ import Testing
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+            return ProcessRunResult(status: -1, stdout: String(describing: error), stderr: "", timedOut: false)
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
@@ -2134,6 +2813,7 @@ import Testing
         return ProcessRunResult(
             status: process.terminationStatus,
             stdout: String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: "",
             timedOut: timedOut
         )
     }
@@ -2144,22 +2824,29 @@ import Testing
         environment: [String: String],
         currentDirectoryURL: URL? = nil,
         timeout: TimeInterval,
+        separateStandardError: Bool = false,
         afterLaunch: (() -> Void)? = nil
     ) -> ProcessRunResult {
         let process = Process()
         let outputPipe = Pipe()
+        let stderrPipe = separateStandardError ? Pipe() : nil
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
         process.currentDirectoryURL = currentDirectoryURL
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        process.standardError = stderrPipe ?? outputPipe
 
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+            return ProcessRunResult(
+                status: -1,
+                stdout: separateStandardError ? "" : String(describing: error),
+                stderr: separateStandardError ? String(describing: error) : "",
+                timedOut: false
+            )
         }
         afterLaunch?()
 
@@ -2182,6 +2869,9 @@ import Testing
         return ProcessRunResult(
             status: process.terminationStatus,
             stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            stderr: stderrPipe.map {
+                String(data: $0.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            } ?? "",
             timedOut: timedOut
         )
     }
@@ -2222,8 +2912,9 @@ import Testing
 
 final class UnixSocketResponder: @unchecked Sendable {
     let path: String
-    private let response: String
+    private let responses: [String]
     private let responseDelay: TimeInterval
+    private let closesAfterResponse: Bool
     private let onRequest: (@Sendable (String) -> Void)?
     private let queue = DispatchQueue(label: "com.cmux.tests.unix-socket-responder")
     private let lock = NSLock()
@@ -2231,15 +2922,40 @@ final class UnixSocketResponder: @unchecked Sendable {
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
 
-    init(
+    convenience init(
         path: String,
         response: String,
         responseDelay: TimeInterval = 0,
+        closesAfterResponse: Bool = false,
         onRequest: (@Sendable (String) -> Void)? = nil
     ) throws {
+        try self.init(
+            path: path,
+            responses: [response],
+            responseDelay: responseDelay,
+            closesAfterResponse: closesAfterResponse,
+            onRequest: onRequest
+        )
+    }
+
+    init(
+        path: String,
+        responses: [String],
+        responseDelay: TimeInterval = 0,
+        closesAfterResponse: Bool = false,
+        onRequest: (@Sendable (String) -> Void)? = nil
+    ) throws {
+        guard !responses.isEmpty else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: CocoaError.validationMissingMandatoryProperty.rawValue,
+                userInfo: [NSLocalizedDescriptionKey: "At least one socket response is required"]
+            )
+        }
         self.path = path
-        self.response = response
+        self.responses = responses
         self.responseDelay = responseDelay
+        self.closesAfterResponse = closesAfterResponse
         self.onRequest = onRequest
 
         unlink(path)
@@ -2337,6 +3053,16 @@ final class UnixSocketResponder: @unchecked Sendable {
 
     private func handle(clientFD: Int32) {
         defer { close(clientFD) }
+        var noSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &noSigPipe) { pointer in
+            setsockopt(
+                clientFD,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                pointer,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
         while true {
             var request = Data()
             while true {
@@ -2350,9 +3076,11 @@ final class UnixSocketResponder: @unchecked Sendable {
                     break
                 }
             }
+            var responseIndex = 0
             if let line = String(data: request, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) {
                 lock.lock()
+                responseIndex = requests.count
                 requests.append(line)
                 lock.unlock()
                 onRequest?(line)
@@ -2360,6 +3088,7 @@ final class UnixSocketResponder: @unchecked Sendable {
             if responseDelay > 0 {
                 Thread.sleep(forTimeInterval: responseDelay)
             }
+            let response = responses[min(responseIndex, responses.count - 1)]
             let payload = Data((response + "\n").utf8)
             payload.withUnsafeBytes { bytes in
                 guard let baseAddress = bytes.baseAddress else { return }
@@ -2378,6 +3107,7 @@ final class UnixSocketResponder: @unchecked Sendable {
                     offset += written
                 }
             }
+            if closesAfterResponse { return }
         }
     }
 
@@ -2429,71 +3159,76 @@ private final class UnixSocketResponderBox: @unchecked Sendable {
     }
 }
 
-private final class RelayEventStreamResponder: @unchecked Sendable {
-    static let relayID = "cmux-events-test-relay"
-
-    let port: UInt16
-    private let queue = DispatchQueue(label: "com.cmux.tests.event-relay")
+final class RelaySocketResponder {
+    let endpoint: String
+    private let relayID: String
+    private let responses: [String]
+    private let queue = DispatchQueue(label: "com.cmux.tests.relay-socket-responder")
     private let lock = NSLock()
-    private var listenerFD: Int32
     private var stopped = false
-    private var requestCount = 0
+    private var requests: [String] = []
+    private var listenerFD: Int32 = -1
 
-    init() throws {
+    init(relayID: String, responses: [String]) throws {
+        guard !responses.isEmpty else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: CocoaError.validationMissingMandatoryProperty.rawValue,
+                userInfo: [NSLocalizedDescriptionKey: "At least one relay response is required"]
+            )
+        }
+        self.relayID = relayID
+        self.responses = responses
+
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw Self.posixError("socket") }
-        listenerFD = fd
-
         var reuse: Int32 = 1
-        _ = setsockopt(
-            fd,
-            SOL_SOCKET,
-            SO_REUSEADDR,
-            &reuse,
-            socklen_t(MemoryLayout<Int32>.size)
-        )
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+
         var address = sockaddr_in()
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = 0
         address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
         let bindResult = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                Darwin.bind(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
-        guard bindResult == 0 else {
-            Darwin.close(fd)
-            throw Self.posixError("bind")
+        guard bindResult == 0, listen(fd, 8) == 0 else {
+            let error = Self.posixError("bind/listen")
+            close(fd)
+            throw error
         }
-        guard listen(fd, 2) == 0 else {
-            Darwin.close(fd)
-            throw Self.posixError("listen")
-        }
+
         var boundAddress = sockaddr_in()
-        var boundLength = socklen_t(MemoryLayout<sockaddr_in>.stride)
+        var boundLength = socklen_t(MemoryLayout<sockaddr_in>.size)
         let nameResult = withUnsafeMutablePointer(to: &boundAddress) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                getsockname(fd, $0, &boundLength)
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                getsockname(fd, socketPointer, &boundLength)
             }
         }
         guard nameResult == 0 else {
-            Darwin.close(fd)
-            throw Self.posixError("getsockname")
+            let error = Self.posixError("getsockname")
+            close(fd)
+            throw error
         }
-        port = UInt16(bigEndian: boundAddress.sin_port)
 
+        listenerFD = fd
+        endpoint = "127.0.0.1:\(UInt16(bigEndian: boundAddress.sin_port))"
         queue.async { [weak self] in
-            self?.serve(listenerFD: fd)
+            self?.acceptLoop(listenerFD: fd)
         }
     }
 
-    deinit { stop() }
+    deinit {
+        stop()
+    }
 
-    var receivedRequestCount: Int {
+    var receivedRequests: [String] {
         lock.lock()
         defer { lock.unlock() }
-        return requestCount
+        return requests
     }
 
     func stop() {
@@ -2506,77 +3241,71 @@ private final class RelayEventStreamResponder: @unchecked Sendable {
         let fd = listenerFD
         listenerFD = -1
         lock.unlock()
-        if fd >= 0 { Darwin.close(fd) }
+        if fd >= 0 { close(fd) }
     }
 
-    private func serve(listenerFD: Int32) {
-        for connectionIndex in 0 ..< 2 {
+    private var isStopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+
+    private func acceptLoop(listenerFD: Int32) {
+        while !isStopped {
             let clientFD = accept(listenerFD, nil, nil)
-            guard clientFD >= 0 else { return }
-            handle(clientFD: clientFD, sendsAck: connectionIndex == 1)
+            if clientFD < 0 {
+                if isStopped { return }
+                continue
+            }
+            handle(clientFD: clientFD)
         }
     }
 
-    private func handle(clientFD: Int32, sendsAck: Bool) {
-        defer { Darwin.close(clientFD) }
+    private func handle(clientFD: Int32) {
+        defer { close(clientFD) }
         var noSigPipe: Int32 = 1
-        _ = setsockopt(
+        setsockopt(
             clientFD,
             SOL_SOCKET,
             SO_NOSIGPIPE,
             &noSigPipe,
             socklen_t(MemoryLayout<Int32>.size)
         )
-        guard writeAll(
-            #"{"protocol":"cmux-relay-auth","version":1,"relay_id":"cmux-events-test-relay","nonce":"nonce"}"#
-                + "\n",
-            to: clientFD
-        ), readLine(from: clientFD) != nil,
-           writeAll(#"{"ok":true}"# + "\n", to: clientFD),
-           readLine(from: clientFD) != nil else {
-            return
-        }
+        let challenge = #"{"protocol":"cmux-relay-auth","version":1,"relay_id":"\#(relayID)","nonce":"test-nonce"}"#
+        guard writeLine(challenge, to: clientFD), readLine(from: clientFD) != nil else { return }
+        guard writeLine(#"{"ok":true}"#, to: clientFD),
+              let request = readLine(from: clientFD) else { return }
+
         lock.lock()
-        requestCount += 1
+        let responseIndex = requests.count
+        requests.append(request)
         lock.unlock()
-        if sendsAck {
-            _ = writeAll(#"{"type":"ack"}"# + "\n", to: clientFD)
-        }
+        _ = writeLine(responses[min(responseIndex, responses.count - 1)], to: clientFD)
     }
 
-    private func readLine(from fd: Int32) -> Data? {
-        var line = Data()
-        while line.count < 1_048_576 {
+    private func readLine(from fd: Int32) -> String? {
+        var data = Data()
+        while true {
             var byte: UInt8 = 0
-            let count = Darwin.read(fd, &byte, 1)
-            if count < 0 {
-                if errno == EINTR { continue }
-                return nil
-            }
-            if count == 0 { return nil }
-            if byte == 0x0A { return line }
-            line.append(byte)
+            let count = read(fd, &byte, 1)
+            if count < 0, errno == EINTR { continue }
+            guard count > 0 else { return nil }
+            if byte == 0x0A { return String(data: data, encoding: .utf8) }
+            data.append(byte)
         }
-        return nil
     }
 
-    private func writeAll(_ string: String, to fd: Int32) -> Bool {
-        let data = Data(string.utf8)
-        return data.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return true }
-            var offset = 0
-            while offset < bytes.count {
-                let written = Darwin.write(
-                    fd,
-                    baseAddress.advanced(by: offset),
-                    bytes.count - offset
-                )
-                if written < 0 {
-                    if errno == EINTR { continue }
-                    return false
-                }
-                if written == 0 { return false }
-                offset += written
+    private func writeLine(_ line: String, to fd: Int32) -> Bool {
+        let data = Data((line + "\n").utf8)
+        return data.withUnsafeBytes { rawBuffer in
+            guard var pointer = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return false }
+            var remaining = rawBuffer.count
+            while remaining > 0 {
+                let count = write(fd, pointer, remaining)
+                if count < 0, errno == EINTR { continue }
+                guard count > 0 else { return false }
+                pointer = pointer.advanced(by: count)
+                remaining -= count
             }
             return true
         }

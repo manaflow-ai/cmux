@@ -23,6 +23,120 @@ private final class ReplacementOutcomeBox: @unchecked Sendable {
 
 @Suite struct UnixSocketReplacementWaiterTests {
     @Test
+    func rejectsNonFiniteTimeoutsBeforeKernelWaitConversion() {
+        let waiter = UnixSocketReplacementWaiter()
+
+        #expect(
+            waiter.wait(
+                at: "/tmp/cmux-never-created.sock",
+                replacing: nil,
+                timeout: .infinity
+            ) == .unavailable
+        )
+        #expect(
+            waiter.wait(
+                at: "/tmp/cmux-never-created.sock",
+                replacing: nil,
+                timeout: .nan
+            ) == .unavailable
+        )
+    }
+
+    @Test
+    func unrelatedWritesDoNotResetTheOriginalBoundedDeadline() throws {
+        let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-srw-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let waiter = UnixSocketReplacementWaiter()
+        let registered = DispatchSemaphore(value: 0)
+        let stopWriter = DispatchSemaphore(value: 0)
+        let writerDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = registered.wait(timeout: .now() + 1)
+            var sequence = 0
+            while stopWriter.wait(timeout: .now()) == .timedOut {
+                let sibling = directory.appendingPathComponent(
+                    "sibling-\(sequence)"
+                )
+                try? Data().write(to: sibling)
+                try? FileManager.default.removeItem(at: sibling)
+                sequence += 1
+                usleep(5_000)
+            }
+            writerDone.signal()
+        }
+
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let outcome = waiter.wait(
+            at: directory.appendingPathComponent("cmux.sock").path,
+            replacing: nil,
+            timeout: 0.2,
+            onRegistered: { registered.signal() }
+        )
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        stopWriter.signal()
+        _ = writerDone.wait(timeout: .now() + 1)
+
+        #expect(outcome == .timedOut)
+        #expect(elapsed >= 0.1)
+        #expect(elapsed < 1)
+    }
+
+    @Test
+    func missingDirectParentIsReRegisteredBeforeSocketCreation() throws {
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-srw-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directParent = root.appendingPathComponent(
+            "late-parent",
+            isDirectory: true
+        )
+        let socketPath = directParent.appendingPathComponent("cmux.sock").path
+        let waiter = UnixSocketReplacementWaiter()
+        let registered = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
+        let outcome = ReplacementOutcomeBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let value = waiter.wait(
+                at: socketPath,
+                replacing: nil,
+                timeout: 3,
+                onRegistered: { registered.signal() }
+            )
+            outcome.set(value)
+            completed.signal()
+        }
+        #expect(registered.wait(timeout: .now() + 1) == .success)
+
+        try FileManager.default.createDirectory(
+            at: directParent,
+            withIntermediateDirectories: false
+        )
+        #expect(registered.wait(timeout: .now() + 1) == .success)
+        let replacementFD = try bindUnixSocket(at: socketPath)
+        defer { Darwin.close(replacementFD) }
+
+        #expect(completed.wait(timeout: .now() + 1) == .success)
+        guard case .replaced? = outcome.value else {
+            return #expect(Bool(false), "new direct parent must become the watch owner")
+        }
+    }
+
+    @Test
     func deadSameInodeAndUnrelatedParentWriteWaitForExactReplacement() throws {
         // sockaddr_un caps socket paths at ~104 bytes; the user temporary
         // directory (/var/folders/.../T/) plus a full UUID overflows that, so

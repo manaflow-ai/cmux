@@ -791,9 +791,14 @@ struct CMUXMobileRootView: View {
                 switch result {
                 case .connected:
                     .connected
-                case .failed, .needsUserApproval, .superseded:
+                case .needsUserApproval:
+                    .awaitingUserApproval
+                case .failed, .superseded:
                     .failed
                 }
+            if result == .needsUserApproval {
+                showAddDevice()
+            }
             let shouldReconnect = startupConnectionCoordinator.finishInjectedAttach(
                 startupAttempt,
                 outcome: outcome

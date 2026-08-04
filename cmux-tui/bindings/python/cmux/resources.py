@@ -2114,10 +2114,20 @@ class Client:
             if item.snapshot is not None and item.snapshot.name == name
         ]
 
-    def _read(self, operation: Operation, params: Mapping[str, Any]) -> Any:
+    def _read(
+        self,
+        operation: Operation,
+        params: Mapping[str, Any],
+        *,
+        _abandoned_result_decoder: Optional[Callable[[Any], Any]] = None,
+    ) -> Any:
         if operation.operation_class not in {"read", "connection_control"}:
             raise ValueError(f"{operation.wire_name} is not a read/control operation")
-        return self._request(operation, params)
+        return self._request(
+            operation,
+            params,
+            _abandoned_result_decoder=_abandoned_result_decoder,
+        )
 
     def _request(
         self,
@@ -2125,6 +2135,7 @@ class Client:
         params: Mapping[str, Any],
         *,
         idempotency_key: Optional[str] = None,
+        _abandoned_result_decoder: Optional[Callable[[Any], Any]] = None,
     ) -> Any:
         context: Optional[_RequestContext] = getattr(
             self._request_context,
@@ -2137,6 +2148,7 @@ class Client:
             idempotency_key=idempotency_key,
             timeout=context.options.timeout if context is not None else None,
             cancel_event=context.cancel_event if context is not None else None,
+            _abandoned_result_decoder=_abandoned_result_decoder,
         )
 
     def _invoke_with_request_options(
@@ -3842,6 +3854,7 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
             self._client._read(
                 Operations.TERMINAL_WAIT,
                 params,
+                _abandoned_result_decoder=_terminal_wait_result,
             )
         )
 
@@ -3859,6 +3872,7 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
             self._client._read(
                 Operations.TERMINAL_WAIT_EXIT,
                 params,
+                _abandoned_result_decoder=_terminal_wait_exit_result,
             )
         )
 

@@ -22,14 +22,14 @@ struct CmxIrohTrustBrokerClientAuthClassifierTests {
 
     @Test
     func unauthorizedRejectionRetriesInitialActivation() {
-        #expect(CmxIrohTrustBrokerClientError.retriesInitialActivation(
+        #expect(!CmxIrohTrustBrokerClientError.retriesInitialActivation(
             CmxIrohTrustBrokerClientError.rejected(
                 statusCode: 401,
                 code: "unauthorized"
             )
         ))
-        // 403 can be a durable permission denial; initial activation must not
-        // spin on it.
+        // 401 and 403 can both be durable authorization failures; initial
+        // activation must return them to the auth lifecycle instead of spin.
         #expect(!CmxIrohTrustBrokerClientError.retriesInitialActivation(
             CmxIrohTrustBrokerClientError.rejected(statusCode: 403, code: nil)
         ))

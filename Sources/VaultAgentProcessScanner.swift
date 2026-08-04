@@ -704,7 +704,13 @@ private extension CmuxVaultAgentSessionIDSource {
             if let session = process.arguments.grokResumeSessionID {
                 return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
             }
-            return nil
+            guard let sessionId = GrokSessionLocator(fileManager: fileManager).latestSessionID(
+                for: process,
+                registration: registration
+            ) else {
+                return nil
+            }
+            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
         }
     }
 }

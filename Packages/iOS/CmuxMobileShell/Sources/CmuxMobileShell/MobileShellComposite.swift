@@ -121,6 +121,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
     static let taskCreateCapability = "workspace.task_create.v1"
+    static let taskAttachmentCapability = "task.attachments.v1"
+    static let taskModelsCapability = "task.models.v1"
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
@@ -302,6 +304,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         scope: MobileShellScopeSnapshot,
         instances: [MobilePresenceReconnectEvidence]
     )?
+    var presencePushRecoveryThrottle = MobilePresencePushRecoveryThrottle()
     /// Whether the current attach ticket has a non-empty auth token and has not expired.
     public var hasActiveUnexpiredAttachTicket: Bool {
         guard let activeTicket,
@@ -428,6 +431,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
     /// Device-local task templates used by the iOS task composer.
     @ObservationIgnored public let taskTemplateStore: (any MobileTaskTemplateStoring)?
+    /// Mac/provider model responses observed by the task composer.
+    var taskModelCache: [MobileTaskModelCacheKey: MobileTaskModelCacheEntry] = [:]
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -525,14 +530,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var composerDismissedTerminalIDs: Set<String> = []
     /// Monotonic focus-request token for the iMessage-style composer field.
     ///
-    /// The composer's text field owns its first responder via SwiftUI `@FocusState`,
-    /// which neither the terminal surface nor the representable coordinator can set
-    /// directly. When the surface needs the field re-focused without re-presenting the
-    /// composer — the reveal-after-hide case, where the chrome and draft are already
-    /// back but the terminal proxy stole first responder — it bumps this token through
-    /// ``presentAndFocusComposer()``. ``TerminalComposerView`` observes the change and
-    /// drives `isFieldFocused = true`, keeping `@FocusState` the single source of truth
-    /// for who holds the keyboard.
+    /// The surface input session owns first-responder commands; SwiftUI `@FocusState`
+    /// mirrors their result. When the surface needs the field re-focused without
+    /// re-presenting the composer, it bumps this token through
+    /// ``presentAndFocusComposer()``. ``TerminalComposerView`` consumes the keyed
+    /// intent and forwards it to that session owner.
     public private(set) var composerFocusRequest: Int = 0
     /// True while a ``composerFocusRequest`` has been issued but not yet consumed
     /// by the composer field. The field's `onChange` of the token only observes
@@ -1589,6 +1591,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // projections.
         resetStateSyncForAccountBoundary()
         lastPresenceReconnectEvidence = nil
+        presencePushRecoveryThrottle.reset()
         pendingInactiveRecoveryTrigger = nil
         pendingInactiveDeadRecoveryClient = nil
         connectionRecoveryOwner.cancel()
@@ -1619,6 +1622,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             enqueueDraftOperation { await draftStore.clearAllDrafts() }
         }
         taskTemplateStore?.clearAllUserData()
+        taskModelCache.removeAll()
         // Drop unflushed keystroke snapshots too: an armed flush that runs
         // before the wipe would only write text the wipe then deletes, but the
         // buffer itself must not carry one account's text into the next.
@@ -1977,7 +1981,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var networkPathObservationTask: Task<Void, Never>?
     let connectionRecoveryOwner = MobileConnectionRecoveryOwner()
     var lastReconnectStackUserID: String?
+    /// Whether the scene is in the active phase. Set by
+    /// `resumeForegroundRefresh()` / `suspendForegroundRefresh()`. Recovery
+    /// triggers that arrive while false park in
+    /// `pendingInactiveRecoveryTrigger` instead of dialing: a dial launched
+    /// during the backgrounding bounce suspends with the process (field
+    /// traces showed ~9.5s stalls) and then competes with the foreground
+    /// recovery pass.
     var foregroundRefreshIsActive = true
+    /// The most recent recovery trigger parked while inactive, replayed once
+    /// by `recoverPendingInactiveRecoveryIfNeeded()` on foreground.
     var pendingInactiveRecoveryTrigger: RecoveryTrigger?
     var pendingInactiveDeadRecoveryClient: MobileCoreRPCClient?
 
@@ -2443,36 +2456,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             setHasKnownPairedMac(true, generation: generation)
         }
         let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
-        let zeroTouchCandidates: [MobilePairedMac] = if irohReconnectIsBlocked {
-            []
-        } else {
-            await discoverZeroTouchIrohCandidates(
-                scope: scope,
-                generation: generation,
-                excluding: Set(candidates.map {
-                    MobilePairedMac.pairingID(
-                        macDeviceID: $0.macDeviceID,
-                        instanceTag: $0.instanceTag
-                    )
-                })
-            )
-        }
-        guard generation == storedMacReconnectGeneration else {
-            return .superseded
-        }
-        guard await isScopeCurrent(scope) else {
-            finishStoredMacReconnectAttempt(generation: generation)
-            return .superseded
-        }
-        candidates.append(contentsOf: zeroTouchCandidates)
-        let zeroTouchCandidateIDs = Set(zeroTouchCandidates.map(\.id))
-        guard !candidates.isEmpty else {
-            if !hasKnownStoredMac, !irohReconnectIsBlocked {
-                setHasKnownPairedMac(false, generation: generation)
-            }
-            finishStoredMacReconnectAttempt(generation: generation)
-            return .failed(.noRoute)
-        }
         // Capture one coherent post-request view of the registry and paired-Mac
         // store. The store read happens after the registry await, so an
         // authenticated Presence write that lands during the request wins. The
@@ -2537,8 +2520,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             }
             if connectionState != .connected,
-               !automaticIrohReconnectIsBlocked(accountID: scope.userID),
-               !zeroTouchCandidateIDs.contains(mac.id) {
+               !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
                     scope: scope,
@@ -2569,6 +2551,63 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             if connectionState == .connected { break }
+        }
+        // A saved authenticated route is the cheapest and most authoritative
+        // recovery path. Broker discovery can be slow for accounts with a large
+        // development fleet, so only ask for zero-touch candidates after every
+        // saved candidate failed. This keeps a healthy saved Mac from sitting
+        // behind an unrelated account-wide discovery request.
+        var zeroTouchCandidates: [MobilePairedMac] = []
+        if connectionState != .connected,
+           !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
+            zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
+                scope: scope,
+                generation: generation,
+                excluding: Set(candidates.map {
+                    MobilePairedMac.pairingID(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    )
+                })
+            )
+            guard generation == storedMacReconnectGeneration else {
+                return .superseded
+            }
+            guard await isScopeCurrent(scope) else {
+                finishStoredMacReconnectAttempt(generation: generation)
+                return .superseded
+            }
+            for mac in zeroTouchCandidates {
+                guard generation == storedMacReconnectGeneration,
+                      await isScopeCurrent(scope),
+                      await !isHiddenMacDeviceID(
+                          mac.macDeviceID,
+                          instanceTag: mac.instanceTag,
+                          scope: scope
+                      ) else { break }
+                let routes = storedReconnectRoutes(mac)
+                attemptedAutomaticIroh = attemptedAutomaticIroh
+                    || routes.contains { $0.kind == .iroh }
+                lastDialOutcome = await connectStoredMacOutcome(
+                    name: mac.displayName ?? mac.macDeviceID,
+                    routes: routes,
+                    pairedMacDeviceID: mac.macDeviceID,
+                    instanceTag: mac.instanceTag,
+                    legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
+                    automaticReconnectAccountID: scope.userID,
+                    ifStillCurrent: { [weak self] in
+                        self?.storedMacReconnectGeneration == generation
+                    }
+                )
+                if connectionState == .connected { break }
+            }
+        }
+        if candidates.isEmpty, zeroTouchCandidates.isEmpty {
+            if !hasKnownStoredMac, !irohReconnectIsBlocked {
+                setHasKnownPairedMac(false, generation: generation)
+            }
+            finishStoredMacReconnectAttempt(generation: generation)
+            return .failed(.noRoute)
         }
         // A newer attempt may have started during the connect; it now owns the flags.
         guard generation == storedMacReconnectGeneration else { return .superseded }
@@ -5174,7 +5213,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         }
         secondaryMacEstablishmentFlights[flightKey] =
-            SecondaryMacEstablishmentFlight(id: flightID, task: task)
+            SecondaryMacEstablishmentFlight(
+                id: flightID,
+                mac: mac,
+                task: task
+            )
         let outcome = await task.value
         if secondaryMacEstablishmentFlights[flightKey]?.id == flightID {
             secondaryMacEstablishmentFlights[flightKey] = nil
@@ -8985,7 +9028,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ticket probe has succeeded and a foreground replacement can proceed.
     private func preparePairingConnectionAttempt() {
         // Any explicit connect supersedes launch/network recovery, including a
-        // recovery suspended in a registry refresh for the same device id.
+        // recovery parked while the scene was inactive.
         pendingInactiveRecoveryTrigger = nil
         pendingInactiveDeadRecoveryClient = nil
         connectionRecoveryOwner.cancel()
@@ -11948,12 +11991,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // to leave the existing sections intact. Authoritative groups are passed
         // through the device-local collapse store before entering the per-Mac
         // source of truth, so derived groups keep this phone's collapse choices.
-        let groups: [MobileWorkspaceGroupPreview]? =
-            (mergeExistingWorkspaces || !groupsAreAuthoritative)
-                ? nil
-                : groupCollapseStore.apply(
-                    to: response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
-                )
+        // Empty or missing group metadata during reconnect/rebind is not enough to
+        // remove sections; only a healthy, complete ungrouped snapshot can do that.
+        let groups = remoteWorkspaceGroups(
+            from: response,
+            mergeExistingWorkspaces: mergeExistingWorkspaces,
+            groupsAreAuthoritative: groupsAreAuthoritative
+        )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
         #if DEBUG
@@ -11995,6 +12039,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ?? workspaces.first?.id
         )
         syncSelectedTerminalForWorkspace()
+    }
+
+    private func remoteWorkspaceGroups(
+        from response: MobileSyncWorkspaceListResponse,
+        mergeExistingWorkspaces: Bool,
+        groupsAreAuthoritative: Bool
+    ) -> [MobileWorkspaceGroupPreview]? {
+        guard !mergeExistingWorkspaces, groupsAreAuthoritative else { return nil }
+        guard response.groupsFieldWasPresent else { return nil }
+        let groups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+        guard groups.isEmpty else {
+            return groupCollapseStore.apply(to: groups)
+        }
+        guard canAcceptEmptyGroupSnapshot(from: response) else { return nil }
+        return []
+    }
+
+    private func canAcceptEmptyGroupSnapshot(
+        from response: MobileSyncWorkspaceListResponse
+    ) -> Bool {
+        guard connectionState == .connected, macConnectionStatus == .connected else {
+            return false
+        }
+        let responseStillReferencesGroups = response.workspaces.contains { workspace in
+            workspace.groupID?.isEmpty == false
+        }
+        guard !responseStillReferencesGroups else { return false }
+        return true
     }
 
     private func remoteWorkspacesPreservingSnapshots(

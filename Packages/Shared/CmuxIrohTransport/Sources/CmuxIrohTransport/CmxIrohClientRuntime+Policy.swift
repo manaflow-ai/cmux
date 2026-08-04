@@ -131,15 +131,25 @@ extension CmxIrohClientRuntime {
         }
         let discovery: CmxIrohDiscoveryResponse
         do {
-            if let embedded = registration?.discovery {
+            if let embedded = registration?.discovery,
+               registration?.discoveryComplete == true {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration?.revision,
-                      snapshotRevision == registrationRevision,
+                      snapshotRevision >= registrationRevision,
                       snapshotRevision >= (authoritativeDiscovery?.revision ?? 0) else {
                     throw CmxIrohTrustBrokerClientError.invalidResponse
                 }
-                authoritativeDiscovery = embedded
-                discovery = embedded
+                let localMatches = embedded.bindings.filter(expectation.matches)
+                if embedded.bindings.count
+                    == CmxIrohDiscoveryPage.legacyBindingLimit
+                    || localMatches.count != 1 {
+                    discovery = try await discoverAuthoritatively(
+                        minimumRevision: registrationRevision
+                    )
+                } else {
+                    authoritativeDiscovery = embedded
+                    discovery = embedded
+                }
             } else {
                 discovery = try await discoverAuthoritatively(
                     minimumRevision: registration?.revision

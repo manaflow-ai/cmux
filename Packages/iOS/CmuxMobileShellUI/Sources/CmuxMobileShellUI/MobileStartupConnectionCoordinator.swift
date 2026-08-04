@@ -12,6 +12,7 @@ import Foundation
 final class MobileStartupConnectionCoordinator {
     enum InjectedAttachOutcome: Sendable {
         case connected
+        case awaitingUserApproval
         case failed
     }
 
@@ -50,7 +51,7 @@ final class MobileStartupConnectionCoordinator {
     ) -> Bool {
         guard owner == .injectedAttach(attempt) else { return false }
         switch outcome {
-        case .connected:
+        case .connected, .awaitingUserApproval:
             owner = .injectedAttachConsumed
             return false
         case .failed:

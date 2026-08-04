@@ -227,6 +227,7 @@ if [[ "$TARGET" == "simulator" ]]; then
     echo "error: simulator '${SIMULATOR_ID:-$SIMULATOR_NAME}' is not booted (boot it or pass --simulator <name>)" >&2
     exit 1
   fi
+  DOGFOOD_CLIENT_ID="$(cmux_attach_dogfood_client_id "$BUNDLE_ID" "$SIM_UDID")"
   xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
   SIMULATOR_DEVICE_ID="$(
     cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"
@@ -240,6 +241,7 @@ if [[ "$TARGET" == "simulator" ]]; then
   SIMCTL_CHILD_CMUX_SIMULATOR_DEVICE_ID="$SIMULATOR_DEVICE_ID" \
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
+  SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_MODE="$IROH_RELEASE_GATE_MODE" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_SCENARIO="${CMUX_IROH_RELEASE_GATE_SCENARIO:-standard}" \
   SIMCTL_CHILD_CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="${CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH:-0}" \
@@ -250,6 +252,7 @@ else
       | awk '/iPhone/ && !/unavailable/ {for(i=1;i<=NF;i++) if($i ~ /^[0-9A-Fa-f-]{36}$/){print $i; exit}}')"
   fi
   [[ -n "$DEVICE_ID" ]] || { echo "error: no connected iPhone found (pass --device-id)" >&2; exit 1; }
+  DOGFOOD_CLIENT_ID="$(cmux_attach_dogfood_client_id "$BUNDLE_ID" "$DEVICE_ID")"
   # Pass the password + attach URL via the DEVICECTL_CHILD_ prefix (calling-env
   # injection), NOT --environment-variables, which would expose these bearer
   # credentials in argv. devicectl strips DEVICECTL_CHILD_<NAME> from its own
@@ -262,6 +265,7 @@ else
   DEVICECTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
   DEVICECTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
+  DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
     xcrun devicectl device process launch --terminate-existing \
       --device "$DEVICE_ID" "$BUNDLE_ID"
 fi
@@ -271,7 +275,8 @@ if [[ -n "$READINESS_CURSOR" ]]; then
       "$TAG" \
       "$REPO_ROOT" \
       "$READINESS_CURSOR" \
-      "$ATTACH_READY_TIMEOUT_SECONDS")"; then
+      "$ATTACH_READY_TIMEOUT_SECONDS" \
+      "$DOGFOOD_CLIENT_ID")"; then
     exit 1
   fi
   READINESS_FINISHED_MS="$(cmux_attach_monotonic_milliseconds)"
@@ -281,7 +286,7 @@ if [[ -n "$READINESS_CURSOR" ]]; then
     RECEIPT_TARGET="physical_device"
     RECEIPT_TARGET_ID="$DEVICE_ID"
   else
-    RECEIPT_TARGET="simulator"
+    RECEIPT_TARGET="simulator_injection"
     RECEIPT_TARGET_ID="$SIM_UDID"
   fi
   RECEIPT_DIR="${CMUX_READINESS_RECEIPT_DIR:-/tmp/cmux-ios-dogfood-readiness}"

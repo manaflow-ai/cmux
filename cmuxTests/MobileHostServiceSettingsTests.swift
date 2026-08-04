@@ -223,7 +223,8 @@ struct MobileHostServiceSettingsTests {
 @Suite(.serialized)
 struct MobileHostTransportRouteCompositionTests {
     @Test func tcpRouteRefreshDoesNotRemoveTheActiveIrohRoute() throws {
-        let publicStatusStore = MobileHostPublicStatusStore()
+        defer { MobileHostPublicStatusCache.removeAll() }
+        MobileHostPublicStatusCache.removeAll()
         let binding = try JSONDecoder().decode(
             CmxIrohBrokerBinding.self,
             from: Data(
@@ -252,15 +253,15 @@ struct MobileHostTransportRouteCompositionTests {
             priority: 10
         )
 
-        publicStatusStore.update(
+        MobileHostPublicStatusCache.update(
             irohIdentity: binding.endpointID,
             pathHints: binding.pathHints
         )
-        publicStatusStore.update(routes: [tailscale])
-        #expect(publicStatusStore.snapshot().map(\.kind) == [.iroh, .tailscale])
+        MobileHostPublicStatusCache.update(routes: [tailscale])
+        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
 
-        publicStatusStore.update(routes: [])
-        #expect(publicStatusStore.snapshot().map(\.kind) == [.iroh])
+        MobileHostPublicStatusCache.update(routes: [])
+        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh])
     }
 
     @MainActor
@@ -283,7 +284,8 @@ struct MobileHostTransportRouteCompositionTests {
     }
 
     @Test func irohBindingLifecycleDoesNotRemoveTailscaleRoute() throws {
-        let publicStatusStore = MobileHostPublicStatusStore()
+        defer { MobileHostPublicStatusCache.removeAll() }
+        MobileHostPublicStatusCache.removeAll()
         let binding = try JSONDecoder().decode(
             CmxIrohBrokerBinding.self,
             from: Data(
@@ -299,7 +301,12 @@ struct MobileHostTransportRouteCompositionTests {
                   "identity_generation":1,
                   "pairing_enabled":true,
                   "capabilities":["mobile-rpc-v1","multistream-v1"],
-                  "path_hints":[],
+                  "path_hints":[{
+                    "kind":"relay_url",
+                    "value":"https://relay.example.com/",
+                    "source":"native",
+                    "privacy_scope":"public_internet"
+                  }],
                   "last_seen_at":"2026-07-09T12:00:00.000Z"
                 }
                 """.utf8
@@ -312,15 +319,20 @@ struct MobileHostTransportRouteCompositionTests {
             priority: 10
         )
 
-        publicStatusStore.update(routes: [tailscale])
-        publicStatusStore.update(
-            irohIdentity: binding.endpointID,
-            pathHints: binding.pathHints
+        MobileHostPublicStatusCache.update(routes: [tailscale])
+        MobileHostPublicStatusCache.update(
+            irohBinding: CmxIrohBrokerBindingMetadata(binding: binding)
         )
-        #expect(publicStatusStore.snapshot().map(\.kind) == [.iroh, .tailscale])
+        let routes = MobileHostPublicStatusCache.snapshot()
+        #expect(routes.map(\.kind) == [.iroh, .tailscale])
+        guard case let .peer(_, pathHints) = routes.first?.endpoint else {
+            Issue.record("Expected the cached Iroh route to retain broker path hints")
+            return
+        }
+        #expect(pathHints == binding.pathHints)
 
-        publicStatusStore.update(irohIdentity: nil)
-        #expect(publicStatusStore.snapshot().map(\.kind) == [.tailscale])
+        MobileHostPublicStatusCache.update(irohIdentity: nil)
+        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.tailscale])
     }
 }
 

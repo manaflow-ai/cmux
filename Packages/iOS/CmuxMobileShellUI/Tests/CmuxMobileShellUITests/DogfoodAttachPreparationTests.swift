@@ -49,6 +49,20 @@ struct DogfoodAttachPreparationTests {
 
     @Test
     @MainActor
+    func approvalPendingInjectedAttachKeepsExclusiveStartupOwnership() throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+        let attachAttempt = try #require(coordinator.claimInjectedAttach())
+
+        #expect(!coordinator.finishInjectedAttach(
+            attachAttempt,
+            outcome: .awaitingUserApproval
+        ))
+        #expect(coordinator.claimInjectedAttach() == nil)
+        #expect(coordinator.claimStoredReconnect() == nil)
+    }
+
+    @Test
+    @MainActor
     func cancelledInjectedAttachReleasesImmediatelyAndIgnoresLateCompletion() throws {
         let coordinator = MobileStartupConnectionCoordinator()
         let cancelledAttempt = try #require(coordinator.claimInjectedAttach())

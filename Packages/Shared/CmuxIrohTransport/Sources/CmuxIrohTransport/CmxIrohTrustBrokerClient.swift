@@ -171,6 +171,8 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 }
 
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
+private struct DiscoverySnapshotChanged: Error {}
+
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct ConnectivitySyncRequest: Encodable {
         let protocolVersion: Int
@@ -496,6 +498,24 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     private func discoverAllPages() async throws -> CmxIrohDiscoveryResponse {
+        for attempt in 0 ..< 3 {
+            do {
+                return try await discoverSnapshotAttempt()
+            } catch is DiscoverySnapshotChanged {
+                if attempt == 2 {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+                // Older brokers expose discovery as optimistic pages. Restart
+                // immediately from page one when an account mutation makes
+                // those pages disagree. The next request captures the newly
+                // committed revision, so a timing delay would add no safety.
+                continue
+            }
+        }
+        throw CmxIrohTrustBrokerClientError.invalidResponse
+    }
+
+    private func discoverSnapshotAttempt() async throws -> CmxIrohDiscoveryResponse {
         var bindings: [CmxIrohBrokerBinding] = []
         var bindingIDs: Set<String> = []
         var seenCursors: Set<String> = []
@@ -512,12 +532,18 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             if let cursor {
                 queryItems.append(URLQueryItem(name: "cursor", value: cursor))
             }
-            let page: CmxIrohDiscoveryPage = try await performRequest(
-                path: "api/devices/iroh",
-                method: "GET",
-                body: nil,
-                queryItems: queryItems
-            )
+            let page: CmxIrohDiscoveryPage
+            do {
+                page = try await performRequest(
+                    path: "api/devices/iroh",
+                    method: "GET",
+                    body: nil,
+                    queryItems: queryItems
+                )
+            } catch let error as CmxIrohTrustBrokerClientError
+                where cursor != nil && Self.isStaleDiscoveryCursor(error) {
+                throw DiscoverySnapshotChanged()
+            }
             if let first {
                 guard page.discovery.routeContractVersion == first.routeContractVersion,
                       page.discovery.revision == first.revision,
@@ -525,7 +551,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                       page.discovery.lanRendezvous == first.lanRendezvous,
                       page.discovery.grantVerificationKeys
                         == first.grantVerificationKeys else {
-                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                    throw DiscoverySnapshotChanged()
                 }
             } else {
                 first = page.discovery
@@ -555,6 +581,13 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             lanRendezvous: first.lanRendezvous,
             grantVerificationKeys: first.grantVerificationKeys
         )
+    }
+
+    private static func isStaleDiscoveryCursor(
+        _ error: CmxIrohTrustBrokerClientError
+    ) -> Bool {
+        guard case let .rejected(statusCode, code) = error else { return false }
+        return statusCode == 409 && code == "discovery_cursor_stale"
     }
 
     private func sendUngated<Response: Decodable & Sendable, Body: Encodable>(

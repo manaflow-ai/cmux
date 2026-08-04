@@ -62,7 +62,8 @@ function waitForUsableSession(
   status = 0,
   baseline = "100",
   timeout = "15",
-  event = '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","transport":"iroh","stream_id":"events"}}',
+  event = '{"seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","transport":"iroh","stream_id":"events"}}',
+  expectedClientID = "phone-a",
 ) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-admission-test-"));
   const argsPath = path.join(tempRoot, "args");
@@ -80,13 +81,14 @@ function waitForUsableSession(
           '  [[ "$CMUX_TEST_STATUS" == "0" ]] && printf "%s\\n" "$CMUX_TEST_EVENT"',
           '  return "$CMUX_TEST_STATUS"',
           '}',
-          'cmux_attach_wait_for_usable_session "ready" "$2" "$3" "$4"',
+          'cmux_attach_wait_for_usable_session "ready" "$2" "$3" "$4" "$5"',
         ].join("\n"),
         "mobile-admission-test",
         validator,
         repoRoot,
         baseline,
         timeout,
+        expectedClientID,
       ],
       {
         CMUX_TEST_ARGS: argsPath,
@@ -124,6 +126,10 @@ function writeReadinessReceipt(eventJSON, latency = "8421", attempts = "1") {
   result.receipt = fs.existsSync(receiptPath)
     ? JSON.parse(fs.readFileSync(receiptPath, "utf8"))
     : null;
+  result.directoryMode = fs.statSync(tempRoot).mode & 0o777;
+  result.receiptMode = fs.existsSync(receiptPath)
+    ? fs.statSync(receiptPath).mode & 0o777
+    : null;
   fs.rmSync(tempRoot, { recursive: true, force: true });
   return result;
 }
@@ -144,6 +150,15 @@ function readinessCursor(snapshot) {
     ],
     { CMUX_TEST_SNAPSHOT: snapshot },
   );
+}
+
+function monotonicMilliseconds() {
+  return run("bash", [
+    "-c",
+    'source "$1"; cmux_attach_monotonic_milliseconds',
+    "mobile-monotonic-clock-test",
+    validator,
+  ]);
 }
 
 function extractShellFunction(source, name) {
@@ -498,6 +513,22 @@ test("dogfood readiness reads only the authoritative resume cursor", () => {
   assert.equal(result.stdout, "842");
 });
 
+test("dogfood readiness clock is stable across helper processes", () => {
+  const first = monotonicMilliseconds();
+  const second = monotonicMilliseconds();
+
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(second.status, 0, second.stderr);
+  const firstMilliseconds = Number.parseInt(first.stdout.trim(), 10);
+  const secondMilliseconds = Number.parseInt(second.stdout.trim(), 10);
+  assert.ok(Number.isSafeInteger(firstMilliseconds));
+  assert.ok(Number.isSafeInteger(secondMilliseconds));
+  assert.ok(
+    secondMilliseconds >= firstMilliseconds,
+    `expected monotonic clock, got ${firstMilliseconds} -> ${secondMilliseconds}`,
+  );
+});
+
 test("dogfood readiness blocks on the post-launch usable RPC event", () => {
   const result = waitForUsableSession(0, "842", "15");
 
@@ -507,6 +538,19 @@ test("dogfood readiness blocks on the post-launch usable RPC event", () => {
     "--after 842 --name mobile.rpc.ready --limit 1 --timeout 15 --no-ack --no-heartbeat",
   );
   assert.match(result.stdout, /"name":"mobile\.rpc\.ready"/);
+});
+
+test("dogfood readiness rejects an event from another client", () => {
+  const result = waitForUsableSession(
+    0,
+    "842",
+    "1",
+    '{"seq":843,"name":"mobile.rpc.ready","payload":{"client_id":"other-phone"}}',
+    "phone-a",
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /did not establish a usable RPC session/i);
 });
 
 test("dogfood readiness fails when a usable RPC session misses its deadline", () => {
@@ -539,6 +583,8 @@ test("dogfood readiness writes a secret-free identity and latency receipt", () =
     stream_id: "events",
     transport: "iroh",
   });
+  assert.equal(result.directoryMode, 0o700);
+  assert.equal(result.receiptMode, 0o600);
   assert.doesNotMatch(JSON.stringify(result.receipt), /must-not-appear|access_token/);
 });
 

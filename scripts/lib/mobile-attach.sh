@@ -114,6 +114,24 @@ PY
   printf '%s' "$device_id"
 }
 
+# Deterministic client identity for one dogfood bundle on one concrete target.
+# The launch script injects it into the DEBUG app and uses the same value to
+# reject readiness events emitted by a different phone or simulator.
+cmux_attach_dogfood_client_id() {
+  local bundle_id="${1:?bundle id is required}"
+  local target_id="${2:?target id is required}"
+  CMUX_DOGFOOD_BUNDLE_ID="$bundle_id" \
+  CMUX_DOGFOOD_TARGET_ID="$target_id" \
+    /usr/bin/python3 - <<'PY'
+import os
+import uuid
+
+bundle_id = os.environ["CMUX_DOGFOOD_BUNDLE_ID"]
+target_id = os.environ["CMUX_DOGFOOD_TARGET_ID"]
+print(uuid.uuid5(uuid.NAMESPACE_URL, f"cmux-ios-dogfood-client:{bundle_id}:{target_id}"))
+PY
+}
+
 # The tagged Mac app's debug socket path.
 cmux_attach_socket_path() {
   printf '/tmp/cmux-debug-%s.sock' "$(cmux_attach__slug "$1")"
@@ -180,17 +198,14 @@ cmux_attach_events() {
 cmux_attach_readiness_cursor() {
   local tag="$1" repo_root="$2" snapshot cursor
   snapshot="$(cmux_attach_events "$tag" "$repo_root" --snapshot --no-heartbeat)" || return 1
-  cursor="$(printf '%s' "$snapshot" | /usr/bin/python3 -c '
+  cursor="$(printf '%s\n' "$snapshot" | /usr/bin/python3 -c '
 import json
 import sys
 
 for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
     try:
         frame = json.loads(line)
-    except ValueError:
+    except (json.JSONDecodeError, TypeError):
         continue
     resume = frame.get("resume")
     latest = resume.get("latest_seq") if isinstance(resume, dict) else None
@@ -206,21 +221,52 @@ for line in sys.stdin:
 }
 
 # Waits on the host's explicit usable-RPC event after the launch baseline.
-# Args: <tag> <repo_root> <baseline_event_sequence> <timeout_seconds>.
+# Args: <tag> <repo_root> <baseline_event_sequence> <timeout_seconds>
+#       <expected_client_id>.
 cmux_attach_wait_for_usable_session() {
-  local tag="$1" repo_root="$2" baseline="$3" timeout="$4" event
-  if event="$(cmux_attach_events \
-    "$tag" \
-    "$repo_root" \
-    --after "$baseline" \
-    --name mobile.rpc.ready \
-    --limit 1 \
-    --timeout "$timeout" \
-    --no-ack \
-    --no-heartbeat)"; then
-    printf '%s\n' "$event"
-    return 0
-  fi
+  local tag="$1" repo_root="$2" baseline="$3" timeout="$4"
+  local expected_client_id="$5" event event_client_id event_sequence
+  local started_ms deadline_ms remaining_ms remaining_seconds cursor
+  started_ms="$(cmux_attach_monotonic_milliseconds)"
+  deadline_ms="$((started_ms + timeout * 1000))"
+  cursor="$baseline"
+  while true; do
+    remaining_ms="$((deadline_ms - $(cmux_attach_monotonic_milliseconds)))"
+    (( remaining_ms > 0 )) || break
+    remaining_seconds="$(((remaining_ms + 999) / 1000))"
+    if ! event="$(cmux_attach_events \
+      "$tag" \
+      "$repo_root" \
+      --after "$cursor" \
+      --name mobile.rpc.ready \
+      --limit 1 \
+      --timeout "$remaining_seconds" \
+      --no-ack \
+      --no-heartbeat)"; then
+      break
+    fi
+    event_client_id="$(printf '%s' "$event" | /usr/bin/python3 -c '
+import json
+import sys
+frame = json.load(sys.stdin)
+payload = frame.get("payload")
+value = payload.get("client_id") if isinstance(payload, dict) else None
+print(value if isinstance(value, str) else "")
+')"
+    if [[ "$event_client_id" == "$expected_client_id" ]]; then
+      printf '%s\n' "$event"
+      return 0
+    fi
+    event_sequence="$(printf '%s' "$event" | /usr/bin/python3 -c '
+import json
+import sys
+value = json.load(sys.stdin).get("seq")
+if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+    print(value)
+')"
+    [[ -n "$event_sequence" ]] || break
+    cursor="$event_sequence"
+  done
   echo "error: mobile app launched but did not establish a usable RPC session with tagged Mac '$tag' before the readiness deadline" >&2
   echo "error: dogfood setup is not ready; inspect phone RPC and subscription diagnostics before handoff" >&2
   return 1
@@ -242,6 +288,7 @@ cmux_attach_write_readiness_receipt() {
   printf '%s' "$event_json" | /usr/bin/python3 -c '
 import json
 import os
+import stat
 import sys
 import tempfile
 
@@ -288,7 +335,12 @@ receipt = {
     "transport": payload["transport"],
 }
 parent = os.path.dirname(path) or "."
-os.makedirs(parent, exist_ok=True)
+os.makedirs(parent, mode=0o700, exist_ok=True)
+parent_status = os.lstat(parent)
+if not stat.S_ISDIR(parent_status.st_mode) or parent_status.st_uid != os.getuid():
+    raise SystemExit("readiness receipt directory is not a private owned directory")
+if parent != ".":
+    os.chmod(parent, 0o700)
 descriptor, temporary_path = tempfile.mkstemp(prefix=".cmux-ready-", dir=parent)
 try:
     os.fchmod(descriptor, 0o600)
@@ -311,7 +363,11 @@ except BaseException:
 }
 
 cmux_attach_monotonic_milliseconds() {
-  /usr/bin/python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)'
+  /usr/bin/python3 -c '
+import time
+
+print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
+'
 }
 
 # Ensure the tagged Mac app is running AND its iOS pairing listener

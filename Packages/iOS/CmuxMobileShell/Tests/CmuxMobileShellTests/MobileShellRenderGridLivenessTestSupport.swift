@@ -23,6 +23,11 @@ actor LivenessHostRouter {
         var topics: [String]?
         var workspaceID: String?
         var streamID: String?
+        var groupID: String?
+        var action: String?
+        var title: String?
+        var attachToken: String?
+        var stackAccessToken: String?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -110,13 +115,23 @@ actor LivenessHostRouter {
         method: String?,
         topics: [String]?,
         workspaceID: String? = nil,
-        streamID: String? = nil
+        streamID: String? = nil,
+        groupID: String? = nil,
+        action: String? = nil,
+        title: String? = nil,
+        attachToken: String? = nil,
+        stackAccessToken: String? = nil
     ) {
         recorded.append(RecordedRequest(
             method: method,
             topics: topics,
             workspaceID: workspaceID,
-            streamID: streamID
+            streamID: streamID,
+            groupID: groupID,
+            action: action,
+            title: title,
+            attachToken: attachToken,
+            stackAccessToken: stackAccessToken
         ))
         resumeSatisfiedCountWaiters()
     }
@@ -224,6 +239,18 @@ actor LivenessHostRouter {
 
     func streamIDs(for method: String) -> [String?] {
         recorded.filter { $0.method == method }.map(\.streamID)
+    }
+
+    func groupActions() -> [(groupID: String?, action: String?, title: String?)] {
+        recorded.filter { $0.method == "workspace.group.action" }.map {
+            (groupID: $0.groupID, action: $0.action, title: $0.title)
+        }
+    }
+
+    func authorization(for method: String) -> [(attachToken: String?, stackAccessToken: String?)] {
+        recorded.filter { $0.method == method }.map {
+            (attachToken: $0.attachToken, stackAccessToken: $0.stackAccessToken)
+        }
     }
 
     func setCapabilities(_ capabilities: [String]) {
@@ -536,6 +563,8 @@ actor LivenessHostRouter {
                 "subscribed": hasActiveSubscription,
                 "event_transport": "control_v1",
             ])
+        case "workspace.group.action":
+            return try? Self.resultFrame(id: id, result: [:])
         case "mobile.terminal.replay":
             replayRequestCount += 1
             if heldReplayResponsesRemaining > 0 {
@@ -755,6 +784,7 @@ actor LivenessTransport: CmxByteTransport {
             let method = parsed?["method"] as? String
             let id = parsed?["id"] as? String
             let params = parsed?["params"] as? [String: Any]
+            let auth = parsed?["auth"] as? [String: Any]
             let topics = params?["topics"] as? [String]
             let streamID = params?["stream_id"] as? String
             let viewportReport: LivenessViewportReport? = {
@@ -769,7 +799,12 @@ actor LivenessTransport: CmxByteTransport {
                 method: method,
                 topics: topics,
                 workspaceID: params?["workspace_id"] as? String,
-                streamID: streamID
+                streamID: streamID,
+                groupID: params?["group_id"] as? String,
+                action: params?["action"] as? String,
+                title: params?["title"] as? String,
+                attachToken: auth?["attach_token"] as? String,
+                stackAccessToken: auth?["stack_access_token"] as? String
             )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
