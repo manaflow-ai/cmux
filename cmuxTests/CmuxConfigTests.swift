@@ -674,6 +674,60 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testSymlinkedConfigReloadsWhenTargetChanges() throws {
+        // Regression for the symlinked cmux.json live-reload bug: the parse cache
+        // was keyed on attributesOfItem(atPath:) (lstat), which does NOT follow
+        // symlinks. Editing the symlink target left the link's own size/mtime
+        // unchanged, so the cache never invalidated and reload-config / file
+        // watching appeared to do nothing until a full app restart.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-symlink-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // dotfiles-style real file, with cmux.json as a symlink pointing at it.
+        let realConfig = root.appendingPathComponent("dotfiles-cmux.json")
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "echo first" }
+          }
+        }
+        """.write(to: realConfig, atomically: true, encoding: .utf8)
+
+        let linkPath = root.appendingPathComponent("cmux.json").path
+        try FileManager.default.createSymbolicLink(
+            atPath: linkPath,
+            withDestinationPath: realConfig.path
+        )
+
+        let store = CmuxConfigStore(
+            globalConfigPath: linkPath,
+            localConfigPath: root.appendingPathComponent("missing-local.json").path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+
+        // Edit the symlink TARGET in place. The link's own lstat size/mtime stay
+        // constant; only the target's change. A longer action id makes the size
+        // difference alone distinguish the payloads regardless of mtime
+        // resolution, so this is a deterministic red/green.
+        try """
+        {
+          "actions": {
+            "second-longer-identifier": { "type": "command", "command": "echo second" }
+          }
+        }
+        """.write(to: realConfig, atomically: true, encoding: .utf8)
+        store.loadAll()
+
+        // Fails before the fix (stale cache keeps "first"); passes after.
+        XCTAssertNotNil(store.resolvedAction(id: "second-longer-identifier"))
+        XCTAssertNil(store.resolvedAction(id: "first"))
+    }
+
+    @MainActor
     func testConfigChangesRequireExplicitLoadByDefault() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
