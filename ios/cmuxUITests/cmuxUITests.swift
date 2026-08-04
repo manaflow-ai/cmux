@@ -196,7 +196,7 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-01-agents")
         let agentsTitle = app.staticTexts["Your agents keep working on your Mac"]
         let agentsBody = app.staticTexts["Track every workspace from your phone."]
-        let agentsScreenshot = element("MobileOnboardingScreenshot-agent-session")
+        let agentsScreenshot = element("MobileOnboardingScreenshot-workspaces")
         assertPageContentFitsWithoutScrolling(
             title: agentsTitle,
             visual: agentsScreenshot,
