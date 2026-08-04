@@ -294,8 +294,8 @@ struct SidebarAppKitRowCellTests {
     }
 
     @discardableResult
-    private static func click(_ view: NSView, at point: NSPoint) throws -> NSView {
-        let window = try #require(view.window)
+    private static func click(_ view: NSView, in window: NSWindow, at point: NSPoint) throws -> NSView {
+        #expect(view.window === window)
         let windowPoint = view.convert(point, to: nil)
         let windowNumber = window.windowNumber
         let timestamp = ProcessInfo.processInfo.systemUptime
@@ -438,13 +438,14 @@ struct SidebarAppKitRowCellTests {
             model: model,
             onOpenWorkspaceDescriptionURL: { openedURL = $0 }
         )
-        _ = Self.layoutCell(cell, model: model)
+        let window = Self.layoutCell(cell, model: model)
         let textView = try #require(Self.textView(in: cell, linkedTo: url))
 
         #expect(!textView.isSelectable)
 
         let hitView = try Self.click(
             textView,
+            in: window,
             at: NSPoint(x: min(16, textView.bounds.width / 2), y: textView.bounds.midY)
         )
 
@@ -463,13 +464,14 @@ struct SidebarAppKitRowCellTests {
             model: model,
             onOpenWorkspaceDescriptionURL: { openedURL = $0 }
         )
-        _ = Self.layoutCell(cell, model: model)
+        let window = Self.layoutCell(cell, model: model)
         let textView = try #require(Self.textView(in: cell, linkedTo: url))
         let font = try #require(textView.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
         let prefixWidth = (prefix as NSString).size(withAttributes: [.font: font]).width
 
         let hitView = try Self.click(
             textView,
+            in: window,
             at: NSPoint(x: max(0, prefixWidth - 0.5), y: textView.bounds.midY)
         )
 
@@ -486,7 +488,7 @@ struct SidebarAppKitRowCellTests {
             model: model,
             onOpenWorkspaceDescriptionURL: { openedURL = $0 }
         )
-        _ = Self.layoutCell(cell, model: model, width: 240)
+        let window = Self.layoutCell(cell, model: model, width: 240)
         let textView = try #require(Self.textView(in: cell, linkedTo: url))
         let font = try #require(textView.attributedStringValue.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
 
@@ -495,6 +497,7 @@ struct SidebarAppKitRowCellTests {
 
         let hitView = try Self.click(
             textView,
+            in: window,
             at: NSPoint(x: min(16, textView.bounds.width / 2), y: ceil((font.ascender - font.descender) / 2))
         )
 
@@ -511,11 +514,12 @@ struct SidebarAppKitRowCellTests {
             model: model,
             onOpenWorkspaceDescriptionURL: { openedURL = $0 }
         )
-        _ = Self.layoutCell(cell, model: model)
+        let window = Self.layoutCell(cell, model: model)
         let textView = try #require(Self.textView(in: cell, linkedTo: url))
 
         let hitView = try Self.click(
             textView,
+            in: window,
             at: NSPoint(x: min(12, textView.bounds.width / 2), y: textView.bounds.midY)
         )
 

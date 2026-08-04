@@ -277,7 +277,8 @@ final class SidebarRowTextView: NSTextField {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let localPoint = superview.map { convert(point, from: $0) } ?? point
+        guard let superview else { return nil }
+        let localPoint = convert(point, from: superview)
         guard onOpenLink != nil, !isHidden, alphaValue > 0, linkURL(at: localPoint) != nil else {
             return nil
         }
