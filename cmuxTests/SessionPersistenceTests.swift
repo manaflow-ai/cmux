@@ -5041,6 +5041,37 @@ extension SessionPersistenceTests {
         XCTAssertNotEqual(imageDraftFingerprint, manager.sessionAutosaveFingerprint())
     }
 
+    @MainActor
+    func testRepeatedAutosaveReusesLargeTextBoxDraftStorage() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+
+        terminalPanel.textBoxContent = "before"
+        terminalPanel.textBoxAttachments = (0..<1_000).map { index in
+            TextBoxAttachment(
+                displayName: "file-\(index).txt",
+                submissionText: "/tmp/file-\(index).txt",
+                submissionPath: "/tmp/file-\(index).txt",
+                localURL: nil
+            )
+        }
+
+        let first = try XCTUnwrap(terminalPanel.sessionTextBoxDraftSnapshot())
+        let second = try XCTUnwrap(terminalPanel.sessionTextBoxDraftSnapshot())
+        let firstStorage = first.parts.withUnsafeBufferPointer { $0.baseAddress }
+        let secondStorage = second.parts.withUnsafeBufferPointer { $0.baseAddress }
+
+        XCTAssertEqual(first.parts.count, 1_001)
+        XCTAssertEqual(second.parts.count, 1_001)
+        XCTAssertEqual(
+            firstStorage,
+            secondStorage,
+            "Periodic autosave must reuse an unchanged large draft instead of rebuilding every attachment."
+        )
+    }
+
     func testSurfaceResumeBindingPreservesExactNonSensitiveEnvironmentValues() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "codex resume session",
