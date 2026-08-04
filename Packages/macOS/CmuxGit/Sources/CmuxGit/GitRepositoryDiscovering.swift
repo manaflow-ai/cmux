@@ -4,10 +4,10 @@ import Foundation
 /// GitHub: resolving a directory to its GitHub slugs and its checked-out branch.
 ///
 /// Both are blocking filesystem work — they walk up for a `.git` directory and
-/// read config files — so a refresh must keep them off the main thread. The
-/// protocol exists so a host can observe or stand in for that work;
-/// ``GitMetadataService`` is the production implementation and the only one the
-/// app installs.
+/// read config files — so a refresh must keep them off the main thread. Keeping
+/// this boundary separate from GitHub transport lets the pull-request pipeline
+/// resolve local candidates before it performs any authenticated network work.
+/// ``GitMetadataService`` is the production implementation.
 public protocol GitRepositoryDiscovering: Sendable {
     /// Ordered, de-duplicated GitHub slugs for the repository containing
     /// `directory`; empty when there is no repository or no GitHub remote.
