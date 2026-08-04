@@ -1800,10 +1800,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             )
             orphanWindow = nil
         }
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: orphanWindowId)
+        }
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertNil(appDelegate.mainWindow(for: orphanWindowId), "Test precondition: orphaned context should not have a live window")
+        XCTAssertTrue(
+            waitForCondition {
+                appDelegate.mainWindow(for: orphanWindowId) == nil
+            },
+            "Test precondition: orphaned context should not have a live window"
+        )
 
         let orphanCount = orphanManager.tabs.count
         let remappedCmdT = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
@@ -1824,11 +1830,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
 
         XCTAssertEqual(orphanManager.tabs.count, orphanCount, "Orphaned manager must not receive a new workspace from remapped Cmd+T")
-        XCTAssertNil(appDelegate.tabManagerFor(windowId: orphanWindowId), "Remapped Cmd+T should prune the orphaned context after failed resolution")
+        XCTAssertTrue(
+            waitForCondition {
+                appDelegate.tabManagerFor(windowId: orphanWindowId) == nil
+            },
+            "Remapped Cmd+T should prune the orphaned context after failed resolution"
+        )
 
         let createdWindowIds = mainWindowIds().subtracting(existingWindowIds)
         for windowId in createdWindowIds {
