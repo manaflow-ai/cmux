@@ -93,58 +93,6 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    private static func makeSwiftUIRow(
-        settings: SidebarTabItemSettingsSnapshot
-    ) -> SidebarWorkspaceRowSnapshot {
-        SidebarWorkspaceRowSnapshot(
-            workspaceId: UUID(),
-            groupId: nil,
-            index: 0,
-            workspaceCount: 1,
-            workspace: makeSnapshot(),
-            isActive: false,
-            isMultiSelected: false,
-            hasUserCustomTitle: false,
-            hasCustomTitle: false,
-            hasCustomDescription: false,
-            customTitle: nil,
-            workspaceShortcutDigit: nil,
-            workspaceShortcutModifierSymbol: "⌘",
-            canCloseWorkspace: true,
-            unreadCount: 0,
-            latestNotificationText: nil,
-            showsAgentActivity: settings.details.showAgentActivity,
-            rowSpacing: 8,
-            showsModifierShortcutHints: false,
-            isPointerHovering: false,
-            isBeingDragged: false,
-            topDropIndicatorVisible: false,
-            bottomDropIndicatorVisible: false,
-            isBonsplitWorkspaceDropActive: false,
-            settings: settings,
-            isChecklistExpanded: false,
-            checklistAddFieldActivationToken: 0,
-            isChecklistPopoverPresented: false,
-            contextMenu: SidebarWorkspaceContextMenuSnapshot(
-                targetWorkspaceIds: [],
-                remoteTargetWorkspaceIds: [],
-                allRemoteTargetsConnecting: false,
-                allRemoteTargetsDisconnected: false,
-                pinState: nil,
-                groupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
-                canCreateEmptyGroup: true,
-                eligibleGroupTargetIds: [],
-                allEligibleTargetsGroupId: nil,
-                hasGroupedEligibleTarget: false,
-                todoStatusLanes: [],
-                canMarkRead: false,
-                canMarkUnread: false,
-                hasLatestNotification: false,
-                notifications: []
-            )
-        )
-    }
-
     private static func makeDefaults() -> UserDefaults {
         UserDefaults(suiteName: "SidebarAppKitRowCellTests.\(UUID().uuidString)")!
     }
@@ -173,6 +121,7 @@ struct SidebarAppKitRowCellTests {
             readLastSelectionIndex: { nil },
             writeLastSelectionIndex: { _ in },
             setSelectionToTabs: {},
+            currentWindowMoveTargets: { [] },
             snapshotProvider: { nil }
         )
         return SidebarAppKitRowActions(
@@ -754,21 +703,19 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func defaultSettingsResolveTheSameStackedVerticalBranchLayoutForBothRows() {
+    func defaultSettingsResolveStackedVerticalBranchLayoutForNativeRow() {
         let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
-        let swiftUIRow = Self.makeSwiftUIRow(settings: settings)
         let appKitRow = Self.makeModel(settings: settings)
 
         #expect(settings.branchDirectory.branchLayout == .vertical)
         #expect(settings.branchDirectory.branchDirectoryPlacement == .stacked)
         #expect(!settings.branchDirectory.usesLastSegmentPath)
         #expect(!settings.wrapsWorkspaceTitles)
-        #expect(swiftUIRow.settings.branchDirectory == settings.branchDirectory)
         #expect(appKitRow.settings.branchDirectory == settings.branchDirectory)
     }
 
     @Test(arguments: [false, true])
-    func storedLegacyBranchLayoutControlsBothRows(_ usesVerticalLayout: Bool) {
+    func storedLegacyBranchLayoutControlsNativeRow(_ usesVerticalLayout: Bool) {
         let defaults = Self.makeDefaults()
         defaults.set(usesVerticalLayout, forKey: "sidebarBranchVerticalLayout")
         defaults.set(false, forKey: "sidebarBranchDirectoryStacked")
@@ -782,7 +729,6 @@ struct SidebarAppKitRowCellTests {
 
         #expect(settings.branchDirectory.branchLayout == expectedLayout)
         #expect(settings.branchDirectory.branchDirectoryPlacement == expectedPlacement)
-        #expect(Self.makeSwiftUIRow(settings: settings).settings.branchDirectory == settings.branchDirectory)
         #expect(Self.makeModel(settings: settings).settings.branchDirectory == settings.branchDirectory)
     }
 
@@ -798,31 +744,26 @@ struct SidebarAppKitRowCellTests {
 
         #expect(settings.branchDirectory.branchLayout == .inline)
         #expect(settings.branchDirectory.branchDirectoryPlacement == expected)
-        #expect(Self.makeSwiftUIRow(settings: settings).settings.branchDirectory == settings.branchDirectory)
         #expect(Self.makeModel(settings: settings).settings.branchDirectory == settings.branchDirectory)
     }
 
     @Test(arguments: [false, true])
-    func storedPathAndTitlePreferencesAreSharedByBothRows(_ enabled: Bool) {
+    func storedPathAndTitlePreferencesReachNativeRow(_ enabled: Bool) {
         let defaults = Self.makeDefaults()
         defaults.set(enabled, forKey: "sidebarPathLastSegmentOnly")
         defaults.set(enabled, forKey: SidebarWorkspaceTitleWrapSettings.key)
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
-        let swiftUISettings = Self.makeSwiftUIRow(settings: settings).settings
         let appKitSettings = Self.makeModel(settings: settings).settings
 
         #expect(settings.branchDirectory.usesLastSegmentPath == enabled)
         #expect(settings.wrapsWorkspaceTitles == enabled)
-        #expect(swiftUISettings.branchDirectory.usesLastSegmentPath == enabled)
-        #expect(swiftUISettings.wrapsWorkspaceTitles == enabled)
         #expect(appKitSettings.branchDirectory.usesLastSegmentPath == enabled)
         #expect(appKitSettings.wrapsWorkspaceTitles == enabled)
     }
 
     @Test
-    func everyWorkspaceDetailSettingUsesCatalogDefaultsInBothRows() {
+    func everyWorkspaceDetailSettingUsesCatalogDefaultsInNativeRow() {
         let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
-        let swiftUIDetails = Self.makeSwiftUIRow(settings: settings).settings.details
         let appKitDetails = Self.makeModel(settings: settings).settings.details
         let keys: [KeyPath<SidebarWorkspaceDetailSettings, Bool>] = [
             \.showBranchDirectory,
@@ -838,13 +779,12 @@ struct SidebarAppKitRowCellTests {
 
         for key in keys {
             #expect(settings.details[keyPath: key])
-            #expect(swiftUIDetails[keyPath: key] == settings.details[keyPath: key])
             #expect(appKitDetails[keyPath: key] == settings.details[keyPath: key])
         }
     }
 
     @Test
-    func everyStoredWorkspaceDetailPreferenceIsHonoredInBothRows() {
+    func everyStoredWorkspaceDetailPreferenceIsHonoredInNativeRow() {
         let cases: [(String, KeyPath<SidebarWorkspaceDetailSettings, Bool>)] = [
             ("sidebarShowBranchDirectory", \.showBranchDirectory),
             ("sidebarShowPullRequest", \.showPullRequests),
@@ -863,7 +803,6 @@ struct SidebarAppKitRowCellTests {
             let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
 
             #expect(!settings.details[keyPath: detailKey])
-            #expect(!Self.makeSwiftUIRow(settings: settings).settings.details[keyPath: detailKey])
             #expect(!Self.makeModel(settings: settings).settings.details[keyPath: detailKey])
         }
     }

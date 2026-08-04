@@ -363,7 +363,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         sidebarBlendMode: String = SidebarBlendModeOption.withinWindow.rawValue,
         sidebarTintHexDark: String? = nil,
         sidebarTintOpacity: Double = 0.18,
-        sidebarColorScheme: ColorScheme = .dark,
+        sidebarColorScheme: WindowChromeColorScheme = .dark,
         bgGlassEnabled: Bool = false
     ) -> WindowAppearanceSnapshot {
         let backgroundColor = NSColor(hex: backgroundHex) ?? .black

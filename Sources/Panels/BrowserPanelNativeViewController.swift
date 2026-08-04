@@ -1,10 +1,43 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
 import Combine
 import WebKit
+
+func resolvedBrowserChromeBackgroundColor(
+    for colorScheme: WindowChromeColorScheme,
+    themeBackgroundColor: NSColor,
+    drawsBackground: Bool
+) -> NSColor {
+    guard drawsBackground else { return .clear }
+    switch colorScheme {
+    case .dark, .light:
+        themeBackgroundColor
+    }
+}
+
+func resolvedBrowserChromeColorScheme(
+    for colorScheme: WindowChromeColorScheme,
+    themeBackgroundColor: NSColor,
+    windowBackgroundColor: NSColor = .windowBackgroundColor
+) -> WindowChromeColorScheme {
+    let perceivedBackgroundColor = themeBackgroundColor.alphaComponent < 0.999
+        ? cmuxCompositedNSColor(themeBackgroundColor, over: windowBackgroundColor)
+        : themeBackgroundColor
+    return cmuxReadableColorScheme(for: perceivedBackgroundColor)
+}
+
+func resolvedBrowserOmnibarPillBackgroundColor(
+    for colorScheme: WindowChromeColorScheme,
+    themeBackgroundColor: NSColor
+) -> NSColor {
+    let darkenMix: CGFloat = colorScheme == .light ? 0.04 : 0.05
+    return (themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor)
+        .withAlphaComponent(themeBackgroundColor.alphaComponent)
+}
 
 @MainActor
 final class BrowserPanelNativeViewController: NSViewController, PanelContentControllerUpdating {
@@ -217,20 +250,29 @@ final class BrowserPanelNativeViewController: NSViewController, PanelContentCont
         return BrowserSearchSettingsStore(defaults: .standard).currentSearchSuggestionsEnabled
     }
 
-    private var chromeIsDark: Bool {
-        rootView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    private var chromeColorScheme: WindowChromeColorScheme {
+        let fallback: WindowChromeColorScheme = rootView.effectiveAppearance
+            .bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        return resolvedBrowserChromeColorScheme(
+            for: fallback,
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            windowBackgroundColor: rootView.window?.backgroundColor ?? .windowBackgroundColor
+        )
     }
 
     private var chromeBackgroundColor: NSColor {
-        guard panel.drawsConfiguredWebViewBackgroundForCurrentPage() else { return .clear }
-        return GhosttyBackgroundTheme.currentColor()
+        resolvedBrowserChromeBackgroundColor(
+            for: chromeColorScheme,
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
+        )
     }
 
     private var omnibarBackgroundColor: NSColor {
-        let base = GhosttyBackgroundTheme.currentColor()
-        let fraction: CGFloat = chromeIsDark ? 0.05 : 0.04
-        return (base.blended(withFraction: fraction, of: .black) ?? base)
-            .withAlphaComponent(base.alphaComponent)
+        resolvedBrowserOmnibarPillBackgroundColor(
+            for: chromeColorScheme,
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
+        )
     }
 
     private func configureViewHierarchy() {
@@ -774,7 +816,7 @@ final class BrowserPanelNativeViewController: NSViewController, PanelContentCont
         BrowserPortalOmnibarSuggestionsConfiguration(
             panelId: panel.id,
             popupFrame: frame,
-            colorScheme: chromeIsDark ? .dark : .light,
+            colorScheme: chromeColorScheme,
             engineName: searchConfiguration.displayName,
             items: omnibarState.suggestions,
             selectedIndex: omnibarState.selectedSuggestionIndex,

@@ -11508,6 +11508,10 @@ struct VerticalTabsSidebar: View, Equatable {
             readLastSelectionIndex: { [lastSidebarSelectionIndex = $lastSidebarSelectionIndex] in lastSidebarSelectionIndex.wrappedValue },
             writeLastSelectionIndex: { [lastSidebarSelectionIndex = $lastSidebarSelectionIndex] next in lastSidebarSelectionIndex.wrappedValue = next },
             setSelectionToTabs: { selection = .tabs },
+            currentWindowMoveTargets: { [weak tabManager] in
+                guard let tabManager, let app = AppDelegate.shared else { return [] }
+                return app.windowMoveTargets(referenceWindowId: app.windowId(for: tabManager))
+            },
             snapshotProvider: { [snapshot = input.workspace] in snapshot }
         )
         let openInBrowser: @MainActor (URL, Bool) -> Void = { [weak tabManager, workspaceId = tab.id] url, preferBrowser in

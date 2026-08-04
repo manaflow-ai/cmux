@@ -32,6 +32,8 @@ struct SidebarWorkspaceRowCommands {
     let readLastSelectionIndex: () -> Int?
     let writeLastSelectionIndex: (Int?) -> Void
     let setSelectionToTabs: () -> Void
+    /// Resolves app-window state only when the context menu is built.
+    let currentWindowMoveTargets: () -> [SidebarWorkspaceWindowMoveTarget]
     /// Latest row snapshot for menu-time reads (SSH error, finder path).
     let snapshotProvider: () -> SidebarWorkspaceSnapshotBuilder.Snapshot?
 
@@ -646,8 +648,7 @@ struct SidebarWorkspaceRowMenuBuilder {
             commands.syncSelectionAfterMutation()
         })
 
-        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
+        let windowMoveTargets = commands.currentWindowMoveTargets()
         let moveMenuTitle = isMulti
             ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
             : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")

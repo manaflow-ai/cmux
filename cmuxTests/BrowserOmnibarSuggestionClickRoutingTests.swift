@@ -31,18 +31,13 @@ import Testing
 
         let popupFrame = CGRect(x: 0, y: 0, width: 400, height: 60)
         let configuration = makeSuggestionsConfiguration(popupFrame: popupFrame)
-        let overlay = BrowserPortalOmnibarSuggestionsHostingView(
-            rootView: BrowserPortalOmnibarSuggestionsOverlay(configuration: configuration)
-        )
-        overlay.popupFrameInTopLeftCoordinates = popupFrame
+        let overlay = BrowserPortalOmnibarSuggestionsOverlayView(configuration: configuration)
         overlay.frame = CGRect(x: 200, y: 100, width: 400, height: 300)
         container.addSubview(overlay)
 
-        // macOS 15 CI has an unflipped NSHostingView, where aligned-frame cases
-        // cannot distinguish the old math from the fixed conversion. Offsetting
-        // the frame exposes the superview-coordinate contract under both flip
-        // regimes: container (350, 380) -> local bottom-left (150, 280) ->
-        // local top-left (150, 20), inside the popup strip.
+        // Offsetting the frame exposes the superview-coordinate contract:
+        // container (350, 380) becomes local top-left (150, 280), inside the
+        // native overlay's popup strip.
         let popupHit = container.hitTest(NSPoint(x: 350, y: 380))
         #expect(overlayClaims(popupHit, in: container))
 
@@ -62,7 +57,7 @@ import Testing
         slot.layoutSubtreeIfNeeded()
 
         let overlay = try #require(
-            slot.subviews.compactMap { $0 as? BrowserPortalOmnibarSuggestionsHostingView }.first
+            slot.subviews.compactMap { $0 as? BrowserPortalOmnibarSuggestionsOverlayView }.first
         )
         try #require(overlay.frame == slot.bounds)
 
@@ -104,7 +99,7 @@ import Testing
     private func overlayClaims(_ view: NSView?, in boundary: NSView) -> Bool {
         var current = view
         while let candidate = current {
-            if candidate is BrowserPortalOmnibarSuggestionsHostingView { return true }
+            if candidate is BrowserPortalOmnibarSuggestionsOverlayView { return true }
             if candidate === boundary { return false }
             current = candidate.superview
         }

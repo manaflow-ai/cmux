@@ -140,6 +140,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             readLastSelectionIndex: { nil },
             writeLastSelectionIndex: { _ in },
             setSelectionToTabs: {},
+            currentWindowMoveTargets: { [] },
             snapshotProvider: { nil }
         )
         return SidebarAppKitRowActions(

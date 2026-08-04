@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxAppKitSupportUI
 import UserNotifications
 import Darwin
 import Testing
@@ -484,7 +485,7 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     }
 
     private func assertResolvedColorMatchesTheme(
-        for colorScheme: ColorScheme,
+        for colorScheme: WindowChromeColorScheme,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -904,7 +905,7 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     }
 
     private func assertResolvedColorMatchesExpectedBlend(
-        for colorScheme: ColorScheme,
+        for colorScheme: WindowChromeColorScheme,
         darkenMix: CGFloat,
         file: StaticString = #filePath,
         line: UInt = #line

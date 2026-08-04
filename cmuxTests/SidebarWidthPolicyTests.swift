@@ -339,7 +339,7 @@ struct AppWebThemeContrastTests {
 
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
     func testSelectedColoredWorkspaceUsesStandardSelectionBackgroundInLightAndDark() {
-        for colorScheme in [ColorScheme.light, .dark] {
+        for colorScheme in [WindowChromeColorScheme.light, .dark] {
             let coloredSelected = sidebarWorkspaceRowBackgroundStyle(
                 activeTabIndicatorStyle: .solidFill,
                 isActive: true,
