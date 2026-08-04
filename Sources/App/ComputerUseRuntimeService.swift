@@ -462,6 +462,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         lease: ApplicationSurfaceRuntimeLease,
         windowID: UInt32,
         processID: Int32,
+        processIdentity: ApplicationSurfaceProcessIdentity?,
         frameRate: Int
     ) async throws -> ApplicationSurfaceSessionDescriptor {
         guard (1...120).contains(frameRate), windowID > 0, processID > 0 else {
@@ -469,14 +470,19 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
         let identity = try validatedApplicationSurfaceIdentity(lease: lease)
         let connection = applicationSurfaceInputConnections.makeConnection()
+        var args: [String: Any] = [
+            "window_id": Int(windowID),
+            "process_id": Int(processID),
+            "frame_rate": frameRate,
+        ]
+        if let processIdentity {
+            args["process_start_seconds"] = processIdentity.startSeconds
+            args["process_start_microseconds"] = processIdentity.startMicroseconds
+        }
         guard let response = await Self.sendDaemonRequest(
             [
                 "method": "application_surface_start",
-                "args": [
-                    "window_id": Int(windowID),
-                    "process_id": Int(processID),
-                    "frame_rate": frameRate,
-                ],
+                "args": args,
             ],
             paths: paths,
             transport: transport,
@@ -493,6 +499,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
         }
         let parsed = Self.parseApplicationSurfaceStartResult(
             result,
+            requestedWindowID: windowID,
             requestedFrameRate: frameRate
         )
         guard let sessionID = parsed.sessionID else {
@@ -774,6 +781,7 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
 
     nonisolated static func parseApplicationSurfaceStartResult(
         _ result: [String: Any],
+        requestedWindowID: UInt32? = nil,
         requestedFrameRate: Int = 60
     ) -> (
         sessionID: String?,
@@ -787,6 +795,65 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             sessionID.count <= 128
         else {
             return (nil, nil)
+        }
+        let targetWindowID: UInt32
+        if let rawTargetWindowID = result["targetWindowId"] as? NSNumber {
+            guard
+                CFGetTypeID(rawTargetWindowID) != CFBooleanGetTypeID(),
+                rawTargetWindowID.doubleValue.isFinite,
+                rawTargetWindowID.doubleValue.rounded()
+                    == rawTargetWindowID.doubleValue,
+                let parsedTargetWindowID = UInt32(
+                    exactly: rawTargetWindowID.doubleValue
+                ),
+                parsedTargetWindowID > 0,
+                rawTargetWindowID.compare(
+                    NSNumber(value: parsedTargetWindowID)
+                ) == .orderedSame
+            else {
+                return (sessionID, nil)
+            }
+            targetWindowID = parsedTargetWindowID
+        } else if let requestedWindowID, requestedWindowID > 0 {
+            targetWindowID = requestedWindowID
+        } else {
+            targetWindowID = 0
+        }
+        let processIdentity: ApplicationSurfaceProcessIdentity?
+        switch (
+            result["processStartSeconds"] as? NSNumber,
+            result["processStartMicroseconds"] as? NSNumber
+        ) {
+        case (nil, nil):
+            processIdentity = nil
+        case let (.some(rawSeconds), .some(rawMicroseconds)):
+            guard
+                CFGetTypeID(rawSeconds) != CFBooleanGetTypeID(),
+                CFGetTypeID(rawMicroseconds) != CFBooleanGetTypeID(),
+                rawSeconds.doubleValue.isFinite,
+                rawMicroseconds.doubleValue.isFinite,
+                rawSeconds.doubleValue.rounded() == rawSeconds.doubleValue,
+                rawMicroseconds.doubleValue.rounded()
+                    == rawMicroseconds.doubleValue,
+                let startSeconds = Int64(exactly: rawSeconds.doubleValue),
+                let startMicroseconds = Int64(
+                    exactly: rawMicroseconds.doubleValue
+                ),
+                startSeconds >= 0,
+                (0..<1_000_000).contains(startMicroseconds),
+                rawSeconds.compare(NSNumber(value: startSeconds)) == .orderedSame,
+                rawMicroseconds.compare(
+                    NSNumber(value: startMicroseconds)
+                ) == .orderedSame
+            else {
+                return (sessionID, nil)
+            }
+            processIdentity = ApplicationSurfaceProcessIdentity(
+                startSeconds: startSeconds,
+                startMicroseconds: startMicroseconds
+            )
+        default:
+            return (sessionID, nil)
         }
         guard
             let frame = result["frameTransport"] as? [String: Any],
@@ -825,6 +892,8 @@ final class ComputerUseRuntimeService: ApplicationSurfaceRuntime {
             sessionID,
             ApplicationSurfaceSessionDescriptor(
                 sessionID: sessionID,
+                targetWindowID: targetWindowID > 0 ? targetWindowID : nil,
+                processIdentity: processIdentity,
                 frameTransport: frameTransport,
                 maximumPresentationFramesPerSecond:
                     maximumPresentationFramesPerSecond

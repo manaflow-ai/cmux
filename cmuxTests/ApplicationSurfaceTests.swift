@@ -55,6 +55,34 @@ struct ApplicationSurfaceTests {
         #expect(descriptor.maximumPresentationFramesPerSecond == 32)
     }
 
+    @Test func applicationSurfaceStartPreservesResolvedWindowAndProcessGeneration() throws {
+        let parsed = ComputerUseRuntimeService.parseApplicationSurfaceStartResult(
+            [
+                "sessionId": "rebound-session",
+                "targetWindowId": 84,
+                "processStartSeconds": 1_700_000_000,
+                "processStartMicroseconds": 123_456,
+                "frameTransport": [
+                    "sharedMemoryName": "/cmux-sim-frame-rebound",
+                    "width": 4_096,
+                    "height": 1_024,
+                    "bytesPerRow": 16_384,
+                    "slotCount": 3,
+                    "sharedMemoryByteCount": 50_335_744,
+                ],
+            ],
+            requestedWindowID: 42,
+            requestedFrameRate: 60
+        )
+        let descriptor = try #require(parsed.descriptor)
+
+        #expect(descriptor.targetWindowID == 84)
+        #expect(descriptor.processIdentity == ApplicationSurfaceProcessIdentity(
+            startSeconds: 1_700_000_000,
+            startMicroseconds: 123_456
+        ))
+    }
+
     @Test func runtimeDaemonRequestsCannotUseUnboundedOneShotReads() throws {
         let serviceSourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1380,7 +1408,7 @@ struct ApplicationSurfaceTests {
         }
         try #require(runtime.startWasRequested)
 
-        window.contentView = nil
+        view.setCaptureActive(false)
         let cancellationDeadline = ContinuousClock.now + .seconds(1)
         while !runtime.startCancellationObserved,
               ContinuousClock.now < cancellationDeadline {
@@ -1395,8 +1423,7 @@ struct ApplicationSurfaceTests {
             sessionID: "resumed-after-hidden-start",
             frameTransport: frameRing.descriptor
         )
-        window.contentView = view
-        window.displayIfNeeded()
+        view.setCaptureActive(true)
 
         let streamingDeadline = ContinuousClock.now + .seconds(2)
         while !captureStates.contains(.streaming),
@@ -2803,6 +2830,7 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
         lease: ApplicationSurfaceRuntimeLease,
         windowID: UInt32,
         processID: Int32,
+        processIdentity: ApplicationSurfaceProcessIdentity?,
         frameRate: Int
     ) async throws -> ApplicationSurfaceSessionDescriptor {
         startWasRequested = true

@@ -1,6 +1,11 @@
 import CmuxSimulator
 import Darwin
 
+struct ApplicationSurfaceProcessIdentity: Equatable, Sendable {
+    let startSeconds: Int64
+    let startMicroseconds: Int64
+}
+
 struct ApplicationSurfaceSessionDescriptor: Equatable, Sendable {
     private static let frameHeaderByteCount = 64
     private static let framePixelByteCount = 4
@@ -11,15 +16,21 @@ struct ApplicationSurfaceSessionDescriptor: Equatable, Sendable {
     private static let maximumCopyByteCountPerSecond = 512 * 1_024 * 1_024
 
     let sessionID: String
+    let targetWindowID: UInt32?
+    let processIdentity: ApplicationSurfaceProcessIdentity?
     let frameTransport: SimulatorFrameTransportDescriptor
     let maximumPresentationFramesPerSecond: Int
 
     init(
         sessionID: String,
+        targetWindowID: UInt32? = nil,
+        processIdentity: ApplicationSurfaceProcessIdentity? = nil,
         frameTransport: SimulatorFrameTransportDescriptor,
         maximumPresentationFramesPerSecond: Int = 60
     ) {
         self.sessionID = sessionID
+        self.targetWindowID = targetWindowID
+        self.processIdentity = processIdentity
         self.frameTransport = frameTransport
         self.maximumPresentationFramesPerSecond =
             maximumPresentationFramesPerSecond

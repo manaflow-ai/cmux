@@ -8,11 +8,11 @@ nonisolated struct ApplicationCaptureActivity: Equatable, Sendable {
     let hostVisible: Bool
 
     var ownsSession: Bool {
-        paneWantsCapture && hostAttached
+        paneWantsCapture
     }
 
     var acceptsInput: Bool {
-        ownsSession && hostVisible
+        ownsSession && hostAttached && hostVisible
     }
 }
 
@@ -61,6 +61,8 @@ final class ApplicationCaptureView: NSView {
 
     private let sourceWindowID: UInt32
     private let processID: Int32
+    private var captureWindowID: UInt32
+    private var targetProcessIdentity: ApplicationSurfaceProcessIdentity?
     private let targetFrameRate: Int
     private let runtime: any ApplicationSurfaceRuntime
     private let leaseProvider: @MainActor () async -> ApplicationSurfaceRuntimeLease?
@@ -187,6 +189,7 @@ final class ApplicationCaptureView: NSView {
         }
     ) {
         sourceWindowID = windowID
+        captureWindowID = windowID
         self.processID = processID
         self.targetFrameRate = targetFrameRate
         self.runtime = runtime
@@ -378,8 +381,9 @@ final class ApplicationCaptureView: NSView {
             do {
                 let session = try await self.runtime.startApplicationSurface(
                     lease: lease,
-                    windowID: self.sourceWindowID,
+                    windowID: self.captureWindowID,
                     processID: self.processID,
+                    processIdentity: self.targetProcessIdentity,
                     frameRate: self.targetFrameRate
                 )
                 guard
@@ -392,6 +396,12 @@ final class ApplicationCaptureView: NSView {
                         sessionID: session.sessionID
                     )
                     return
+                }
+                if let targetWindowID = session.targetWindowID {
+                    self.captureWindowID = targetWindowID
+                }
+                if let processIdentity = session.processIdentity {
+                    self.targetProcessIdentity = processIdentity
                 }
                 self.session = session
                 self.beginRuntimeFailureObservation(

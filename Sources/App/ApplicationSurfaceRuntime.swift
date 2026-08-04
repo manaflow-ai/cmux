@@ -8,6 +8,7 @@ protocol ApplicationSurfaceRuntime: AnyObject {
         lease: ApplicationSurfaceRuntimeLease,
         windowID: UInt32,
         processID: Int32,
+        processIdentity: ApplicationSurfaceProcessIdentity?,
         frameRate: Int
     ) async throws -> ApplicationSurfaceSessionDescriptor
     func stopApplicationSurface(
