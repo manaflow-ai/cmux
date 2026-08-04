@@ -509,7 +509,7 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
-    func genericForkCommandRanksAboveNativeShortcutAndDismissesBeforeRunning() {
+    func nativeForkCommandKeepsDefaultPriorityAboveCrossHarnessPicker() {
         let genericBoost = ContentView.commandPaletteForkPriorityBoost(
             commandId: "palette.forkAgentConversation",
             query: "fork"
@@ -519,10 +519,13 @@ struct AgentConversationCrossHarnessForkTests {
             query: "fork"
         )
 
-        #expect(genericBoost > nativeBoost)
-        #expect(nativeBoost > 0)
+        #expect(nativeBoost > genericBoost)
+        #expect(genericBoost > 0)
         #expect(ContentView.commandPaletteShouldDismissBeforeRun(
             forCommandId: "palette.forkAgentConversation"
+        ))
+        #expect(ContentView.commandPaletteShouldDismissBeforeRun(
+            forCommandId: "palette.forkAgentConversationRight"
         ))
     }
 
