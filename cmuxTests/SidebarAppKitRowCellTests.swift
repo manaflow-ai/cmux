@@ -1103,6 +1103,10 @@ struct SidebarAppKitRowCellTests {
 
         cell.beginInlineRename()
 
+        // Editing must actually start (the field editor attaches), not merely
+        // avoid a spurious commit.
+        #expect(cell.renameField.currentEditor() != nil)
+
         // On the buggy path, selectText(nil) re-entered the field-editor
         // machinery and fired controlTextDidEndEditing synchronously,
         // committing the untouched title. The field must stay editable with

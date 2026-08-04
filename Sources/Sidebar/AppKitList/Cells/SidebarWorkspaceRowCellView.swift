@@ -1016,9 +1016,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // untouched title, so the field flashes and the user can never type.
         needsLayout = true
         layoutSubtreeIfNeeded()
-        let tookFocus = window?.makeFirstResponder(renameField) ?? false
 #if DEBUG
+        let tookFocus = window?.makeFirstResponder(renameField) ?? false
         cmuxDebugLog("sidebar.row.beginInlineRename tookFocus=\(tookFocus ? 1 : 0) window=\(window == nil ? 0 : 1)")
+#else
+        _ = window?.makeFirstResponder(renameField)
 #endif
         // Do NOT call selectText(nil) here: makeFirstResponder already starts
         // editing an editable NSTextField (selecting all by default), and the
@@ -1363,6 +1365,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 final class SidebarRowInlineRenameField: NSTextField, NSTextFieldDelegate {
     var onCommit: ((String) -> Void)?
     var onCancel: (() -> Void)?
+    /// Prior field-editor styling captured in controlTextDidBeginEditing and
+    /// restored on end-editing so the shared editor does not leak its
+    /// transparent background to later controls in the window.
+    private var savedEditorDrawsBackground: Bool?
+    private var savedEditorBackgroundColor: NSColor?
 
     init() {
         super.init(frame: .zero)
@@ -1391,6 +1398,10 @@ final class SidebarRowInlineRenameField: NSTextField, NSTextFieldDelegate {
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
+        // Restore the shared field editor's prior styling before committing,
+        // so the transparent background set in controlTextDidBeginEditing
+        // does not leak to the next control edited in this window.
+        restoreFieldEditorStyling()
         guard !isHidden else { return }
         onCommit?(stringValue)
     }
@@ -1400,9 +1411,20 @@ final class SidebarRowInlineRenameField: NSTextField, NSTextFieldDelegate {
         // borderless field draws its own white background by default, putting
         // white selected-row text on a white box. Make it transparent so the
         // row's accent fill shows through, matching how the title renders.
-        if let editor = window?.firstResponder as? NSTextView {
-            editor.drawsBackground = false
-            editor.backgroundColor = .clear
-        }
+        guard let editor = window?.firstResponder as? NSTextView else { return }
+        savedEditorDrawsBackground = editor.drawsBackground
+        savedEditorBackgroundColor = editor.backgroundColor
+        editor.drawsBackground = false
+        editor.backgroundColor = .clear
+    }
+
+    private func restoreFieldEditorStyling() {
+        let drawsBackground = savedEditorDrawsBackground
+        let backgroundColor = savedEditorBackgroundColor
+        savedEditorDrawsBackground = nil
+        savedEditorBackgroundColor = nil
+        guard let editor = window?.firstResponder as? NSTextView else { return }
+        if let drawsBackground { editor.drawsBackground = drawsBackground }
+        if let backgroundColor { editor.backgroundColor = backgroundColor }
     }
 }
