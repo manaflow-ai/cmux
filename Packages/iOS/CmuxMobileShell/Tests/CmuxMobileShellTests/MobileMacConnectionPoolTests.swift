@@ -1236,6 +1236,7 @@ import Testing
             now: Date()
         )
         let router = LivenessHostRouter()
+        let transportBox = TransportBox()
         await router.setHostIdentity(
             deviceID: "mac-control-race",
             instanceTag: "control-race-tag",
@@ -1246,7 +1247,7 @@ import Testing
             runtime: LivenessTestRuntime(
                 transportFactory: LivenessTransportFactory(
                     router: router,
-                    box: TransportBox()
+                    box: transportBox
                 ),
                 now: { Date() }
             ),
@@ -1267,6 +1268,7 @@ import Testing
         #expect(try await pollUntil {
             await router.heldRequestCount() == 1
         })
+        let controlTransport = try #require(transportBox.get())
         let ticket = try CmxAttachTicket(
             workspaceID: "live-workspace",
             terminalID: "live-terminal",
@@ -1285,10 +1287,17 @@ import Testing
         }
         for _ in 0 ..< 5 { await Task.yield() }
 
-        // The foreground owns this route before it dials. It must wait for the
-        // suspended control attempt to retire instead of admitting a competing
-        // live session that invalidates the terminal lane on the host.
-        #expect(await router.count(of: "mobile.host.status") == 1)
+        // Task scheduling may let the foreground send its status request before
+        // this test releases the old mocked response. That is safe only after
+        // cancellation has closed the control transport, which is the physical
+        // overlap the reservation prevents.
+        let statusCountBeforeRelease = await router.count(
+            of: "mobile.host.status"
+        )
+        #expect((1 ... 2).contains(statusCountBeforeRelease))
+        if statusCountBeforeRelease == 2 {
+            #expect(await controlTransport.isClosedForTesting())
+        }
 
         await router.releaseAllHeld()
         _ = try await foregroundAttach.value
