@@ -3417,6 +3417,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_resolver_drains_output_while_the_child_is_running() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-large-output-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let binary = root.join("ghostty-config-helper");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\n\
+             i=0\n\
+             while [ \"$i\" -lt 4096 ]; do\n\
+               printf 'palette = 1=#010203\\n'\n\
+               i=$((i + 1))\n\
+             done\n\
+             printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let output = run_ghostty_show_config(&platform::GhosttyInstallation {
+            binary,
+            resources_dir: None,
+        })
+        .expect("a resolver must not deadlock when its output exceeds the pipe capacity");
+        assert!(output.contains("background = #272822"));
+        assert!(output.contains("foreground = #fdfff1"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn unusable_packaged_ghostty_resolver_falls_through() {
         let broken = PathBuf::from("/cmux-test/copied-app-binary");

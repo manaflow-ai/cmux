@@ -20693,6 +20693,96 @@ mod tests {
     }
 
     #[test]
+    fn status_message_drag_selection_highlights_the_visible_text() {
+        let (mux, _) = test_mux("status-message-selection-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.status_message = Some("attach failed".to_string());
+        app.sync_layout((80, 25));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let y = 24;
+        let start = (0..80)
+            .find(|x| terminal.backend().buffer()[(*x, y)].symbol() == "a")
+            .expect("status message must render on the final row");
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: start,
+            row: y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: start + 5,
+            row: y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: start + 5,
+            row: y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        for x in start..=start + 5 {
+            assert_eq!(
+                terminal.backend().buffer()[(x, y)].bg,
+                app.config.theme.selection_bg,
+                "status cell {x} must retain the native selection highlight"
+            );
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn status_message_context_menu_offers_full_message_copy() {
+        let (mux, _) = test_mux("status-message-copy-menu-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.status_message = Some("attach failed with details beyond the visible label".to_string());
+        app.sync_layout((80, 25));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let y = 24;
+        let x = (0..80)
+            .find(|x| terminal.backend().buffer()[(*x, y)].symbol() == "a")
+            .expect("status message must render on the final row");
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: x,
+            row: y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        let labels = app
+            .menu
+            .as_ref()
+            .expect("right-clicking the status message must open a menu")
+            .actions()
+            .into_iter()
+            .map(|action| action.label())
+            .collect::<Vec<_>>();
+        assert!(labels.contains(&"Copy message"), "status menu actions: {labels:?}");
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn viewport_columns_resize_with_shortcuts_and_mouse_drag() {
         let mux = Mux::new("viewport-pane-resize-test", SurfaceOptions::default());
         mux.new_workspace(None, Some((80, 24))).unwrap();
