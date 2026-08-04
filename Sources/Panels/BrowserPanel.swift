@@ -3768,7 +3768,9 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
-        configureMoveTabToNewWorkspaceContextMenu(for: webView); configureNavigationDelegateCallbacks()
+        configureMoveTabToNewWorkspaceContextMenu(for: webView)
+        setupMediaPlaybackMessageHandler(for: webView)
+        configureNavigationDelegateCallbacks(mediaPlaybackMessageHandler: mediaPlaybackMessageHandler)
         automationDocumentReadiness.bind(to: webViewInstanceID, hasCommittedDocument: webView.backForwardList.currentItem != nil)
         automationNavigationCoordinator.bind(to: webViewInstanceID)
         webView.cmuxDownloadDelegate = downloadDelegate
@@ -3779,7 +3781,6 @@ final class BrowserPanel: Panel, ObservableObject {
         setupReactGrabMessageHandler(for: webView)
         designModeController.install(on: webView)
         setupSSLTrustBypassMessageHandler(for: webView)
-        setupMediaPlaybackMessageHandler(for: webView)
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
         mobileBrowserWebViewDidBind()
@@ -3800,7 +3801,9 @@ final class BrowserPanel: Panel, ObservableObject {
         userContentController.add(handler, name: BrowserSSLTrustBypassMessageHandler.name)
     }
 
-    private func configureNavigationDelegateCallbacks() {
+    private func configureNavigationDelegateCallbacks(
+        mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
+    ) {
         guard let navigationDelegate else { return }
         let boundWebViewInstanceID = webViewInstanceID
         let boundHistoryStore = historyStore
@@ -3831,6 +3834,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didCommit = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                mediaPlaybackMessageHandler?.noteMainFrameNavigationCommit()
                 self.designModeController.webViewWillNavigate()
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
                 self.isMainFrameProvisionalNavigationActive = false
