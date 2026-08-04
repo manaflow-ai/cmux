@@ -80,6 +80,7 @@ extension RestorableAgentSessionIndex {
         resolved.merge(processDetectedForkParentFallbackSnapshots(processSnapshot: processSnapshot, capturedAt: capturedAt, scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey, processArgumentsProvider: cachedProcessArguments)) { existing, _ in existing }
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
+        let scopedProcesses = processSnapshot.cmuxScopedProcesses()
 
         func registryForWorkingDirectory(_ workingDirectory: String?) -> CmuxVaultAgentRegistry {
             guard let workingDirectory else { return registry }
@@ -95,7 +96,15 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
-        for process in processSnapshot.cmuxScopedProcesses() {
+        var persistedSessionResolver = VaultPersistedSessionResolver()
+        persistedSessionResolver.registerFreshProcesses(
+            processes: scopedProcesses,
+            processArgumentsProvider: cachedProcessArguments,
+            registryProvider: registryForWorkingDirectory
+        )
+
+        let nativeKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
+        for process in scopedProcesses {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
                   let processArguments = cachedProcessArguments(process.pid) else {
@@ -109,12 +118,14 @@ extension RestorableAgentSessionIndex {
             )
             let cwd = normalized(observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"])
             let processRegistry = registryForWorkingDirectory(cwd)
-            guard let registration = processRegistry.registrations.first(where: { $0.detect.matches(observed) }),
+            guard let registration = processRegistry.matchingRegistration(for: observed),
                   registration.processDetectedSnapshotIsRestorable(for: observed),
                   let sessionIDResolution = registration.sessionIdSource.sessionIDResolution(
                       from: observed,
                       registration: registration,
-                      fileManager: fileManager
+                      cwd: cwd,
+                      fileManager: fileManager,
+                      persistedSessionResolver: &persistedSessionResolver
                   ) else {
                 continue
             }
@@ -133,8 +144,11 @@ extension RestorableAgentSessionIndex {
                 ).normalized(arguments: observed.arguments)
                 executablePath = arguments.first ?? registration.defaultExecutable
             }
+            let kind = nativeKindIDs.contains(registration.id)
+                ? (RestorableAgentKind(rawValue: registration.id) ?? .custom(registration.id))
+                : .custom(registration.id)
             let snapshot = SessionRestorableAgentSnapshot(
-                kind: .custom(registration.id),
+                kind: kind,
                 sessionId: sessionId,
                 workingDirectory: registration.cwd == .ignore ? nil : cwd,
                 launchCommand: AgentLaunchCommandSnapshot(
@@ -669,7 +683,9 @@ private extension CmuxVaultAgentSessionIDSource {
     func sessionIDResolution(
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        cwd: String?,
+        fileManager: FileManager,
+        persistedSessionResolver: inout VaultPersistedSessionResolver
     ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
@@ -711,6 +727,27 @@ private extension CmuxVaultAgentSessionIDSource {
                 return nil
             }
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
+        case .persistedStore(let store):
+            guard registration.persistedSessionStoreCapability == store else {
+                return nil
+            }
+            if let explicitSessionID = store.explicitSessionID(arguments: process.arguments) {
+                return VaultAgentSessionIDResolution(
+                    sessionId: explicitSessionID,
+                    source: .explicit
+                )
+            }
+            guard let cwd,
+                  let sessionID = persistedSessionResolver.uniqueSessionID(
+                      store: store,
+                      environment: process.environment,
+                      cwd: cwd
+                  ) else {
+                return nil
+            }
+            // A persisted-store result is emitted only for a unique active row and unique live
+            // process owner, so it is authoritative rather than a fuzzy "latest file" guess.
+            return VaultAgentSessionIDResolution(sessionId: sessionID, source: .explicit)
         }
     }
 }

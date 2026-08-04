@@ -39,6 +39,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            dispatch: .pinned(marker: "cmux-grok-hook-v2"),
             publishesStopNotification: false,
             sessionEndIsTurnBoundary: true,
             feedHookEvents: ["PreToolUse"]
@@ -142,6 +143,7 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             aliases: ["agy"],
+            dispatch: .pinned(marker: "cmux-antigravity-hook-v2"),
             sessionEndIsTurnBoundary: true
         ),
         AgentHookDef(
@@ -172,6 +174,7 @@ extension CMUXCLI {
                 .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-finalize"),
                 .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
             ],
+            dispatch: .pinned(marker: "cmux-hermes-agent-hook-v2"),
             sessionEndIsTurnBoundary: true,
             feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
         ),

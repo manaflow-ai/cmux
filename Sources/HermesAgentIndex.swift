@@ -26,7 +26,7 @@ extension SessionIndexStore {
                 agent: .hermesAgent,
                 sessionId: session.sessionId,
                 title: session.title,
-                cwd: nil,
+                cwd: session.cwd,
                 gitBranch: nil,
                 pullRequest: nil,
                 modified: session.modified,

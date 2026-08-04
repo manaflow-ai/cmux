@@ -26,6 +26,12 @@ extension CMUXCLI {
         let format: HookFormat
         let events: [HookEvent]
         let aliases: Set<String>
+        /// How installed hooks find the cmux instance that owns them.
+        ///
+        /// `.ambient` is appropriate when an agent preserves the launch environment. `.pinned`
+        /// embeds the installing CLI and socket, which is required for agents that sanitize hook
+        /// subprocess environments and keeps callbacks attributed to the correct tagged app.
+        let dispatch: HookDispatch
         let publishesStopNotification: Bool
         /// Whether this agent's `SessionEnd`/`session-end` hook fires once per
         /// conversation turn rather than at a true session teardown.
@@ -60,6 +66,11 @@ extension CMUXCLI {
             case rovoDevYAML
             case hermesAgentYAML
             case tomlArrayTable // ~/.kimi/config.toml [[hooks]] array-of-tables
+        }
+
+        enum HookDispatch {
+            case ambient
+            case pinned(marker: String)
         }
 
         struct HookEvent {
@@ -109,6 +120,7 @@ extension CMUXCLI {
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
              aliases: Set<String> = [],
+             dispatch: HookDispatch = .ambient,
              publishesStopNotification: Bool = true,
              sessionEndIsTurnBoundary: Bool = false,
              feedHookEvents: [String] = [],
@@ -123,6 +135,7 @@ extension CMUXCLI {
             self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
+            self.dispatch = dispatch
             self.publishesStopNotification = publishesStopNotification
             self.sessionEndIsTurnBoundary = sessionEndIsTurnBoundary
             self.aliases = Set(aliases.compactMap { alias in
@@ -232,15 +245,12 @@ extension CMUXCLI {
         return "{ \(command); }"
     }
 
-    private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
-    private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
-
     private static func agentHookShellCommand(
         _ command: String,
         for def: AgentHookDef,
         noOpCommand: String = "echo '{}'"
     ) -> String {
-        if usesPinnedHookDispatch(def) {
+        if case .pinned = def.dispatch {
             return pinnedAgentHookShellCommand(command, for: def, noOpCommand: noOpCommand)
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
@@ -258,19 +268,14 @@ extension CMUXCLI {
         return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; status=$?; if [ \"$status\" -eq 2 ]; then exit 2; fi; if [ \"$status\" -ne 0 ]; then \(noOpSnippet); fi; else \(noOpSnippet); fi"
     }
 
-    private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
-        def.name == "grok" || def.name == "antigravity"
-    }
-
-    private static func pinnedHookMarker(for def: AgentHookDef) -> String {
-        def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
-    }
-
     private static func pinnedAgentHookShellCommand(
         _ command: String,
         for def: AgentHookDef,
         noOpCommand: String = "echo '{}'"
     ) -> String {
+        guard case .pinned(let marker) = def.dispatch else {
+            return agentHookShellCommand(command, for: def, noOpCommand: noOpCommand)
+        }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let socketPath = pinnedAgentHookSocketPath()
         let noOpSnippet = shellNoOpSnippet(noOpCommand)
@@ -310,7 +315,7 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || \(noOpSnippet)"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpSnippet); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        return ": \(marker); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpSnippet); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
     }
 
     private static func pinnedHookInvocation(
@@ -420,7 +425,7 @@ extension CMUXCLI {
     }
 
     static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
-        if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
+        if case .pinned(let marker) = def.dispatch, command.contains(marker) {
             return true
         }
         if def.name == "codex", isCmuxOwnedCodexHookScriptCommand(command) {
