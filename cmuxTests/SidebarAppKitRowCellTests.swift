@@ -296,6 +296,8 @@ struct SidebarAppKitRowCellTests {
     @discardableResult
     private static func click(_ view: NSView, in window: NSWindow, at point: NSPoint) throws -> NSView {
         #expect(view.window === window)
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
         let windowPoint = view.convert(point, to: nil)
         let windowNumber = window.windowNumber
         let timestamp = ProcessInfo.processInfo.systemUptime
