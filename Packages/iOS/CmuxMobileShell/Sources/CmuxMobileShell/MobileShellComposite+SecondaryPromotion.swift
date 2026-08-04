@@ -62,10 +62,12 @@ extension MobileShellComposite {
             focusedHandoffPreparedGenerations.remove(connection.generation)
         }
         guard terminalStopped else {
+            removeControlCapability(ifMatching: connection)
             removeFocusedConnection(ifMatching: connection)
             return
         }
         guard retainAsControl else {
+            removeControlCapability(ifMatching: connection)
             guard removeFocusedConnection(ifMatching: connection) else {
                 return
             }
@@ -81,12 +83,22 @@ extension MobileShellComposite {
     /// `workspacesByMac`, so the aggregate never blinks while roles change.
     func installControlConnection(from connection: MacConnection) async {
         guard multiMacAggregationEnabled else {
+            removeControlCapability(ifMatching: connection)
             removeFocusedConnection(ifMatching: connection)
             connection.client.retire()
             Task { await connection.client.disconnect() }
             return
         }
-        let subscription = makeControlSubscription(from: connection)
+        let existing = secondaryMacSubscriptions[connection.ownerKey]
+        let subscription: SecondaryMacSubscription
+        let needsActivation: Bool
+        if let existing, existing.client === connection.client {
+            subscription = existing
+            needsActivation = false
+        } else {
+            subscription = makeControlSubscription(from: connection)
+            needsActivation = true
+        }
         guard transitionFocusedConnectionToControl(
             subscription,
             replacing: connection
@@ -98,10 +110,15 @@ extension MobileShellComposite {
             }
             return
         }
-        await activateDemotedControlConnection(
-            subscription,
-            from: connection
-        )
+        if needsActivation {
+            await activateDemotedControlConnection(
+                subscription,
+                from: connection
+            )
+        } else {
+            focusedHandoffPreparedGenerations.remove(connection.generation)
+            await synchronizeTransportSessionPurpose(connection.client)
+        }
     }
 
     func makeControlSubscription(
@@ -130,9 +147,7 @@ extension MobileShellComposite {
               !subscription.isTransitioningToFocus else {
             return
         }
-        await connection.client.updateTransportSessionPurpose(
-            .backgroundControl
-        )
+        await synchronizeTransportSessionPurpose(connection.client)
         // A concurrent switch may have promoted or removed this exact owner
         // while the transport actor applied its role. Its newer role update
         // wins; only the still-current control owner may start maintenance.
@@ -553,6 +568,7 @@ extension MobileShellComposite {
         sub.detachKeepingClient()
         let displayName = workspacesByMac[ownerKey]?.displayName
         var demotedForegroundSubscription: SecondaryMacSubscription?
+        var demotedForegroundNeedsActivation = false
         // Compare OWNER KEYS, not device ids: promoting a sibling build of the
         // foreground's own physical Mac still changes owners, and skipping the
         // handoff here would leave two focused registry entries.
@@ -584,7 +600,12 @@ extension MobileShellComposite {
                 focusedHandoffPreparedGenerations.remove(
                     previousForegroundConnection.generation
                 )
-                demotedForegroundSubscription = subscription
+                let retainedSubscription = secondaryMacSubscriptions[
+                    previousForegroundConnection.ownerKey
+                ] ?? subscription
+                demotedForegroundSubscription = retainedSubscription
+                demotedForegroundNeedsActivation =
+                    retainedSubscription === subscription
                 // The old foreground's feed lived under its bare device key;
                 // as a TAGGED secondary its refreshes publish under the
                 // pairing key, so the bare source would linger as a duplicate
@@ -596,6 +617,9 @@ extension MobileShellComposite {
                     )
                 }
             } else {
+                removeControlCapability(
+                    ifMatching: previousForegroundConnection
+                )
                 removeFocusedConnection(ifMatching: previousForegroundConnection)
             }
         }
@@ -662,11 +686,19 @@ extension MobileShellComposite {
         installFocusedConnection(promotedConnection)
         if let previousForegroundConnection,
            let demotedForegroundSubscription {
-            Task { @MainActor [weak self] in
-                await self?.activateDemotedControlConnection(
-                    demotedForegroundSubscription,
-                    from: previousForegroundConnection
-                )
+            if demotedForegroundNeedsActivation {
+                Task { @MainActor [weak self] in
+                    await self?.activateDemotedControlConnection(
+                        demotedForegroundSubscription,
+                        from: previousForegroundConnection
+                    )
+                }
+            } else {
+                Task { @MainActor [weak self] in
+                    await self?.synchronizeTransportSessionPurpose(
+                        previousForegroundConnection.client
+                    )
+                }
             }
         }
         // Promotion reuses the live client without a fresh `mobile.host.status`
