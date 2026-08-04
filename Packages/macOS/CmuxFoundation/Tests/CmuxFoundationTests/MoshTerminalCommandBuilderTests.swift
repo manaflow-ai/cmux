@@ -192,10 +192,57 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("creates the attach attempt before staging the remote bootstrap")
+    func preparationSeesCurrentAttempt() throws {
+        try withFakeCommands(sshStatus: 0) { directory, environment in
+            let attemptFile = directory.appendingPathComponent("staged-attempt")
+            let result = try run(
+                builder(
+                    preparationShellScript:
+                        "printf '%s' \"$CMUX_SSH_ATTEMPT_ID\" > '\(attemptFile.path)'",
+                    remoteRelayPort: 64_007
+                ),
+                environment: environment
+            )
+            let stagedAttempt = try String(contentsOf: attemptFile, encoding: .utf8)
+            let lifecycleCalls = try String(
+                contentsOf: directory.appendingPathComponent("cmux.args"),
+                encoding: .utf8
+            )
+
+            #expect(result.status == 0)
+            #expect(UUID(uuidString: stagedAttempt) != nil)
+            #expect(lifecycleCalls.contains(#""attempt_id":"\#(stagedAttempt)""#))
+        }
+    }
+
+    @Test("does not report connected before the Mosh transport establishes")
+    func failedMoshDoesNotReportConnected() throws {
+        try withFakeCommands(sshStatus: 0, moshStatus: 71) { directory, environment in
+            let result = try run(
+                builder(remoteRelayPort: 64_007),
+                environment: environment
+            )
+            let lifecycleCalls = try String(
+                contentsOf: directory.appendingPathComponent("cmux.args"),
+                encoding: .utf8
+            )
+
+            #expect(result.status == 71)
+            #expect(lifecycleCalls.contains(
+                "rpc workspace.remote.terminal_session_launching"
+            ))
+            #expect(!lifecycleCalls.contains(
+                "rpc workspace.remote.terminal_session_connected"
+            ))
+        }
+    }
+
     private func builder(
         sshFallbackCommand: String = "exit 90",
         preparationShellScript: String? = nil,
         managementReadyShellScript: String? = nil,
+        remoteRelayPort: Int? = nil,
         localMoshExecutableName: String = "mosh"
     ) -> MoshTerminalCommandBuilder {
         MoshTerminalCommandBuilder(
@@ -204,6 +251,7 @@ struct MoshTerminalCommandBuilderTests {
             localMoshExecutableName: localMoshExecutableName,
             destination: "user@example.com",
             remoteCommandArguments: ["command", "space arg", "quote'arg"],
+            remoteRelayPort: remoteRelayPort,
             preparationShellScript: preparationShellScript,
             managementReadyShellScript: managementReadyShellScript,
             sshFallbackCommand: sshFallbackCommand,
@@ -221,6 +269,7 @@ struct MoshTerminalCommandBuilderTests {
         executeRemoteCommand: Bool = false,
         installRemoteMoshServerOutsidePath: Bool = false,
         requireManagementReady: Bool = false,
+        moshStatus: Int32 = 0,
         operation: (URL, [String: String]) throws -> Void
     ) throws {
         let directory = FileManager.default.temporaryDirectory
@@ -243,6 +292,15 @@ struct MoshTerminalCommandBuilderTests {
             """,
             in: directory
         )
+        try installExecutable(
+            named: "cmux",
+            script: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "$CMUX_ARGS_FILE"
+            exit 0
+            """,
+            in: directory
+        )
         if installMosh {
             try installExecutable(
                 named: "mosh",
@@ -258,6 +316,7 @@ struct MoshTerminalCommandBuilderTests {
                   exit 71
                 fi
                 printf '%s\\n' "$@" > "$MOSH_ARGS_FILE"
+                exit "$FAKE_MOSH_STATUS"
                 """,
                 in: directory
             )
@@ -282,9 +341,16 @@ struct MoshTerminalCommandBuilderTests {
             "FAKE_REMOTE_HOME": remoteHome.path,
             "FAKE_MOSH_SUPPORTS_REMOTE_IP": moshSupportsRemoteIP ? "1" : "0",
             "FAKE_REQUIRE_MANAGEMENT_READY": requireManagementReady ? "1" : "0",
+            "FAKE_MOSH_STATUS": String(moshStatus),
             "MANAGEMENT_READY_FILE": directory.appendingPathComponent("management.ready").path,
             "SSH_ARGS_FILE": directory.appendingPathComponent("ssh.args").path,
             "MOSH_ARGS_FILE": directory.appendingPathComponent("mosh.args").path,
+            "CMUX_ARGS_FILE": directory.appendingPathComponent("cmux.args").path,
+            "CMUX_BUNDLED_CLI_PATH": directory.appendingPathComponent("cmux").path,
+            "CMUX_SOCKET_PATH": "/tmp/cmux-mosh-test.sock",
+            "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
         ])
     }
 

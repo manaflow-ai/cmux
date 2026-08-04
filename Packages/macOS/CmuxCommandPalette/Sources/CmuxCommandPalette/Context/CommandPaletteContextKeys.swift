@@ -55,6 +55,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelBrowserOmnibarVisible = CommandPaletteContextKeys(rawValue: "panel.browser.omnibarVisible")
     /// Whether the focused panel is markdown.
     public static let panelIsMarkdown = CommandPaletteContextKeys(rawValue: "panel.isMarkdown")
+    /// Whether the focused panel is a native Simulator.
+    public static let panelIsSimulator = CommandPaletteContextKeys(rawValue: "panel.isSimulator")
     /// Whether the focused panel is a text file preview editor.
     public static let panelIsFilePreviewTextEditor = CommandPaletteContextKeys(rawValue: "panel.isFilePreviewTextEditor")
     /// Whether the focused panel is a terminal.

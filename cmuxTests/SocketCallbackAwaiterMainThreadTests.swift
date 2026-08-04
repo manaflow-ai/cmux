@@ -53,4 +53,34 @@ import Testing
 
         #expect(result == nil)
     }
+
+    @Test
+    func timedOutReloadWaiterRetainsAdmissionUntilCallbackRetires() {
+        let admission =
+            SocketReloadConfigurationWaiterAdmission(
+                maximumConcurrentWaiters: 1
+            )
+        let lease = admission.claim()
+        #expect(lease != nil)
+        nonisolated(unsafe) var retireCallback:
+            (() -> Void)?
+
+        let result: Void? = socketAwaitCallback(
+            timeout: 0.01,
+            isMainThread: false
+        ) { completion in
+            retireCallback = {
+                completion(())
+                lease?.retire()
+            }
+        }
+
+        #expect(result == nil)
+        #expect(admission.claim() == nil)
+
+        retireCallback?()
+        let replacement = admission.claim()
+        #expect(replacement != nil)
+        replacement?.retire()
+    }
 }

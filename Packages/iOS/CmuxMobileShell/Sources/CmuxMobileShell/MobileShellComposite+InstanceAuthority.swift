@@ -13,7 +13,7 @@ extension MobileShellComposite {
         macDeviceID: String?
     ) async -> Bool {
         guard case .adopt = expectation,
-              MobileMacInstanceTagAuthority.normalized(reportedInstanceTag) == nil,
+              macInstanceTagAuthority.normalize(reportedInstanceTag) == nil,
               let macDeviceID = macDeviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !macDeviceID.isEmpty,
               let pairedMacStore,
@@ -24,6 +24,6 @@ extension MobileShellComposite {
             teamID: scope.teamID
         ).first { cmxCanonicalDeviceID($0.macDeviceID) == canonicalDeviceID }
         guard await isScopeCurrent(scope) else { return true }
-        return MobileMacInstanceTagAuthority.normalized(existing?.instanceTag) != nil
+        return macInstanceTagAuthority.normalize(existing?.instanceTag) != nil
     }
 }

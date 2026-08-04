@@ -118,24 +118,43 @@ extension TerminalController {
         }
     }
 
+    /// Resolves a UUID-addressed panel's current owner. Callers that schedule
+    /// mutations invoke this at drain time so updates follow a moved pane.
+    func controlSidebarResolvePanelOwner(
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> ControlSidebarPanelOwner? {
+        if let panelID,
+           let dock = DockSplitStore.liveStores.first(where: { $0.containsPanel(panelID) }) {
+            return .dock(dock)
+        }
+        var tab = controlSidebarResolveMutationTab(target)
+        if let panelID, case .workspace = target,
+           tab?.panels.keys.contains(panelID) != true,
+           let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: panelID) {
+            tab = owner.workspace
+        }
+        guard let tab else { return nil }
+        if let panelID, !tab.panels.keys.contains(panelID) { return nil }
+        return .workspace(tab)
+    }
+
     /// Resolves a UUID-addressed panel's owner inside the deferred mutation so
     /// agent runtime updates follow a pane that moved after the socket request.
     nonisolated func controlSidebarSchedulePanelOwnedMutation(
         target: ControlSidebarTabTarget,
         panelID: UUID?,
-        mutation: @escaping @MainActor (TerminalController, Workspace) -> Void
+        mutation: @escaping @MainActor (TerminalController, ControlSidebarPanelOwner) -> Void
     ) {
         TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
-            guard let self else { return }
-            var tab = self.controlSidebarResolveMutationTab(target)
-            if let panelID, case .workspace = target,
-               tab?.panels.keys.contains(panelID) != true,
-               let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: panelID) {
-                tab = owner.workspace
+            guard let self,
+                  let owner = self.controlSidebarResolvePanelOwner(
+                      target: target,
+                      panelID: panelID
+                  ) else {
+                return
             }
-            guard let tab else { return }
-            if let panelID, !tab.panels.keys.contains(panelID) { return }
-            mutation(self, tab)
+            mutation(self, owner)
         }
     }
 
