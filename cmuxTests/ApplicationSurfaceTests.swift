@@ -1227,6 +1227,70 @@ struct ApplicationSurfaceTests {
         #expect(captureStates.contains(.streaming))
     }
 
+    @Test
+    func transientHostOcclusionKeepsCaptureSessionAlive() async throws {
+        _ = NSApplication.shared
+        let frameRing = try ApplicationSurfaceFrameRingFixture()
+        let service = ComputerUseRuntimeService()
+        let lease = ApplicationSurfaceRuntimeLease(
+            service: service,
+            identifier: UUID()
+        )
+        let runtime = FakeApplicationSurfaceRuntime()
+        runtime.sessionToStart = ApplicationSurfaceSessionDescriptor(
+            sessionID: "survives-host-occlusion",
+            frameTransport: frameRing.descriptor
+        )
+        var captureStates: [ApplicationCaptureState] = []
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { lease },
+            onStateChanged: { state, _ in
+                captureStates.append(state)
+            },
+            onMovedToWindow: { _ in }
+        )
+        let window = ApplicationSurfaceOcclusionTestWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        view.setCaptureActive(true)
+        defer {
+            view.teardown()
+            window.contentView = nil
+            window.close()
+            withExtendedLifetime(service) {}
+        }
+
+        let streamingDeadline = ContinuousClock.now + .seconds(2)
+        while !captureStates.contains(.streaming),
+              ContinuousClock.now < streamingDeadline {
+            await Task.yield()
+        }
+        try #require(captureStates.contains(.streaming))
+        #expect(runtime.startRequestCount == 1)
+
+        window.reportsOccluded = true
+        NotificationCenter.default.post(
+            name: NSWindow.didChangeOcclusionStateNotification,
+            object: window
+        )
+        await Task.yield()
+
+        #expect(runtime.stoppedSessionIDs.isEmpty)
+        #expect(runtime.startRequestCount == 1)
+        #expect(captureStates.last == .streaming)
+    }
+
     @Test func dormantApplicationCaptureStartsWithSuspendedHealth() {
         let panel = ApplicationPanel(
             workspaceId: UUID(),
@@ -2539,7 +2603,9 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
     var sentEvents: [ApplicationSurfaceInputEvent] = []
     var waitForStartCancellation = false
     var startWasRequested = false
+    var startRequestCount = 0
     var startCancellationObserved = false
+    var stoppedSessionIDs: [String] = []
 
     func acquireApplicationSurfaceLease() async -> ApplicationSurfaceRuntimeLease? {
         nil
@@ -2561,6 +2627,7 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
         frameRate: Int
     ) async throws -> ApplicationSurfaceSessionDescriptor {
         startWasRequested = true
+        startRequestCount += 1
         if waitForStartCancellation {
             while !Task.isCancelled {
                 await Task.yield()
@@ -2577,7 +2644,9 @@ private final class FakeApplicationSurfaceRuntime: ApplicationSurfaceRuntime {
     func stopApplicationSurface(
         lease: ApplicationSurfaceRuntimeLease,
         sessionID: String
-    ) async {}
+    ) async {
+        stoppedSessionIDs.append(sessionID)
+    }
 
     func acknowledgeApplicationSurfaceAttachment(
         lease: ApplicationSurfaceRuntimeLease,
@@ -2673,6 +2742,17 @@ private final class ApplicationSurfaceVisibleTestWindow: NSWindow {
     override var isVisible: Bool { true }
 
     override var occlusionState: NSWindow.OcclusionState { [.visible] }
+}
+
+@MainActor
+private final class ApplicationSurfaceOcclusionTestWindow: NSWindow {
+    var reportsOccluded = false
+
+    override var isVisible: Bool { true }
+
+    override var occlusionState: NSWindow.OcclusionState {
+        reportsOccluded ? [] : [.visible]
+    }
 }
 
 @_silgen_name("cmux_simulator_shm_open")
