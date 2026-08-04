@@ -105,8 +105,12 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
         )
 
         check_env = env.copy()
+        check_env.pop("CMUX_AMP_HOOKS_DISABLED", None)
         check_env["CMUX_TEST_AMP_EXTENSION_PATH"] = str(extension_path)
         check_env["CMUX_SURFACE_ID"] = "surface-amp-test"
+        check_env["CMUX_WORKSPACE_ID"] = (
+            "55555555-5555-5555-5555-555555555555"
+        )
         check_env["CMUX_AMP_CMUX_BIN"] = str(fake_cmux)
         check_env["AMP_API_KEY"] = "secret-should-not-propagate"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
@@ -157,6 +161,222 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
             print(f"exit={check.returncode}")
             print(f"stdout={check.stdout.strip()}")
             print(f"stderr={check.stderr.strip()}")
+            return 1
+
+        # Exercise turn settlement through an observable spawn seam. The real
+        # plugin deliberately unrefs its cmux subprocesses, so observing the
+        # spawn calls directly avoids timing assertions on detached children.
+        fake_spawn_path = extension_path.parent / "cmux-test-spawn.mjs"
+        fake_spawn_path.write_text(
+            """
+export function spawn(command, args, options) {
+  const call = { command, args: Array.from(args || []), options, stdin: "" };
+  globalThis.__cmuxAmpSpawnCalls.push(call);
+  return {
+    on(name, callback) {
+      if (name === "close") queueMicrotask(() => callback(0));
+    },
+    unref() {},
+    stdin: {
+      on() {},
+      end(value) { call.stdin = String(value || ""); },
+    },
+  };
+}
+""",
+            encoding="utf-8",
+        )
+        instrumented_path = extension_path.parent / "cmux-session-instrumented.ts"
+        instrumented_text = extension_text.replace(
+            'import { spawn } from "node:child_process";',
+            'import { spawn } from "./cmux-test-spawn.mjs";',
+            1,
+        )
+        if instrumented_text == extension_text:
+            print("FAIL: could not install Amp spawn seam")
+            return 1
+        instrumented_path.write_text(instrumented_text, encoding="utf-8")
+
+        settlement_source = """
+globalThis.__cmuxAmpSpawnCalls = [];
+const extensionPath = process.env.CMUX_TEST_AMP_INSTRUMENTED_PATH;
+const mod = await import(extensionPath);
+const handlers = new Map();
+mod.default({
+  on(name, handler) {
+    handlers.set(name, handler);
+  }
+});
+for (const name of ["agent.start", "tool.call", "tool.result", "agent.end"]) {
+  if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
+}
+const stopCalls = () => globalThis.__cmuxAmpSpawnCalls.filter(
+  (call) => call.args.join(" ") === "hooks amp stop"
+);
+const attentionCalls = (action) => globalThis.__cmuxAmpSpawnCalls.filter(
+  (call) =>
+    call.args.slice(0, 4).join(" ")
+      === `hooks amp __native-attention ${action}`
+);
+const makeThread = (id, initialState = "running") => {
+  let currentState = initialState;
+  const observers = new Set();
+  return {
+    id,
+    state: {
+      async get() {
+        return currentState;
+      },
+      subscribe(observer) {
+        observers.add(observer);
+        return {
+          unsubscribe() {
+            observers.delete(observer);
+          }
+        };
+      }
+    },
+    setState(nextState) {
+      currentState = nextState;
+      for (const observer of observers) observer(nextState);
+    }
+  };
+};
+const thread = makeThread("T-amp-settlement-test");
+const ctx = { thread };
+const otherThread = { id: "T-amp-other-thread" };
+const otherCtx = { thread: otherThread };
+await handlers.get("agent.start")({ thread, message: "delegate", id: "msg-1" }, ctx);
+thread.setState("awaiting-approval");
+thread.setState("awaiting-approval");
+if (attentionCalls("begin").length !== 1) {
+  throw new Error(
+    `Amp awaiting-approval emitted duplicate attention: ${
+      JSON.stringify(globalThis.__cmuxAmpSpawnCalls)
+    }`
+  );
+}
+thread.setState("running");
+thread.setState("running");
+if (attentionCalls("end").length !== 1) {
+  throw new Error(
+    `Amp leaving approval did not emit exactly one conclusion: ${
+      JSON.stringify(globalThis.__cmuxAmpSpawnCalls)
+    }`
+  );
+}
+const beginAttention = attentionCalls("begin")[0].args;
+const endAttention = attentionCalls("end")[0].args;
+const option = (args, name) => args[args.indexOf(name) + 1];
+if (
+  option(beginAttention, "--scope-id") !== option(endAttention, "--scope-id")
+  || option(beginAttention, "--observation-id")
+    !== option(endAttention, "--observation-id")
+) {
+  throw new Error(
+    `Amp approval conclusion did not match its begin: begin=${
+      JSON.stringify(beginAttention)
+    } end=${JSON.stringify(endAttention)}`
+  );
+}
+await handlers.get("tool.call")({
+  thread,
+  toolUseID: "tool-main",
+  tool: "Task",
+  input: { prompt: "keep working in the background" }
+}, ctx);
+await handlers.get("agent.start")({
+  thread: otherThread,
+  message: "other work",
+  id: "msg-other"
+}, otherCtx);
+await handlers.get("tool.call")({
+  thread: otherThread,
+  toolUseID: "tool-other",
+  tool: "Task",
+  input: { prompt: "unrelated concurrent work" }
+}, otherCtx);
+const completionCount = stopCalls().length;
+await handlers.get("agent.end")({
+  thread,
+  message: "delegate",
+  id: "msg-1",
+  status: "done",
+  messages: []
+}, ctx);
+if (stopCalls().length !== completionCount + 1) {
+  throw new Error("agent.end did not publish exactly one provisional boundary");
+}
+const provisional = JSON.parse(stopCalls().at(-1).stdin);
+if (
+  provisional.cmux_turn_boundary !== "turn_end" ||
+  provisional.cmux_active_background_work_count !== 1 ||
+  typeof provisional.turn_id !== "string" ||
+  provisional.turn_id.length === 0
+) {
+  throw new Error(
+    `agent.end emitted a final completion instead of provisional evidence: ${JSON.stringify(provisional)}`
+  );
+}
+await handlers.get("tool.result")({
+  thread: otherThread,
+  toolUseID: "tool-other",
+  tool: "Task",
+  status: "done",
+  output: "unrelated work finished"
+}, otherCtx);
+if (stopCalls().length !== completionCount + 1) {
+  throw new Error("another thread's tool result settled the pending turn");
+}
+await handlers.get("tool.result")({
+  thread,
+  toolUseID: "tool-main",
+  tool: "Task",
+  status: "done",
+  output: "background work finished"
+}, ctx);
+if (stopCalls().length !== completionCount + 1) {
+  throw new Error(
+    "draining structured tools settled before Amp's native thread became idle"
+  );
+}
+thread.setState("idle");
+if (stopCalls().length !== completionCount + 2) {
+  throw new Error(
+    `Amp did not emit one settled completion: ${
+      JSON.stringify(globalThis.__cmuxAmpSpawnCalls)
+    }`
+  );
+}
+const settled = JSON.parse(stopCalls().at(-1).stdin);
+if (
+  settled.cmux_turn_boundary !== "settled" ||
+  settled.cmux_active_background_work_count !== 0 ||
+  settled.turn_id !== provisional.turn_id
+) {
+  throw new Error(
+    `Amp did not publish explicit settlement after background work drained: ${JSON.stringify(settled)}`
+  );
+}
+"""
+        settlement_script = root / "settlement-check.mjs"
+        settlement_script.write_text(settlement_source, encoding="utf-8")
+        settlement_env = check_env.copy()
+        settlement_env["CMUX_TEST_AMP_INSTRUMENTED_PATH"] = str(instrumented_path)
+        settlement = subprocess.run(
+            [node, "--experimental-strip-types", "--no-warnings", str(settlement_script)],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=settlement_env,
+            timeout=20,
+        )
+        if settlement.returncode != 0:
+            print("FAIL: generated Amp plugin finalized before shared settlement")
+            print(f"exit={settlement.returncode}")
+            print(f"stdout={settlement.stdout.strip()}")
+            print(f"stderr={settlement.stderr.strip()}")
             return 1
 
         deadline = time.monotonic() + 5
