@@ -32,6 +32,25 @@ type HostedTenantExchange = {
   readonly tenantKey: string;
 };
 
+type LegacyTenantMigrationTarget = "staging" | "production";
+
+export function legacySubrouterRetirementConfigForTarget(
+  target: LegacyTenantMigrationTarget,
+  runtimeEnv: Record<string, string | undefined>,
+) {
+  const targetBaseUrl = target === "production"
+    ? "https://subrouter.cmux.dev"
+    : "https://subrouter-staging.cmux.dev";
+  const configuredBaseUrl = runtimeEnv.SUBROUTER_BASE_URL?.trim().replace(/\/+$/, "");
+  if (configuredBaseUrl && configuredBaseUrl !== targetBaseUrl) {
+    throw new Error(`legacy Subrouter source does not match ${target} target`);
+  }
+  return legacySubrouterRetirementConfig({
+    ...runtimeEnv,
+    SUBROUTER_BASE_URL: targetBaseUrl,
+  });
+}
+
 export async function runLegacyTenantMigration(options: {
   readonly mappings: readonly LegacyTenantMapping[];
   readonly apply: boolean;
@@ -162,9 +181,9 @@ async function main(): Promise<void> {
   const store = await openLegacyTenantMigrationStore(runtimeEnv);
   try {
     const mappings = await store.loadMappings();
-    const legacyClient = createLegacySubrouterRetirementClient({
-      ...legacySubrouterRetirementConfig(runtimeEnv),
-    });
+    const legacyClient = createLegacySubrouterRetirementClient(
+      legacySubrouterRetirementConfigForTarget(target, runtimeEnv),
+    );
     const stackApp = stackAppFromEnv(runtimeEnv);
 
     const result = await runLegacyTenantMigration({
