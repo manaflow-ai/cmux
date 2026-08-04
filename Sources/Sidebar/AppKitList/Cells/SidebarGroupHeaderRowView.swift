@@ -58,7 +58,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         addSubview(backgroundView)
 
         pinImageView.imageScaling = .scaleProportionallyDown
-        pinImageView.contentTintColor = NSColor.secondaryLabelColor.withAlphaComponent(0.8)
         addSubview(pinImageView)
 
         chevronButton.onClick = { [weak self] in self?.actions?.onToggleCollapsed() }
@@ -147,6 +146,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 pointSize: GlobalFontMagnification.scaledSize(metrics.pinnedIconFontSize, percent: percent),
                 weight: .semibold
             )
+            pinImageView.contentTintColor = .secondaryLabelColor
             pinImageView.toolTip = String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
         }
 

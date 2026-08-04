@@ -94,7 +94,7 @@ cursor.
 
 ### Rust
 
-The `cmux-client` package exports crate `cmux`. Resource handles clone without
+The `cmux-sdk` package exports crate `cmux`. Resource handles clone without
 I/O. Mutation helpers create one secure key; `_with` variants accept explicit
 mutation options. Typed streams are owned iterators with cancellation handles.
 The optional `cmux-sidebar` package applies terminal-style render patches to a

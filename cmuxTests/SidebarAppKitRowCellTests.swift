@@ -53,12 +53,12 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    private static func makeModel(
+    fileprivate static func makeModel(
         workspaceId: UUID = UUID(),
         title: String = "Workspace",
         customDescription: String? = nil,
-        isPinned: Bool = false,
         isActive: Bool = false,
+        isPinned: Bool = false,
         canClose: Bool = true,
         unreadCount: Int = 0,
         settings: SidebarTabItemSettingsSnapshot? = nil,
@@ -213,7 +213,7 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    private static func configuredCell(
+    fileprivate static func configuredCell(
         model: SidebarWorkspaceRowModel,
         tab: Workspace? = nil,
         tabManager: TabManager? = nil,
@@ -272,7 +272,7 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    private static func descendants(of view: NSView) -> [NSView] {
+    fileprivate static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
@@ -1268,5 +1268,60 @@ struct SidebarAppKitRowCellTests {
             #expect(!Self.makeSwiftUIRow(settings: settings).settings.details[keyPath: detailKey])
             #expect(!Self.makeModel(settings: settings).settings.details[keyPath: detailKey])
         }
+    }
+}
+
+@Suite
+@MainActor
+struct SidebarPinnedIndicatorColorTests {
+    @Test
+    func pinnedGroupUsesWorkspacePinColor() throws {
+        let workspaceCell = SidebarAppKitRowCellTests.configuredCell(
+            model: SidebarAppKitRowCellTests.makeModel(isPinned: true)
+        )
+        let groupCell = SidebarGroupHeaderTableCellView()
+        groupCell.configurePresentation(model: SidebarGroupHeaderRowModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            name: "Group",
+            iconSymbol: "folder",
+            tintHex: nil,
+            isCollapsed: false,
+            isPinned: true,
+            isAnchorActive: false,
+            isMultiSelected: false,
+            multiSelectionBackgroundStyle: .clear,
+            memberCount: 1,
+            anchorUnreadCount: 0,
+            canMarkRead: false,
+            canMarkUnread: false,
+            hasLatestNotifications: false,
+            canMarkAllRead: false,
+            canMarkAllUnread: false,
+            shortcutHintText: nil,
+            shortcutHintXOffset: 0,
+            shortcutHintYOffset: 0,
+            fontScale: 1,
+            globalFontMagnificationPercent: 100,
+            cwdContextMenuItems: [],
+            rowSpacing: 2,
+            isFirstRow: true,
+            isBeingDragged: false,
+            topDropIndicatorVisible: false,
+            bottomDropIndicatorVisible: false
+        ))
+
+        let workspacePin = try #require(
+            SidebarAppKitRowCellTests.descendants(of: workspaceCell)
+                .compactMap { $0 as? NSImageView }
+                .first { !$0.isHidden && $0.toolTip != nil }
+        )
+        let groupPin = try #require(
+            SidebarAppKitRowCellTests.descendants(of: groupCell)
+                .compactMap { $0 as? NSImageView }
+                .first { !$0.isHidden && $0.toolTip != nil }
+        )
+
+        #expect(groupPin.contentTintColor == workspacePin.contentTintColor)
     }
 }
