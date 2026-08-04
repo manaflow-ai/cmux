@@ -108,7 +108,7 @@ indexes are fatal.
 | 14 | `Launch` | parent to host | private pipe | launch layout |
 | 15 | `Capability` | host to client | response | 32-byte token |
 | 16 | `ResizeAck` | host to client | response | `cols:u16, rows:u16, result_flags:u32` |
-| 17 | `ClearHistoryAck` | host to client | response | `status:u8` |
+| 17 | `ClearHistoryAck` | host to client | response | `status:u8`, optionally followed by bounded VT replay on success |
 | 18 | `CellPixelSizeAck` | host to client | response | `width_px:u16, height_px:u16` |
 | 19 | `KittyGraphicsLimitsAck` | host to client | response | four `u64` limits |
 | 100 | `Input` | client to host | `INPUT` | raw PTY bytes |
@@ -118,7 +118,7 @@ indexes are fatal.
 | 104 | `Terminate` | client to host | `TERMINATE` | empty |
 | 105 | `MintCapability` | client to host | `MINT_CAPABILITY` | `rights:u32, ttl_ms:u32` |
 | 106 | `SetDefaults` | client to host | `MINT_CAPABILITY` | default-color layout |
-| 107 | `ClearHistory` | client to host | `INPUT` | optional encoded fallback key |
+| 107 | `ClearHistory` | client to host | `INPUT` | JSON optional fallback key input |
 | 108 | `SetCellPixelSize` | client to host | `MINT_CAPABILITY` | `width_px:u16, height_px:u16` |
 | 109 | `SetKittyGraphicsLimits` | client to host | `MINT_CAPABILITY` | four `u64` limits |
 
@@ -126,6 +126,12 @@ indexes are fatal.
 other bits are invalid. Acknowledgements require negotiated
 `FLAG_VIEWER_SIZE_ACKS` and a nonzero request id. Without acknowledgements,
 `ViewerSize` uses the broadcast `Resized` plus `Colors` path.
+
+`ClearHistoryAck.status` is `0` for success, `1` for preservation failure,
+`2` for stream timeout, `3` when the fallback key cannot be represented, `4`
+for known non-delivery, `5` for ambiguous delivery, and `6` for fallback-write
+timeout. A smart renderer may receive the bounded post-clear VT replay after a
+success byte; legacy clients receive only the status byte.
 
 ## Variable payloads
 
