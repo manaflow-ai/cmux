@@ -929,7 +929,7 @@ extension GlobalSearchShortcutBehaviorTests {
 
     @MainActor
     @Test(.timeLimit(.minutes(1)))
-    func liveRefreshStopsFollowingRepeatedMarkdownSupersessions() async throws {
+    func liveRefreshAwaitsLatestMarkdownCaptureWithinDeadline() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-global-search-markdown-churn-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -1003,14 +1003,98 @@ extension GlobalSearchShortcutBehaviorTests {
 
         await thirdIndexRequestStarted.wait()
         #expect(
-            await waitUntil(timeout: 1) {
+            !(await waitUntil(timeout: 0.2) {
                 refreshFinishedCount.value == 1
-            },
-            "A presentation refresh must stop following repeated event-owned captures"
+            }),
+            "A presentation refresh must keep following the latest capture while its deadline remains"
         )
 
         releaseThirdIndexRequest.signal()
+        #expect(
+            await waitUntil(timeout: 1) {
+                refreshFinishedCount.value == 1
+            },
+            "The refresh must finish after the latest capture commits"
+        )
         await refreshTask.value
+    }
+
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func browserRefreshDeadlineReusesAnUnresponsiveCapture() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-global-search-browser-timeout-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let workspaceID = UUID()
+        let panel = BrowserPanel(
+            workspaceId: workspaceID,
+            renderInitialNavigation: false
+        )
+        let index = try SearchIndex(databaseURL: directoryURL.appendingPathComponent("search.sqlite3"))
+        let indexRequestStarted = GlobalSearchAsyncSignal()
+        let releaseIndexRequest = GlobalSearchAsyncSignal()
+        let indexRequestCount = GlobalSearchCounter()
+        let captureManager = GlobalSearchPanelCaptureManager(
+            indexProvider: {
+                indexRequestCount.increment()
+                indexRequestStarted.signal()
+                await releaseIndexRequest.wait()
+                return index
+            },
+            cancelPanelPurge: { _ in }
+        )
+        defer {
+            releaseIndexRequest.signal()
+            captureManager.cancelCaptures(forPanelID: panel.id)
+            panel.close()
+        }
+        let context = GlobalSearchPanelContext(
+            windowID: UUID(),
+            windowTitle: "Window",
+            workspaceID: workspaceID,
+            workspaceTitle: "Workspace",
+            panelID: panel.id,
+            panelTitle: panel.displayTitle,
+            panel: panel
+        )
+
+        let firstRefreshFinished = GlobalSearchCounter()
+        let firstRefreshTask = Task { @MainActor in
+            await captureManager.refreshPanelContent(for: context)
+            firstRefreshFinished.increment()
+        }
+        await indexRequestStarted.wait()
+        #expect(
+            await waitUntil(timeout: 2) {
+                firstRefreshFinished.value == 1
+            },
+            "One unresponsive browser capture must not hold the presentation refresh forever"
+        )
+
+        let secondRefreshFinished = GlobalSearchCounter()
+        let secondRefreshTask = Task { @MainActor in
+            await captureManager.refreshPanelContent(for: context)
+            secondRefreshFinished.increment()
+        }
+        #expect(
+            await waitUntil(timeout: 2) {
+                secondRefreshFinished.value == 1
+            },
+            "A later presentation must share the same bounded in-flight browser capture"
+        )
+        #expect(
+            indexRequestCount.value == 1,
+            "Repeated presentations must not accumulate unresponsive WebKit capture work"
+        )
+
+        releaseIndexRequest.signal()
+        await firstRefreshTask.value
+        await secondRefreshTask.value
     }
 
     private func makeSearchHit(id: String, title: String) -> SearchIndexHit {
