@@ -100463,6 +100463,23 @@
         }
       }
     },
+    "diffViewer.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
+      }
+    },
     "diffViewer.collapseAllDiffs": {
       "extractionState": "manual",
       "localizations": {
@@ -100959,6 +100976,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Comments"
+          }
+        }
+      }
+    },
+    "diffViewer.compare": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較"
           }
         }
       }
@@ -102253,13 +102287,81 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This file changed outside the diff editor. Refresh before saving."
+            "value": "Failed to save '{path}': The file changed on disk. Compare your version or overwrite the file."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このファイルは差分エディタの外部で変更されました。保存する前に更新してください。"
+            "value": "'{path}' を保存できませんでした。ディスク上のファイルが変更されています。自分のバージョンと比較するか、ファイルを上書きしてください。"
+          }
+        }
+      }
+    },
+    "diffViewer.editConflictDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On disk"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスク上"
+          }
+        }
+      }
+    },
+    "diffViewer.editConflictDraft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your edits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集内容"
+          }
+        }
+      }
+    },
+    "diffViewer.editConflictTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolve save conflict"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存の競合を解決"
+          }
+        }
+      }
+    },
+    "diffViewer.editFileSaved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved '{path}'. Other edits are still unsaved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'{path}' を保存しました。他の編集はまだ保存されていません。"
           }
         }
       }
@@ -102294,6 +102396,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "このファイルを編集用に読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "diffViewer.editOverwriteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not overwrite '{path}'. Your edits are still available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'{path}' を上書きできませんでした。編集内容は保持されています。"
           }
         }
       }
@@ -102929,13 +103048,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not save all edits."
+            "value": "Could not save your edits. They are still available."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべての編集を保存できませんでした。"
+            "value": "編集を保存できませんでした。編集内容は保持されています。"
           }
         }
       }
@@ -105491,6 +105610,23 @@
         }
       }
     },
+    "diffViewer.overwrite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overwrite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上書き"
+          }
+        }
+      }
+    },
     "diffViewer.parsingDiff": {
       "extractionState": "manual",
       "localizations": {
@@ -106737,6 +106873,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Repository path"
+          }
+        }
+      }
+    },
+    "diffViewer.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
           }
         }
       }

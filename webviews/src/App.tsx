@@ -58,6 +58,8 @@ import {
   isEditableSessionSource,
   useDiffEditing,
   type ActiveDiffSession,
+  type EditFeedbackRecovery,
+  type EditSaveConflict,
 } from "./useDiffEditing";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 
@@ -76,9 +78,12 @@ type AppState = {
   copyFeedback: string;
   draft: CommentDraft | null;
   dirtyItemIds: string[];
+  editConflictOpen: boolean;
   editFeedback: string;
   editFeedbackError: boolean;
+  editFeedbackRecovery: EditFeedbackRecovery;
   editMode: boolean;
+  editSaveConflict: EditSaveConflict | null;
   editSaving: boolean;
   fileSearchOpen: boolean;
   fileSearchRequest: number;
@@ -103,7 +108,9 @@ type AppAction =
   | { type: "replace-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
-  | { type: "set-edit-feedback"; message: string; error?: boolean }
+  | { type: "set-edit-conflict"; conflict: EditSaveConflict | null }
+  | { type: "set-edit-conflict-open"; open: boolean }
+  | { type: "set-edit-feedback"; message: string; error?: boolean; recovery?: EditFeedbackRecovery }
   | { type: "set-edit-mode"; enabled: boolean; editableItemIds?: string[] }
   | { type: "set-edit-saving"; saving: boolean }
   | { type: "set-item-dirty"; itemId: string; dirty: boolean }
@@ -134,9 +141,12 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     copyFeedback: "",
     draft: null,
     dirtyItemIds: [],
+    editConflictOpen: false,
     editFeedback: "",
     editFeedbackError: false,
+    editFeedbackRecovery: "none",
     editMode: false,
+    editSaveConflict: null,
     editSaving: false,
     fileSearchOpen: false,
     fileSearchRequest: 0,
@@ -198,9 +208,12 @@ function reducer(state: AppState, action: AppAction): AppState {
       activeTreePath: "",
       draft: null,
       dirtyItemIds: [],
+      editConflictOpen: false,
       editFeedback: "",
       editFeedbackError: false,
+      editFeedbackRecovery: "none",
       editMode: false,
+      editSaveConflict: null,
       editSaving: false,
       items: [],
       languages: ["text"],
@@ -250,19 +263,32 @@ function reducer(state: AppState, action: AppAction): AppState {
       draft: action.draft,
       items: applyCommentAnnotations(state.items, state.comments, action.draft),
     };
+  case "set-edit-conflict":
+    return {
+      ...state,
+      editConflictOpen: action.conflict == null ? false : state.editConflictOpen,
+      editSaveConflict: action.conflict,
+    };
+  case "set-edit-conflict-open":
+    return { ...state, editConflictOpen: action.open };
   case "set-edit-feedback":
     return {
       ...state,
+      editConflictOpen: false,
       editFeedback: action.message,
       editFeedbackError: action.error === true,
+      editFeedbackRecovery: action.recovery ?? "none",
     };
   case "set-edit-mode": {
     const editableItemIds = new Set(action.editableItemIds ?? []);
     return {
       ...state,
       editMode: action.enabled,
+      editConflictOpen: false,
       editFeedback: "",
       editFeedbackError: false,
+      editFeedbackRecovery: "none",
+      editSaveConflict: null,
       items: state.items.map((item) => ({
         ...item,
         edit: action.enabled && editableItemIds.has(item.id),
@@ -285,9 +311,12 @@ function reducer(state: AppState, action: AppAction): AppState {
     return {
       ...state,
       dirtyItemIds: [],
+      editConflictOpen: false,
       editFeedback: "",
       editFeedbackError: false,
+      editFeedbackRecovery: "none",
       editMode: false,
+      editSaveConflict: null,
       editSaving: false,
       items: action.items.map((item) => ({
         ...item,
@@ -450,6 +479,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     endEditing,
     loadDiffFiles,
     onItemEditChange,
+    overwriteConflict,
     saveEdits,
   } = useDiffEditing({
     activeSession,
@@ -472,6 +502,16 @@ export function App({ config, initialStatus }: ConfigProps) {
     });
     setActiveSessionSource({ ...resolvedSource });
   }, [label, resolvedSource, saveEdits]);
+  const overwriteAndRefreshDiff = useCallback(async () => {
+    if (!await overwriteConflict() || !resolvedSource) {
+      return;
+    }
+    dispatch({
+      type: "reset-diff",
+      status: createDiffViewerStatus(label("loadingDiff"), { pending: true }),
+    });
+    setActiveSessionSource({ ...resolvedSource });
+  }, [label, overwriteConflict, resolvedSource]);
   const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
   renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
   if (state.editMode) {
@@ -625,7 +665,25 @@ export function App({ config, initialStatus }: ConfigProps) {
         state={state}
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
-        <EditFeedback message={state.editFeedback} error={state.editFeedbackError} />
+        <EditFeedback
+          error={state.editFeedbackError}
+          label={label}
+          message={state.editFeedback}
+          recovery={state.editFeedbackRecovery}
+          saving={state.editSaving}
+          onCompare={() => dispatch({ type: "set-edit-conflict-open", open: true })}
+          onOverwrite={() => void overwriteAndRefreshDiff()}
+          onRetry={() => void saveAndRefreshDiff()}
+        />
+        {state.editConflictOpen && state.editSaveConflict ? (
+          <SaveConflictDialog
+            conflict={state.editSaveConflict}
+            label={label}
+            saving={state.editSaving}
+            onClose={() => dispatch({ type: "set-edit-conflict-open", open: false })}
+            onOverwrite={() => void overwriteAndRefreshDiff()}
+          />
+        ) : null}
         <FilesSidebarBackdrop
           label={label}
           onClose={() => closeFileSearch(dispatch)}
@@ -706,14 +764,109 @@ export function FilesSidebarBackdrop({
   );
 }
 
-function EditFeedback({ error, message }: { error: boolean; message: string }) {
+export function EditFeedback({
+  error,
+  label,
+  message,
+  onCompare,
+  onOverwrite,
+  onRetry,
+  recovery,
+  saving,
+}: {
+  error: boolean;
+  label: DiffViewerLabelResolver;
+  message: string;
+  onCompare(): void;
+  onOverwrite(): void;
+  onRetry(): void;
+  recovery: EditFeedbackRecovery;
+  saving: boolean;
+}) {
   if (message === "") {
     return null;
   }
   return (
-    <output id="edit-feedback" data-error={error ? "true" : "false"}>
-      {message}
-    </output>
+    <section
+      id="edit-feedback"
+      aria-live={error ? "assertive" : "polite"}
+      data-error={error ? "true" : "false"}
+      role={error ? "alert" : "status"}
+    >
+      <span className="edit-feedback-message">{message}</span>
+      {recovery !== "none" ? (
+        <span className="edit-feedback-actions">
+          {recovery === "conflict" ? (
+            <>
+              <button type="button" disabled={saving} onClick={onCompare}>{label("compare")}</button>
+              <button type="button" disabled={saving} onClick={onOverwrite}>{label("overwrite")}</button>
+            </>
+          ) : (
+            <button type="button" disabled={saving} onClick={onRetry}>{label("retry")}</button>
+          )}
+        </span>
+      ) : null}
+    </section>
+  );
+}
+
+export function SaveConflictDialog({
+  conflict,
+  label,
+  onClose,
+  onOverwrite,
+  saving,
+}: {
+  conflict: EditSaveConflict;
+  label: DiffViewerLabelResolver;
+  onClose(): void;
+  onOverwrite(): void;
+  saving: boolean;
+}) {
+  return (
+    <div id="edit-conflict-backdrop">
+      <section
+        id="edit-conflict-dialog"
+        aria-describedby="edit-conflict-path"
+        aria-labelledby="edit-conflict-title"
+        aria-modal="true"
+        role="dialog"
+      >
+        <header className="edit-conflict-header">
+          <div>
+            <h2 id="edit-conflict-title">{label("editConflictTitle")}</h2>
+            <p id="edit-conflict-path">{conflict.path}</p>
+          </div>
+          <button
+            autoFocus
+            className="edit-conflict-close"
+            type="button"
+            aria-label={label("close")}
+            title={label("close")}
+            disabled={saving}
+            onClick={onClose}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </header>
+        <div className="edit-conflict-comparison">
+          <section className="edit-conflict-pane">
+            <h3>{label("editConflictDisk")}</h3>
+            <pre tabIndex={0}>{conflict.diskContents}</pre>
+          </section>
+          <section className="edit-conflict-pane">
+            <h3>{label("editConflictDraft")}</h3>
+            <pre tabIndex={0}>{conflict.draftContents}</pre>
+          </section>
+        </div>
+        <footer className="edit-conflict-footer">
+          <button type="button" disabled={saving} onClick={onClose}>{label("close")}</button>
+          <button className="edit-conflict-overwrite" type="button" disabled={saving} onClick={onOverwrite}>
+            {label("overwrite")}
+          </button>
+        </footer>
+      </section>
+    </div>
   );
 }
 
