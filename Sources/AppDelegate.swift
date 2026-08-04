@@ -16931,11 +16931,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return
         }
-        let cancellationAction = existingWindowDock(forWindowId: context.windowId)?.panels.isEmpty == false
-            ? nil
-            : onCancelled
         mainWindowControllers.first(where: { $0.window === window })?
-            .setPendingCloseCancellationAction(cancellationAction)
+            .setPendingCloseCancellationAction(onCancelled)
         window.performClose(nil)
     }
 
