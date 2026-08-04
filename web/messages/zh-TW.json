@@ -1407,7 +1407,16 @@
     "changelog": {
       "title": "更新日誌",
       "metaDescription": "cmux 版本說明和版本歷史。原生 macOS 終端機的新功能、錯誤修復和變更。",
-      "metaTitle": "更新日誌"
+      "metaTitle": "更新日誌",
+      "versionTitle": "cmux {version} · 更新日誌",
+      "releaseNavLabel": "cmux {version} 附近的版本",
+      "sections": {
+        "added": "新增",
+        "changed": "變更",
+        "fixed": "修正",
+        "removed": "移除",
+        "contributors": "貢獻者"
+      }
     },
     "navItems": {
       "gettingStarted": "入門指南",

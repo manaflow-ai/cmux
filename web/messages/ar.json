@@ -1407,7 +1407,16 @@
     "changelog": {
       "title": "سجل التغييرات",
       "metaDescription": "ملاحظات إصدار cmux وسجل الإصدارات. الميزات الجديدة وإصلاحات الأخطاء والتغييرات لطرفية macOS الأصلية.",
-      "metaTitle": "سجل التغييرات"
+      "metaTitle": "سجل التغييرات",
+      "versionTitle": "cmux {version} · سجل التغييرات",
+      "releaseNavLabel": "الإصدارات القريبة من cmux {version}",
+      "sections": {
+        "added": "تمت الإضافة",
+        "changed": "تم التغيير",
+        "fixed": "تم الإصلاح",
+        "removed": "تمت الإزالة",
+        "contributors": "المساهمون"
+      }
     },
     "navItems": {
       "gettingStarted": "البدء",
