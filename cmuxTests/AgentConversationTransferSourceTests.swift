@@ -493,7 +493,7 @@ struct AgentConversationTransferSourceTests {
             command: command,
             temporaryDirectory: directory
         ))
-        let prefix = "/bin/zsh '"
+        let prefix = " /bin/zsh '"
         let scriptPath = String(input.dropFirst(prefix.count).dropLast(2))
         let contents = try String(contentsOfFile: scriptPath, encoding: .utf8)
 
