@@ -17,8 +17,28 @@ image="cmux-iroh-stage1-sol:$(date +%s)-$$"
 builder_image="cmux-iroh-stage1-sol-builder:$(date +%s)-$$"
 container="cmux-iroh-stage1-sol-$$"
 volume="cmux-iroh-stage1-sol-state-$$"
-zig_cache_volume="cmux-iroh-stage1-sol-zig-cache-$$"
-zig_pkg_volume="cmux-iroh-stage1-sol-zig-pkg-$$"
+zig_cache_volume="${CMUX_STAGE1_ZIG_CACHE_VOLUME:-cmux-iroh-stage1-sol-zig-cache-$$}"
+zig_pkg_volume="${CMUX_STAGE1_ZIG_PKG_VOLUME:-cmux-iroh-stage1-sol-zig-pkg-$$}"
+remove_zig_cache_volume=1
+remove_zig_pkg_volume=1
+if [ -n "${CMUX_STAGE1_ZIG_CACHE_VOLUME:-}" ]; then
+    remove_zig_cache_volume=0
+fi
+if [ -n "${CMUX_STAGE1_ZIG_PKG_VOLUME:-}" ]; then
+    remove_zig_pkg_volume=0
+fi
+case "$zig_cache_volume" in
+    "" | *[!a-zA-Z0-9_.-]*)
+        echo "invalid Docker volume name" >&2
+        exit 1
+        ;;
+esac
+case "$zig_pkg_volume" in
+    "" | *[!a-zA-Z0-9_.-]*)
+        echo "invalid Docker volume name" >&2
+        exit 1
+        ;;
+esac
 provider_socket="$demo_root/provider.sock"
 provider_log="$demo_root/provider.log"
 transcript="$demo_root/transcript.txt"
@@ -41,8 +61,12 @@ cleanup() {
     fi
     docker rm -f "$container" >/dev/null 2>&1 || true
     docker volume rm "$volume" >/dev/null 2>&1 || true
-    docker volume rm "$zig_cache_volume" >/dev/null 2>&1 || true
-    docker volume rm "$zig_pkg_volume" >/dev/null 2>&1 || true
+    if [ "$remove_zig_cache_volume" -eq 1 ]; then
+        docker volume rm "$zig_cache_volume" >/dev/null 2>&1 || true
+    fi
+    if [ "$remove_zig_pkg_volume" -eq 1 ]; then
+        docker volume rm "$zig_pkg_volume" >/dev/null 2>&1 || true
+    fi
     docker image rm "$image" >/dev/null 2>&1 || true
     docker image rm "$builder_image" >/dev/null 2>&1 || true
     rm -rf "$demo_root"
