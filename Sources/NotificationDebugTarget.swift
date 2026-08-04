@@ -1,4 +1,5 @@
 import Foundation
+import UserNotifications
 
 #if DEBUG
 struct NotificationDebugTarget: Sendable {
@@ -40,6 +41,53 @@ extension TerminalController {
         case "0", "false", "no", "off": return false
         default: return nil
         }
+    }
+
+    /// `debug.notification.status` — the system's actual notification settings
+    /// for this bundle id, so authorization/style problems are diagnosable from
+    /// the socket instead of screenshot archaeology. Blocks the socket worker
+    /// on the settings callback (bounded; DEBUG-only diagnostic).
+    nonisolated func notificationDebugStatus() -> [String: Any] {
+        let semaphore = DispatchSemaphore(value: 0)
+        var payload: [String: Any] = ["available": false]
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let authorization: String
+            switch settings.authorizationStatus {
+            case .notDetermined: authorization = "notDetermined"
+            case .denied: authorization = "denied"
+            case .authorized: authorization = "authorized"
+            case .provisional: authorization = "provisional"
+            @unknown default: authorization = "unknown"
+            }
+            let style: String
+            switch settings.alertStyle {
+            case .none: style = "none"
+            case .banner: style = "banner"
+            case .alert: style = "alert"
+            @unknown default: style = "unknown"
+            }
+            func setting(_ value: UNNotificationSetting) -> String {
+                switch value {
+                case .notSupported: return "notSupported"
+                case .disabled: return "disabled"
+                case .enabled: return "enabled"
+                @unknown default: return "unknown"
+                }
+            }
+            payload = [
+                "available": true,
+                "authorization_status": authorization,
+                "alert_style": style,
+                "alert_setting": setting(settings.alertSetting),
+                "sound_setting": setting(settings.soundSetting),
+                "badge_setting": setting(settings.badgeSetting),
+                "notification_center_setting": setting(settings.notificationCenterSetting),
+                "lock_screen_setting": setting(settings.lockScreenSetting),
+            ]
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 3)
+        return payload
     }
 }
 #endif

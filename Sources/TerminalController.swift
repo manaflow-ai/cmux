@@ -2211,6 +2211,8 @@ class TerminalController {
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         #if DEBUG
+        case "debug.notification.status":
+            return v2Ok(id: id, result: notificationDebugStatus())
         case "debug.notification.mode":
             guard let enabled = notificationDebugBoolParam(params, "enabled") else {
                 return v2Error(
