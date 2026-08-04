@@ -363,6 +363,10 @@ final class CodeWebViewWarmer: NSObject {
         guard let contentView = window.contentView else { return nil }
         var frames: [NSRect] = []
 
+        if let browserFrame = BrowserWindowPortalRegistry.visibleBrowserSurfaceFrame(in: window) {
+            frames.append(browserFrame)
+        }
+
         func collectVisibleSurfaces(in view: NSView) {
             guard !view.isHidden, view.alphaValue > 0.001 else { return }
             if view is WindowBrowserSlotView || view is GhosttySurfaceScrollView {

@@ -3763,6 +3763,29 @@ final class WindowBrowserPortal: NSObject {
         Set(entriesByWebViewId.keys)
     }
 
+    /// Returns the union of browser surfaces that are already visible in the
+    /// window. The portal host is a sibling of the normal content view, so code
+    /// that walks contentView.subviews cannot discover these frames.
+    func visibleSurfaceFrame(in contentView: NSView) -> NSRect? {
+        guard ensureInstalled() else { return nil }
+        var frames: [NSRect] = []
+        for case let container as WindowBrowserSlotView in hostView.subviews {
+            guard !container.isHidden,
+                  container.alphaValue > 0.001,
+                  container.window === contentView.window else {
+                continue
+            }
+            let converted = contentView.convert(container.bounds, from: container)
+            let clipped = converted.intersection(contentView.bounds)
+            guard !clipped.isNull, clipped.width >= 1, clipped.height >= 1 else {
+                continue
+            }
+            frames.append(clipped)
+        }
+        guard let first = frames.first else { return nil }
+        return frames.dropFirst().reduce(first) { $0.union($1) }
+    }
+
     func tearDown() {
         removeGeometryObservers()
         for webViewId in Array(entriesByWebViewId.keys) {
@@ -3935,6 +3958,14 @@ enum BrowserWindowPortalRegistry {
         for portal in portalsByWindowId.values {
             portal.scheduleExternalGeometrySynchronize()
         }
+    }
+
+    static func visibleBrowserSurfaceFrame(in window: NSWindow) -> NSRect? {
+        guard let contentView = window.contentView,
+              let portal = portalsByWindowId[ObjectIdentifier(window)] else {
+            return nil
+        }
+        return portal.visibleSurfaceFrame(in: contentView)
     }
 
     /// Update visibleInUI/zPriority on an existing portal entry without rebinding.
