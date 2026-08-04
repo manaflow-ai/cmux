@@ -11,6 +11,75 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testWorkspaceDoubleClickInlineRenameCommitsTypedTitle() {
+        let app = XCUIApplication.cmuxTestApplication()
+        defer { app.terminate() }
+        configureLaunch(app)
+        app.launchArguments += [
+            "-\("cmux.flags.override." + "sidebar-appkit-list-experiment")",
+            "true",
+        ]
+        launchAndEnsureRunning(app)
+        if app.state != .runningForeground {
+            app.activate()
+        }
+        XCTAssertTrue(
+            pollUntil(timeout: 8.0) { app.state == .runningForeground },
+            "Inline rename must be tested in a foreground key window."
+        )
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
+        let sidebar = app.descendants(matching: .any)["Sidebar"].firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected the workspace sidebar")
+        XCTAssertTrue(
+            sidebar.tables.firstMatch.waitForExistence(timeout: 5.0),
+            "Expected the AppKit NSTableView sidebar path, not the unaffected SwiftUI list."
+        )
+        XCTAssertTrue(
+            waitForWorkspaceRowHittable(index: 1, count: 1, app: app, timeout: 8.0),
+            "Expected the initial workspace row to be visible"
+        )
+
+        let row = workspaceRow(index: 1, count: 1, app: app)
+        let target = row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        target.click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+        target.click()
+
+        let renameField = app.textFields.firstMatch
+        XCTAssertTrue(
+            renameField.waitForExistence(timeout: 2.0),
+            "Double-clicking a workspace row must leave its inline rename field editable."
+        )
+        XCTAssertTrue(renameField.isHittable, "Expected the inline rename field to accept typing")
+
+        let editedTitle = "Edited Workspace \(String(UUID().uuidString.prefix(8)))"
+        renameField.typeKey("a", modifierFlags: [.command])
+        renameField.typeText(editedTitle)
+        XCTAssertEqual(
+            renameField.value as? String,
+            editedTitle,
+            "Expected typing to replace the pre-filled workspace title."
+        )
+        renameField.typeKey(.return, modifierFlags: [])
+
+        let renamedRow = app.descendants(matching: .other)
+            .matching(
+                NSPredicate(
+                    format: "label == %@",
+                    "\(editedTitle), workspace 1 of 1"
+                )
+            )
+            .firstMatch
+        XCTAssertTrue(
+            renamedRow.waitForExistence(timeout: 5.0),
+            "Expected Return to commit the typed title instead of the original title."
+        )
+        XCTAssertTrue(
+            waitForNonExistence(renameField, timeout: 2.0),
+            "Expected the inline rename field to dismiss after committing."
+        )
+    }
+
     func testWorkspaceSelectionKeepsSidebarRowVisible() {
         let app = XCUIApplication.cmuxTestApplication()
         configureLaunch(app)
