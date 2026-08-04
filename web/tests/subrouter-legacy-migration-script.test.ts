@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { runLegacyTenantMigration } from "../scripts/subrouter/migrate-legacy-tenants";
+import {
+  legacySubrouterRetirementConfigForTarget,
+  runLegacyTenantMigration,
+} from "../scripts/subrouter/migrate-legacy-tenants";
 
 const mappings = [
   { teamId: "team-b", tenantId: "legacy-b", tenantName: "Team B" },
@@ -8,6 +11,22 @@ const mappings = [
 ];
 
 describe("legacy Subrouter migration operator", () => {
+  test("derives the legacy source from the explicit migration target", () => {
+    expect(legacySubrouterRetirementConfigForTarget("production", {
+      SUBROUTER_ADMIN_TOKEN: "production-admin",
+    })).toEqual({
+      baseUrl: "https://subrouter.cmux.dev",
+      adminToken: "production-admin",
+    });
+    expect(legacySubrouterRetirementConfigForTarget("staging", {
+      VERCEL_ENV: "production",
+      SUBROUTER_ADMIN_TOKEN: "staging-admin",
+    })).toEqual({
+      baseUrl: "https://subrouter-staging.cmux.dev",
+      adminToken: "staging-admin",
+    });
+  });
+
   test("requires apply before source finalization", async () => {
     await expect(runLegacyTenantMigration({
       mappings,
