@@ -933,6 +933,53 @@ describe("account deletion route", () => {
     ]);
   });
 
+  test("checkpoints bounded hosted tenant deletion and resumes with fresh auth", async () => {
+    stackUserTeams = [
+      stackTeam("team-personal-1", [ACCOUNT_USER_ID]),
+      stackTeam("team-personal-2", [ACCOUNT_USER_ID]),
+      stackTeam("team-personal-3", [ACCOUNT_USER_ID]),
+    ];
+    authoritativeAccessToken = "first-access";
+
+    const pending = await DELETE(accountDeletionRequest());
+
+    expect(pending.status).toBe(202);
+    expect(await pending.json()).toEqual({
+      ok: true,
+      deletionPending: true,
+      destroyedVms: 0,
+    });
+    expect(hostedTenantDeleteRequests.map(([_, init]) => ({
+      authorization: new Headers(init?.headers).get("authorization"),
+      teamId: (JSON.parse(String(init?.body)) as { readonly teamId: string }).teamId,
+    }))).toEqual([
+      { authorization: "Bearer first-access", teamId: ACCOUNT_USER_ID },
+      { authorization: "Bearer first-access", teamId: "team-personal-1" },
+    ]);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+
+    transactionTombstoneSelectResults = [[{
+      userIdHash: "existing-hash",
+      status: "hosted_delete_pending",
+      updatedAt: new Date(),
+      hostedSubrouterDeletedTeamIds: [ACCOUNT_USER_ID, "team-personal-1"],
+    }]];
+    authoritativeAccessToken = "refreshed-access";
+
+    const completed = await DELETE(accountDeletionRequest());
+
+    expect(completed.status).toBe(200);
+    expect(await completed.json()).toEqual({ ok: true, destroyedVms: 2 });
+    expect(hostedTenantDeleteRequests.slice(2).map(([_, init]) => ({
+      authorization: new Headers(init?.headers).get("authorization"),
+      teamId: (JSON.parse(String(init?.body)) as { readonly teamId: string }).teamId,
+    }))).toEqual([
+      { authorization: "Bearer refreshed-access", teamId: "team-personal-2" },
+      { authorization: "Bearer refreshed-access", teamId: "team-personal-3" },
+    ]);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
   test("uses the refreshed Stack token for hosted tenant deletion", async () => {
     authoritativeAccessToken = "refreshed-access";
 
