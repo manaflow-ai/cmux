@@ -1031,7 +1031,9 @@ class TabManager: ObservableObject {
             scope: .global,
             baseDirectoryProvider: { nil },
             remoteBrowserSettingsProvider: { .local },
-            settings: settings
+            settings: settings,
+            surfaceTabStyle: selectedWorkspace?
+                .bonsplitController.configuration.appearance.tabStyle ?? .init()
         )
     }
 

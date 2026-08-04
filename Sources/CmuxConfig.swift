@@ -1700,6 +1700,7 @@ final class CmuxConfigStore: ObservableObject {
     /// configured.
     @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
+    @Published private(set) var surfaceTabBarStyle = CmuxSurfaceTabBarStyle()
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
@@ -1855,8 +1856,10 @@ final class CmuxConfigStore: ObservableObject {
 
         tabManager.tabsPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.applySurfaceTabBarButtonsToCurrentManager()
+            .sink { [weak self] workspaces in
+                guard let self else { return }
+                self.applySurfaceTabBarButtonsToCurrentManager()
+                self.applySurfaceTabBarStyle(to: workspaces)
             }
             .store(in: &trackingCancellables)
 
@@ -1965,6 +1968,8 @@ final class CmuxConfigStore: ObservableObject {
         let globalParseResult = parseConfig(at: globalConfigPath)
         let localConfig = localParseResult?.config
         let globalConfig = globalParseResult.config
+        let resolvedSurfaceTabBarStyle = (localConfig?.ui?.surfaceTabBar?.style ?? .init())
+            .overriding(globalConfig?.ui?.surfaceTabBar?.style ?? .init())
         let localHookPaths = resolvedLocalNotificationHookPaths(fallbackLocalPath: localPath)
         let localHookParseResults = localHookPaths.map { path in
             (path: path, result: parseConfig(at: path))
@@ -2140,6 +2145,7 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
+        surfaceTabBarStyle = resolvedSurfaceTabBarStyle
         notificationHooks = resolvedNotificationHooks
         resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
@@ -2155,6 +2161,7 @@ final class CmuxConfigStore: ObservableObject {
             )
         }
         applySurfaceTabBarButtonsToCurrentManager()
+        applySurfaceTabBarStyleToCurrentManager()
         configRevision &+= 1
     }
 
@@ -2412,6 +2419,21 @@ final class CmuxConfigStore: ObservableObject {
             terminalCommandSourcePaths: surfaceTabBarCommandSourcePaths,
             workspaceCommands: surfaceTabBarWorkspaceCommands
         )
+    }
+
+    private func applySurfaceTabBarStyleToCurrentManager() {
+        if let tabManager {
+            applySurfaceTabBarStyle(to: tabManager.tabs)
+        }
+        for dockStore in DockSplitStore.liveStores {
+            dockStore.applySurfaceTabBarStyle(surfaceTabBarStyle)
+        }
+    }
+
+    private func applySurfaceTabBarStyle(to workspaces: [Workspace]) {
+        for workspace in workspaces {
+            workspace.applySurfaceTabBarStyle(surfaceTabBarStyle)
+        }
     }
 
     private func resolvedSurfaceTabBarWorkspaceCommands(

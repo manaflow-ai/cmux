@@ -252,6 +252,142 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(buttons[1].terminalCommand, "claude --permission-mode acceptEdits")
     }
 
+    func testDecodeSurfaceTabBarSelectionStyleOverrides() throws {
+        let json = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "activeTabBackground": "  #28343A  ",
+              "activeTabForeground": "#F5F7F2",
+              "inactiveTabBackground": "#1F292E",
+              "inactiveTabForeground": "#A7B0A8",
+              "tabDividerColor": "none",
+              "activeTabIndicatorColor": "#A7C080",
+              "activeTabIndicatorEdge": "bottom"
+            }
+          }
+        }
+        """
+
+        let config = try decode(json)
+        let style = try XCTUnwrap(config.ui?.surfaceTabBar)
+
+        XCTAssertEqual(style.activeTabBackground, "#28343A")
+        XCTAssertEqual(style.activeTabForeground, "#F5F7F2")
+        XCTAssertEqual(style.inactiveTabBackground, "#1F292E")
+        XCTAssertEqual(style.inactiveTabForeground, "#A7B0A8")
+        XCTAssertEqual(style.tabDividerColor, "none")
+        XCTAssertEqual(style.activeTabIndicatorColor, "#A7C080")
+        XCTAssertEqual(style.activeTabIndicatorEdge, .bottom)
+    }
+
+    func testDecodeSurfaceTabBarRejectsInvalidStyleColor() {
+        let json = """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "activeTabBackground": "everforest"
+            }
+          }
+        }
+        """
+
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    @MainActor
+    func testSurfaceTabBarStyleMergesLocalFieldsOverGlobalStyle() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-tab-style-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let localDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = localDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "activeTabBackground": "#28343A",
+              "activeTabForeground": "#F5F7F2",
+              "activeTabIndicatorEdge": "top"
+            }
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "inactiveTabBackground": "#1F292E",
+              "tabDividerColor": "none",
+              "activeTabIndicatorEdge": "bottom"
+            }
+          }
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: localConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.surfaceTabBarStyle.activeTabBackground, "#28343A")
+        XCTAssertEqual(store.surfaceTabBarStyle.activeTabForeground, "#F5F7F2")
+        XCTAssertEqual(store.surfaceTabBarStyle.inactiveTabBackground, "#1F292E")
+        XCTAssertEqual(store.surfaceTabBarStyle.tabDividerColor, "none")
+        XCTAssertEqual(store.surfaceTabBarStyle.activeTabIndicatorEdge, .bottom)
+    }
+
+    @MainActor
+    func testSurfaceTabBarStyleCarriesIntoDocksCreatedAfterReload() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-tab-style-dock-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "ui": {
+            "surfaceTabBar": {
+              "activeTabBackground": "#28343A",
+              "tabDividerColor": "none",
+              "activeTabIndicatorEdge": "bottom"
+            }
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let manager = TabManager()
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            startFileWatchers: false
+        )
+        store.wireDirectoryTracking(tabManager: manager)
+        store.loadAll()
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let expected = store.surfaceTabBarStyle.bonsplitStyle
+        XCTAssertEqual(workspace.bonsplitController.configuration.appearance.tabStyle, expected)
+        XCTAssertEqual(
+            workspace.dockSplit.bonsplitController.configuration.appearance.tabStyle,
+            expected
+        )
+
+        let windowDock = manager.makeWindowDockStore(windowId: UUID())
+        XCTAssertEqual(windowDock.bonsplitController.configuration.appearance.tabStyle, expected)
+    }
+
     func testDecodeSurfaceTabBarButtonsDefersUnknownActionReferences() throws {
         let json = """
         {

@@ -53,6 +53,65 @@
               "description": "ID of the action run by plain New Workspace. This is the default workspace layout; omit or remove it for None (Blank Terminal). Project-local ui.newWorkspace.action wins over the global value."
             }
           }
+        },
+        "surfaceTabBar": {
+          "title": "surfaceTabBar",
+          "description": "Configure pane surface-tab actions and selection-dependent colors.",
+          "descriptionKey": "schemaDescriptions.surfaceTabBar.description",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "buttons": {
+              "type": "array",
+              "description": "Ordered actions shown on the right side of each surface tab bar.",
+              "descriptionKey": "schemaDescriptions.surfaceTabBar.buttons",
+              "items": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "object", "additionalProperties": true }
+                ]
+              }
+            },
+            "activeTabBackground": {
+              "$ref": "#/$defs/tabStyleColor",
+              "description": "Background color of the selected surface tab.",
+              "descriptionKey": "schemaDescriptions.surfaceTabBar.activeTabBackground"
+            },
+            "activeTabForeground": {
+              "$ref": "#/$defs/tabStyleColor",
+              "description": "Label color of the selected surface tab.",
+              "descriptionKey": "schemaDescriptions.surfaceTabBar.activeTabForeground"
+            },
+            "inactiveTabBackground": {
+              "$ref": "#/$defs/tabStyleColor",
+              "description": "Background color of unselected surface tabs.",
+              "descriptionKey": "schemaDescriptions.surfaceTabBar.inactiveTabBackground"
+            },
+            "inactiveTabForeground": {
+              "$ref": "#/$defs/tabStyleColor",
+              "description": "Label color of unselected surface tabs.",
+              "descriptionKey": "schemaDescriptions.surfaceTabBar.inactiveTabForeground"
+            },
+            "tabDividerColor": {
+              "oneOf": [
+                { "$ref": "#/$defs/tabStyleColor" },
+                { "const": "none" }
+              ],
+              "description": "Color of separators between surface tabs, or \"none\" to hide them.",
+              "descriptionKey": "schemaDescriptions.surfaceTabBar.tabDividerColor"
+            },
+            "activeTabIndicatorColor": {
+              "$ref": "#/$defs/tabStyleColor",
+              "description": "Color of the accent line on the selected surface tab.",
+              "descriptionKey": "schemaDescriptions.surfaceTabBar.activeTabIndicatorColor"
+            },
+            "activeTabIndicatorEdge": {
+              "type": "string",
+              "enum": ["top", "bottom"],
+              "description": "Edge where the selected-tab accent line is drawn.",
+              "descriptionKey": "schemaDescriptions.surfaceTabBar.activeTabIndicatorEdge"
+            }
+          }
         }
       }
     },
@@ -1786,6 +1845,12 @@
     }
   },
   "$defs": {
+    "tabStyleColor": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+      "description": "A 6- or 8-digit RGB/RGBA hex color.",
+      "descriptionKey": "schemaDescriptions.surfaceTabBar.color"
+    },
     "colorHex": {
       "type": "string",
       "pattern": "^#[0-9A-Fa-f]{6}$",

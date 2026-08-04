@@ -10,10 +10,21 @@ extension DockSplitStore {
     static let minimumDockPaneSize: CGFloat = 48
 
     func applyGhosttyChrome(from config: GhosttyConfig) {
-        bonsplitController.configuration.appearance = Self.makeAppearance(from: config)
+        bonsplitController.configuration.appearance = Self.makeAppearance(
+            from: config,
+            tabStyle: bonsplitController.configuration.appearance.tabStyle
+        )
     }
 
-    static func makeConfiguration() -> BonsplitConfiguration {
+    func applySurfaceTabBarStyle(_ style: CmuxSurfaceTabBarStyle) {
+        let next = style.bonsplitStyle
+        guard bonsplitController.configuration.appearance.tabStyle != next else { return }
+        bonsplitController.configuration.appearance.tabStyle = next
+    }
+
+    static func makeConfiguration(
+        surfaceTabStyle: BonsplitConfiguration.Appearance.TabStyle = .init()
+    ) -> BonsplitConfiguration {
         let config = GhosttyConfig.load()
         return BonsplitConfiguration(
             allowSplits: true,
@@ -25,11 +36,14 @@ extension DockSplitStore {
             contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
             tabBarVisibility: .always,
-            appearance: makeAppearance(from: config)
+            appearance: makeAppearance(from: config, tabStyle: surfaceTabStyle)
         )
     }
 
-    static func makeAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
+    static func makeAppearance(
+        from config: GhosttyConfig,
+        tabStyle: BonsplitConfiguration.Appearance.TabStyle = .init()
+    ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
@@ -56,6 +70,7 @@ extension DockSplitStore {
                 renderingMode: renderingMode,
                 paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
             ),
+            tabStyle: tabStyle,
             usesSharedBackdrop: sharesWindowBackdrop
         )
     }

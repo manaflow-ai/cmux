@@ -2211,7 +2211,8 @@ final class Workspace: Identifiable, ObservableObject {
                 )
             },
             settings: settings,
-            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults
+            agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
+            surfaceTabStyle: bonsplitController.configuration.appearance.tabStyle
         )
         store.terminalFontSizeChangeCoordinator =
             terminalFontSizeChangeCoordinator
@@ -3507,6 +3508,12 @@ final class Workspace: Identifiable, ObservableObject {
         guard configuration.allowCloseTabs != allowCloseTabs else { return }
         configuration.allowCloseTabs = allowCloseTabs
         bonsplitController.configuration = configuration
+    }
+
+    func applySurfaceTabBarStyle(_ style: CmuxSurfaceTabBarStyle) {
+        let next = style.bonsplitStyle
+        guard bonsplitController.configuration.appearance.tabStyle != next else { return }
+        bonsplitController.configuration.appearance.tabStyle = next
     }
 
     func applySurfaceTabBarButtons(
