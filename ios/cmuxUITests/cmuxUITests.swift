@@ -3079,15 +3079,23 @@ final class cmuxUITests: XCTestCase {
                     app.descendants(matching: .any)["MobileWorkspaceSwitcherSheet"].waitForExistence(timeout: 4)
                 )
                 assertTerminalMenuItemExists("terminal-labs-tests", in: app)
-                XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].exists)
-                XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
-                XCTAssertTrue(app.buttons["MobileWorkspaceTitleCloseMenuItem"].exists)
+                for identifier in [
+                    "MobileWorkspaceTitleRenameMenuItem",
+                    "MobileWorkspaceTitleReadStateMenuItem",
+                    "MobileWorkspaceTitleCloseMenuItem",
+                ] {
+                    let action = app.buttons[identifier]
+                    for _ in 0..<8 where !action.isHittable {
+                        app.swipeUp()
+                    }
+                    XCTAssertTrue(action.exists, "Missing switcher-sheet action: \(identifier)")
+                }
                 tap(app.buttons["Done"], in: app)
             case "inline-tabs":
                 XCTAssertTrue(
-                    app.descendants(matching: .any)["MobileInlineTerminalStrip"].waitForExistence(timeout: 4)
+                    app.buttons["MobileInlineTerminalTab-terminal-labs-tests"]
+                        .waitForExistence(timeout: 4)
                 )
-                XCTAssertTrue(app.buttons["MobileInlineTerminalTab-terminal-labs-tests"].exists)
                 XCTAssertTrue(app.buttons["MobileTerminalDropdown"].exists)
             case "title-stepper":
                 XCTAssertFalse(app.buttons["MobileTerminalDropdown"].exists)
@@ -4855,7 +4863,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(app.buttons["MobileWorkspaceLabQuickNewTerminalButton"].waitForExistence(timeout: 4))
         case "inline-tabs":
             XCTAssertTrue(
-                app.descendants(matching: .any)["MobileInlineTerminalStrip"]
+                app.buttons["MobileInlineTerminalTab-terminal-labs-tests"]
                     .waitForExistence(timeout: 4)
             )
         case "title-stepper":
