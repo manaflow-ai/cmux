@@ -450,6 +450,101 @@ struct ApplicationSurfaceTests {
         #expect(!view.isReleasingForwardedInput)
     }
 
+    @Test
+    func regainingPaneInputOwnershipRestoresPhysicallyHeldModifier() async throws {
+        _ = NSApplication.shared
+        let frameRing = try ApplicationSurfaceFrameRingFixture()
+        let service = ComputerUseRuntimeService()
+        let lease = ApplicationSurfaceRuntimeLease(
+            service: service,
+            identifier: UUID()
+        )
+        let runtime = FakeApplicationSurfaceRuntime()
+        runtime.sessionToStart = ApplicationSurfaceSessionDescriptor(
+            sessionID: "modifier-ownership-resume",
+            frameTransport: frameRing.descriptor
+        )
+        var physicalModifierFlagsRawValue = UInt(0)
+        var captureStates: [ApplicationCaptureState] = []
+        let view = ApplicationCaptureView(
+            windowID: 42,
+            processID: 43,
+            targetFrameRate: 60,
+            runtime: runtime,
+            leaseProvider: { lease },
+            onStateChanged: { state, _ in
+                captureStates.append(state)
+            },
+            onMovedToWindow: { _ in },
+            modifierFlagsRawValueProvider: {
+                physicalModifierFlagsRawValue
+            }
+        )
+        let window = ApplicationSurfaceVisibleTestWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        #expect(window.makeFirstResponder(view))
+        view.setCaptureActive(true)
+        defer {
+            view.teardown()
+            window.contentView = nil
+            window.close()
+            withExtendedLifetime(service) {}
+        }
+
+        let streamingDeadline = ContinuousClock.now + .seconds(2)
+        while !captureStates.contains(.streaming),
+              ContinuousClock.now < streamingDeadline {
+            await Task.yield()
+        }
+        try #require(captureStates.contains(.streaming))
+
+        physicalModifierFlagsRawValue =
+            NSEvent.ModifierFlags.shift.rawValue
+                | UInt(NX_DEVICELSHIFTKEYMASK)
+        view.setInputOwnership(true)
+        let initialPressDeadline = ContinuousClock.now + .seconds(1)
+        while runtime.sentEvents.count < 1,
+              ContinuousClock.now < initialPressDeadline {
+            await Task.yield()
+        }
+        try #require(runtime.sentEvents.count >= 1)
+        #expect(runtime.sentEvents[0] == ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: UInt16(kVK_Shift),
+            keyDown: true
+        ))
+
+        view.setInputOwnership(false)
+        await view.waitUntilForwardedInputReleased()
+        try #require(runtime.sentEvents.count >= 2)
+        #expect(runtime.sentEvents[1] == ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: UInt16(kVK_Shift),
+            keyDown: false
+        ))
+
+        view.setInputOwnership(true)
+        let restoredPressDeadline = ContinuousClock.now + .seconds(1)
+        while runtime.sentEvents.count < 3,
+              ContinuousClock.now < restoredPressDeadline {
+            await Task.yield()
+        }
+        try #require(runtime.sentEvents.count >= 3)
+        #expect(runtime.sentEvents[2] == ApplicationSurfaceInputEvent(
+            kind: .key,
+            keyCode: UInt16(kVK_Shift),
+            keyDown: true
+        ))
+    }
+
     @Test func frameTransportFailuresResolveThroughTheAppStringCatalog() {
         let expected = String(
             localized: "panel.application.captureFailed.detail",
