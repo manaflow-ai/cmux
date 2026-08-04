@@ -499,7 +499,7 @@ extension MobileShellComposite {
             if disconnectForAuthorizationFailureIfNeeded(error) { return }
             connectionState = .disconnected
             macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearRemoteConnectionContext(preservingOtherMacWorkspaceState: true)
         }
     }
 
@@ -663,7 +663,7 @@ extension MobileShellComposite {
                 if !disconnectForAuthorizationFailureIfNeeded(error) {
                     connectionState = .disconnected
                     macConnectionStatus = .unavailable
-                    clearRemoteConnectionContext()
+                    clearRemoteConnectionContext(preservingOtherMacWorkspaceState: true)
                 }
             }
         } else {

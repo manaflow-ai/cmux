@@ -10462,6 +10462,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.handleTerminalEventStreamEnded(
                 listenerID: listenerID,
                 client: client,
+                connectionGeneration: listenerConnectionGeneration,
                 recoversConnectionOnFailure: recoversEndedStream
             )
         }
@@ -10565,12 +10566,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func handleTerminalEventStreamEnded(
         listenerID: UUID,
         client: MobileCoreRPCClient,
+        connectionGeneration: UUID,
         recoversConnectionOnFailure: Bool
     ) {
         guard !Task.isCancelled,
               terminalEventListenerID == listenerID,
-              remoteClient === client,
-              connectionState == .connected else {
+              isCurrentRemoteOperation(
+                client: client,
+                generation: connectionGeneration
+              ) else {
             return
         }
         guard recoversConnectionOnFailure else {
@@ -10578,27 +10582,59 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalSubscriptionStartTask = nil
             return
         }
-        if terminalSubscriptionStartTask != nil {
+        let subscriptionWasValidated =
+            lastSuccessfulTerminalSubscription
+                == MobileTerminalSubscriptionValidation(
+                    connectionGeneration: connectionGeneration,
+                    listenerID: listenerID
+                )
+        guard subscriptionWasValidated else {
             // The stream ended while this generation's enable handshake was
             // still in flight: the transport dropped before the subscription
-            // ever delivered. Restarting here would supersede the generation
-            // and silently swallow the handshake's failure verdict (its ack
-            // guard sees a newer listenerID), so a closed transport would
-            // loop `reconnecting` forever. Converge instead: a stream that
-            // dies before its handshake completes IS a failed start.
-            mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
-            MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
-            diagnosticLog?.record(DiagnosticEvent(.error))
-            recoverDeadConnection(
-                trigger: .subscriptionStartFailed,
-                expectedClient: client
-            )
+            // ever became usable. Restarting here would supersede the failed
+            // start and can loop `reconnecting` forever. If the ack task is
+            // still pending, converge it to a failed start now; if it already
+            // failed, that path owns recovery and this stream-end must not
+            // resurrect the listener.
+            if terminalSubscriptionStartTask != nil {
+                terminalSubscriptionStartTask?.cancel()
+                terminalSubscriptionStartTask = nil
+                mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
+                MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
+                diagnosticLog?.record(DiagnosticEvent(.error))
+                recoverDeadConnection(
+                    trigger: .subscriptionStartFailed,
+                    expectedClient: client
+                )
+            }
             return
         }
-        mobileShellLog.info("terminal event stream ended, redialing stored Mac")
-        MobileDebugLog.anchormux("sync.stream_ended redialing stored Mac")
+        mobileShellLog.info("terminal event stream ended, restarting subscription")
+        MobileDebugLog.anchormux("sync.stream_ended restarting subscription")
         diagnosticLog?.record(DiagnosticEvent(.streamEnded))
-        recoverDeadConnection(trigger: .eventStreamEnded, expectedClient: client)
+        restartTerminalEventStreamAfterEnd(
+            listenerID: listenerID,
+            client: client,
+            connectionGeneration: connectionGeneration
+        )
+    }
+
+    private func restartTerminalEventStreamAfterEnd(
+        listenerID: UUID,
+        client: MobileCoreRPCClient,
+        connectionGeneration: UUID
+    ) {
+        guard terminalEventListenerID == listenerID,
+              isCurrentRemoteOperation(
+                client: client,
+                generation: connectionGeneration
+              ) else {
+            return
+        }
+        terminalEventListenerTask = nil
+        terminalEventListenerID = nil
+        stopRenderGridLivenessWatchdog(listenerID: listenerID)
+        startTerminalRefreshPolling()
     }
 
     // MARK: - Render-grid liveness watchdog
@@ -10868,10 +10904,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 requestData,
                 timeoutNanoseconds: timeoutNanoseconds
             )
-            guard let object = try JSONSerialization.jsonObject(with: data)
-                    as? [String: Any],
-                  object["stream_id"] as? String == terminalEventStreamID,
-                  let subscribed = object["subscribed"] as? Bool else {
+            let parsed = await Task.detached(priority: .utility) {
+                () -> (streamID: String?, subscribed: Bool?)? in
+                guard let object = try? JSONSerialization.jsonObject(with: data)
+                        as? [String: Any] else {
+                    return nil
+                }
+                return (
+                    streamID: object["stream_id"] as? String,
+                    subscribed: object["subscribed"] as? Bool
+                )
+            }.value
+            guard parsed?.streamID == terminalEventStreamID,
+                  let subscribed = parsed?.subscribed else {
                 return .failed
             }
             return subscribed ? .active : .missing
