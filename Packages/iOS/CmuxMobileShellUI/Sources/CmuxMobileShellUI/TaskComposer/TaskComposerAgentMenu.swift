@@ -5,58 +5,33 @@ import SwiftUI
 
 /// Keeps the selected agent attached to the prompt while leaving every
 /// template and the editor one tap away.
-struct TaskComposerAgentMenu: View {
-    let templates: [MobileTaskTemplate]
-    let selectedTemplateID: MobileTaskTemplate.ID?
-    let isDisabled: Bool
-    let selectTemplate: (MobileTaskTemplate) -> Void
-    let editTemplates: () -> Void
+struct TaskComposerAgentMenu: View, Equatable {
+    let value: TaskComposerAgentMenuValue
+    let actions: TaskComposerAgentMenuActions
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.value == rhs.value
+    }
 
     private var selectedTemplate: MobileTaskTemplate? {
-        selectedTemplateID.flatMap { id in
-            templates.first { $0.id == id }
+        value.selectedTemplateID.flatMap { id in
+            value.templates.first { $0.id == id }
         }
     }
 
-    private var templateSelection: Binding<MobileTaskTemplate.ID?> {
-        Binding(
-            get: { selectedTemplateID },
-            set: { id in
-                guard let id,
-                      let template = templates.first(where: { $0.id == id }) else { return }
-                selectTemplate(template)
-            }
-        )
+    private var selectedModel: MobileTaskAgentModel? {
+        guard value.modelPickerVariant.renderedVariant == .combined,
+              let selectedModelID = value.selectedModelID else { return nil }
+        return value.models.first { $0.id == selectedModelID }
+            ?? MobileTaskAgentModel(
+                id: selectedModelID,
+                displayName: selectedModelID
+            )
     }
 
     var body: some View {
         Menu {
-            if !templates.isEmpty {
-                Picker(
-                    L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"),
-                    selection: templateSelection
-                ) {
-                    ForEach(templates) { template in
-                        Text(template.name)
-                            .tag(Optional(template.id))
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-
-            Divider()
-
-            Button(action: editTemplates) {
-                Label(
-                    L10n.string(
-                        "mobile.taskComposer.agent.edit",
-                        defaultValue: "Edit Agents"
-                    ),
-                    systemImage: "slider.horizontal.3"
-                )
-            }
-            .accessibilityIdentifier("MobileTaskComposerEditTemplatesButton")
+            TaskComposerAgentMenuContent(value: value, actions: actions)
         } label: {
             HStack(spacing: 10) {
                 if let selectedTemplate {
@@ -67,13 +42,13 @@ struct TaskComposerAgentMenu: View {
 
                     Text(title(for: selectedTemplate))
                         .font(.headline)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Color.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)
                 } else {
                     Image(systemName: "person.crop.circle.badge.exclamationmark")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.secondary)
                         .frame(width: 32, height: 32)
                         .background(Color.primary.opacity(0.055), in: Circle())
                         .accessibilityHidden(true)
@@ -85,45 +60,50 @@ struct TaskComposerAgentMenu: View {
                         )
                     )
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.secondary)
                     .lineLimit(1)
                 }
 
+                Spacer(minLength: 8)
+
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color.secondary.opacity(0.55))
                     .accessibilityHidden(true)
             }
-            .frame(minHeight: 44)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
             // Keep the chrome around the prompt compact while allowing the
             // menu's choices to retain the caller's full Dynamic Type size.
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
-        .buttonStyle(.plain)
         // Keep the menu reachable when every template has been deleted so the
         // editor remains the recovery path for adding an agent.
-        .disabled(isDisabled)
+        .disabled(value.isDisabled)
         .accessibilityLabel(L10n.string("mobile.taskComposer.agent", defaultValue: "Agent"))
-        .accessibilityValue(selectedTemplate?.name ?? "")
+        .accessibilityValue(selectedTemplate.map(title(for:)) ?? "")
         .accessibilityHint(TaskComposerSheet.templateAccessibilityHint)
         .accessibilityIdentifier("MobileTaskComposerAgentMenu")
     }
 
     private func title(for template: MobileTaskTemplate) -> String {
+        let baseTitle: String
         if template.isPlainShell {
-            return L10n.string(
+            baseTitle = L10n.string(
                 "mobile.taskComposer.promptTitle.shell",
                 defaultValue: "Shell command"
             )
+        } else {
+            baseTitle = String(
+                format: L10n.string(
+                    "mobile.taskComposer.promptTitle.agentFormat",
+                    defaultValue: "Ask %@"
+                ),
+                template.name
+            )
         }
-        return String(
-            format: L10n.string(
-                "mobile.taskComposer.promptTitle.agentFormat",
-                defaultValue: "Ask %@"
-            ),
-            template.name
-        )
+        guard let selectedModel else { return baseTitle }
+        return "\(baseTitle) · \(selectedModel.displayName)"
     }
 }
 #endif

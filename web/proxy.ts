@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
+import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
 import {
@@ -12,6 +13,7 @@ import {
 import { buildAlternateLinkHeader } from "./i18n/seo";
 
 const intlMiddleware = createMiddleware(routing);
+const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
@@ -25,6 +27,15 @@ export default function middleware(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl;
+
+  // cmux consumes this marker before navigation. If an ordinary browser
+  // reaches the server, canonicalize the URL while preserving every public
+  // query parameter.
+  if (request.nextUrl.searchParams.get("cmux_open_in_browser") === "split-right") {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete("cmux_open_in_browser");
+    return NextResponse.redirect(url, 307);
+  }
 
   // The public site only routes docs traffic to the release/nightly origins.
   // Locale handling belongs to those origins; rewriting it here first causes
@@ -61,20 +72,48 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Social crawlers can retain metadata URLs after the page HTML changes.
+  // Serve the hashed paths emitted by the former metadata-file route through
+  // today's stable endpoint without exposing a redirect to the crawler.
+  const legacyOpenGraphImagePath = legacyOpenGraphImageRewritePath(pathname);
+  if (legacyOpenGraphImagePath) {
+    const url = request.nextUrl.clone();
+    url.pathname = legacyOpenGraphImagePath;
+    url.search = "";
+    return NextResponse.rewrite(url);
+  }
+
   // This is a localized image endpoint, but the default-locale URL is
   // intentionally unprefixed to match the canonical social metadata URL.
-  if (pathname === "/opengraph-image" || pathname === "/opengraph-image/") {
+  if (
+    pathname === "/opengraph-image" ||
+    pathname === "/opengraph-image/" ||
+    pathname === "/browser-opengraph-image" ||
+    pathname === "/browser-opengraph-image/"
+  ) {
     return NextResponse.next();
   }
 
   if (pathname === "/app-pro-welcome" || pathname === "/app-pro-welcome/") {
-    return NextResponse.next();
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(
+      "x-next-intl-locale",
+      preferredAppRouteLocale(request),
+    );
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Post-checkout pages live outside the [locale] tree, like /app-pricing.
   // Without this bypass next-intl rewrites them into /<locale>/billing/...,
   // which has no route and 404s via the pass-through root layout.
   if (pathname === "/billing" || pathname.startsWith("/billing/")) {
+    return NextResponse.next();
+  }
+
+  // Stripe returns cmux Cloud users to one fixed, status-qualified URL.
+  // Keep it outside the localized route tree so every Checkout and portal
+  // session can share the same production URL.
+  if (pathname === "/cloud/billing" || pathname === "/cloud/billing/") {
     return NextResponse.next();
   }
 
@@ -133,6 +172,7 @@ export default function middleware(request: NextRequest) {
   // locale detection can't redirect back. The privacy policy has complete
   // localized content and follows the normal next-intl path.
   const englishOnlyPages = new Set([
+    "/company-information",
     "/terms-of-service",
     "/eula",
   ]);
@@ -234,63 +274,24 @@ function preferredFallbackContentLocale(
     return "en";
   }
 
-  const preferences = (request.headers.get("accept-language") ?? "")
-    .split(",")
-    .map((preference, index) => {
-      const [tag, ...parameters] = preference.trim().split(";");
-      const qualityParameter = parameters.find((parameter) =>
-        /^q\s*=/iu.test(parameter.trim()),
-      );
-      const qualityValue = qualityParameter?.split("=")[1].trim();
-      const quality =
-        qualityValue === undefined
-          ? 1
-          : /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/u.test(qualityValue)
-            ? Number(qualityValue)
-            : Number.NaN;
-      return { tag: tag.trim().toLowerCase(), quality, index };
-    })
-    .filter(
-      ({ tag, quality }) =>
-        tag.length > 0 &&
-        Number.isFinite(quality) &&
-        quality >= 0 &&
-        quality <= 1,
-    );
-
-  const preferred = availableLocales
-    .map((locale) => ({
-      locale,
-      ...effectiveLanguageQuality(locale, preferences),
-    }))
-    .sort(
-      (left, right) =>
-        right.quality - left.quality || left.index - right.index,
-    )[0];
-  return preferred && preferred.quality > 0
-    ? preferred.locale
-    : (availableLocales[0] ?? "en");
+  return preferredLocaleFromAcceptLanguage(
+    request.headers.get("accept-language") ?? "",
+    availableLocales,
+    availableLocales[0] ?? routing.defaultLocale,
+  );
 }
 
-function effectiveLanguageQuality(
-  locale: (typeof routing.locales)[number],
-  preferences: Array<{ tag: string; quality: number; index: number }>,
-) {
-  const explicitMatches = preferences.filter(({ tag }) => {
-    if (tag === "*") return false;
-    return tag.split("-")[0] === locale;
-  });
-  const matches =
-    explicitMatches.length > 0
-      ? explicitMatches
-      : preferences.filter(({ tag }) => tag === "*");
-  return matches.reduce(
-    (best, preference) =>
-      preference.quality > best.quality ||
-      (preference.quality === best.quality && preference.index < best.index)
-        ? preference
-        : best,
-    { quality: 0, index: Number.POSITIVE_INFINITY },
+function preferredAppRouteLocale(
+  request: NextRequest,
+): (typeof routing.locales)[number] {
+  const cookieLocale = request.cookies.get("NEXT_LOCALE")?.value;
+  if (cookieLocale && routing.locales.some((locale) => locale === cookieLocale)) {
+    return cookieLocale as (typeof routing.locales)[number];
+  }
+  return preferredLocaleFromAcceptLanguage(
+    request.headers.get("accept-language") ?? "",
+    routing.locales,
+    routing.defaultLocale,
   );
 }
 
@@ -311,6 +312,32 @@ function setFeatureWorkflowDocLinkHeader(
 
 function requestOrigin(request: NextRequest) {
   return request.nextUrl.origin;
+}
+
+function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
+  const segments = pathname.split("/").filter(Boolean);
+  let locale = routing.defaultLocale;
+  let imageSegment: string;
+
+  if (segments.length === 1) {
+    imageSegment = segments[0];
+  } else if (segments.length === 2 && localeSet.has(segments[0])) {
+    locale = segments[0] as (typeof routing.locales)[number];
+    imageSegment = segments[1];
+  } else {
+    return undefined;
+  }
+
+  if (
+    !imageSegment.startsWith("opengraph-image-") ||
+    imageSegment.length === "opengraph-image-".length
+  ) {
+    return undefined;
+  }
+
+  return locale === routing.defaultLocale
+    ? "/opengraph-image"
+    : `/${locale}/opengraph-image`;
 }
 
 export const config = {

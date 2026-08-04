@@ -29,6 +29,8 @@ struct RemoteInitialCommandBootstrapTests {
         try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
+        let persistentPTYExecHelper = try writePersistentPTYExecHelper(to: bin)
+
         try """
         #!/bin/sh
         cmux_test_rcfile=''
@@ -82,6 +84,7 @@ struct RemoteInitialCommandBootstrapTests {
             "PATH": "\(bin.path):/usr/bin:/bin",
             "SHELL": fakeBash.path,
             "CMUX_REMOTE_VALUE": "remote-only",
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER": persistentPTYExecHelper.path,
         ]) { _, new in new }
 
         let first = try runShell("umask 022\n" + script, environment: environment)
@@ -151,9 +154,13 @@ struct RemoteInitialCommandBootstrapTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-remote-initial-command-zsh-\(UUID().uuidString)")
         let home = root.appendingPathComponent("home")
+        let bin = root.appendingPathComponent("bin")
         let output = home.appendingPathComponent("zsh initial command.txt")
         try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
+
+        let persistentPTYExecHelper = try writePersistentPTYExecHelper(to: bin)
 
         try "export CMUX_ZSH_STARTUP_ORDER=zshrc\n".write(
             to: home.appendingPathComponent(".zshrc"),
@@ -173,8 +180,9 @@ struct RemoteInitialCommandBootstrapTests {
         )
         let environment = ProcessInfo.processInfo.environment.merging([
             "HOME": home.path,
-            "PATH": "/usr/bin:/bin",
+            "PATH": "\(bin.path):/usr/bin:/bin",
             "SHELL": "/bin/zsh",
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER": persistentPTYExecHelper.path,
         ]) { _, new in new }
 
         let first = try runShell(script, environment: environment)
@@ -199,16 +207,21 @@ struct RemoteInitialCommandBootstrapTests {
         try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
+        let persistentPTYExecHelper = try writePersistentPTYExecHelper(to: bin)
+
         try """
         #!/bin/sh
         case "${1:-}" in
           -i)
+            [ "${CMUX_TEST_PERSISTENT_PTY_EXEC_USED:-}" = yes ] || exit 69
             if [ "${2:-}" = -c ]; then
               cmux_test_command="$3"
               shift 3
               exec /bin/csh -f -c "$cmux_test_command" "$@"
             fi
-            printf '%s|%s\n' "$(/bin/pwd)" "${CMUX_FALLBACK_STATE:-}" > "$HOME/fallback state.txt"
+            if [ -n "${CMUX_FALLBACK_STATE:-}" ]; then
+              printf '%s|%s\n' "$(/bin/pwd)" "$CMUX_FALLBACK_STATE" > "$HOME/fallback state.txt"
+            fi
             exit 0
             ;;
           -*) printf 'unexpected shell option: %s\\n' "$1" >&2; exit 64 ;;
@@ -232,6 +245,7 @@ struct RemoteInitialCommandBootstrapTests {
             "PATH": "/usr/bin:/bin",
             "SHELL": fakeShell.path,
             "CMUX_REMOTE_VALUE": "remote-only",
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER": persistentPTYExecHelper.path,
         ]) { _, new in new }
 
         let first = try runShell(script, environment: environment)
@@ -261,6 +275,8 @@ struct RemoteInitialCommandBootstrapTests {
         try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
+
+        let persistentPTYExecHelper = try writePersistentPTYExecHelper(to: bin)
 
         try """
         #!/bin/sh
@@ -301,6 +317,7 @@ struct RemoteInitialCommandBootstrapTests {
             "SHELL": fakeShell.path,
             "CMUX_EXPECTED_COMMAND": command,
             "CMUX_REMOTE_VALUE": "remote-only",
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER": persistentPTYExecHelper.path,
         ]) { _, new in new }
 
         let first = try runShell(script, environment: environment)
@@ -315,6 +332,73 @@ struct RemoteInitialCommandBootstrapTests {
 
         let recordedInvocations = try String(contentsOf: invocations, encoding: .utf8)
         #expect(recordedInvocations == "execute|\(home.path)|remote-only\ninteractive\ninteractive\n")
+    }
+
+    @Test("relay TTY registration completes before the interactive shell starts")
+    func relayTTYRegistrationCompletesBeforeInteractiveShellStarts() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-relay-ready-bootstrap-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let bin = root.appendingPathComponent("bin")
+        let cmuxBin = home.appendingPathComponent(".cmux/bin")
+        let fakeCmux = cmuxBin.appendingPathComponent("cmux")
+        let fakeShell = bin.appendingPathComponent("test-shell")
+        let reportStatus = root.appendingPathComponent("report-status")
+        let shellStarted = root.appendingPathComponent("shell-started")
+        try fileManager.createDirectory(at: cmuxBin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let persistentPTYExecHelper = try writePersistentPTYExecHelper(to: bin)
+        try """
+        #!/bin/sh
+        if [ "${1:-}" = rpc ] && [ "${2:-}" = surface.report_tty ]; then
+          cmux_wait_count=0
+          while [ "$cmux_wait_count" -lt 100 ] && [ ! -e "$CMUX_TEST_SHELL_STARTED" ]; do
+            cmux_wait_count=$((cmux_wait_count + 1))
+            sleep 0.01
+          done
+          if [ -e "$CMUX_TEST_SHELL_STARTED" ]; then
+            printf raced > "$CMUX_TEST_REPORT_STATUS"
+          else
+            printf ready > "$CMUX_TEST_REPORT_STATUS"
+          fi
+        fi
+        printf '{"ok":true}\\n'
+        """.write(to: fakeCmux, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCmux.path)
+        try """
+        #!/bin/sh
+        : > "$CMUX_TEST_SHELL_STARTED"
+        cmux_wait_count=0
+        while [ "$cmux_wait_count" -lt 100 ] && [ ! -s "$CMUX_TEST_REPORT_STATUS" ]; do
+          cmux_wait_count=$((cmux_wait_count + 1))
+          sleep 0.01
+        done
+        cat "$CMUX_TEST_REPORT_STATUS"
+        """.write(to: fakeShell, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeShell.path)
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64011,
+            shellFeatures: "ssh-env,ssh-terminfo"
+        )
+        let result = try runShell(script, environment: [
+            "CMUX_BOOTSTRAP_TTY": "ttys990",
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER": persistentPTYExecHelper.path,
+            "CMUX_SSH_ATTEMPT_ID": "44444444-4444-4444-4444-444444444444",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
+            "CMUX_TEST_REPORT_STATUS": reportStatus.path,
+            "CMUX_TEST_SHELL_STARTED": shellStarted.path,
+            "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            "HOME": home.path,
+            "PATH": "\(bin.path):/usr/bin:/bin",
+            "SHELL": fakeShell.path,
+        ])
+
+        #expect(result.status == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        #expect(result.stdout == "ready")
     }
 
     @Test
@@ -337,6 +421,7 @@ struct RemoteInitialCommandBootstrapTests {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", script]
         process.environment = environment
+        process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdout
         process.standardError = stderr
 
@@ -347,5 +432,23 @@ struct RemoteInitialCommandBootstrapTests {
             stdout: String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
             stderr: String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         )
+    }
+
+    private func writePersistentPTYExecHelper(to directory: URL) throws -> URL {
+        let url = directory.appendingPathComponent("persistent-pty-exec-helper")
+        try """
+        #!/bin/sh
+        [ "${1:-}" = "--internal-persistent-pty-exec" ] || exit 2
+        shift
+        executable="${1:-}"
+        [ -n "$executable" ] || exit 2
+        shift
+        [ "${1:-}" = "$executable" ] || exit 2
+        shift
+        export CMUX_TEST_PERSISTENT_PTY_EXEC_USED=yes
+        exec "$executable" "$@"
+        """.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        return url
     }
 }

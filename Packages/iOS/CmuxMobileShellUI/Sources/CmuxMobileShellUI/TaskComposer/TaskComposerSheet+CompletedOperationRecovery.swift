@@ -12,7 +12,7 @@ extension TaskComposerSheet {
     }
 
     func startCompletedOperationReconciliation() {
-        guard submitTask == nil, let recovery = completedOperationRecovery else { return }
+        guard submitTask == nil, let recovery = activeCompletedOperationRecovery else { return }
         submitTask = Task { @MainActor in
             await reconcileCompletedOperation(recovery.submittedSnapshot)
             submitTask = nil
@@ -29,7 +29,8 @@ extension TaskComposerSheet {
         }
         let result = await submitTaskComposer(
             snapshot.macDeviceID,
-            Self.workspaceCreateSpec(for: snapshot)
+            selectedMachine?.instanceTag,
+            workspaceCreateSpec(for: snapshot)
         ) {
             submissionPhase = .committed
         }
@@ -40,13 +41,12 @@ extension TaskComposerSheet {
             completeSubmission(snapshot)
         case .failure(.alreadyCompleted):
             completedOperationRecovery?.recordReconciliationStillMissing()
-            let message = L10n.string(
-                "mobile.taskComposer.recovery.stillMissing",
-                defaultValue: "The task is still missing. Refresh again or start it as a new task."
-            )
+            failureTitleStyle = .taskAccepted
+            let message = recoveryFailureMessage(for: .startAgainAvailable)
             failureText = message
             announceFailure(message)
         case .failure(let failure):
+            failureTitleStyle = .statusUnconfirmed
             let message = Self.failureMessage(failure)
             failureText = message
             announceFailure(message)
@@ -54,9 +54,10 @@ extension TaskComposerSheet {
     }
 
     func confirmStartAgain() {
-        guard completedOperationRecovery?.allowsStartAgain == true else { return }
+        guard activeCompletedOperationRecovery?.allowsStartAgain == true else { return }
         completedOperationRecovery = nil
         failureText = nil
+        failureTitleStyle = .launchFailed
         startSubmission()
     }
 
@@ -73,16 +74,32 @@ extension TaskComposerSheet {
         dismiss()
     }
 
-    static func workspaceCreateSpec(
-        for snapshot: MobileTaskSubmissionSnapshot
+    func workspaceCreateSpec(
+        for snapshot: MobileTaskSubmissionSnapshot,
+        attachmentPaths: [String] = []
     ) -> MobileWorkspaceCreateSpec {
-        MobileWorkspaceCreateSpec(
-            title: snapshot.composition.title,
+        let composition = snapshot.composition(
+            attachmentPaths: attachmentPaths
+        )
+        return MobileWorkspaceCreateSpec(
+            title: snapshot.workspaceTitle,
             workingDirectory: snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
-            initialCommand: snapshot.composition.initialCommand,
-            initialEnv: snapshot.composition.initialEnv.isEmpty ? nil : snapshot.composition.initialEnv,
+            initialCommand: composition.initialCommand,
+            initialEnv: composition.initialEnv.isEmpty ? nil : composition.initialEnv,
             operationID: snapshot.operationID
         )
+    }
+
+    func recoveryFailureMessage(for phase: TaskComposerCompletedOperationRecoveryPhase) -> String {
+        switch phase {
+        case .refreshRequired:
+            Self.failureMessage(.alreadyCompleted(hostDisplayName: nil))
+        case .startAgainAvailable:
+            L10n.string(
+                "mobile.taskComposer.recovery.stillMissing",
+                defaultValue: "The task is still missing. Refresh again or start it as a new task."
+            )
+        }
     }
 }
 

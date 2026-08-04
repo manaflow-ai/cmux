@@ -292,6 +292,33 @@ struct CmxIrohRelayCredentialCoordinatorTests {
         await coordinator.deactivate()
     }
 
+    @Test
+    func restoredCooldownRetryNeverPrecedesPersistedServerFloor() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let clock = TestRelayClock(now: fixture.now)
+        var clockEvents = clock.events().makeAsyncIterator()
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: TestRelayTokenBroker(steps: [.cooldown(600)]),
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
+        )
+
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity
+        )
+
+        let clockEvent = await clockEvents.next()
+        #expect(await endpoint.observedRelayUpdates().isEmpty)
+        #expect(clockEvent == .sleep(fixture.now.addingTimeInterval(600)))
+        await coordinator.deactivate()
+    }
+
 }
 
 private actor TestRelayActivationCompletionRecorder {
@@ -362,6 +389,7 @@ actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
         case response(CmxIrohRelayTokenResponse)
         case failure
         case rateLimited(Int)
+        case cooldown(Int)
     }
 
     private var steps: [Step]
@@ -393,6 +421,10 @@ actor TestRelayTokenBroker: CmxIrohRelayTokenServing {
         case let .rateLimited(retryAfterSeconds):
             throw CmxIrohTrustBrokerClientError.rateLimited(
                 code: "rate_limited",
+                retryAfterSeconds: retryAfterSeconds
+            )
+        case let .cooldown(retryAfterSeconds):
+            throw CmxIrohBrokerCooldownError(
                 retryAfterSeconds: retryAfterSeconds
             )
         }

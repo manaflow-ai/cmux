@@ -5,6 +5,7 @@ import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxSentryReporting
 import Foundation
 import SwiftUI
 import cmuxFeature
@@ -25,8 +26,11 @@ final class AppCompositionRoot {
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
-    /// First-run onboarding "seen" flag, persisted to `UserDefaults.standard`.
-    /// Built with `forceSeen` set when a UI-test mock harness or a dogfood
+    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
+    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    let connectionMethodStore: MobileConnectionMethodStore
+    /// First-run onboarding progress, persisted to `UserDefaults.standard`.
+    /// Built with `forceComplete` set when a UI-test mock harness or a dogfood
     /// auto-pair attach URL is active, so neither path is wedged behind the
     /// one-time onboarding screen.
     let onboardingStore: MobileOnboardingStore
@@ -44,6 +48,12 @@ final class AppCompositionRoot {
     /// only fixed categories and integer magnitudes, never terminal contents,
     /// credentials, peer identities, addresses, or free-form errors.
     let diagnosticLog: DiagnosticLog
+
+    /// Bridges the diagnostic event stream into Sentry (breadcrumbs, structured
+    /// logs, and throttled failure events with the ring export attached). Held
+    /// for the process lifetime; delivery no-ops whenever the crash SDK is off
+    /// (consent revoked or crash reporting disabled for the build).
+    private let transportSentryReporter: TransportSentryReporter
 
     init(
         runtime: CMUXMobileRuntime,
@@ -69,6 +79,17 @@ final class AppCompositionRoot {
                 consent: telemetryConsent,
                 revocationWatcher: crashRevocationWatcher
             )
+        }
+        // The reporter checks `SentrySDK.isEnabled` per event, so it respects
+        // both the build-level kill switch above and mid-session consent
+        // revocation (which closes the SDK) without extra plumbing.
+        let transportSentryReporter = TransportSentryReporter(
+            role: .mobileClient,
+            exportRing: { [diagnosticLog] in await diagnosticLog.export() }
+        )
+        self.transportSentryReporter = transportSentryReporter
+        diagnosticLog.setEventTap { event in
+            transportSentryReporter.ingest(event)
         }
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
@@ -102,17 +123,24 @@ final class AppCompositionRoot {
             }
         }
         self.displaySettings = MobileDisplaySettings()
-        // Skip the one-time onboarding when a UI-test mock harness
+        self.connectionMethodStore = MobileConnectionMethodStore(defaults: .standard)
+        // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
         // active: those launches expect to land on sign-in / add-device / a live
-        // workspace, not behind a manual tap-through. `forceSeen` never writes the
-        // real install's persisted flag.
-        let bypassOnboarding = UITestConfig.mockDataEnabled
+        // workspace, not behind a manual tap-through. The dedicated onboarding
+        // preview remains active so its relaunch test exercises real persistence.
+        // `forceComplete` never writes the real install's persisted progress.
+        #if DEBUG
+        let onboardingPreviewEnabled = UITestConfig.onboardingPreviewEnabled
+        #else
+        let onboardingPreviewEnabled = false
+        #endif
+        let bypassOnboarding = (UITestConfig.mockDataEnabled && !onboardingPreviewEnabled)
             || UITestConfig.dogfoodAttachURL != nil
             || UITestConfig.attachURL != nil
         self.onboardingStore = MobileOnboardingStore(
             defaults: .standard,
-            forceSeen: bypassOnboarding
+            forceComplete: bypassOnboarding
         )
         self.tailscaleStatusMonitor = TailscaleStatusMonitorAdapter(monitor: TailscaleStatusMonitor())
     }
@@ -183,6 +211,10 @@ final class AppCompositionRoot {
             }
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
+        case .inactive:
+            // The switcher opened; a swipe-kill from here may skip the
+            // background transition entirely, so snapshot diagnostics now.
+            iroh.archiveDiagnostics()
         case .background:
             iroh.didEnterBackground()
             let now = Date()
@@ -200,8 +232,6 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             Task { await emitter.flush() }
-        case .inactive:
-            break
         @unknown default:
             break
         }

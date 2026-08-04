@@ -1,4 +1,27 @@
 {
+  "cloudBillingReturn": {
+    "eyebrow": "cmux Cloud",
+    "returnTitle": "Kontynuuj w terminalu",
+    "returnBody": "Aby kontynuować, wróć do terminala, w którym uruchomiono ssh cmux.cloud.",
+    "statuses": {
+      "checkoutSuccess": {
+        "title": "Płatność zakończona",
+        "body": "Twoja subskrypcja została potwierdzona. Nowe limity mogą pojawić się po chwili."
+      },
+      "checkoutCanceled": {
+        "title": "Płatność anulowana",
+        "body": "Płatność została zamknięta bez zmiany planu."
+      },
+      "portalReturn": {
+        "title": "Powrót z portalu rozliczeniowego",
+        "body": "Zmiany wprowadzone w portalu rozliczeniowym mogą pojawić się po chwili."
+      },
+      "default": {
+        "title": "Rozliczenie zakończone",
+        "body": "Proces rozliczeniowy został zakończony."
+      }
+    }
+  },
   "meta": {
     "title": "cmux — Terminal stworzony do wielozadaniowości",
     "description": "Darmowy i otwartoźródłowy natywny terminal dla macOS zbudowany na Ghostty. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI. Pionowe karty, pierścienie powiadomień, dzielone panele i socket API.",
@@ -79,7 +102,7 @@
     "faqGhosttyQ": "Jaki jest związek cmux z Ghostty?",
     "faqGhosttyA": "cmux nie jest forkiem Ghostty. Używa <link>libghostty</link> jako biblioteki do renderowania terminala, tak samo jak aplikacje używają WebKit do widoków webowych. Ghostty to samodzielny terminal; cmux to inna aplikacja zbudowana na jego silniku renderowania.",
     "faqPlatformQ": "Jakie platformy są obsługiwane?",
-    "faqPlatformA": "Tylko macOS, na razie. cmux to natywna aplikacja Swift + AppKit.",
+    "faqPlatformA": "Sprawdź dostępne wersje cmux w menu pobierania. <waitlist>Dołącz do listy oczekujących</waitlist> dla platformy, która nie została jeszcze wydana.",
     "faqAgentsQ": "Z jakimi agentami kodowania działa cmux?",
     "faqAgentsA": "Ze wszystkimi. cmux to terminal, więc każdy agent działający w terminalu działa od razu: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent i wszystko inne co możesz uruchomić z linii poleceń.",
     "faqNotificationsQ": "Jak działają powiadomienia?",
@@ -845,8 +868,8 @@
       "concepts": "Koncepty",
       "anchorTitle": "Kotwicowy workspace",
       "anchorDesc": "Każda grupa należy do dokładnie jednego workspace'a zwanego kotwicą. Nagłówek grupy w pasku bocznym jest reprezentacją kotwicy — nie ma dla niej osobnego wiersza. Kliknięcie obszaru nazwy w nagłówku ustawia fokus na panelach kotwicy; kliknięcie strzałki przełącza zwinięcie.",
-      "anchorNew": "Kotwice są zawsze całkowicie nowe w momencie utworzenia grupy. Nigdy nie są awansowane z istniejącego workspace'a. Katalog roboczy kotwicy jest dziedziczony z pierwszego zaznaczonego workspace'a przy grupowaniu zaznaczenia lub z aktywnego workspace'a przy tworzeniu za pomocą CLI bez --cwd.",
-      "anchorClose": "Zamknięcie kotwicowego workspace'a rozwiązuje grupę: każdy pozostały członek staje się niezgrupowanym workspace'em i pozostaje na liście kart. Nic poza samą kotwicą nie jest zamykane. Przed tym aplikacja wyświetla okno potwierdzenia z przełącznikiem „Nie pytaj ponownie”.",
+      "anchorNew": "Kotwicą grupy jest w chwili jej tworzenia zawsze zupełnie nowy workspace; ani grupowanie zaznaczenia, ani tworzenie grupy nigdy nie powodują awansu żadnego z istniejących workspace'ów do roli kotwicy. (Późniejsze zamknięcie kotwicy awansuje jednak pierwszego pozostałego członka grupy; zobacz poniżej). Katalog roboczy kotwicy jest dziedziczony z pierwszego zaznaczonego workspace'a podczas grupowania zaznaczenia lub z aktywnego workspace'a podczas tworzenia przez CLI bez --cwd.",
+      "anchorClose": "Zamknięcie kotwicowego workspace'a zamyka tylko ten workspace i awansuje pierwszego pozostałego członka grupy (pierwszego, który nadal znajduje się w kolejności grupy) do roli nowej kotwicy. Dzięki temu grupa i jej pozostali członkowie pozostają nienaruszeni (awansowany członek wyświetla następnie nazwę grupy jako nagłówek). Gdy kotwica jest jedynym workspace'em w grupie, grupa zostaje usunięta. Aby przekształcić grupę w niezgrupowane workspace'y, użyj „Rozgrupuj przestrzenie”; aby zamknąć wszystkie workspace'y w grupie, użyj „Usuń grupę”.",
       "identityTitle": "Tożsamość grupy",
       "identityDesc": "Grupa ma nazwę, ikonę (SF Symbol, domyślnie folder.fill) oraz opcjonalny niestandardowy kolor. Są one niezależne od własnych dostosowań kotwicowego workspace'a. Kolor i ikona kotwicy są przy tworzeniu inicjowane z grupy, ale później mogą się różnić.",
       "pinningTitle": "Przypinanie",
@@ -973,7 +996,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
+          "when": "Opcjonalne predykaty kontekstu dla poszczególnych akcji (klauzule `when` w stylu VS Code), indeksowane według identyfikatora akcji cmux. Każda wartość jest wyrażeniem logicznym nad kluczami kontekstu, łączonym za pomocą !, &&, || oraz nawiasów. Klucze logiczne: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Klucze typowane obsługują porównania: łańcuch sidebarMode (files, find, sessions, feed lub dock) oraz liczby całkowite paneCount i workspaceCount. Operatory porównania to ==, !=, =~ (wyrażenie regularne), <, <=, >, >= oraz `in [a, b]`; nieznany lub nieobecny klucz jest traktowany jako false. Akceptowane są też literały logiczne true i false; `key == false` jest równoważne `!key`. Skrót akcji uruchamia się (i koliduje z innymi skrótami) tylko wtedy, gdy klauzula jest spełniona. Przykłady: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wybiera obszary robocze za pomocą Ctrl+1–9 wszędzie poza sytuacją, gdy fokus ma prawy pasek boczny; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ogranicza przypisanie do paska bocznego wyszukiwania, gdy obszar roboczy ma wiele paneli.",
           "showModifierHoldHints": "Pokazuj etykiety podpowiedzi skrótów podczas przytrzymywania Cmd lub Control."
         }
       },
@@ -3503,7 +3526,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później."
+    "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
+    "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
+    "signedOutSignIn": "Zaloguj się"
   },
   "platforms": {
     "macos": "macOS",
@@ -3516,8 +3541,8 @@
     "title": "Dołącz do listy oczekujących na {platform}",
     "titleAny": "Dołącz do listy oczekujących",
     "description": "Obsługa {platform} jest w drodze. Zostaw swój e-mail, a damy znać, gdy będzie gotowe.",
-    "descriptionAny": "Na razie cmux działa przede wszystkim na macOS. Zostaw e-mail, a powiadomimy Cię, gdy będzie gotowa wersja na Linux, Windows lub Android.",
-    "calloutText": "Wkrótce na Linux, Windows i Android.",
+    "descriptionAny": "Wybierz platformę, która nie została jeszcze wydana, i zostaw e-mail. Powiadomimy Cię, gdy ta wersja będzie gotowa.",
+    "calloutText": "Nadchodzą kolejne wersje cmux.",
     "platformsLabel": "Które platformy?",
     "selectPlatform": "Wybierz co najmniej jedną platformę.",
     "emailLabel": "E-mail",
@@ -3531,5 +3556,86 @@
     "successBody": "Wyślemy Ci e-mail, gdy wersja na {platform} będzie gotowa.",
     "successBodyAny": "Wyślemy Ci e-mail, gdy cmux będzie gotowy na Twoją platformę.",
     "done": "Gotowe"
+  },
+  "browserDownloads": {
+    "eyebrow": "Przeglądarka cmux",
+    "title": "cmux dla {platform}",
+    "tagline": "Przeglądarka Chromium i przestrzeń robocza dla agentów, stworzone jako jedna całość.",
+    "logoAlt": "Ikona aplikacji cmux",
+    "portableCta": "Przenośny ZIP",
+    "featuresTitle": "Stworzone do pracy z agentami",
+    "features": {
+      "chromium": {
+        "title": "Prawdziwy Chromium",
+        "description": ": karty, renderowanie, rozszerzenia i działanie omniboksa na poziomie Chrome"
+      },
+      "workspaces": {
+        "title": "Przestrzenie robocze według zadań",
+        "description": ": organizuj karty internetowe i narzędzia wokół zadania zamiast na jednej niekończącej się liście kart"
+      },
+      "terminals": {
+        "title": "Powierzchnie terminala",
+        "description": ": korzystaj z powłok i kart przeglądarki w tym samym oknie i kompozytorze"
+      },
+      "openSource": {
+        "title": "Bezpłatne i open source",
+        "description": ": przeglądaj kod, zgłaszaj problemy i buduj ze źródeł na GitHubie"
+      }
+    },
+    "installTitle": "Instalacja",
+    "releaseTitle": "Wydania i aktualizacje",
+    "releaseBody": "Te linki zawsze prowadzą do najnowszego stabilnego wydania w <github>GitHub Releases</github>. cmux weryfikuje podpisane manifesty aktualizacji przed zainstalowaniem aktualizacji.",
+    "sourceLink": "Zobacz kod źródłowy na GitHubie",
+    "otherPlatform": "cmux dla {platform}",
+    "macLink": "Terminal cmux dla Maca",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Pobierz cmux dla Windows",
+      "metaDescription": "Pobierz cmux dla Windows x64: bezpłatną przeglądarkę Chromium i przestrzeń roboczą dla agentów typu open source, z kartami według zadań i powierzchniami terminala.",
+      "subtitle": "Natywna kompilacja x64 z kartami Chromium, przestrzeniami roboczymi cmux i znanymi skrótami klawiaturowymi Windows.",
+      "primaryCta": "Pobierz instalator (.exe)",
+      "requirements": "Windows 10 lub nowszy · x64",
+      "installBody": "Uruchom instalator i postępuj zgodnie z komunikatami Windows. Wybierz przenośny ZIP, jeśli wolisz przechowywać cmux w folderze bez instalacji w całym systemie."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Pobierz cmux dla Linux",
+      "metaDescription": "Pobierz cmux dla Linux x64: bezpłatną przeglądarkę Chromium i przestrzeń roboczą dla agentów typu open source, z kartami według zadań i powierzchniami terminala.",
+      "subtitle": "Natywna kompilacja x64 z kartami Chromium, przestrzeniami roboczymi cmux i zintegrowanymi powierzchniami terminala.",
+      "primaryCta": "Pobierz .deb",
+      "requirements": "Debian lub Ubuntu · x64",
+      "installBody": "Pobierz pakiet Debiana i zainstaluj go za pomocą menedżera pakietów. Wybierz przenośny ZIP, aby zainstalować aplikację dla jednego użytkownika i korzystać z aktualizacji w aplikacji."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Witamy w cmux Pro 🎉",
+      "fallbackName": "przyjacielu",
+      "greeting": "Cześć {name},",
+      "thanks": "Dziękujemy za dołączenie do cmux Pro! Nadal dopracowujemy pełne doświadczenie Pro, a dostęp do chmury pojawi się już wkrótce.",
+      "cloudStatus": "Gdy uruchomimy dostęp do chmury, dodamy do Twojego konta kredyty na wykorzystanie odpowiadające liczbie miesięcy subskrypcji.",
+      "currentBenefit": "W międzyczasie korzyścią Pro jest wcześniejszy dostęp do cmux na iOS. Zarejestruj się przez poniższy link, a po rejestracji Apple wyśle Ci zaproszenie do TestFlight.",
+      "testflightLink": "Zarejestruj się w TestFlight: {url}",
+      "testflightLinkLabel": "Zarejestruj się w TestFlight",
+      "signoff": "Cieszymy się, że jesteś z nami!\nZespół cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro jest aktywny",
+    "title": "Witamy w cmux Pro",
+    "body": "Funkcje Pro są nadal rozwijane. Dostęp do chmury pojawi się wkrótce, a za każdy miesiąc subskrypcji będą naliczane kredyty na wykorzystanie. Obecnie Pro obejmuje dostęp do cmux na iOS przez TestFlight.",
+    "done": "Przejdź do panelu",
+    "steps": {
+      "iosApp": {
+        "title": "Aplikacja cmux na iOS",
+        "body": "Korzystaj z cmux na telefonie.",
+        "action": "Dołącz do bety iOS"
+      },
+      "billing": {
+        "title": "Zarządzaj planem",
+        "body": "Sprawdź plan, faktury i opcje anulowania.",
+        "action": "Zarządzaj planem"
+      }
+    }
   }
 }

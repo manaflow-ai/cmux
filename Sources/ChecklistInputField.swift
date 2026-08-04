@@ -104,7 +104,9 @@ struct ChecklistInputField: NSViewRepresentable {
 
 /// The `NSTextField` that grabs first responder on appear. The `selectsAllOnFocus`
 /// flag chooses select-all (edit) vs caret-at-end (add) once the field editor exists.
-final class FocusGrabbingTextField: NSTextField {
+/// Subclassable: the AppKit sidebar's checklist fields extend the window-attach
+/// hook to clear the field editor's background after the deferred focus grab.
+class FocusGrabbingTextField: NSTextField {
     var selectsAllOnFocus = false
     var caretColor: NSColor = .labelColor {
         didSet { (currentEditor() as? NSTextView)?.insertionPointColor = caretColor }

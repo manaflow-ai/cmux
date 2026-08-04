@@ -175,8 +175,8 @@ extension MobileHostAuthorizationTests {
 
         #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .automatic)
         defaults.set(
-            CmxIrohTransportVerificationMode.relayOnly.rawValue,
-            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+            CmxIrohPathPreference.relayOnly.rawValue,
+            forKey: CmxIrohPathPreference.defaultsKey
         )
         #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .relayOnly)
         defaults.set(
@@ -184,6 +184,13 @@ extension MobileHostAuthorizationTests {
             forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
         )
         #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .directOnly)
+        defaults.removeObject(forKey: CmxIrohTransportVerificationMode.debugDefaultsKey)
+        defaults.set(
+            CmxIrohPathPreference.automatic.rawValue,
+            forKey: CmxIrohPathPreference.defaultsKey
+        )
+        defaults.set(true, forKey: MobileHostIrohRuntime.debugRelayOnlyDefaultsKey)
+        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .relayOnly)
     }
     #endif
 

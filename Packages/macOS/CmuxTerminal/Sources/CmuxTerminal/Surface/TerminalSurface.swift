@@ -12,9 +12,7 @@ internal import CMUXDebugLog
 /// reclamation state.
 ///
 /// Lifted verbatim from `Sources/GhosttyTerminalView.swift`; the legacy
-/// reach-ups into `GhosttyApp.shared` / `TerminalController.shared` /
-/// `MobileTerminalByteTee.shared` / `RendererRealizationController.shared` /
-/// `AgentHibernationController.shared` are inverted through the seams in
+/// reach-ups into app-owned singletons are inverted through the seams in
 /// ``TerminalSurfaceRuntimeDependencies``.
 ///
 /// Isolation: the model keeps the legacy main-thread-only contract. Members
@@ -59,12 +57,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
+    var runtimeControllingTTYName: String?
+    var runtimeControllingTTYDeviceIdentifier: Int64?
     /// The live runtime surface pointer, or nil before creation/after teardown.
     public internal(set) var surface: ghostty_surface_t? {
         get { runtimeSurface }
         set {
             guard runtimeSurface != newValue else { return }
             runtimeSurface = newValue
+            runtimeControllingTTYName = nil
+            runtimeControllingTTYDeviceIdentifier = nil
             runtimeSurfaceGeneration &+= 1
         }
     }
@@ -91,15 +93,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
 
-    /// cmux renderer reclamation: whether the current runtime surface's GPU
-    /// renderer (Metal swap chain / IOSurface, ~40MB) is realized. A freshly
-    /// created runtime surface is always realized, so this starts `true` and is
-    /// reset to `true` in `createSurface`. `RendererRealizationController`
-    /// releases it (`releaseRenderer`) while the surface is offscreen and idle;
-    /// `setVisibleInUI(true)` re-realizes it (`realizeRenderer`) before the next
-    /// draw. It mirrors Ghostty's swap-chain `defunct` flag so realize/unrealize
-    /// strictly alternate (Ghostty's `displayRealized` asserts `defunct`).
-    var rendererRealized = true
+    /// Presentation state for the current runtime renderer. This distinguishes a
+    /// renderer Ghostty created from one cmux has actually presented in a real
+    /// window, while preserving Ghostty's native rebuild transaction.
+    var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
 
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
@@ -147,6 +144,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The stable identity of the terminal surface.
     public let id: UUID
 
+    /// Unique identity for this terminal process generation.
+    ///
+    /// Respawning a logical surface constructs a new ``TerminalSurface`` with
+    /// the same ``id`` but a different lifecycle identity.
+    public let terminalLifecycleId: UUID
+
     /// The owning workspace id.
     public private(set) var tabId: UUID
 
@@ -155,6 +158,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let portOrdinal: Int
     let surfaceContext: ghostty_surface_context_e
     let configTemplate: CmuxSurfaceConfigTemplate?
+    var lastKnownFontSizeLineage: TerminalFontSizeLineage?
+    var pendingFontSizeConfigurationReloadState:
+        TerminalFontSizeConfigurationReloadState?
+    var fontSizeActionObservationSuppressionDepth = 0
+    var lastAppliedFontSizeChangeToken: UUID?
+    var transferReconciledFontSizeChangeTokens: Set<UUID> = []
+    var lastPrunedFontSizeTransferRetirementGeneration: UInt64 = 0
+    var fontSizeLineageConfigurationGeneration: UInt64
+    /// Whether runtime creation should ignore inherited lineage and follow current config.
+    var followsConfiguredFontSize: Bool
     let workingDirectory: String?
 
     /// The command to run instead of the default shell, if any.
@@ -171,6 +184,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The working directory requested at construction, if any.
     public var requestedWorkingDirectory: String? { workingDirectory }
 
+    /// The working directory reported by Ghostty shell integration, or nil after a reset.
+    @Published public internal(set) var reportedWorkingDirectory: String?
     /// Where the surface participates in focus routing. Mutable so a live
     /// surface can move between the workspace area and the right-sidebar dock
     /// without being recreated (preserving its process). Always mutate through
@@ -180,15 +195,18 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public private(set) var focusPlacement: TerminalSurfaceFocusPlacement
     var additionalEnvironment: [String: String]
 
-    /// When true, the surface is created in libghostty MANUAL I/O mode: no
-    /// process is spawned, output is injected via `processRemoteOutput(_:)`,
-    /// and typed input is delivered to `manualInputHandler`.
-    let manualIO: Bool
-    let manualInputHandler: (@Sendable (Data) -> Void)?
+    /// Identifies who owns the process, PTY, and terminal protocol.
+    public let ioMode: TerminalSurfaceIOMode
+    /// Ordered input from the manual transport (literal bytes or named keys).
+    let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
+    /// Resolves physical keys that the manual transport should encode itself.
+    let manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)?
 
     /// Remote tmux manual-I/O resize and runtime-readiness hooks.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
     @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
+    /// Called after durable font-size lineage changes.
+    @MainActor public var onFontSizeLineageChanged: (@MainActor (TerminalFontSizeLineage) -> Void)?
     @MainActor var manualSizeReportPendingWindowAttach = false
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
@@ -236,10 +254,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
-    /// Runtime font size to restore when mobile viewport fitting clears.
-    var mobileFitBaseFontPointSize: Float?
-    /// Last runtime font size applied by mobile viewport fitting.
-    var mobileFittedFontPointSize: Float?
+    /// Temporary runtime font-size ownership while a mobile viewport is fitted.
+    var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
     // lock is the sanctioned carve-out for tiny values shared with
     // synchronous off-isolation readers.
@@ -257,8 +273,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal
     var restoredRuntimeSurfaceStartQueued = false
+    var configurationReloadDeferredRuntimeSurfaceCreation = false
+    var configurationReloadDeferredRuntimeSurfaceCreationSource:
+        RuntimeSurfaceCreationSource?
+    weak var configurationReloadDeferredRuntimeSurfaceView:
+        (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
+    var agentHibernationRuntimeTeardownTicket: TerminalSurfaceRuntimeTeardownTicket?
+    var agentHibernationRuntimeTeardownReservation:
+        TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var claudeCommandShim: ClaudeCommandShim?
@@ -410,11 +434,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     static func cmuxContextEnvironment(
         workspaceId: UUID,
         surfaceId: UUID,
+        terminalLifecycleId: UUID,
         socketPath: String
     ) -> CmuxContextEnvironment {
         CmuxContextEnvironment(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
+            terminalLifecycleId: terminalLifecycleId,
             socketPath: socketPath
         )
     }
@@ -431,6 +457,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             Self.cmuxContextEnvironment(
                 workspaceId: tabId,
                 surfaceId: id,
+                terminalLifecycleId: terminalLifecycleId,
                 socketPath: socketPath
             ),
             to: &environment,
@@ -469,17 +496,28 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        manualIO: Bool = false,
-        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        ioMode: TerminalSurfaceIOMode = .exec,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         self.id = id
+        self.terminalLifecycleId = UUID()
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
-        self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.lastKnownFontSizeLineage = configTemplate?.fontSizeLineage
+        self.lastAppliedFontSizeChangeToken =
+            configTemplate?.fontSizeChangeToken
+        self.transferReconciledFontSizeChangeTokens =
+            configTemplate?.fontSizeChangeTokens ?? []
+        self.fontSizeLineageConfigurationGeneration =
+            dependencies.engine
+                .terminalFontConfigurationGeneration
+        self.followsConfiguredFontSize = configTemplate?.fontSizeLineage == nil
+        self.workingDirectory = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
         self.portOrdinal = portOrdinal
         self.initialCommand = initialCommand.flatMap {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
@@ -491,8 +529,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         self.focusPlacement = focusPlacement
-        self.manualIO = manualIO
+        self.ioMode = ioMode
         self.manualInputHandler = manualInputHandler
+        self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.registry = dependencies.registry
         self.engine = dependencies.engine
         self.spawnPolicyProvider = dependencies.spawnPolicy
@@ -529,7 +568,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             // MANUAL-I/O remote-tmux display surfaces have no command but must
             // start eagerly so they can receive injected output while their
             // workspace is still in the background.
-            || manualIO
+            || ioMode.usesManualIO
 
         // Surfaces with startup work must spawn before the user focuses their workspace.
         // Ghostty's embedded surface creation still expects a view with a window, so use
@@ -563,10 +602,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Moves this surface between focus-routing placements (workspace ↔
     /// right-sidebar dock) and keeps the surface registry's record in sync.
     /// Used when a live terminal is dragged across containers so it is not
-    /// recreated. No-op when the placement is unchanged.
+    /// recreated. Clears placement-owned directory state so a prior Dock tenure
+    /// cannot outrank the incoming container's directory. No-op when unchanged.
     @MainActor
     public func setFocusPlacement(_ placement: TerminalSurfaceFocusPlacement) {
         guard focusPlacement != placement else { return }
+        reportedWorkingDirectory = nil
         focusPlacement = placement
         registry.updateFocusPlacement(id: id, placement)
     }

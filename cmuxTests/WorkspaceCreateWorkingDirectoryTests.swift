@@ -30,10 +30,11 @@ import Testing
         let manager = TabManager()
         let initialWorkspaceIDs = Set(manager.tabs.map(\.id))
         let operationID = UUID()
+        let initialCommand = "codex \"${CMUX_TASK_PROMPT}\""
         let params: [String: Any] = [
             "operation_id": operationID.uuidString,
             "title": "Idempotent Task",
-            "initial_command": "codex \"${CMUX_TASK_PROMPT}\"",
+            "initial_command": initialCommand,
             "initial_env": ["CMUX_TASK_PROMPT": "Fix the composer"],
         ]
         let cache = Self.makeCache()
@@ -53,9 +54,31 @@ import Testing
 
         #expect(manager.tabs.count == initialWorkspaceIDs.count + 1)
         #expect(createdPanels.count == 1)
-        #expect(createdPanels.first?.surface.debugInitialCommand() == "codex \"${CMUX_TASK_PROMPT}\"")
+        let launchedCommand = try #require(createdPanels.first?.surface.debugInitialCommand())
+        #expect(launchedCommand == WorkspaceInitialCommandLoginShell.wrap(initialCommand))
+        #expect(launchedCommand.contains(initialCommand))
         #expect(Self.workspaceID(from: first) == created.id)
         #expect(Self.workspaceID(from: retry) == created.id)
+    }
+
+    @Test func initialAgentCommandLaunchesThroughLoginShellWithShimPath() throws {
+        let manager = TabManager()
+        let initialWorkspaceIDs = Set(manager.tabs.map(\.id))
+        let initialCommand = "claude -- \"$CMUX_TASK_PROMPT\""
+
+        _ = TerminalController.shared.v2WorkspaceCreate(params: [
+            "initial_command": initialCommand,
+            "initial_env": ["CMUX_TASK_PROMPT": "Fix the composer"],
+        ], tabManager: manager)
+
+        let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
+        let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        let launchedCommand = try #require(panel.surface.debugInitialCommand())
+
+        #expect(launchedCommand != initialCommand)
+        #expect(launchedCommand.contains("-lc"))
+        #expect(launchedCommand.contains(initialCommand))
+        #expect(launchedCommand.contains("CMUX_CLAUDE_WRAPPER_SHIM_ROOT"))
     }
 
     @Test func initialAgentCommandPreservesSurroundingWhitespaceThroughTerminalStartup() throws {
@@ -69,7 +92,13 @@ import Testing
 
         let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
         let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
-        #expect(panel.surface.debugInitialCommand() == initialCommand)
+        let launchedCommand = try #require(panel.surface.debugInitialCommand())
+        #expect(launchedCommand == WorkspaceInitialCommandLoginShell.wrap(initialCommand))
+        #expect(
+            launchedCommand
+                .replacingOccurrences(of: "'\"'\"'", with: "'")
+                .contains(initialCommand)
+        )
     }
 
     @Test func whitespaceOnlyInitialAgentCommandStartsPlainShell() throws {
@@ -83,6 +112,68 @@ import Testing
         let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
         let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
         #expect(panel.surface.debugInitialCommand() == nil)
+    }
+
+    @Test func workspaceInitialCommandWrapsZshExactly() {
+        let actual = WorkspaceInitialCommandLoginShell.wrap("echo zsh", userShell: "/bin/zsh")
+        let expected = """
+        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+        echo zsh'
+        """
+
+        #expect(actual == expected)
+    }
+
+    @Test func workspaceInitialCommandWrapsBashExactly() {
+        let actual = WorkspaceInitialCommandLoginShell.wrap("echo bash", userShell: "/bin/bash")
+        let expected = """
+        '/bin/bash' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+        echo bash'
+        """
+
+        #expect(actual == expected)
+    }
+
+    @Test func workspaceInitialCommandWrapsFishExactly() {
+        let actual = WorkspaceInitialCommandLoginShell.wrap("echo fish", userShell: "/usr/local/bin/fish")
+        let expected = """
+        '/usr/local/bin/fish' -lc 'if test -n "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; and test -d "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT"; set -gx PATH "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT" $PATH; end
+        echo fish'
+        """
+
+        #expect(actual == expected)
+    }
+
+    @Test func workspaceInitialCommandFallsBackToZshForNilShell() {
+        let actual = WorkspaceInitialCommandLoginShell.wrap("echo nil", userShell: nil)
+        let expected = """
+        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+        echo nil'
+        """
+
+        #expect(actual == expected)
+    }
+
+    @Test func workspaceInitialCommandFallsBackToZshForUnknownShell() {
+        let actual = WorkspaceInitialCommandLoginShell.wrap("echo unknown", userShell: "/opt/weird/nu")
+        let expected = """
+        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+        echo unknown'
+        """
+
+        #expect(actual == expected)
+    }
+
+    @Test func workspaceInitialCommandEscapesSingleQuotesAndPreservesNewlines() {
+        let command = "printf 'hello'\necho done"
+        let actual = WorkspaceInitialCommandLoginShell.wrap(command, userShell: "/bin/zsh")
+        let expected = """
+        '/bin/zsh' -lc 'if [ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ] && [ -d "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}" ]; then PATH="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT}${PATH:+:$PATH}"; export PATH; fi
+        printf '"'"'hello'"'"'
+        echo done'
+        """
+
+        #expect(actual == expected)
     }
 
     @Test func initialEnvironmentRejectsCStringTruncationAndPreservesEmptyPrompt() throws {
@@ -358,7 +449,11 @@ import Testing
         let attemptsAfterCreation = taskPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting()
 
         #expect(Set(manager.tabs.map(\.id)).subtracting(baselineIDs).count == 1)
-        #expect(initialCommands.filter { $0 == "must-run-once" }.count == 1)
+        #expect(
+            initialCommands.filter {
+                $0 == WorkspaceInitialCommandLoginShell.wrap("must-run-once")
+            }.count == 1
+        )
         #expect(attemptsAfterCreation > 0)
         #expect(!successfulResponses.isEmpty)
         #expect(successfulResponses.count + completedErrors.count == concurrentResults.count)

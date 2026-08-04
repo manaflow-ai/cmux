@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import GhosttyKit
 
 /// Immutable payload dereferenced only by the surface's serial Ghostty queue.
@@ -13,6 +14,11 @@ nonisolated struct VerifiedReplaySurfaceRead: @unchecked Sendable {
     let renderRevision: UInt64
     let expectedCursorColor: String?
     let configuredCursorColor: String?
+    /// Anchor of the frame being verified. Screen-anchored frames are read
+    /// back against the ACTIVE area: the local viewport may be scrolled into
+    /// local scrollback, and a viewport-anchored read would compare history
+    /// rows against the frame's grid and spuriously fail verification.
+    let anchor: MobileTerminalRenderGridFrame.Anchor
 }
 
 /// Tokened render invocation dereferenced only by the surface's serial queue.

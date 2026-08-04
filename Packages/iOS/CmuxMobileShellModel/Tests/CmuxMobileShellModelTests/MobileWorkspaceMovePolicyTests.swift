@@ -208,6 +208,125 @@ import Testing
         #expect(belowHeader == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
     }
 
+    @Test func rootWorkspaceJoinsExpandedPopulatedGroupAtEnd() throws {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("dragged"),
+            workspace("tail"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let move = try #require(MobileWorkspaceMovePolicy(
+            workspaces: workspaces,
+            groups: groups
+        ).normalizedIntent(
+            MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: nil),
+            movedWorkspaceID: "dragged"
+        ))
+
+        #expect(move == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
+        #expect(movedIDs(workspaces, move, movedWorkspaceID: "dragged", groups: groups) == [
+            "anchor", "member", "dragged", "tail",
+        ])
+    }
+
+    @Test func workspaceFromAnotherGroupJoinsGroupAtEnd() throws {
+        let workspaces = [
+            workspace("a-anchor", group: "a"),
+            workspace("dragged", group: "a"),
+            workspace("g-anchor", group: "g"),
+            workspace("g-member", group: "g"),
+            workspace("tail"),
+        ]
+        let groups = [group("a", anchor: "a-anchor"), group("g", anchor: "g-anchor")]
+        let move = try #require(MobileWorkspaceMovePolicy(
+            workspaces: workspaces,
+            groups: groups
+        ).normalizedIntent(
+            MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: nil),
+            movedWorkspaceID: "dragged"
+        ))
+
+        #expect(move == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
+        #expect(movedIDs(workspaces, move, movedWorkspaceID: "dragged", groups: groups) == [
+            "a-anchor", "g-anchor", "g-member", "dragged", "tail",
+        ])
+    }
+
+    @Test func workspaceJoinsCollapsedGroupAtEnd() throws {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("dragged"),
+            workspace("tail"),
+        ]
+        let groups = [group("g", anchor: "anchor", collapsed: true)]
+        let move = try #require(MobileWorkspaceMovePolicy(
+            workspaces: workspaces,
+            groups: groups
+        ).normalizedIntent(
+            MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: nil),
+            movedWorkspaceID: "dragged"
+        ))
+
+        #expect(movedIDs(workspaces, move, movedWorkspaceID: "dragged", groups: groups) == [
+            "anchor", "member", "dragged", "tail",
+        ])
+    }
+
+    @Test func workspaceJoinsAnchorOnlyGroupAsFirstNonAnchorMember() throws {
+        let workspaces = [workspace("anchor", group: "g"), workspace("dragged"), workspace("tail")]
+        let groups = [group("g", anchor: "anchor")]
+        let move = try #require(MobileWorkspaceMovePolicy(
+            workspaces: workspaces,
+            groups: groups
+        ).normalizedIntent(
+            MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: nil),
+            movedWorkspaceID: "dragged"
+        ))
+
+        #expect(move == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
+        #expect(movedIDs(workspaces, move, movedWorkspaceID: "dragged", groups: groups) == [
+            "anchor", "dragged", "tail",
+        ])
+    }
+
+    @Test func groupAnchorCannotJoinAnotherGroup() {
+        let workspaces = [workspace("a-anchor", group: "a"), workspace("g-anchor", group: "g")]
+        let groups = [group("a", anchor: "a-anchor"), group("g", anchor: "g-anchor")]
+        let move = MobileWorkspaceMovePolicy(workspaces: workspaces, groups: groups).normalizedIntent(
+            MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: nil),
+            movedWorkspaceID: "a-anchor"
+        )
+
+        #expect(move == nil)
+    }
+
+    @Test func lastGroupMemberJoiningSameGroupAgainIsNoOp() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("tail"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let move = MobileWorkspaceMovePolicy(workspaces: workspaces, groups: groups).normalizedIntent(
+            MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: nil),
+            movedWorkspaceID: "member"
+        )
+
+        #expect(move == nil)
+    }
+
+    @Test func joiningUnknownGroupIsRejected() {
+        let workspaces = [workspace("dragged")]
+        let move = MobileWorkspaceMovePolicy(workspaces: workspaces, groups: []).normalizedIntent(
+            MobileWorkspaceMoveIntent(groupID: "missing", beforeWorkspaceID: nil),
+            movedWorkspaceID: "dragged"
+        )
+
+        #expect(move == nil)
+    }
+
     @Test func movingLastNonAnchorMemberOutLeavesAnchorOnlyGroup() throws {
         let workspaces = [workspace("anchor", group: "g"), workspace("member", group: "g"), workspace("root")]
         let groups = [group("g", anchor: "anchor")]
