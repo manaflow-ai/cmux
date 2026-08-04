@@ -144,8 +144,8 @@ const vmIdRoute = await import("../app/api/vm/[id]/route");
 const { DELETE } = vmIdRoute;
 const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
-const forkRoute = await import("../app/api/vm/[id]/fork/route");
-const snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
+const _forkRoute = await import("../app/api/vm/[id]/fork/route");
+const _snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const sshRoute = await import("../app/api/vm/[id]/ssh-endpoint/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
 const {
@@ -1266,6 +1266,34 @@ describe("VM REST auth", () => {
     );
 
     expect(cookieUser?.id).toBe("user-1");
+    expect(getUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("invalid native credentials do not fall back to a browser cookie", async () => {
+    (
+      getUser as unknown as {
+        mockImplementation(
+          implementation: (input: unknown) => Promise<unknown>,
+        ): void;
+      }
+    ).mockImplementation(async (input) => {
+      const tokenStore = (
+        input as { tokenStore?: { accessToken?: string } } | undefined
+      )?.tokenStore;
+      return tokenStore ? null : authedStackUser();
+    });
+
+    const user = await verifyRequest(
+      new Request("https://cmux.test/api/subrouter/accounts", {
+        headers: {
+          authorization: "Bearer invalid-access",
+          "x-stack-refresh-token": "invalid-refresh",
+          cookie: "stack-auth-cookie=present",
+        },
+      }),
+    );
+
+    expect(user).toBeNull();
     expect(getUser).toHaveBeenCalledTimes(1);
   });
 

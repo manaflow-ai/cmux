@@ -1,9 +1,8 @@
 import CmuxBrowser
 import Foundation
 
-/// Test-side mirror of the lean prompt payload: one ordered selections array
-/// (each entry a flattened selection plus its screenshot path), no duplicated
-/// selection objects, empty fields omitted.
+/// Test-side mirror of the context JSON: one ordered selections array with
+/// each selection flattened beside its screenshot path.
 struct BrowserDesignModePromptPayload: Decodable {
     struct SelectionEntry: Decodable {
         let selection: BrowserDesignModeSelection
@@ -52,9 +51,9 @@ struct BrowserDesignModePromptPayload: Decodable {
         requestedChange = try container.decode(String.self, forKey: .requestedChange)
         pageScreenshotPath = try container.decodeIfPresent(String.self, forKey: .pageScreenshotPath)
         revision = try container.decode(Int.self, forKey: .revision)
-        cssDiff = try container.decodeIfPresent(String.self, forKey: .cssDiff) ?? ""
-        edits = try container.decodeIfPresent([BrowserDesignModeEdit].self, forKey: .edits) ?? []
+        cssDiff = try container.decode(String.self, forKey: .cssDiff)
+        edits = try container.decode([BrowserDesignModeEdit].self, forKey: .edits)
         selections = try container.decode([SelectionEntry].self, forKey: .selections)
-        prompt = try container.decodeIfPresent([PromptSegment].self, forKey: .prompt) ?? []
+        prompt = try container.decode([PromptSegment].self, forKey: .prompt)
     }
 }

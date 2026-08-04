@@ -47,7 +47,16 @@ public struct StoredShortcut: Sendable, Equatable, Hashable, Codable, SettingCod
     }
 
     public static func decodeFromJSON(_ raw: Any?) -> StoredShortcut? {
-        guard let raw, !(raw is NSNull) else { return nil }
+        guard let raw else { return nil }
+        if raw is NSNull { return .unbound }
+        if let string = raw as? String {
+            return parseConfig(string, allowBareFirstStroke: true)
+        }
+        if let strings = raw as? [String] {
+            return strings.isEmpty
+                ? .unbound
+                : parseConfig(strokes: strings, allowBareFirstStroke: true)
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: raw, options: .fragmentsAllowed) else {
             return nil
         }

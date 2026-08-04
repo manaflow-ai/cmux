@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CMUXMobileCore",
+    defaultLocalization: "en",
     platforms: [
         .iOS(.v18),
         .macOS(.v14),
@@ -17,6 +18,7 @@ let package = Package(
     targets: [
         .target(
             name: "CMUXMobileCore",
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

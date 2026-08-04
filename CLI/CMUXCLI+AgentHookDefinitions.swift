@@ -1,8 +1,13 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
     // MARK: - Generic agent hook system
 
+    // The client deadline must fire before the generated agent-hook timeout.
+    static let feedHookProcessTimeoutMilliseconds = 120_000
+    static let feedHookClientDeadlineSeconds = Double(feedHookProcessTimeoutMilliseconds) / 1_000 - 2
+    static let feedHookDecisionWaitSeconds = feedHookClientDeadlineSeconds - 3
     /// Configuration for a hook-based agent integration.
     struct AgentHookDef {
         let name: String            // CLI name: "cursor", "gemini", etc.
@@ -39,11 +44,7 @@ extension CMUXCLI {
         /// separate `session-finalize` subcommand / ``AgentHookAction/sessionFinalize``
         /// action, which performs the destructive cleanup this flag suppresses.
         let sessionEndIsTurnBoundary: Bool
-        /// Feed-hook events. Each entry installs a second hook for
-        /// `agentEvent` that invokes `cmux hooks feed --source <name>`
-        /// with a 120s timeout so the socket reply wait doesn't trip the
-        /// agent's default hook timeout when the user takes time to
-        /// approve/deny a permission / plan / question.
+        /// Events that install a `cmux hooks feed --source <name>` bridge.
         let feedHookEvents: [String]
         let postInstallAction: PostInstallAction?
         /// Optional CLI note printed after a successful install (or
@@ -222,8 +223,13 @@ extension CMUXCLI {
         }
     }
 
+    static let stdinDrainingHookNoOpShellCommand = "cat >/dev/null 2>/dev/null || true; echo '{}'"
+
     private static func shellNoOpSnippet(_ noOpCommand: String) -> String {
-        noOpCommand == "echo '{}'" ? noOpCommand : "{ \(noOpCommand); }"
+        let command = noOpCommand == "echo '{}'"
+            ? stdinDrainingHookNoOpShellCommand
+            : noOpCommand
+        return "{ \(command); }"
     }
 
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
@@ -304,7 +310,7 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || \(noOpSnippet)"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpCommand); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpSnippet); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
     }
 
     private static func pinnedHookInvocation(
@@ -417,12 +423,24 @@ extension CMUXCLI {
         if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
             return true
         }
+        if def.name == "codex", isCmuxOwnedCodexHookScriptCommand(command) {
+            return true
+        }
         if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
             || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
         {
             return true
         }
         return includeLegacy && isLegacyCmuxOwnedHookCommand(command, for: def)
+    }
+
+    private static func isCmuxOwnedCodexHookScriptCommand(_ command: String) -> Bool {
+        guard let hooksDirectory = codexHookScriptsDirectory() else { return false }
+        let url = URL(fileURLWithPath: command, isDirectory: false)
+        let name = url.lastPathComponent
+        return CodexHookScriptName(filename: name) != nil
+            && url.deletingLastPathComponent().standardizedFileURL
+                == hooksDirectory.standardizedFileURL
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
