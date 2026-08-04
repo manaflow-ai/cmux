@@ -3957,8 +3957,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let socketHandled = startMockServer(
             listenerFD: listenerFD,
-            state: state,
-            connectionCount: 3
+            state: state
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -4104,8 +4103,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let socketHandled = startMockServer(
             listenerFD: listenerFD,
-            state: state,
-            connectionCount: 3
+            state: state
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -4231,8 +4229,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let socketHandled = startMockServer(
             listenerFD: listenerFD,
-            state: state,
-            connectionCount: 2
+            state: state
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -4325,8 +4322,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let socketHandled = startMockServer(
             listenerFD: listenerFD,
-            state: state,
-            connectionCount: 3
+            state: state
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -4484,8 +4480,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let socketHandled = startMockServer(
             listenerFD: listenerFD,
-            state: state,
-            connectionCount: 3
+            state: state
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -4745,7 +4740,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let socketHandled = startMockServerAllowingNoResponse(
             listenerFD: listenerFD,
             state: state,
-            connectionCount: 10,
             handler: socketHandler
         )
 
@@ -4892,8 +4886,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let socketHandled = startMockServer(
             listenerFD: listenerFD,
-            state: state,
-            connectionCount: 8
+            state: state
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
