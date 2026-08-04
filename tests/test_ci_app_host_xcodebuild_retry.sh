@@ -79,26 +79,86 @@ PATH="$TMP_DIR:$PATH" \
 RUNNER_TEMP="$TMP_DIR" \
 CMUX_CAPTURE_XCODEBUILD_INVOCATIONS="$TMP_DIR/assertion-retry-invocations.log" \
 CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
-  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test >"$TMP_DIR/assertion-retry-output.log" 2>&1
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/assertion-retry-stream.log" \
+    2>"$TMP_DIR/assertion-retry-diagnostics.log"
 assertion_retry_status=$?
 set -e
 
-if [ "$assertion_retry_status" -eq 0 ]; then
-  cat "$TMP_DIR/assertion-retry-output.log"
-  echo "FAIL: a clean retry masked an XCTest assertion failure from the first attempt"
+if [ "$assertion_retry_status" -ne 65 ]; then
+  cat "$TMP_DIR/assertion-retry-stream.log"
+  cat "$TMP_DIR/assertion-retry-diagnostics.log"
+  echo "FAIL: expected assertion failure status 65, got $assertion_retry_status"
   regression_failures=$((regression_failures + 1))
 fi
 
-if ! grep -Fq "Detected 1 XCTest or Swift Testing failure markers." "$TMP_DIR/assertion-retry-output.log"; then
-  cat "$TMP_DIR/assertion-retry-output.log"
+if ! grep -Fq "Detected 1 XCTest or Swift Testing failure markers." "$TMP_DIR/assertion-retry-diagnostics.log"; then
+  cat "$TMP_DIR/assertion-retry-diagnostics.log"
   echo "FAIL: assertion diagnostics must report a sanitized marker count"
+  regression_failures=$((regression_failures + 1))
+fi
+
+if grep -Fq "Test Suite 'ExampleTests' failed" "$TMP_DIR/assertion-retry-diagnostics.log" \
+  || grep -Fq "Executed 1 test, with 1 failure (0 unexpected)" "$TMP_DIR/assertion-retry-diagnostics.log"; then
+  cat "$TMP_DIR/assertion-retry-diagnostics.log"
+  echo "FAIL: wrapper diagnostics must not repeat raw xcodebuild failure lines"
   regression_failures=$((regression_failures + 1))
 fi
 
 assertion_retry_invocations="$(wc -l < "$TMP_DIR/assertion-retry-invocations.log" | tr -d ' ')"
 if [ "$assertion_retry_invocations" -ne 1 ]; then
-  cat "$TMP_DIR/assertion-retry-output.log"
+  cat "$TMP_DIR/assertion-retry-diagnostics.log"
   echo "FAIL: an app-host assertion failure must stop retries; got $assertion_retry_invocations invocations"
+  regression_failures=$((regression_failures + 1))
+fi
+
+cat > "$TMP_DIR/xcodebuild" <<'SH'
+#!/usr/bin/env bash
+printf 'invoked\n' >> "$CMUX_CAPTURE_XCODEBUILD_INVOCATIONS"
+case "$CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH" in
+  *-attempt-1.log)
+    printf '%s\n' \
+      "SocketControlServer: Listening on /tmp/cmux-test.sock" \
+      "Test Suite 'Selected tests' passed" \
+      "Executed 1 test, with 0 failures (0 unexpected)" \
+      "Failed to establish communication with the test runner"
+    exit 65
+    ;;
+  *)
+    printf '%s\n' \
+      "SocketControlServer: Listening on /tmp/cmux-test.sock" \
+      "Test Suite 'Selected tests' passed" \
+      "Executed 1 test, with 0 failures (0 unexpected)"
+    ;;
+esac
+SH
+chmod +x "$TMP_DIR/xcodebuild"
+
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$TMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_INVOCATIONS="$TMP_DIR/communication-retry-invocations.log" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test >"$TMP_DIR/communication-retry-output.log" 2>&1
+communication_retry_status=$?
+set -e
+
+if [ "$communication_retry_status" -ne 0 ]; then
+  cat "$TMP_DIR/communication-retry-output.log"
+  echo "FAIL: communication-only failure did not recover on retry; got status $communication_retry_status"
+  regression_failures=$((regression_failures + 1))
+fi
+
+communication_retry_invocations="$(wc -l < "$TMP_DIR/communication-retry-invocations.log" | tr -d ' ')"
+if [ "$communication_retry_invocations" -ne 2 ]; then
+  cat "$TMP_DIR/communication-retry-output.log"
+  echo "FAIL: communication-only failure must retry once; got $communication_retry_invocations invocations"
+  regression_failures=$((regression_failures + 1))
+fi
+
+if ! grep -Fq "Retrying app-host xcodebuild after test runner communication failure (attempt 1/2)" "$TMP_DIR/communication-retry-output.log"; then
+  cat "$TMP_DIR/communication-retry-output.log"
+  echo "FAIL: wrapper did not report the communication-only retry"
   regression_failures=$((regression_failures + 1))
 fi
 
@@ -122,9 +182,9 @@ CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
 xctest_summary_loss_status=$?
 set -e
 
-if [ "$xctest_summary_loss_status" -eq 0 ]; then
+if [ "$xctest_summary_loss_status" -ne 1 ]; then
   cat "$TMP_DIR/xctest-summary-loss-output.log"
-  echo "FAIL: a final clean XCTest summary masked an earlier assertion failure"
+  echo "FAIL: expected synthesized XCTest assertion status 1, got $xctest_summary_loss_status"
   regression_failures=$((regression_failures + 1))
 fi
 
@@ -147,9 +207,9 @@ CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
 swift_testing_summary_loss_status=$?
 set -e
 
-if [ "$swift_testing_summary_loss_status" -eq 0 ]; then
+if [ "$swift_testing_summary_loss_status" -ne 1 ]; then
   cat "$TMP_DIR/swift-testing-summary-loss-output.log"
-  echo "FAIL: a final clean XCTest summary masked a Swift Testing assertion failure"
+  echo "FAIL: expected synthesized Swift Testing assertion status 1, got $swift_testing_summary_loss_status"
   regression_failures=$((regression_failures + 1))
 fi
 
@@ -225,11 +285,11 @@ exit 65
         check=False,
     )
 
-if result.returncode == 0:
+if result.returncode != 65:
     print(result.stdout, end="")
     print(
-        "FAIL: the app-host unit-test workflow treated an ordinary assertion "
-        "failure with '(0 unexpected)' as a pass"
+        "FAIL: expected app-host workflow status 65 for an ordinary assertion "
+        f"failure, got {result.returncode}"
     )
     sys.exit(1)
 PY

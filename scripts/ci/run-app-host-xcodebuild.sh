@@ -92,6 +92,9 @@ while [ "$attempt" -le "$max_attempts" ]; do
     echo "FAIL: app-host test assertion failure detected in attempt $attempt; refusing to continue" >&2
     marker_count="$(LC_ALL=C grep -Ec "$test_assertion_failure_pattern" "$log_path")"
     echo "Detected ${marker_count} XCTest or Swift Testing failure markers." >&2
+    if [ "$status" -ne 0 ]; then
+      exit "$status"
+    fi
     exit 1
   fi
 
