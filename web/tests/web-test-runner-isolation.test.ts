@@ -177,6 +177,35 @@ test("shared web test runner preserves recursive discovery", () => {
   }
 });
 
+test("shared web test runner handles discovery beyond a pipe buffer", () => {
+  const fixtureRoot = createRunnerFixture();
+  try {
+    const bulkRoot = join(fixtureRoot, "tests", "bulk");
+    mkdirSync(bulkRoot, { recursive: true });
+    const expectedHeadings: string[] = [];
+    for (let index = 0; index < 96; index += 1) {
+      const fileName = `${String(index).padStart(3, "0")}-${"x".repeat(180)}.test.ts`;
+      writeFileSync(join(bulkRoot, fileName), fixtureTestSource);
+      expectedHeadings.push(`tests/bulk/${fileName}:`);
+    }
+
+    const result = runChild(
+      "bash",
+      ["scripts/run-tests.sh"],
+      fixtureRoot,
+      20_000,
+    );
+    if (result.status !== 0) {
+      throw new Error(
+        `shared web test runner failed large discovery:\n${result.output}`,
+      );
+    }
+    expectHeadings(result.output, expectedHeadings);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("shared web test runner fails when default discovery finds no tests", () => {
   const fixtureRoot = createRunnerFixture();
   try {
@@ -215,6 +244,7 @@ function runChild(
   command: string,
   args: string[],
   cwd: string,
+  timeoutMs = 300_000,
 ): { status: number | null; output: string } {
   const environment = { ...process.env };
   // Bun's agent reporter hides passing-file headings, which these discovery
@@ -229,7 +259,7 @@ function runChild(
     env: environment,
     // This bounds only a non-terminating child; normal completion is asserted
     // causally below rather than against elapsed time.
-    timeout: 300_000,
+    timeout: timeoutMs,
     killSignal: "SIGKILL",
   });
   const output = [result.stdout, result.stderr].join("\n");
