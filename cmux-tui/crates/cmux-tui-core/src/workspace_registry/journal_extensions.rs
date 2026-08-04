@@ -1449,50 +1449,54 @@ impl WorkspaceRegistry {
         }
         let tx = self.connection.transaction()?;
         let now = unix_epoch_ms()?;
-        let mut applied = Vec::with_capacity(scans.len());
-        for scan in scans {
-            anyhow::ensure!(
-                scan.scanned_to > scan.expected_cursor,
-                "journal hook scan must advance its cursor"
-            );
-            let current = tx
-                .query_row(
-                    "SELECT cursor_sequence FROM journal_hooks
-                     WHERE hook_id = ?1 AND manifest_version = ?2 AND enabled = 1",
-                    params![scan.hook_id, i64::from(scan.manifest_version)],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()?;
-            if current.map(u64::try_from).transpose()? != Some(scan.expected_cursor) {
-                applied.push(false);
-                continue;
-            }
-            for (event_id, sequence) in &scan.matches {
-                tx.execute(
-                    "INSERT OR IGNORE INTO journal_hook_deliveries(
-                       hook_id, manifest_version, event_id, event_sequence, attempt, state,
-                       next_attempt_at_ms, scheduled_at_ms
-                     ) VALUES(?1, ?2, ?3, ?4, 0, 'scheduled', ?5, ?5)",
-                    params![
+        let applied = {
+            let mut read_cursor = tx.prepare(
+                "SELECT cursor_sequence FROM journal_hooks
+                 WHERE hook_id = ?1 AND manifest_version = ?2 AND enabled = 1",
+            )?;
+            let mut insert_delivery = tx.prepare(
+                "INSERT OR IGNORE INTO journal_hook_deliveries(
+                   hook_id, manifest_version, event_id, event_sequence, attempt, state,
+                   next_attempt_at_ms, scheduled_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, 0, 'scheduled', ?5, ?5)",
+            )?;
+            let mut advance_cursor = tx.prepare(
+                "UPDATE journal_hooks SET cursor_sequence = ?3
+                 WHERE hook_id = ?1 AND manifest_version = ?2",
+            )?;
+            let mut applied = Vec::with_capacity(scans.len());
+            for scan in scans {
+                anyhow::ensure!(
+                    scan.scanned_to > scan.expected_cursor,
+                    "journal hook scan must advance its cursor"
+                );
+                let current = read_cursor
+                    .query_row(params![scan.hook_id, i64::from(scan.manifest_version)], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .optional()?;
+                if current.map(u64::try_from).transpose()? != Some(scan.expected_cursor) {
+                    applied.push(false);
+                    continue;
+                }
+                for (event_id, sequence) in &scan.matches {
+                    insert_delivery.execute(params![
                         scan.hook_id,
                         i64::from(scan.manifest_version),
                         event_id,
                         i64::try_from(*sequence)?,
                         i64::try_from(now)?,
-                    ],
-                )?;
-            }
-            tx.execute(
-                "UPDATE journal_hooks SET cursor_sequence = ?3
-                 WHERE hook_id = ?1 AND manifest_version = ?2",
-                params![
+                    ])?;
+                }
+                advance_cursor.execute(params![
                     scan.hook_id,
                     i64::from(scan.manifest_version),
                     i64::try_from(scan.scanned_to)?,
-                ],
-            )?;
-            applied.push(true);
-        }
+                ])?;
+                applied.push(true);
+            }
+            applied
+        };
         tx.commit()?;
         Ok(applied)
     }

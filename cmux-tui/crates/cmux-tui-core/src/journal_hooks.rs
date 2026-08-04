@@ -19,7 +19,9 @@ use crate::workspace_registry::{
 };
 use crate::{JournalHookManifest, JournalSensitivity, Mux};
 
-const HOOK_SCAN_PAGE_SIZE: usize = 1024;
+// Bound one dispatcher transaction so hook discovery cannot monopolize the
+// registry writer while producer events are waiting for durable receipts.
+const HOOK_SCAN_PAGE_SIZE: usize = 256;
 const MIN_DELIVERY_WORKERS: usize = 4;
 const MAX_DELIVERY_WORKERS: usize = 32;
 const IDLE_WAIT: Duration = Duration::from_secs(30);
