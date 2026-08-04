@@ -1745,41 +1745,10 @@ private actor MobileIrohCountingEndpointFactory: CmxIrohEndpointFactory {
         guard let identity else {
             throw MobileIrohSignOutTestError.unavailable
         }
-        return MobileIrohCountingEndpoint(identity: identity)
+        return MobileIrohTestEndpoint(identity: identity)
     }
 
     func bindCount() -> Int { count }
-}
-
-private actor MobileIrohCountingEndpoint: CmxIrohEndpoint {
-    private let peerIdentity: CmxIrohPeerIdentity
-
-    init(identity: CmxIrohPeerIdentity) {
-        peerIdentity = identity
-    }
-
-    func identity() -> CmxIrohPeerIdentity { peerIdentity }
-
-    func address() -> CmxIrohEndpointAddress {
-        CmxIrohEndpointAddress(identity: peerIdentity, pathHints: [])
-    }
-
-    func connect(
-        to _: CmxIrohEndpointAddress,
-        alpn _: Data
-    ) throws -> any CmxIrohConnection {
-        throw MobileIrohSignOutTestError.unavailable
-    }
-
-    func accept() -> (any CmxIrohConnection)? { nil }
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
-
-    func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> {
-        AsyncStream { $0.finish() }
-    }
-
-    func isHealthy() -> Bool { true }
-    func close() {}
 }
 
 @MainActor

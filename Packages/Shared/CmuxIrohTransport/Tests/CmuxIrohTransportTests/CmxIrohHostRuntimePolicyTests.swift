@@ -301,6 +301,7 @@ extension CmxIrohHostRuntimeTests {
 
     @Test(arguments: [
         CmxIrohTrustBrokerClientError.missingAuthentication,
+        .rejected(statusCode: 401, code: "unauthorized"),
         .rejected(statusCode: 400, code: "invalid_request"),
         .invalidResponse,
     ])

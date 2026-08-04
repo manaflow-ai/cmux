@@ -948,39 +948,8 @@ private actor MobileIrohCooldownEndpointFactory: CmxIrohEndpointFactory {
     func bind(
         configuration _: CmxIrohEndpointConfiguration
     ) -> any CmxIrohEndpoint {
-        MobileIrohCooldownEndpoint(identity: identity)
+        MobileIrohTestEndpoint(identity: identity)
     }
-}
-
-private actor MobileIrohCooldownEndpoint: CmxIrohEndpoint {
-    private let peerIdentity: CmxIrohPeerIdentity
-
-    init(identity: CmxIrohPeerIdentity) {
-        peerIdentity = identity
-    }
-
-    func identity() -> CmxIrohPeerIdentity { peerIdentity }
-
-    func address() -> CmxIrohEndpointAddress {
-        CmxIrohEndpointAddress(identity: peerIdentity, pathHints: [])
-    }
-
-    func connect(
-        to _: CmxIrohEndpointAddress,
-        alpn _: Data
-    ) throws -> any CmxIrohConnection {
-        throw MobileIrohCooldownTestError.unavailable
-    }
-
-    func accept() -> (any CmxIrohConnection)? { nil }
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
-
-    func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> {
-        AsyncStream { $0.finish() }
-    }
-
-    func isHealthy() -> Bool { true }
-    func close() {}
 }
 
 private actor MobileIrohCooldownCredentialStore: CmxIrohSecureCredentialStoring {
