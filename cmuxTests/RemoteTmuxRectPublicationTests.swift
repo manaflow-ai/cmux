@@ -69,8 +69,7 @@ import Testing
                 return windowID
             default:
                 Issue.record(
-                    "expected leading .other or .paneRects, got \(kind); FIFO: " +
-                    "\(connection.pendingCommandKindsForTesting)"
+                    "expected leading .other or .paneRects, got \(kind); FIFO: \(connection.pendingCommandKindsForTesting)"
                 )
                 return nil
             }
