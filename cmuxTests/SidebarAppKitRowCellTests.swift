@@ -281,25 +281,34 @@ struct SidebarAppKitRowCellTests {
         let pixelCount: Int
     }
 
-    private static func brightInkMetrics(in view: NSView) throws -> BrightInkMetrics {
+    private static func brightInkMetrics(
+        in view: NSView,
+        renderingScale: CGFloat = 4
+    ) throws -> BrightInkMetrics {
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
         let bounds = view.bounds.integral
-        let renderingScale: CGFloat = 4
-        let bitmap = try #require(NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: max(1, Int(bounds.width * renderingScale)),
-            pixelsHigh: max(1, Int(bounds.height * renderingScale)),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
+        let pixelsWide = max(1, Int(ceil(bounds.width * renderingScale)))
+        let pixelsHigh = max(1, Int(ceil(bounds.height * renderingScale)))
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(
+            data: nil,
+            width: pixelsWide,
+            height: pixelsHigh,
+            bitsPerComponent: 8,
+            bytesPerRow: pixelsWide * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ))
-        bitmap.size = bounds.size
-        view.cacheDisplay(in: bounds, to: bitmap)
+        context.scaleBy(x: renderingScale, y: renderingScale)
+        context.translateBy(x: -bounds.minX, y: -bounds.minY)
+        let graphicsContext = NSGraphicsContext(cgContext: context, flipped: false)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphicsContext
+        view.draw(bounds)
+        graphicsContext.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+        let bitmap = NSBitmapImageRep(cgImage: try #require(context.makeImage()))
 
         let scaleX = CGFloat(bitmap.pixelsWide) / bounds.width
         let scaleY = CGFloat(bitmap.pixelsHigh) / bounds.height
@@ -543,6 +552,37 @@ struct SidebarAppKitRowCellTests {
             #expect(abs(actualInk.bounds.midY - badge.bounds.midY) <= 0.25)
             #expect(abs(actualInk.pixelCount - regularInk.pixelCount)
                 < abs(actualInk.pixelCount - semiboldInk.pixelCount))
+        }
+    }
+
+    @Test
+    func unreadBadgesCenterNarrowSingleDigitAtRetinaScale() throws {
+        let workspace = Self.configuredCell(
+            model: Self.makeModel(canClose: false, unreadCount: 1)
+        )
+        workspace.frame = NSRect(x: 0, y: 0, width: 320, height: 44)
+        workspace.layoutSubtreeIfNeeded()
+        let workspaceBadge = try #require(
+            Self.descendants(of: workspace)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        let group = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 32)
+        )
+        group.configurePresentation(model: Self.makeGroupModel(name: "Core", unreadCount: 1))
+        group.layoutSubtreeIfNeeded()
+        let groupBadge = try #require(
+            Self.descendants(of: group)
+                .compactMap { $0 as? SidebarRowUnreadBadgeView }
+                .first { !$0.isHidden }
+        )
+
+        for badge in [workspaceBadge, groupBadge] {
+            let ink = try Self.brightInkMetrics(in: badge, renderingScale: 2)
+            #expect(abs(ink.bounds.midX - badge.bounds.midX) < 0.001)
+            #expect(abs(ink.bounds.midY - badge.bounds.midY) < 0.001)
         }
     }
 
