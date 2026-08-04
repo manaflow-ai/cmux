@@ -1331,7 +1331,7 @@ private final class WorkspaceFloatingDockParkingPresentationController {
         presentationView.identifier = rootIdentifier
         panel = WorkspaceFloatingDockParkingPresentationPanel(
             contentRect: .zero,
-            styleMask: [.borderless, .nonactivatingPanel],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
