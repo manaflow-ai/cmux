@@ -1770,6 +1770,16 @@ fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
     }
 }
 
+fn terminal_public_id_from_resource_identity(
+    identity: &TabResourceIdentity,
+    invalid_context: &str,
+) -> anyhow::Result<TerminalPublicId> {
+    match &identity.content_id {
+        ContentPublicId::Terminal(terminal_id) => Ok(terminal_id.clone()),
+        ContentPublicId::Browser(_) => anyhow::bail!("{invalid_context}"),
+    }
+}
+
 impl std::fmt::Debug for Surface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Surface").field("id", &self.id).field("kind", &self.kind()).finish()
@@ -1798,15 +1808,12 @@ impl Surface {
         id: SurfaceId,
         resource_identity: TabResourceIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
+        let projected_id = terminal_public_id_from_resource_identity(
+            &resource_identity,
+            "terminal placement requires a terminal content identity",
+        )?;
         anyhow::ensure!(
-            matches!(resource_identity.content_id, ContentPublicId::Terminal(_)),
-            "terminal placement requires a terminal content identity"
-        );
-        let ContentPublicId::Terminal(projected_id) = &resource_identity.content_id else {
-            unreachable!("validated terminal content identity")
-        };
-        anyhow::ensure!(
-            self.terminal_public_id() == Some(projected_id),
+            self.terminal_public_id() == Some(&projected_id),
             "terminal placement cannot change content identity"
         );
         let Surface::Pty(surface) = self else {
@@ -1941,17 +1948,15 @@ impl Surface {
         resource_identity: Option<TabResourceIdentity>,
         cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
-        let terminal_public_id =
-            resource_identity.as_ref().and_then(|identity| match &identity.content_id {
-                ContentPublicId::Terminal(terminal_id) => Some(terminal_id.clone()),
-                ContentPublicId::Browser(_) => None,
-            });
-        if resource_identity
+        let terminal_public_id = resource_identity
             .as_ref()
-            .is_some_and(|identity| matches!(identity.content_id, ContentPublicId::Browser(_)))
-        {
-            anyhow::bail!("terminal surface cannot use a browser resource identity");
-        }
+            .map(|identity| {
+                terminal_public_id_from_resource_identity(
+                    identity,
+                    "terminal surface cannot use a browser resource identity",
+                )
+            })
+            .transpose()?;
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
@@ -2376,11 +2381,12 @@ impl Surface {
             resource_identity,
         } = launch;
         if let Some(identity) = resource_identity.as_ref() {
-            let ContentPublicId::Terminal(content_id) = &identity.content_id else {
-                anyhow::bail!("hosted terminal cannot use a browser resource identity");
-            };
+            let content_id = terminal_public_id_from_resource_identity(
+                identity,
+                "hosted terminal cannot use a browser resource identity",
+            )?;
             anyhow::ensure!(
-                terminal_public_id.as_ref() == Some(content_id),
+                terminal_public_id.as_ref() == Some(&content_id),
                 "terminal runtime identity does not match its placement"
             );
         }
@@ -3110,12 +3116,10 @@ impl Surface {
         record_path: PathBuf,
         resource_identity: TabResourceIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
-        let terminal_public_id = match &resource_identity.content_id {
-            ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
-            ContentPublicId::Browser(_) => {
-                anyhow::bail!("hosted terminal cannot use a browser resource identity")
-            }
-        };
+        let terminal_public_id = terminal_public_id_from_resource_identity(
+            &resource_identity,
+            "hosted terminal cannot use a browser resource identity",
+        )?;
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
@@ -3201,12 +3205,10 @@ impl Surface {
         identity: crate::terminal_host_runtime::TerminalHostIdentity,
         resource_identity: TabResourceIdentity,
     ) -> anyhow::Result<Arc<Surface>> {
-        let terminal_public_id = match &resource_identity.content_id {
-            ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
-            ContentPublicId::Browser(_) => {
-                anyhow::bail!("exited terminal cannot use a browser resource identity")
-            }
-        };
+        let terminal_public_id = terminal_public_id_from_resource_identity(
+            &resource_identity,
+            "exited terminal cannot use a browser resource identity",
+        )?;
         Self::exited_terminal_placeholder_with_identities(
             id,
             opts,
@@ -3396,17 +3398,15 @@ impl Surface {
         resource_identity: Option<TabResourceIdentity>,
         cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
-        let terminal_public_id =
-            resource_identity.as_ref().and_then(|identity| match &identity.content_id {
-                ContentPublicId::Terminal(terminal_id) => Some(terminal_id.clone()),
-                ContentPublicId::Browser(_) => None,
-            });
-        if resource_identity
+        let terminal_public_id = resource_identity
             .as_ref()
-            .is_some_and(|identity| matches!(identity.content_id, ContentPublicId::Browser(_)))
-        {
-            anyhow::bail!("terminal surface cannot use a browser resource identity");
-        }
+            .map(|identity| {
+                terminal_public_id_from_resource_identity(
+                    identity,
+                    "terminal surface cannot use a browser resource identity",
+                )
+            })
+            .transpose()?;
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
         let initial_kitty_limits = kitty_reservation
@@ -4276,26 +4276,33 @@ impl Surface {
         let mut term = pty.term.lock().unwrap();
         let original_offset = term.scrollbar().map(|scrollbar| scrollbar.offset);
         let view_offset = pty.view_scrollbar_locked(&mut term).map(|scrollbar| scrollbar.offset);
-        if let Some(offset) = view_offset {
-            set_terminal_scroll_offset(&mut term, offset);
-        }
-        let result = (|| {
-            render.update(&mut term)?;
-            let palette_colors = std::array::from_fn(|index| render.palette_color(index as u8));
-            let palette_overridden =
-                std::array::from_fn(|index| render.palette_overridden(index as u8));
-            Ok(Arc::new(SurfaceRenderFrame {
-                frame: render.build_frame()?,
-                content_generation: pty.render_generation.load(Ordering::Acquire),
-                scrollback_rows: term.history_rows(),
-                history_epoch: term.history_epoch(),
-                pointer_semantics: term.pointer_semantic_snapshot(),
-                palette_colors,
-                palette_overridden,
-            }))
-        })();
-        if let Some(offset) = original_offset {
-            set_terminal_scroll_offset(&mut term, offset);
+        let applied =
+            view_offset.is_none_or(|offset| set_terminal_scroll_offset(&mut term, offset));
+        let result = if applied {
+            (|| {
+                render.update(&mut term)?;
+                let palette_colors = std::array::from_fn(|index| render.palette_color(index as u8));
+                let palette_overridden =
+                    std::array::from_fn(|index| render.palette_overridden(index as u8));
+                Ok(Arc::new(SurfaceRenderFrame {
+                    frame: render.build_frame()?,
+                    content_generation: pty.render_generation.load(Ordering::Acquire),
+                    scrollback_rows: term.history_rows(),
+                    history_epoch: term.history_epoch(),
+                    pointer_semantics: term.pointer_semantic_snapshot(),
+                    palette_colors,
+                    palette_overridden,
+                }))
+            })()
+        } else {
+            Err(ghostty_vt::Error::NoValue)
+        };
+        let restored =
+            original_offset.is_none_or(|offset| set_terminal_scroll_offset(&mut term, offset));
+        if !restored {
+            // Cleanup errors take precedence because a successful-looking
+            // frame would conceal mutation of the shared compatibility view.
+            return Err(ghostty_vt::Error::NoValue);
         }
         result
     }
@@ -5841,25 +5848,26 @@ fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
     }
 }
 
-fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) {
-    let Some(scrollbar) = term.scrollbar() else { return };
+fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) -> bool {
+    let Some(scrollbar) = term.scrollbar() else { return target == 0 };
     let bottom = scrollbar.total.saturating_sub(scrollbar.len);
     let target = target.min(bottom);
     if target == bottom {
         term.scroll_to_bottom();
-        return;
+        return term.scrollbar().is_some_and(|scrollbar| scrollbar.offset == target);
     }
     let mut current = scrollbar.offset;
     while current != target {
         let difference = i128::from(target) - i128::from(current);
         let step = difference.clamp(isize::MIN as i128, isize::MAX as i128) as isize;
         term.scroll_delta(step);
-        let Some(next) = term.scrollbar().map(|scrollbar| scrollbar.offset) else { return };
+        let Some(next) = term.scrollbar().map(|scrollbar| scrollbar.offset) else { return false };
         if next == current {
-            return;
+            return false;
         }
         current = next;
     }
+    true
 }
 
 #[cfg(test)]
@@ -5928,6 +5936,9 @@ mod tests {
         let projection_frame = projection.render_view_frame(&mut projection_render).unwrap();
         assert_ne!(source_frame.frame.runs(), projection_frame.frame.runs());
         assert_eq!(projection.view_scrollbar().unwrap(), bottom);
+        let compatibility_after_render =
+            source.with_terminal(|terminal| terminal.scrollbar().unwrap()).unwrap();
+        assert_eq!(compatibility_after_render, bottom);
 
         let writer = CapturingWriter::default();
         replace_local_writer(&source, Box::new(writer.clone()));
