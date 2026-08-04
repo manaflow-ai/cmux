@@ -2899,6 +2899,13 @@ class TabManager: ObservableObject {
             if tabs.count <= 1 {
                 if let app = AppDelegate.shared {
                     app.notificationStore?.clearNotifications(forTabId: tabId)
+                    if let runtimeSurface = runtimeSurface ?? tab.terminalPanel(for: surfaceId)?.surface {
+                        _ = app.armLastTerminalChildExitRecovery(
+                            tabId: tabId,
+                            surfaceId: surfaceId,
+                            runtimeSurface: runtimeSurface
+                        )
+                    }
                     app.closeMainWindowContainingTabId(tabId, recordHistory: false)
                 } else {
                     // Headless/test fallback when no AppDelegate window context exists.

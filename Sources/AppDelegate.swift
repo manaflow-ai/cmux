@@ -1083,6 +1083,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didBootstrapInitialMainWindow = false
     var isTerminatingApp = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
+    private struct LastTerminalChildExitRecovery {
+        let tabId: UUID
+        let surfaceId: UUID
+        let runtimeSurfaceIdentity: ObjectIdentifier
+    }
+    private var lastTerminalChildExitRecovery: LastTerminalChildExitRecovery?
 #if DEBUG
     var closeMainWindowContainingTabIdObserverForTesting: ((UUID, Bool) -> Void)?
 #endif
@@ -2020,6 +2026,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func prepareForConfirmedAppTermination() {
+        lastTerminalChildExitRecovery = nil
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -2065,6 +2072,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Reset so that the next quit attempt can show the dialog again.
             isTerminatingApp = false
             clearMarkedRemoteTmuxKills()
+            _ = recoverLastTerminalChildExitAfterCancelledClose()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
         }
         if shouldQuit {
@@ -13143,8 +13151,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if response == .alertFirstButtonReturn {
                 // Mark as confirmed so applicationShouldTerminate does not show a
                 // second alert when NSApp.terminate re-enters the delegate callback.
+                self?.lastTerminalChildExitRecovery = nil
                 self?.isQuitWarningConfirmed = true
                 NSApp.terminate(nil)
+            } else {
+                _ = self?.recoverLastTerminalChildExitAfterCancelledClose()
             }
         }
         return true
@@ -16916,6 +16927,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         window.performClose(nil)
+    }
+
+    @discardableResult
+    func armLastTerminalChildExitRecovery(
+        tabId: UUID,
+        surfaceId: UUID,
+        runtimeSurface: TerminalSurface
+    ) -> Bool {
+        lastTerminalChildExitRecovery = nil
+        guard mainWindowContexts.count == 1,
+              let context = contextContainingTabId(tabId),
+              context.tabManager.tabs.count == 1,
+              existingWindowDock(forWindowId: context.windowId)?.panels.isEmpty != false,
+              let workspace = context.tabManager.tabs.first,
+              workspace.id == tabId,
+              workspace.panels.count == 1,
+              workspace.terminalPanel(for: surfaceId)?.surface === runtimeSurface else {
+            return false
+        }
+
+        lastTerminalChildExitRecovery = LastTerminalChildExitRecovery(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            runtimeSurfaceIdentity: ObjectIdentifier(runtimeSurface)
+        )
+        return true
+    }
+
+    /// Replaces the exited terminal instead of reviving its renderer. A fresh
+    /// `TerminalSurface` has no scrollback or child-exit frame to repaint.
+    @discardableResult
+    func recoverLastTerminalChildExitAfterCancelledClose() -> Bool {
+        guard let recovery = lastTerminalChildExitRecovery else { return false }
+        lastTerminalChildExitRecovery = nil
+
+        guard mainWindowContexts.count == 1,
+              let context = contextContainingTabId(recovery.tabId),
+              context.tabManager.tabs.count == 1,
+              existingWindowDock(forWindowId: context.windowId)?.panels.isEmpty != false,
+              let workspace = context.tabManager.tabs.first,
+              workspace.id == recovery.tabId,
+              workspace.panels.count == 1,
+              let panel = workspace.terminalPanel(for: recovery.surfaceId),
+              ObjectIdentifier(panel.surface) == recovery.runtimeSurfaceIdentity else {
+            return false
+        }
+
+        return workspace.respawnTerminalSurface(
+            panelId: recovery.surfaceId,
+            command: nil,
+            focus: true,
+            replayScrollback: nil,
+            replayFileURL: nil
+        ) != nil
     }
 
     @discardableResult
