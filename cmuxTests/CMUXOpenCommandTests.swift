@@ -743,6 +743,10 @@ final class CMUXOpenCommandTests: XCTestCase {
             file["request_path"] as? String == "/assets/pierre-diffs-1.3.1-trees-1.0.0-beta.4/worker-pool/worker-portable.js" &&
                 file["mime_type"] as? String == "text/javascript"
         })
+        XCTAssertTrue(files.contains { file in
+            file["request_path"] as? String == "/assets/pierre-diffs-1.3.1-trees-1.0.0-beta.4/worker-pool/wasm-B9ZqxnKj.js" &&
+                file["mime_type"] as? String == "text/javascript"
+        })
         XCTAssertFalse(html.contains("hello.txt"), html)
         XCTAssertFalse(html.contains("<\\/script> marker"), html)
         XCTAssertTrue(patchText.contains("hello.txt"), patchText)
@@ -850,7 +854,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
         let appEntry = try XCTUnwrap(files.first { file in
-            (file["request_path"] as? String)?.hasSuffix("/assets/cmux-diff-viewer-app/main.mjs") == true
+            guard let requestPath = file["request_path"] as? String else { return false }
+            return requestPath.hasPrefix("/assets/cmux-diff-viewer-app-") &&
+                requestPath.hasSuffix("/main.mjs")
         })
         let appFilePath = try XCTUnwrap(appEntry["file_path"] as? String)
         XCTAssertTrue(appFilePath.hasSuffix("main.mjs.deflate"), appFilePath)
@@ -2820,6 +2826,10 @@ final class CMUXOpenCommandTests: XCTestCase {
         )
         try DeflatedAssetTestSupport.writeText("self.cmuxWorkerFixture = true;\n",
             to: workerPoolURL.appendingPathComponent("worker-portable.js", isDirectory: false),
+            addingDeflateExtension: true
+        )
+        try DeflatedAssetTestSupport.writeText("export const wasmFixture = true;\n",
+            to: workerPoolURL.appendingPathComponent("wasm-B9ZqxnKj.js", isDirectory: false),
             addingDeflateExtension: true
         )
         try DeflatedAssetTestSupport.writeText(appMain,
