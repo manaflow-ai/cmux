@@ -199,11 +199,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if expandedPaths.contains(node.path) && outlineView.isExpandable(node) {
+            // Expanding a row can reveal descendants, so re-read the row count each iteration.
+            var row = 0
+            while row < outlineView.numberOfRows {
+                if let node = outlineView.item(atRow: row) as? FileExplorerNode,
+                   expandedPaths.contains(node.path),
+                   outlineView.isExpandable(node) {
                     outlineView.expandItem(node)
                 }
+                row += 1
             }
         }
 
