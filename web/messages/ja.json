@@ -1774,6 +1774,7 @@
           "textBoxSubmitActionBackgroundColorHex": "アクション色のメタデータを RGB または RGBA の 16 進数で指定します。送信ボタンの塗りは白のままで、有効状態と無効状態では不透明度だけが変わります。"
         },
         "browser": {
+          "userAgent": "トップレベルの HTTP(S) ブラウザナビゲーションで使うカスタム User-Agent 文字列です。空欄の場合は cmux の自動 WebKit/Safari ID を使います。変更されるのは通知される ID だけで、ブラウザエンジンは変わりません。",
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
           "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",

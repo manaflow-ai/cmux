@@ -1354,6 +1354,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "userAgent": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.browser.userAgent",
+          "description": "Custom user-agent string for top-level HTTP(S) browser navigations. Leave empty to use cmux's automatic WebKit/Safari identity. This changes only the advertised identity, not the browser engine."
+        },
         "defaultSearchEngine": {
           "type": "string",
           "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],

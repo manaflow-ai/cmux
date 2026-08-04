@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Issue 7513 — Duo SSO verification</title>
+  <style>
+    :root { color-scheme: light dark; font: 14px/1.35 system-ui, sans-serif; }
+    body { max-width: 980px; margin: 24px auto; padding: 0 18px; }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    p, ol { margin: 8px 0; }
+    li { margin: 10px 0; padding-left: 4px; }
+    code { font: 12px/1.35 ui-monospace, monospace; }
+    pre { padding: 8px 10px; overflow-x: auto; border: 1px solid #8886; border-radius: 6px; margin: 6px 0; }
+    .claim { border-left: 4px solid #e98b22; padding-left: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Cisco Duo SSO verification for #7513</h1>
+  <p>This fix imports <code>browser.userAgent</code> from <code>cmux.json</code> and applies it to every top-level HTTP(S) navigation; an empty or absent value restores cmux’s automatic policy. The single unverified claim is that a real corporate Duo session completes inside the browser pane with the tenant account and hardware key or push.</p>
+  <p class="claim"><strong>Pass:</strong> Duo no longer shows “Safari version too old/unsupported,” authentication completes, and the company tool loads in cmux. <strong>Fail:</strong> that browser-version block remains, or Duo reaches WebAuthn/push but cannot complete despite the configured UA being visible.</p>
+  <ol>
+    <li>Build and launch the isolated app from this worktree:
+      <pre><code>./scripts/reload-cloud.sh --builder fleet --tag sym7513 --launch
+CMUX_TAG=sym7513 scripts/cmux-debug-cli.sh list-workspaces --json</code></pre>
+      Correct: the app launches and the helper connects to <code>/tmp/cmux-debug-sym7513.sock</code>.
+    </li>
+    <li>In the same shell, back up the config and advertise the installed Chrome version:
+      <pre><code>config_path=$(skills/cmux-settings/scripts/cmux-settings path)
+config_backup=$(mktemp /tmp/cmux-7513-config.XXXXXX)
+cp -p "$config_path" "$config_backup"
+CHROME_VERSION=$(defaults read '/Applications/Google Chrome.app/Contents/Info' CFBundleShortVersionString)
+UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$CHROME_VERSION Safari/537.36"
+skills/cmux-settings/scripts/cmux-settings set browser.userAgent "$(jq -Rn --arg value "$UA" '$value')"
+skills/cmux-settings/scripts/cmux-settings get browser.userAgent</code></pre>
+      Correct: the printed value contains the installed Chrome version.
+    </li>
+    <li>Open the company SSO URL in the tagged app, replacing the placeholder:
+      <pre><code>DUO_SSO_URL='https://YOUR-COMPANY-SSO-URL'
+SURFACE=$(CMUX_TAG=sym7513 scripts/cmux-debug-cli.sh browser open "$DUO_SSO_URL" --workspace workspace:1 --focus true --json | jq -r .surface_ref)
+CMUX_TAG=sym7513 scripts/cmux-debug-cli.sh browser "$SURFACE" eval 'navigator.userAgent'</code></pre>
+      Correct: the evaluated UA exactly matches step 2. Wrong UA here disproves the fix before testing Duo.
+    </li>
+    <li>Continue through Duo and approve the hardware-key or push challenge. Correct: no unsupported-Safari page appears and the redirect returns to the company tool inside cmux. The old bug is the browser-version rejection before completion; any equivalent rejection with the step-2 UA visible proves the fix insufficient.</li>
+    <li>Restore the setting and quit only the tagged app:
+      <pre><code>cp -p "$config_backup" "$config_path"
+CMUX_TAG=sym7513 scripts/cmux-debug-cli.sh reload-config
+/usr/bin/trash "$config_backup"
+pkill -f '/DerivedData/cmux-sym7513/.*/Contents/MacOS/cmux DEV$'</code></pre>
+    </li>
+  </ol>
+</body>
+</html>

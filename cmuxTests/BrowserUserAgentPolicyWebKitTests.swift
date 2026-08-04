@@ -1,7 +1,8 @@
+import CmuxBrowser
+import CmuxSettings
 import Foundation
 import Testing
 import WebKit
-import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,8 +11,75 @@ import CmuxBrowser
 #endif
 
 @MainActor
-@Suite
+@Suite(.serialized)
 struct BrowserUserAgentPolicyWebKitTests {
+    @Test func duoNavigationUsesUserAgentOverrideFromCmuxConfig() throws {
+        let defaults = UserDefaults.standard
+        let userAgentDefaultsKey = SettingCatalog().browser.userAgent.userDefaultsKey
+        let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
+        let importedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let previousUserAgent = defaults.object(forKey: userAgentDefaultsKey)
+        let previousBackups = defaults.object(forKey: backupsDefaultsKey)
+        let previousImportedDefaults = defaults.object(forKey: importedDefaultsKey)
+        defer {
+            if let previousUserAgent {
+                defaults.set(previousUserAgent, forKey: userAgentDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: userAgentDefaultsKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: backupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: backupsDefaultsKey)
+            }
+            if let previousImportedDefaults {
+                defaults.set(previousImportedDefaults, forKey: importedDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: importedDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: userAgentDefaultsKey)
+        defaults.removeObject(forKey: backupsDefaultsKey)
+        defaults.removeObject(forKey: importedDefaultsKey)
+
+        let configuredUserAgent =
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+            "AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/126.0.0.0 Safari/537.36"
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsURL = directoryURL.appendingPathComponent("cmux.json")
+        try """
+        {
+          "browser": {
+            "userAgent": "\(configuredUserAgent)"
+          }
+        }
+        """.write(to: settingsURL, atomically: true, encoding: .utf8)
+
+        _ = CmuxSettingsFileStore(
+            primaryPath: settingsURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let duoRequest = URLRequest(
+            url: URL(string: "https://api-example.duosecurity.com/frame/v4/auth")!
+        )
+
+        #expect(defaults.string(forKey: userAgentDefaultsKey) == configuredUserAgent)
+        _ = webView.browserUserAgentPolicyRestartRequest(for: duoRequest)
+        #expect(webView.customUserAgent == configuredUserAgent)
+    }
+
     @Test func restartRequestChangesIdentityOnceAndStripsStaleHeader() throws {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         var request = URLRequest(url: URL(string: "https://workspace.google.com/")!)

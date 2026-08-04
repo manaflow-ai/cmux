@@ -1,4 +1,5 @@
 import CmuxBrowser
+import CmuxSettings
 import WebKit
 
 extension WKWebView {
@@ -8,8 +9,13 @@ extension WKWebView {
     func applyBrowserUserAgentPolicy(for url: URL?) -> Bool {
         // WebKit exposes its native identity as either nil or an empty string across load phases.
         let currentUserAgent = customUserAgent.flatMap { $0.isEmpty ? nil : $0 }
+        let userAgentOverride = UserDefaultsSettingsClient(defaults: .standard)
+            .value(for: SettingCatalog().browser.userAgent)
         let resolvedUserAgent: String?
-        switch BrowserUserAgentPolicy.system.resolution(for: url) {
+        switch BrowserUserAgentPolicy.system.resolution(
+            for: url,
+            userAgentOverride: userAgentOverride
+        ) {
         case .custom(let userAgent):
             resolvedUserAgent = userAgent
         case .webKitDefault:

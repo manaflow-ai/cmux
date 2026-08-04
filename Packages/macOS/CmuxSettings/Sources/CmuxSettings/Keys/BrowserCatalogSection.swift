@@ -2,6 +2,15 @@ import Foundation
 
 /// Settings under the dotted-id prefix `browser.*`.
 public struct BrowserCatalogSection: SettingCatalogSection {
+    /// Overrides the user-agent identity for top-level HTTP and HTTPS navigations.
+    ///
+    /// An empty value preserves cmux's destination-aware automatic policy.
+    public let userAgent = DefaultsKey<String>(
+        id: "browser.userAgent",
+        defaultValue: "",
+        userDefaultsKey: "browserUserAgent"
+    )
+
     public let defaultSearchEngine = DefaultsKey<BrowserSearchEngine>(
         id: "browser.defaultSearchEngine",
         defaultValue: BrowserSearchSettingsStore.defaultSearchEngine,
