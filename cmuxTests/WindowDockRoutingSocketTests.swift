@@ -73,7 +73,15 @@ struct WindowDockRoutingSocketTests {
     @Test("Floating Dock stash lifecycle is visible over the socket")
     @MainActor
     func floatingDockStashLifecycleIsVisibleOverSocket() throws {
-        try withSocketAppContext { _, workspace, _ in
+        let parentWindow = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { parentWindow.close() }
+
+        try withSocketAppContext(window: parentWindow) { _, workspace, _ in
             let dock = try #require(workspace.createFloatingDock(initialContent: .terminal))
 
             let stashed = try v2Result(method: "workspace.float.stash", params: [
@@ -263,6 +271,7 @@ struct WindowDockRoutingSocketTests {
     @MainActor
     private func withSocketAppContext(
         fileExplorerState: FileExplorerState? = nil,
+        window: NSWindow? = nil,
         _ body: (TabManager, Workspace, UUID) throws -> Void
     ) throws {
         let previousAppDelegate = AppDelegate.shared
@@ -277,8 +286,17 @@ struct WindowDockRoutingSocketTests {
         TerminalController.shared.setActiveTabManager(manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(
             tabManager: manager,
-            fileExplorerState: fileExplorerState
+            fileExplorerState: fileExplorerState,
+            window: window
         )
+        if let window,
+           let context = appDelegate.mainWindowContexts[ObjectIdentifier(manager)] {
+            context.installWorkspaceFloatingDockPresenterIfNeeded()
+            context.workspaceFloatingDockPresenter?.updateKeyContext(
+                keyWindow: window,
+                applicationIsActive: true
+            )
+        }
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
             // Unregistering the window context also tears down that window's Dock.
