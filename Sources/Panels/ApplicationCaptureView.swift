@@ -69,6 +69,7 @@ final class ApplicationCaptureView: NSView {
     private let onPointerDown: () -> Void
     private let onRepresentableDismantled: (ApplicationCaptureView, UUID) -> Void
     private let commandEquivalentRoutingPolicy: ApplicationCommandEquivalentRoutingPolicy
+    private let modifierFlagsRawValueProvider: () -> UInt
     private let remoteFrameView = CmuxRemoteFrameView(frame: .zero)
     private lazy var inputPump = ApplicationSurfaceInputPump { [weak self] events in
         guard
@@ -153,7 +154,7 @@ final class ApplicationCaptureView: NSView {
                 modifierFlagsRawValue: currentEvent.modifierFlags.rawValue
             )
         } else {
-            currentModifierKeyCodes.removeAll()
+            refreshPhysicalModifierKeys()
         }
         synchronizeForwardedModifierKeys()
         return true
@@ -178,7 +179,10 @@ final class ApplicationCaptureView: NSView {
         onPointerDown: @escaping () -> Void = {},
         onRepresentableDismantled:
             @escaping (ApplicationCaptureView, UUID) -> Void = { _, _ in },
-        commandEquivalentRoutingPolicy: ApplicationCommandEquivalentRoutingPolicy = .init()
+        commandEquivalentRoutingPolicy: ApplicationCommandEquivalentRoutingPolicy = .init(),
+        modifierFlagsRawValueProvider: @escaping () -> UInt = {
+            NSEvent.modifierFlags.rawValue
+        }
     ) {
         sourceWindowID = windowID
         self.processID = processID
@@ -190,6 +194,7 @@ final class ApplicationCaptureView: NSView {
         self.onPointerDown = onPointerDown
         self.onRepresentableDismantled = onRepresentableDismantled
         self.commandEquivalentRoutingPolicy = commandEquivalentRoutingPolicy
+        self.modifierFlagsRawValueProvider = modifierFlagsRawValueProvider
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
@@ -206,6 +211,7 @@ final class ApplicationCaptureView: NSView {
             guard let self else { return }
             self.hostWindowVisible = visible
             if visible {
+                self.refreshPhysicalModifierKeysAndSynchronizeIfFocused()
                 if self.shouldCaptureNow,
                    self.session != nil,
                    !self.firstFramePresented,
@@ -248,6 +254,11 @@ final class ApplicationCaptureView: NSView {
                 name: NSWindow.didResignKeyNotification,
                 object: window
             )
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.didBecomeKeyNotification,
+                object: window
+            )
         }
         super.viewWillMove(toWindow: newWindow)
         guard let newWindow else { return }
@@ -255,6 +266,12 @@ final class ApplicationCaptureView: NSView {
             self,
             selector: #selector(hostWindowDidResignKey(_:)),
             name: NSWindow.didResignKeyNotification,
+            object: newWindow
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(hostWindowDidBecomeKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
             object: newWindow
         )
     }
@@ -296,7 +313,9 @@ final class ApplicationCaptureView: NSView {
     func setInputOwnership(_ ownsInput: Bool) {
         guard hasInputOwnership != ownsInput else { return }
         hasInputOwnership = ownsInput
-        if !ownsInput {
+        if ownsInput {
+            refreshPhysicalModifierKeysAndSynchronizeIfFocused()
+        } else {
             releaseForwardedInputs()
         }
     }
@@ -873,6 +892,7 @@ final class ApplicationCaptureView: NSView {
             }
             self.inputReleaseTask = nil
             if self.window?.firstResponder === self {
+                self.refreshPhysicalModifierKeys()
                 self.synchronizeForwardedModifierKeys()
             }
             if self.shouldCaptureNow {
@@ -989,14 +1009,17 @@ final class ApplicationCaptureView: NSView {
         }
         captureReadinessPublished = true
         onStateChanged(.streaming, nil)
-        if window?.firstResponder === self {
-            synchronizeForwardedModifierKeys()
-        }
+        refreshPhysicalModifierKeysAndSynchronizeIfFocused()
     }
 
     @objc private func hostWindowDidResignKey(_ notification: Notification) {
         guard notification.object as? NSWindow === window else { return }
         releaseForwardedInputs()
+    }
+
+    @objc private func hostWindowDidBecomeKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        refreshPhysicalModifierKeysAndSynchronizeIfFocused()
     }
 
     private func handleRuntimeFailure(
@@ -1175,6 +1198,18 @@ final class ApplicationCaptureView: NSView {
             return
         }
         pressedModifierKeyCodes = currentModifierKeyCodes
+    }
+
+    private func refreshPhysicalModifierKeys() {
+        currentModifierKeyCodes = Self.modifierKeyCodes(
+            modifierFlagsRawValue: modifierFlagsRawValueProvider()
+        )
+    }
+
+    private func refreshPhysicalModifierKeysAndSynchronizeIfFocused() {
+        guard window?.firstResponder === self else { return }
+        refreshPhysicalModifierKeys()
+        synchronizeForwardedModifierKeys()
     }
 
     static func sourcePoint(
