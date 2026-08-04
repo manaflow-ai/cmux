@@ -280,8 +280,10 @@ jobs:
       - name: Validate the crash-report scan
         run: python3 scripts/crash-reports-since.py --self-test
 
-      - name: Validate the unit-test execution counter
-        run: python3 tests/test_ci_executed_test_count.py
+      - name: Validate the unit-test log diagnostics
+        run: |
+          python3 tests/test_ci_executed_test_count.py
+          python3 tests/test_ci_lost_test_verdicts.py
 
   remote-daemon-tests:
     needs: changes
@@ -999,16 +1001,7 @@ jobs:
             # "Test Case '-[Suite testFoo]' started". Matching only the first form made this list
             # empty for a shard of XCTest suites — which is most of them — and an empty list reads
             # as "nothing was lost" at the exact moment something was.
-            comm -23 \
-              <({ grep -oE "Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed 's/^Test //'
-                  grep -oE "Test Case '-\[[A-Za-z0-9_.]+ [A-Za-z0-9_]+\]' started" "$TEST_OUTPUT" \
-                    | sed -E "s/^Test Case '-\[//; s/\]' started$//"
-                } | sort -u) \
-              <({ grep -oE "(✔|✘) Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed -E 's/^(✔|✘) Test //'
-                  grep -oE "Test Case '-\[[A-Za-z0-9_.]+ [A-Za-z0-9_]+\]' (passed|failed)" "$TEST_OUTPUT" \
-                    | sed -E "s/^Test Case '-\[//; s/\]' (passed|failed)$//"
-                } | sort -u) \
-              | head -20 || true
+            python3 scripts/ci/lost_test_verdicts.py "$TEST_OUTPUT" --limit 20
             exit 1
           fi
 

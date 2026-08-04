@@ -6,22 +6,21 @@ from __future__ import annotations
 import io
 import re
 import sys
+from collections.abc import Iterable
 
 
-SUMMARY_PATTERNS = (
-    re.compile(r"\bExecuted\s+(\d+)\s+tests?\b"),
-    re.compile(r"\bTest run with\s+(\d+)\s+tests?\b"),
+SUMMARY_PATTERN = re.compile(
+    r"\b(?:Executed|Test run with)\s+(\d+)\s+tests?\b"
 )
 
 
-def executed_test_count(log: str) -> int:
+def executed_test_count(lines: Iterable[str]) -> int:
     """Return the largest numeric XCTest or Swift Testing run summary."""
-    counts = [
-        int(match.group(1))
-        for pattern in SUMMARY_PATTERNS
-        for match in pattern.finditer(log)
-    ]
-    return max(counts, default=0)
+    largest = 0
+    for line in lines:
+        for match in SUMMARY_PATTERN.finditer(line):
+            largest = max(largest, int(match.group(1)))
+    return largest
 
 
 def main() -> int:
@@ -31,12 +30,12 @@ def main() -> int:
 
     try:
         with io.open(sys.argv[1], encoding="utf-8", errors="replace") as handle:
-            log = handle.read()
+            count = executed_test_count(handle)
     except OSError as error:
         print(f"executed_test_count.py: could not read log: {error}", file=sys.stderr)
         return 2
 
-    print(executed_test_count(log))
+    print(count)
     return 0
 
 
