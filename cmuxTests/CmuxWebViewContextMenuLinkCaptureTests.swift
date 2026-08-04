@@ -8,9 +8,64 @@ import WebKit
 @testable import cmux
 #endif
 
+@Suite
+struct BrowserContextMenuSemanticCopyValueTests {
+    @Test
+    func extractsMailtoRecipientsWithoutHeadersAndDecodesPercentEscapes() throws {
+        let plain = try #require(URL(string: "mailto:foo@bar.com"))
+        #expect(browserContextMenuSemanticCopyValue(for: plain) == .emailAddress("foo@bar.com"))
+
+        let headers = try #require(
+            URL(string: "mailto:foo%2Balerts%40bar.com?subject=Hello%20there&body=Ignore%20me")
+        )
+        #expect(browserContextMenuSemanticCopyValue(for: headers) == .emailAddress("foo+alerts@bar.com"))
+
+        let multipleRecipients = try #require(
+            URL(string: "mailto:a%40x.com,b%2By%40example.com?subject=Team")
+        )
+        #expect(
+            browserContextMenuSemanticCopyValue(for: multipleRecipients)
+                == .emailAddress("a@x.com,b+y@example.com")
+        )
+    }
+
+    @Test
+    func extractsTelNumberWithoutSchemeOrQueryAndDecodesPercentEscapes() throws {
+        let phone = try #require(URL(string: "tel:+1%20555%20123%204567?source=directory"))
+        #expect(browserContextMenuSemanticCopyValue(for: phone) == .phoneNumber("+1 555 123 4567"))
+    }
+
+    @Test
+    func ignoresRegularWebLinks() throws {
+        let webLink = try #require(URL(string: "https://example.com/contact"))
+        #expect(browserContextMenuSemanticCopyValue(for: webLink) == nil)
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 struct CmuxWebViewContextMenuLinkCaptureTests {
+    @Test
+    func willOpenMenuAddsSemanticCopyItemsOnlyForCapturedMailtoAndTelLinks() throws {
+        let emailMenu = try makeLinkContextMenu(capturedURL: "mailto:foo@example.com")
+        let emailItem = try #require(emailMenu.menu.items.first { $0.title == "Copy Email Address" })
+        #expect(emailItem.target === emailMenu.webView)
+        #expect(emailItem.action != nil)
+        #expect(!emailMenu.menu.items.contains { $0.title == "Copy Phone Number" })
+
+        let phoneMenu = try makeLinkContextMenu(capturedURL: "tel:+15551234567")
+        let phoneItem = try #require(phoneMenu.menu.items.first { $0.title == "Copy Phone Number" })
+        #expect(phoneItem.target === phoneMenu.webView)
+        #expect(phoneItem.action != nil)
+        #expect(!phoneMenu.menu.items.contains { $0.title == "Copy Email Address" })
+
+        for webURL in ["http://example.com", "https://example.com"] {
+            let webMenu = try makeLinkContextMenu(capturedURL: webURL).menu
+            #expect(!webMenu.items.contains { $0.title == "Copy Email Address" })
+            #expect(!webMenu.items.contains { $0.title == "Copy Phone Number" })
+        }
+    }
+
     // Regression test: "Open Link in Default Browser" must open the link the
     // user actually right-clicked (the DOM contextmenu target), not whatever a
     // later elementFromPoint hit test finds at the AppKit event coordinates.
@@ -120,6 +175,37 @@ struct CmuxWebViewContextMenuLinkCaptureTests {
     }
 
     // MARK: - Harness
+
+    private func makeLinkContextMenu(capturedURL rawURL: String) throws -> (webView: CmuxWebView, menu: NSMenu) {
+        _ = NSApplication.shared
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let menu = NSMenu()
+        let copyLinkItem = NSMenuItem(title: "Copy Link", action: nil, keyEquivalent: "")
+        copyLinkItem.identifier = NSUserInterfaceItemIdentifier("WKMenuItemIdentifierCopyLink")
+        menu.addItem(copyLinkItem)
+
+        let eventTimestamp = ProcessInfo.processInfo.systemUptime - 0.1
+        let rightMouseDown = try #require(
+            NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: eventTimestamp,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1.0
+            )
+        )
+        webView.contextMenuCapturedLink = .init(
+            url: try #require(URL(string: rawURL)),
+            uptime: ProcessInfo.processInfo.systemUptime
+        )
+
+        webView.willOpenMenu(menu, with: rightMouseDown)
+        return (webView, menu)
+    }
 
     /// Loads a page with #decoy at CSS (0,0)-(120,120) and #clicked at
     /// CSS (300,300)-(420,420).
