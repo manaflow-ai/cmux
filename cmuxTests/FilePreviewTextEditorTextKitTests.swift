@@ -34,7 +34,8 @@ import Testing
 struct FilePreviewTextEditorTextKitTests {
     @Test("text file previews show a visible line-number gutter")
     func editorShowsLineNumberGutter() throws {
-        let panel = TextEditingPanelSpy(textContent: "first line\nsecond line\nthird line")
+        let content = "first line\nsecond line\nthird line"
+        let panel = TextEditingPanelSpy(textContent: content)
         let hostingView = NSHostingView(rootView: FilePreviewTextEditor(
             panel: panel,
             isVisibleInUI: true,
@@ -60,11 +61,107 @@ struct FilePreviewTextEditorTextKitTests {
 
         let textView = try #require(panel.attachedTextView)
         let scrollView = try #require(textView.enclosingScrollView)
+        let editorView = try #require(scrollView.superview as? FilePreviewTextEditorView)
+        editorView.layoutSubtreeIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+
+        #expect(editorView.textView === textView)
         #expect(scrollView.documentView === textView)
-        #expect(scrollView.hasVerticalRuler)
-        #expect(scrollView.rulersVisible)
-        let ruler = try #require(scrollView.verticalRulerView)
-        #expect(ruler.ruleThickness > 0)
+        #expect(!scrollView.hasVerticalRuler)
+        #expect(!scrollView.rulersVisible)
+        #expect(scrollView.verticalRulerView == nil)
+        #expect(editorView.lineNumberGutterWidth > 0)
+        #expect(abs(scrollView.frame.minX - editorView.lineNumberGutterWidth) < 0.5)
+        #expect(scrollView.documentVisibleRect.width > 0)
+        #expect(textView.string == content)
+        #expect(!textView.isHidden)
+
+        let textContainer = try #require(textView.textContainer)
+        textView.layoutManager?.ensureLayout(for: textContainer)
+        #expect((textView.layoutManager?.numberOfGlyphs ?? 0) > 0)
+        #expect(editorView.visibleLabels().map(\.lineNumber) == [1, 2, 3])
+
+        let longContent = (1...80)
+            .map { "line \($0): " + String(repeating: "content ", count: 8) }
+            .joined(separator: "\n")
+        textView.string = longContent
+        textView.layoutManager?.ensureLayout(for: textContainer)
+        let editedLabels = editorView.visibleLabels().map(\.lineNumber)
+        #expect(editedLabels.starts(with: [1, 2, 3]))
+
+        let line40Range = (longContent as NSString).range(of: "line 40:")
+        #expect(line40Range.location != NSNotFound)
+        textView.scrollRangeToVisible(line40Range)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        let scrolledLabels = editorView.visibleLabels().map(\.lineNumber)
+        #expect((scrolledLabels.first ?? 0) > 1)
+        #expect(scrolledLabels.contains(40))
+        #expect(scrolledLabels == scrolledLabels.sorted())
+
+        hostingView.setFrameSize(NSSize(width: 220, height: 320))
+        hostingView.layoutSubtreeIfNeeded()
+        textView.applyFilePreviewWordWrap(true, scrollView: scrollView)
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        textView.layoutManager?.ensureLayout(for: textContainer)
+        let wrappedLabels = editorView.visibleLabels().map(\.lineNumber)
+        #expect(wrappedLabels.first == 1)
+        #expect(Set(wrappedLabels).count == wrappedLabels.count)
+
+        let previousFontSize = try #require(textView.font?.pointSize)
+        #expect(textView.zoomPreviewFontIn())
+        let zoomedFontSize = try #require(textView.font?.pointSize)
+        #expect(zoomedFontSize > previousFontSize)
+        textView.layoutManager?.ensureLayout(for: textContainer)
+        let zoomedLabels = editorView.visibleLabels().map(\.lineNumber)
+        #expect(zoomedLabels.first == 1)
+        #expect(Set(zoomedLabels).count == zoomedLabels.count)
+    }
+
+    @Test("line-number index tracks inserted and removed line endings")
+    func lineNumberIndexTracksLineEndingEdits() {
+        let original = "one\r\ntwo\nthree"
+        var index = FilePreviewLineNumberIndex(text: original)
+        #expect(index.lineStarts == [0, 5, 9])
+
+        let inserted = "zero\n" + original
+        index.applyCharacterEdit(
+            updatedRange: NSRange(location: 0, length: 5),
+            changeInLength: 5,
+            updatedText: inserted as NSString
+        )
+        #expect(index.lineStarts == [0, 5, 10, 14])
+        #expect(index.lineNumber(atCharacterLocation: 13) == 3)
+
+        let insertedNSString = inserted as NSString
+        let lineEndingRange = insertedNSString.range(of: "\r\n")
+        let merged = insertedNSString.replacingCharacters(in: lineEndingRange, with: "")
+        index.applyCharacterEdit(
+            updatedRange: NSRange(location: lineEndingRange.location, length: 0),
+            changeInLength: -lineEndingRange.length,
+            updatedText: merged as NSString
+        )
+        #expect(index.lineStarts == [0, 5, 12])
+
+        let finalNewlineLocation = (merged as NSString).length
+        index.applyCharacterEdit(
+            updatedRange: NSRange(location: finalNewlineLocation, length: 1),
+            changeInLength: 1,
+            updatedText: (merged + "\n") as NSString
+        )
+        #expect(index.lineStarts == [0, 5, 12, 18])
+
+        let multilineOriginal = "one\nremove a\nremove b\nkeep\nlast"
+        var multilineIndex = FilePreviewLineNumberIndex(text: multilineOriginal)
+        let multilineNSString = multilineOriginal as NSString
+        let deletionRange = multilineNSString.range(of: "remove a\nremove b\n")
+        let afterDeletion = multilineNSString.replacingCharacters(in: deletionRange, with: "")
+        multilineIndex.applyCharacterEdit(
+            updatedRange: NSRange(location: deletionRange.location, length: 0),
+            changeInLength: -deletionRange.length,
+            updatedText: afterDeletion as NSString
+        )
+        #expect(multilineIndex.lineStarts == [0, 4, 9])
     }
 
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
@@ -421,7 +518,7 @@ struct FilePreviewTextEditorTextKitTests {
     private final class TextEditingPanelSpy: ObservableObject, FilePreviewTextEditingPanel {
         var textContent: String
         var saveCount = 0
-        var attachedTextView: NSTextView?
+        weak var attachedTextView: NSTextView?
 
         init(textContent: String = "") {
             self.textContent = textContent

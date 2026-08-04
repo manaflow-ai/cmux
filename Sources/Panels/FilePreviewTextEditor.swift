@@ -28,15 +28,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         Coordinator(panel: panel)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.isHidden = !isVisibleInUI
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-        scrollView.drawsBackground = drawsBackground
-
+    func makeNSView(context: Context) -> FilePreviewTextEditorView {
         let textView = SavingTextView.makeFilePreviewTextView()
         textView.panel = panel
         textView.delegate = context.coordinator
@@ -44,27 +36,30 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.string = panel.textContent
         panel.attachTextView(textView)
 
-        scrollView.documentView = textView
+        let editorView = FilePreviewTextEditorView(textView: textView)
+        editorView.isHidden = !isVisibleInUI
+        let scrollView = editorView.scrollView
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         Self.applyTheme(
-            to: scrollView,
+            to: editorView,
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor,
             drawsBackground: drawsBackground
         )
-        return scrollView
+        return editorView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ editorView: FilePreviewTextEditorView, context: Context) {
         context.coordinator.panel = panel
-        scrollView.isHidden = !isVisibleInUI
+        editorView.isHidden = !isVisibleInUI
         Self.applyTheme(
-            to: scrollView,
+            to: editorView,
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor,
             drawsBackground: drawsBackground
         )
-        guard let textView = scrollView.documentView as? SavingTextView else { return }
+        let scrollView = editorView.scrollView
+        let textView = editorView.textView
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
@@ -93,22 +88,26 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     }
 
     static func applyTheme(
-        to scrollView: NSScrollView,
+        to editorView: FilePreviewTextEditorView,
         backgroundColor: NSColor,
         foregroundColor: NSColor,
         drawsBackground: Bool
     ) {
         let resolvedBackgroundColor = drawsBackground ? backgroundColor : .clear
+        let scrollView = editorView.scrollView
+        let textView = editorView.textView
         scrollView.drawsBackground = drawsBackground
         scrollView.backgroundColor = resolvedBackgroundColor
         scrollView.contentView.drawsBackground = drawsBackground
         scrollView.contentView.backgroundColor = resolvedBackgroundColor
-        if let textView = scrollView.documentView as? NSTextView {
-            textView.drawsBackground = drawsBackground
-            textView.backgroundColor = resolvedBackgroundColor
-            textView.textColor = foregroundColor
-            textView.insertionPointColor = foregroundColor
-        }
+        textView.drawsBackground = drawsBackground
+        textView.backgroundColor = resolvedBackgroundColor
+        textView.textColor = foregroundColor
+        textView.insertionPointColor = foregroundColor
+        editorView.updateAppearance(
+            backgroundColor: resolvedBackgroundColor,
+            foregroundColor: foregroundColor
+        )
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -215,6 +214,7 @@ extension NSTextView {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
+        (scrollView.superview as? FilePreviewTextEditorView)?.refreshLayout()
     }
 
     func applyFilePreviewTextEditorInsets() {
@@ -346,6 +346,7 @@ final class SavingTextView: NSTextView {
         let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
         font = nextFont
         typingAttributes[.font] = nextFont
+        (enclosingScrollView?.superview as? FilePreviewTextEditorView)?.refreshFont()
     }
 
     private func clearPendingShortcutChordPrefixes() {
