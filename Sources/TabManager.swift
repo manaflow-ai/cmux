@@ -2898,7 +2898,9 @@ class TabManager: ObservableObject {
         if tab.panels.count <= 1 {
             if tabs.count <= 1 {
                 if let app = AppDelegate.shared {
-                    app.notificationStore?.clearNotifications(forTabId: tabId)
+                    // Notification cleanup belongs to the committed outcome:
+                    // unregisterMainWindow handles a closed window and
+                    // applicationWillTerminate clears the store on Quit.
                     let exitedSurface = runtimeSurface ?? tab.terminalPanel(for: surfaceId)?.surface
                     let onCancelled = exitedSurface.flatMap {
                         lastTerminalChildExitRecoveryAction(
