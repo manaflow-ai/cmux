@@ -317,29 +317,32 @@ import Testing
 
     private func makeCoordinator(
         _ recorder: OmnibarActionRecorder
-    ) -> OmnibarTextFieldRepresentable.Coordinator {
-        let representable = OmnibarTextFieldRepresentable(
-            panelId: UUID(),
-            fontSize: 13,
-            text: .constant("https://example.com/app/projects/abc/prompts/19ccd6ff"),
-            isFocused: .constant(false),
-            selectAllRequestId: 0,
-            inlineCompletion: nil,
-            placeholder: "",
-            onTap: {},
-            onSubmit: { _ in recorder.submitCount += 1 },
-            onEscape: { recorder.escapeCount += 1 },
-            onFieldLostFocus: {},
-            onMoveSelection: { _ in recorder.moveSelectionCount += 1 },
-            onDeleteSelectedSuggestion: {},
-            onAcceptInlineCompletion: {},
-            onDeleteBackwardWithInlineSelection: {},
-            onClearTypedPrefixWithInlineSelection: {},
-            onDeleteWordBackwardWithInlineSelection: {},
-            onSelectionChanged: { _, _ in },
-            shouldSuppressWebViewFocus: { false }
+    ) -> OmnibarTextFieldNativeHost.Coordinator {
+        OmnibarTextFieldNativeHost.Coordinator(
+            configuration: OmnibarTextFieldNativeConfiguration(
+                panelId: UUID(),
+                fontSize: 13,
+                text: "https://example.com/app/projects/abc/prompts/19ccd6ff",
+                isFocused: false,
+                selectAllRequestId: 0,
+                inlineCompletion: nil,
+                placeholder: "",
+                onTextChange: { _ in },
+                onFocusChange: { _ in },
+                onTap: {},
+                onSubmit: { _ in recorder.submitCount += 1 },
+                onEscape: { recorder.escapeCount += 1 },
+                onFieldLostFocus: {},
+                onMoveSelection: { _ in recorder.moveSelectionCount += 1 },
+                onDeleteSelectedSuggestion: {},
+                onAcceptInlineCompletion: {},
+                onDeleteBackwardWithInlineSelection: {},
+                onClearTypedPrefixWithInlineSelection: {},
+                onDeleteWordBackwardWithInlineSelection: {},
+                onSelectionChanged: { _, _ in },
+                shouldSuppressWebViewFocus: { false }
+            )
         )
-        return representable.makeCoordinator()
     }
 
     private func keyEvent(keyCode: UInt16, characters: String) throws -> NSEvent {

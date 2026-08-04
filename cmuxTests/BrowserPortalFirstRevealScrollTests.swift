@@ -225,7 +225,7 @@ struct BrowserPortalFirstRevealScrollTests {
     @Test func hiddenHostRevealThroughLocalInlineHostNudgesFrameOnceAndClearsFlag() async throws {
         let fixture = makeWindowFixture()
         defer { fixture.window.orderOut(nil) }
-        let host = WebViewRepresentable.HostContainerView(frame: fixture.anchor.frame)
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: fixture.anchor.frame)
         fixture.window.contentView?.addSubview(host)
         let slot = host.ensureLocalInlineSlotView()
         host.layoutSubtreeIfNeeded()
@@ -258,7 +258,7 @@ struct BrowserPortalFirstRevealScrollTests {
     @Test func localInlineHostDefersNudgeUntilViewAndWindowAreVisible() async {
         let fixture = makeWindowFixture()
         defer { fixture.window.orderOut(nil) }
-        let host = WebViewRepresentable.HostContainerView(frame: fixture.anchor.frame)
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: fixture.anchor.frame)
         fixture.window.contentView?.addSubview(host)
         let slot = host.ensureLocalInlineSlotView()
         host.layoutSubtreeIfNeeded()
@@ -297,7 +297,7 @@ struct BrowserPortalFirstRevealScrollTests {
     @Test func localInlineHostCompanionSkipsAndClearsPendingNudge() async {
         let fixture = makeWindowFixture()
         defer { fixture.window.orderOut(nil) }
-        let host = WebViewRepresentable.HostContainerView(frame: fixture.anchor.frame)
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: fixture.anchor.frame)
         fixture.window.contentView?.addSubview(host)
         let slot = host.ensureLocalInlineSlotView()
         host.layoutSubtreeIfNeeded()

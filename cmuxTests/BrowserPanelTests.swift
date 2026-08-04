@@ -2162,7 +2162,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2208,7 +2208,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2260,7 +2260,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2299,7 +2299,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2350,7 +2350,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2406,7 +2406,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2457,7 +2457,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2517,7 +2517,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 140, y: 0, width: 280, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 140, y: 0, width: 280, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2566,7 +2566,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 280, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 180, y: 0, width: 280, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2611,7 +2611,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2690,7 +2690,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
         contentView.addSubview(host)
 
@@ -2743,7 +2743,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             return
         }
 
-        let host = WebViewRepresentable.HostContainerView(
+        let host = BrowserWebViewNativeConfiguration.HostContainerView(
             frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height)
         )
         host.autoresizingMask = [.minXMargin, .height]
