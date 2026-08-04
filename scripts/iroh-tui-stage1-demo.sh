@@ -142,6 +142,7 @@ docker volume create "$zig_cache_volume" >/dev/null
 docker volume create "$zig_pkg_volume" >/dev/null
 docker run --rm \
     --env "CARGO_HOME=/build/cargo-home" \
+    --env "CARGO_PROFILE_RELEASE_LTO=false" \
     --env "CARGO_TARGET_DIR=/build/target" \
     --env "CMUX_TUI_BUILD_COMMIT=$build_commit" \
     --env "ZIG_GLOBAL_CACHE_DIR=/build/zig-cache/global" \
