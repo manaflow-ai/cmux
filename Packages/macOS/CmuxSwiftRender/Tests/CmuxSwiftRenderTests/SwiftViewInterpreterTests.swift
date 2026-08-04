@@ -62,6 +62,22 @@ import Testing
         #expect(evaluation.accessedTrackedMemberNames == ["branch", "dirty", "tabs"])
     }
 
+    @Test func diagnosticsDoNotRecordMembersFromUnresolvedBaseValues() {
+        let workspace = SwiftValue.object([
+            "branch": .string("workspace-branch"),
+        ])
+
+        let evaluation = interp.evaluateWithDiagnostics(
+            """
+            Text(missing.branch)
+            """,
+            state: ["workspace": workspace],
+            trackingMemberAccessesOn: workspace
+        )
+
+        #expect(evaluation.accessedTrackedMemberNames.isEmpty)
+    }
+
     @Test func parsesHSplitViewColumns() {
         let node = interp.evaluate("""
         HSplitView {
