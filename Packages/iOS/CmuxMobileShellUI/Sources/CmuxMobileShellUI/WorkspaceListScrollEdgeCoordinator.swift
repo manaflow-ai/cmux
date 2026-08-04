@@ -3,13 +3,13 @@ import UIKit
 
 /// Registers the workspace table as the content scroll view of its enclosing
 /// navigation and tab bar controllers so UIKit renders the scroll edge effect
-/// under the top chrome (navigation bar + search drawer) and behind the tab
-/// bar, App Store-style.
+/// at the navigation and tab bar boundaries.
 ///
 /// SwiftUI only drives bar scroll edge effects for its own scroll views. The
-/// workspace list is a `UIViewRepresentable` `UITableView`, invisible to that
-/// machinery, so without this registration the table's `.soft` top edge style
-/// never renders and rows hard-clip at the search bar's bottom edge.
+/// workspace list is a represented `UITableView`, invisible to that machinery.
+/// Registration identifies the bar's effect source. The table underlaps the
+/// bars visually while its controller forwards their safe-area occlusion to
+/// UIKit so the bars never cover interactive rows.
 @MainActor
 final class WorkspaceListScrollEdgeCoordinator {
     private weak var registeredScrollView: UIScrollView?
@@ -86,7 +86,7 @@ final class WorkspaceListScrollEdgeCoordinator {
         if let waiting = firstWorkspaceTable(
             under: controller.viewIfLoaded, excluding: scrollView
         ) {
-            waiting.setNeedsLayout()
+            waiting.requestScrollEdgeRegistrationUpdate()
         }
     }
 

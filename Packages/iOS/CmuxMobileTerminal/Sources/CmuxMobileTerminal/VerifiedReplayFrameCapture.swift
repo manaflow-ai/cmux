@@ -216,7 +216,7 @@ func verifiedReplayPresentationGeometry(
 /// Keeps authoritative grid export and its tokened Metal submission adjacent
 /// inside one serial surface-queue closure. Publishing the exported frame to
 /// MainActor happens only after this synchronous operation returns.
-func verifiedReplayExportThenSubmit<Frame>(
+nonisolated func verifiedReplayExportThenSubmit<Frame>(
     export: () -> Frame?,
     submit: () -> Void
 ) -> Frame? {
