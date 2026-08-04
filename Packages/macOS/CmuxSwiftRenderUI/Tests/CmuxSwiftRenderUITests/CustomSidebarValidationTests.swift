@@ -186,6 +186,42 @@ struct CustomSidebarValidationTests {
         }
     }
 
+    @Test("mask and context menu children do not count as visible output")
+    func ignoresNonDrawingModifierChildren() throws {
+        let directory = try temporaryDirectory()
+        for modifier in ["mask", "contextMenu"] {
+            let fileURL = directory.appendingPathComponent("\(modifier).swift")
+            try """
+            VStack {}
+                .\(modifier) {
+                    Text("Hidden child")
+                }
+            """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+            let entry = validator.validate(fileURL: fileURL)
+
+            #expect(entry.errorMessage == nil)
+            #expect(entry.warningMessages == ["Sidebar rendered no visible content."])
+        }
+    }
+
+    @Test("safe-area inset children count as visible output")
+    func acceptsVisibleSafeAreaInset() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("inset.swift")
+        try """
+        VStack {}
+            .safeAreaInset(edge: .top) {
+                Text("Inset")
+            }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == nil)
+        #expect(entry.warningMessages.isEmpty)
+    }
+
     @Test("warns when Gauge has no renderable value")
     func warnsAboutGaugeWithoutValue() throws {
         let directory = try temporaryDirectory()
@@ -236,6 +272,66 @@ struct CustomSidebarValidationTests {
 
         #expect(entry.errorMessage == nil)
         #expect(entry.warningMessages.isEmpty)
+    }
+
+    @Test("does not attribute reads from an unchanged sparse workspace")
+    func ignoresOptionalReadsFromUnchangedWorkspace() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("sparse.swift")
+        try """
+        VStack {
+            ForEach(workspaces) { workspace in
+                if workspace.title == "notes" {
+                    Text(workspace.branch)
+                }
+            }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == nil)
+        #expect(entry.warningMessages == ["Sidebar rendered no visible content."])
+    }
+
+    @Test("deep validation walks rendered output iteratively")
+    func validatesDeepOutputWithoutCallerStackRecursion() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("deep.swift")
+        let depth = 390
+        let source = String(repeating: "VStack { ", count: depth) + """
+        ForEach(workspaces) { workspace in
+            if workspace.selected && workspace.branch == "never" {
+                Text("Ignored")
+            }
+        }
+        Text("Deep")
+        """ + String(repeating: " }", count: depth)
+        try source.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == nil)
+        #expect(
+            entry.warningMessages
+                == [
+                    "Sidebar output did not change when its referenced optional workspace data was removed.",
+                ]
+        )
+    }
+
+    @Test("warning text resolves from the package localization bundle")
+    func localizesWarningsInJapanese() {
+        let japanese = Locale(identifier: "ja")
+
+        #expect(
+            localizedEmptySidebarRenderWarning(locale: japanese)
+                == "サイドバーに表示可能な内容がレンダリングされませんでした。"
+        )
+        #expect(
+            localizedMissingOptionalDataCoverageWarning(locale: japanese)
+                == "参照されているオプションのワークスペースデータを削除しても、サイドバーの出力が変化しませんでした。"
+        )
     }
 
     @MainActor

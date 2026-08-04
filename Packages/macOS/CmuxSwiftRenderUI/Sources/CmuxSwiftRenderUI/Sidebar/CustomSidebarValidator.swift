@@ -91,7 +91,7 @@ public struct CustomSidebarValidator {
                 let program = interpreter.parse(source)
                 let evaluationState = dataContext ?? fallbackDataContext
                 let trackedWorkspaceValues = dataContext == nil && fallbackComparisonDataContext != nil
-                    ? workspaceValues(in: evaluationState)
+                    ? workspaceValues(in: evaluationState).first.map { [$0] } ?? []
                     : []
                 let evaluation = interpreter.evaluateWithDiagnostics(
                     program,
@@ -111,10 +111,7 @@ public struct CustomSidebarValidator {
                 }
                 if !node.containsVisibleContent {
                     warningMessages.append(
-                        String(
-                            localized: "sidebar.custom.validation.emptyRender",
-                            defaultValue: "Sidebar rendered no visible content."
-                        )
+                        localizedEmptySidebarRenderWarning()
                     )
                 }
                 if dataContext == nil,
@@ -122,12 +119,10 @@ public struct CustomSidebarValidator {
                    !evaluation.accessedTrackedMemberNames.isDisjoint(
                        with: Self.representativeOptionalWorkspaceFields
                    ),
-                   interpreter.evaluate(program, state: comparisonContext) == node {
+                   let comparisonNode = interpreter.evaluate(program, state: comparisonContext),
+                   node.hasSameValidationOutput(as: comparisonNode) {
                     warningMessages.append(
-                        String(
-                            localized: "sidebar.custom.validation.noOptionalDataCoverage",
-                            defaultValue: "Sidebar output did not change when its referenced optional workspace data was removed."
-                        )
+                        localizedMissingOptionalDataCoverageWarning()
                     )
                 }
             case .json:
@@ -245,6 +240,24 @@ public struct CustomSidebarValidator {
             errorMessage: message
         )
     }
+}
+
+func localizedEmptySidebarRenderWarning(locale: Locale = .current) -> String {
+    String(
+        localized: "sidebar.custom.validation.emptyRender",
+        defaultValue: "Sidebar rendered no visible content.",
+        bundle: .module,
+        locale: locale
+    )
+}
+
+func localizedMissingOptionalDataCoverageWarning(locale: Locale = .current) -> String {
+    String(
+        localized: "sidebar.custom.validation.noOptionalDataCoverage",
+        defaultValue: "Sidebar output did not change when its referenced optional workspace data was removed.",
+        bundle: .module,
+        locale: locale
+    )
 }
 
 private func makeRepresentativeSelectedWorkspace(
