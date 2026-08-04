@@ -1730,6 +1730,148 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// The Composer pill scroller must clip between its neighboring controls;
+    /// it must not underlap them to render a blur or fade at either edge.
+    @MainActor
+    func testTaskComposerComposerPillScrollerUsesHardEdges() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "combined",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+
+        let options = app.buttons["MobileTaskComposerOptionsButton"]
+        let scroller = app.scrollViews["MobileTaskComposerPillScroller"]
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        XCTAssertTrue(options.waitForExistence(timeout: 3))
+        XCTAssertTrue(scroller.waitForExistence(timeout: 3))
+        XCTAssertTrue(submit.waitForExistence(timeout: 3))
+
+        XCTAssertGreaterThanOrEqual(
+            scroller.frame.minX,
+            options.frame.maxX,
+            "The scroller must begin after the fixed options control"
+        )
+        XCTAssertLessThanOrEqual(
+            scroller.frame.maxX,
+            submit.frame.minX,
+            "The scroller must end before the fixed submit control"
+        )
+
+        let agentPill = app.buttons["MobileTaskComposerAgentPill"]
+        XCTAssertTrue(agentPill.waitForExistence(timeout: 3))
+        tap(agentPill, in: app)
+        tapMenuItem(app.buttons["OpenCode"], in: app)
+
+        let modelPill = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
+        tap(modelPill, in: app)
+        tapMenuItem(app.buttons["Claude Opus 4.8"], in: app)
+        let modelXBeforeScroll = modelPill.frame.midX
+
+        scroller.swipeLeft(velocity: .slow)
+
+        XCTAssertLessThan(
+            modelPill.frame.midX,
+            modelXBeforeScroll,
+            "The constrained pill region must remain horizontally scrollable"
+        )
+        XCTAssertGreaterThanOrEqual(scroller.frame.minX, options.frame.maxX)
+        XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-hard-scroll-edges"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// A drag that begins in an overflowing prompt belongs to the text editor;
+    /// it must not dismiss the keyboard or move the enclosing sheet.
+    @MainActor
+    func testTaskComposerPromptScrollDoesNotDragSheet() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT": "1",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        let promptFrameBeforeScroll = prompt.frame
+
+        prompt.swipeUp(velocity: .slow)
+
+        XCTAssertTrue(
+            keyboard.exists,
+            "Scrolling the prompt must keep the editing keyboard presented"
+        )
+        XCTAssertTrue(prompt.exists, "Scrolling the prompt must not dismiss the composer sheet")
+        XCTAssertEqual(
+            prompt.frame.minY,
+            promptFrameBeforeScroll.minY,
+            accuracy: 2,
+            "Scrolling the prompt must not drag the enclosing sheet"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-prompt-scroll-owns-drag"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// Moving away from a long prompt's caret must leave the editor at the
+    /// user's chosen scroll position. Inserting at the visible top proves the
+    /// viewport did not silently return to the caret at the end of the draft.
+    @MainActor
+    func testTaskComposerPromptScrollAwayFromCaretRemainsAtTop() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT": "1",
+            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "combined",
+        ])
+        defer { app.terminate() }
+
+        let prompt = app.descendants(matching: .any)["MobileTaskComposerPrompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+
+        for _ in 0..<3 {
+            prompt.swipeDown(velocity: .fast)
+        }
+
+        let modelPill = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
+        modelPill.tap()
+        tapMenuItem(app.buttons["Opus 4.8"], in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+
+        let marker = "TOP_SCROLL_MARKER"
+        prompt.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.12)).tap()
+        prompt.typeText(marker)
+
+        let value = try XCTUnwrap(prompt.value as? String)
+        let markerRange = try XCTUnwrap(value.range(of: marker))
+        let markerOffset = value[..<markerRange.lowerBound].utf16.count
+        XCTAssertLessThan(
+            markerOffset,
+            value.utf16.count / 3,
+            "The prompt returned to its bottom caret after the user scrolled to the top"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "task-composer-prompt-scroll-position"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Switching templates without a template-specific directory must keep the
     /// selected Mac's focused project instead of restoring older task history.
     @MainActor
