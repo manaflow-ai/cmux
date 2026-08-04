@@ -4808,8 +4808,7 @@ struct CMUXCLI {
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
-                windowOverride: windowId,
-                honorJSONOutput: false
+                windowOverride: windowId
             )
 
         case "new-split":
@@ -7845,8 +7844,7 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
-        windowOverride: String?,
-        honorJSONOutput: Bool
+        windowOverride: String?
     ) throws {
         let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
         let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
@@ -7914,8 +7912,12 @@ struct CMUXCLI {
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
         let response = try client.sendV2(method: "workspace.create", params: params)
         let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
-        if jsonOutput && honorJSONOutput {
-            print(jsonString(formatIDs(response, mode: idFormat)))
+        if jsonOutput {
+            print(jsonString(formatIDs(
+                response,
+                mode: idFormat,
+                preservingIDKinds: ["workspace", "surface"]
+            )))
         } else {
             print("OK \(wsId)")
         }
@@ -8588,8 +8590,7 @@ struct CMUXCLI {
                 client: client,
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
-                windowOverride: windowOverride,
-                honorJSONOutput: true
+                windowOverride: windowOverride
             )
         case "env":
             try runWorkspaceEnvCommand(

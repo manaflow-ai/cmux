@@ -145,19 +145,29 @@ extension TerminalController {
         workspace: Workspace,
         windowID: UUID?
     ) -> V2CallResult {
-        let workspaceID = workspace.id
-        let groupID = workspace.groupId
-        let surfaceID = workspace.focusedPanelId
-        return .ok([
-            "window_id": v2OrNull(windowID?.uuidString),
-            "window_ref": v2Ref(kind: .window, uuid: windowID),
-            "workspace_id": workspaceID.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
-            "group_id": v2OrNull(groupID?.uuidString),
-            "group_ref": v2Ref(kind: .workspaceGroup, uuid: groupID),
-            "surface_id": v2OrNull(surfaceID?.uuidString),
-            "surface_ref": v2Ref(kind: .surface, uuid: surfaceID)
-        ])
+        v2MainSync {
+            let workspaceID = workspace.id
+            let groupID = workspace.groupId
+            let surfaceID = workspace.focusedPanelId
+            let surfaces = orderedPanels(in: workspace).map { panel -> [String: Any] in
+                [
+                    "surface_id": panel.id.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+                    "type": panel.panelType.rawValue,
+                ]
+            }
+            return .ok([
+                "window_id": v2OrNull(windowID?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowID),
+                "workspace_id": workspaceID.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceID),
+                "group_id": v2OrNull(groupID?.uuidString),
+                "group_ref": v2Ref(kind: .workspaceGroup, uuid: groupID),
+                "surface_id": v2OrNull(surfaceID?.uuidString),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceID),
+                "surfaces": surfaces,
+            ])
+        }
     }
 
     func v2WorkspaceCloudVMOpen(params: [String: Any]) -> V2CallResult {
