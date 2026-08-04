@@ -2887,18 +2887,18 @@ fn validate_touched_resource_invariants(
         |row| row.get(0),
     )?;
     match meta_value(transaction, "active_workspace_id")? {
-        Some(active_workspace) => {
+        Some(active_workspace)
             if live_resource_field(
                 transaction,
                 "resource_workspaces",
                 "public_id",
                 &active_workspace,
             )?
-            .is_none()
-            {
-                anyhow::bail!("active workspace {active_workspace} is not live");
-            }
+            .is_none() =>
+        {
+            anyhow::bail!("active workspace {active_workspace} is not live");
         }
+        Some(_) => {}
         None if live_workspace_count != 0 => {
             anyhow::bail!("live session has workspaces but no active workspace");
         }
