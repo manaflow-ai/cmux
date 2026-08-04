@@ -1296,9 +1296,13 @@ final class BrowserHistoryStore: ObservableObject {
         return built
     }
 
-    init(fileURL: URL? = nil) {
+    convenience init() {
         // Avoid calling @MainActor-isolated static methods from default argument context.
-        self.fileURL = fileURL ?? BrowserHistoryStore.defaultHistoryFileURL()
+        self.init(fileURL: BrowserHistoryStore.defaultHistoryFileURL())
+    }
+
+    init(fileURL: URL?) {
+        self.fileURL = fileURL
     }
 
     func loadIfNeeded() {
@@ -2728,10 +2732,12 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserViewportHostRestorationTask: Task<Void, Never>?
     var browserViewportHostRestorationPending = false
     var websiteDataStore: WKWebsiteDataStore
+    private let preservesExplicitEphemeralWebsiteDataStore: Bool
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
     var webViewDidRequestClose: (() -> Void)?
+    var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var mobileBrowserStreamSignalHandlers: [UUID: (MobileBrowserPanelNativeSignal) -> Void] = [:]
     var mobileBrowserStreamMessageHandler: MobileBrowserDirtyMessageHandler?
     var mobileBrowserStreamScriptInstanceID: UUID?
@@ -3862,6 +3868,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                     self.refreshFavicon(from: webView)
                 }
+                self.applyCurrentAppWebTheme(to: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -4100,7 +4107,8 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -4110,7 +4118,6 @@ final class BrowserPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
-        self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
@@ -4119,10 +4126,21 @@ final class BrowserPanel: Panel, ObservableObject {
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
         self.usesTransparentBackground = transparentBackground
-        let websiteDataStore = isRemoteWorkspace
-            ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
-            : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+        let websiteDataStore = explicitWebsiteDataStore ?? (
+            isRemoteWorkspace
+                ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
+                : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+        )
+        let preservesExplicitEphemeralWebsiteDataStore =
+            explicitWebsiteDataStore != nil
+            && websiteDataStore !== WKWebsiteDataStore.default()
+            && websiteDataStore.identifier == nil
+        self.historyStore = preservesExplicitEphemeralWebsiteDataStore
+            ? BrowserHistoryStore(fileURL: nil)
+            : BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         self.websiteDataStore = websiteDataStore
+        self.preservesExplicitEphemeralWebsiteDataStore =
+            preservesExplicitEphemeralWebsiteDataStore
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
         if let prewarmed = Self.claimedPrewarmedWebView(
@@ -4163,6 +4181,9 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.owner = self
         navDelegate.openInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
+        }
+        navDelegate.openAppLinkInBrowserSplit = { [weak self] url in
+            self?.openAppLinkInBrowserSplit?(url) ?? false
         }
         navDelegate.requestNavigation = { [weak self] request, intent, onNavigationStarted in
             self?.requestNavigation(
@@ -4758,6 +4779,10 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId = newWorkspaceId
     }
 
+    var explicitEphemeralWebsiteDataStoreForSibling: WKWebsiteDataStore? {
+        preservesExplicitEphemeralWebsiteDataStore ? websiteDataStore : nil
+    }
+
     func reattachToWorkspace(
         _ newWorkspaceId: UUID,
         isRemoteWorkspace: Bool,
@@ -4767,9 +4792,11 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
-        let targetStore = isRemoteWorkspace
-            ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
-            : BrowserProfileStore.shared.websiteDataStore(for: profileID)
+        let targetStore = preservesExplicitEphemeralWebsiteDataStore
+            ? websiteDataStore
+            : isRemoteWorkspace
+                ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
+                : BrowserProfileStore.shared.websiteDataStore(for: profileID)
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
         websiteDataStore = targetStore
         remoteProxyEndpoint = bypassesRemoteWorkspaceProxy ? nil : proxyEndpoint
@@ -4788,6 +4815,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func switchToProfile(_ requestedProfileID: UUID) -> Bool {
+        guard !preservesExplicitEphemeralWebsiteDataStore else {
+            return false
+        }
         let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
             ? requestedProfileID
             : BrowserProfileStore.shared.builtInDefaultProfileID
@@ -5010,6 +5040,14 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
+        // A non-persistent WebKit store cannot be reconstructed with the same
+        // account or cookies. Persisting only its URL and profile would reopen
+        // it inside a shared profile, which is unsafe for authenticated native
+        // app handoffs and misleading for every other ephemeral browser pane.
+        guard websiteDataStore === WKWebsiteDataStore.default()
+                || websiteDataStore.identifier != nil else {
+            return false
+        }
         // Diff viewer surfaces are otherwise treated as temporary. Persist them
         // only when they can actually be restored via the custom scheme (a
         // local-only, non-pending manifest); otherwise persisting would leave a
@@ -5206,6 +5244,8 @@ final class BrowserPanel: Panel, ObservableObject {
             .sink { [weak self] notification in
                 guard let self else { return }
                 self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+                guard self.supportsAppWebTheme(self.webView) else { return }
+                self.applyAppWebTheme(AppWebThemeSnapshot.current(notification: notification), to: self.webView)
             }
             .store(in: &webViewCancellables)
 
@@ -5218,6 +5258,27 @@ final class BrowserPanel: Panel, ObservableObject {
         // Apply the configured background for the freshly bound webview (covers
         // the initial bind and every post-crash replacement).
         applyConfiguredWebViewBackground()
+        applyCurrentAppWebTheme(to: webView)
+    }
+
+    private func applyCurrentAppWebTheme(to webView: WKWebView) {
+        guard supportsAppWebTheme(webView) else { return }
+        applyAppWebTheme(AppWebThemeSnapshot.current(), to: webView)
+    }
+
+    private func supportsAppWebTheme(_ webView: WKWebView) -> Bool {
+        BrowserAppTheme.supportsAppSurface(
+            url: webView.url,
+            trustedOrigin: AuthEnvironment.appWebOrigin
+        )
+    }
+
+    private func applyAppWebTheme(_ theme: AppWebThemeSnapshot, to webView: WKWebView) {
+        let browserTheme = theme.browserTheme
+        guard let script = browserTheme.applyingJavaScript() else {
+            return
+        }
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     /// Configures the live webview's background for the current Ghostty theme.
@@ -5540,8 +5601,7 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserWindowPortalRegistry.detach(webView: webView)
         cancelPendingInteractiveBrowserPrompts(reason: "close", cancelAuthenticationPrompts: false)
         closeBackgroundPreloadHost(reason: "close")
-        let popupsToClose = popupControllers; popupControllers.removeAll()
-        for popup in popupsToClose { popup.closeAllChildPopups(); popup.closePopup() }
+        closeAllPopupControllers()
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         designModeController.webViewWillBeRemoved(webView)
         designModeController.releaseDeliveredHandoffForTeardown()
@@ -5552,6 +5612,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
+        openAppLinkInBrowserSplit = nil
         detachWebViewObservers()
         faviconTask?.cancel(); faviconTask = nil
     }
@@ -5576,6 +5637,15 @@ final class BrowserPanel: Panel, ObservableObject {
     func removePopupController(_ controller: BrowserPopupWindowController) {
         popupControllers.removeAll { $0 === controller }
         reevaluateHiddenWebViewDiscardScheduling(reason: "popup_closed")
+    }
+
+    private func closeAllPopupControllers() {
+        let popupsToClose = popupControllers
+        popupControllers.removeAll()
+        for popup in popupsToClose {
+            popup.closeAllChildPopups()
+            popup.closePopup()
+        }
     }
 
     private func refreshFavicon(from webView: WKWebView) {
@@ -6409,8 +6479,11 @@ extension BrowserPanel {
         webView.cmuxBrowserViewportAttachmentSuperview != nil
     }
 
-    func resetForWorkspaceContextChange(reason: String) {
-        guard needsWorkspaceContextReset else {
+    func resetForWorkspaceContextChange(
+        reason: String,
+        forceWebViewReplacement: Bool = false
+    ) {
+        guard forceWebViewReplacement || needsWorkspaceContextReset else {
             resetWebViewLifecycleMetadata()
 #if DEBUG
             cmuxDebugLog(
@@ -6507,6 +6580,18 @@ extension BrowserPanel {
             "reason=\(reason) instance=\(webViewInstanceID.uuidString.prefix(6))"
         )
 #endif
+    }
+
+    func resetForAppSessionSignOut() {
+        // Stop exposing the authenticated store before its asynchronous WebKit
+        // deletion callback completes. If WebKit drops that callback, the live
+        // panel is still isolated from the previous account immediately.
+        closeAllPopupControllers()
+        websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        resetForWorkspaceContextChange(
+            reason: "appSessionSignOut",
+            forceWebViewReplacement: true
+        )
     }
 }
 
@@ -6660,7 +6745,8 @@ extension BrowserPanel {
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: profileID,
-            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            websiteDataStore: explicitEphemeralWebsiteDataStoreForSibling
         ) else {
 #if DEBUG
             cmuxDebugLog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=newPanelFailed")
@@ -7345,19 +7431,20 @@ extension BrowserPanel {
         completion: @escaping (Result<NSImage, Error>) -> Void
     ) {
         guard visualAutomationCaptureGate.begin() else {
-            completion(.failure(BrowserScreenshotError.emptySnapshot))
+            completion(.failure(BrowserScreenshotError.captureInProgress))
             return
         }
+        let timingBudget = BrowserScreenshotTimingBudget()
 
         withVisualAutomationRenderLease(
             reason: "browser.screenshot",
-            timeout: 15.0,
-            operation: { webView, afterScreenUpdates, finish in
-                BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
-                    from: webView,
-                    afterScreenUpdates: afterScreenUpdates,
-                    completion: finish
-                )
+            timingBudget: timingBudget,
+            operation: { webView, presentation in
+                try await BrowserScreenshotCaptureService(
+                    webView: webView,
+                    presentation: presentation,
+                    timingBudget: timingBudget
+                ).capture()
             },
             completion: { [visualAutomationCaptureGate] result in
                 visualAutomationCaptureGate.end()
@@ -7368,12 +7455,11 @@ extension BrowserPanel {
 
     private func withVisualAutomationRenderLease<T>(
         reason: String,
-        timeout: TimeInterval,
-        operation: @escaping (
+        timingBudget: BrowserScreenshotTimingBudget,
+        operation: @escaping @MainActor (
             _ webView: WKWebView,
-            _ afterScreenUpdates: Bool,
-            _ finish: @escaping (Result<T, Error>) -> Void
-        ) -> Void,
+            _ presentation: BrowserScreenshotPresentation
+        ) async throws -> T,
         completion: @escaping (Result<T, Error>) -> Void
     ) {
         activeVisualAutomationCaptureCount += 1
@@ -7385,9 +7471,11 @@ extension BrowserPanel {
         let captureWebView = webView
         var timeoutTimer: Timer?
         var didFinish = false
-        let usesOffscreenRenderHost = shouldUseOffscreenRenderHostForVisualAutomation
+        let presentation = visualAutomationPresentation
+        let usesOffscreenRenderHost = presentation.usesOffscreenRenderHost
+        let timeout = timingBudget.captureLeaseTimeout
 
-        let finish: (Result<T, Error>) -> Void = { result in
+        let completeLease: @MainActor (Result<T, Error>) -> Void = { result in
             guard !didFinish else { return }
             didFinish = true
             timeoutTimer?.invalidate()
@@ -7409,30 +7497,46 @@ extension BrowserPanel {
                 viewportSize: viewportSize,
                 expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
                 timeout: timeout,
-                operation: { operationFinish in
-                    operation(captureWebView, false, operationFinish)
+                timingBudget: timingBudget,
+                operation: {
+                    try await operation(captureWebView, presentation)
                 },
-                completion: finish
+                completion: completeLease
             )
             return
         }
 
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
-            finish(.failure(BrowserScreenshotError.automationTimedOut))
+        let lease = BrowserScreenshotRenderLease<T>(
+            teardown: {},
+            completion: completeLease
+        )
+        let finish: @MainActor (Result<T, Error>) -> Void = { result in
+            guard lease.finish(result) else { return }
+            timeoutTimer?.invalidate()
+            timeoutTimer = nil
         }
+        let timer = Timer(timeInterval: timeout, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                finish(.failure(BrowserScreenshotError.automationTimedOut))
+            }
+        }
+        timeoutTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
 
-        BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
-            captureWebView,
-            expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil
-        ) { result in
-            switch result {
-            case .success:
-                guard !didFinish else { return }
-                operation(captureWebView, false, finish)
-            case .failure(let error):
+        let operationTask = Task { @MainActor in
+            do {
+                try await BrowserScreenshotWebViewSnapshotter.prepareForVisualCapture(
+                    captureWebView,
+                    expectedURL: restoredDiscardedWebView ? expectedURLForRestoredWebView : nil,
+                    timingBudget: timingBudget
+                )
+                try Task.checkCancellation()
+                finish(.success(try await operation(captureWebView, presentation)))
+            } catch {
                 finish(.failure(error))
             }
         }
+        lease.installOperationTask(operationTask)
     }
 
     @discardableResult
@@ -7443,11 +7547,16 @@ extension BrowserPanel {
     }
 
     private var shouldUseOffscreenRenderHostForVisualAutomation: Bool {
-        guard isWebViewVisibleInUI else { return true }
-        guard webView.window != nil else { return true }
-        guard !webView.isHiddenOrHasHiddenAncestor else { return true }
-        guard webView.bounds.width > 1, webView.bounds.height > 1 else { return true }
-        return false
+        visualAutomationPresentation.usesOffscreenRenderHost
+    }
+
+    private var visualAutomationPresentation: BrowserScreenshotPresentation {
+        BrowserScreenshotPresentation.resolve(
+            isVisibleInUI: isWebViewVisibleInUI,
+            isAttachedToWindow: webView.window != nil,
+            isHiddenOrHasHiddenAncestor: webView.isHiddenOrHasHiddenAncestor,
+            boundsSize: webView.bounds.size
+        )
     }
 
     /// Execute JavaScript
@@ -8759,6 +8868,19 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             "windowFeatures={\(windowFeaturesSummary)}"
         )
 #endif
+        // Auth-callback-shaped URLs never get the external-app prompt from the
+        // popup path: the only legitimate producer is the app's own
+        // after-sign-in page, which the main navigation delegate consumes.
+        if let url = navigationAction.request.url,
+           BrowserAuthCallbackNavigationPolicy.shouldBlockExternalNavigation(url) {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.nav.createWebView kind=blockUntrustedAuthCallback scheme=\(url.scheme ?? "nil")"
+            )
+#endif
+            return nil
+        }
+
         // External URL schemes → hand off to macOS, don't create a popup
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {

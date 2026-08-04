@@ -1,10 +1,17 @@
-# Control Socket Protocol
+# Raw control protocol v10
+
+This is the private implementation interface for cmux frontends and
+compatibility adapters. New applications should use
+[`cmux.protocol/1`](../spec/resource-api-v1.md), the
+[noun-first CLI](../spec/cli.md), or a [handwritten SDK](../spec/bindings.md).
+High-level packages expose protocol v10 only through their `raw` namespace.
 
 As of protocol v10, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
-Remote clients can carry the same JSON-lines stream through `cmux-tui relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
+Remote clients can carry the same JSON-lines stream through `cmux relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
 
-For shell use, prefer `cmux-tui <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
+For shell use, prefer the noun-first public CLI, such as
+`cmux workspace list --json`.
 
 Default socket path:
 

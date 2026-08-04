@@ -3522,7 +3522,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin."
+    "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
+    "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
+    "signedOutSignIn": "Oturum aç"
   },
   "platforms": {
     "macos": "macOS",
@@ -3599,6 +3601,37 @@
       "primaryCta": ".deb dosyasını indir",
       "requirements": "Debian veya Ubuntu · x64",
       "installBody": "Debian paketini indirin ve paket yöneticinizle kurun. Kullanıcı başına kurulum ve uygulama içi güncellemeler için taşınabilir ZIP'i seçin."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "cmux Pro’ya hoş geldin 🎉",
+      "fallbackName": "arkadaşımız",
+      "greeting": "Merhaba {name},",
+      "thanks": "cmux Pro’ya katıldığın için teşekkürler! Pro deneyiminin tamamını geliştirmeye devam ediyoruz, bulut erişimi de yakında geliyor.",
+      "cloudStatus": "Bulut erişimi kullanıma açıldığında, abone olduğun ay sayısına göre hesabına kullanım kredileri ekleyeceğiz.",
+      "currentBenefit": "Bu sırada Pro avantajın, iOS’ta cmux’a erken erişimdir. Aşağıdaki bağlantıdan kaydolduğunda Apple, kayıt tamamlandıktan sonra TestFlight davetini gönderecek.",
+      "testflightLink": "TestFlight’a kaydol: {url}",
+      "testflightLinkLabel": "TestFlight’a kaydol",
+      "signoff": "Aramıza katılmana sevindik!\ncmux ekibi"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro etkin",
+    "title": "cmux Pro’ya hoş geldin",
+    "body": "Pro özellikleri hâlâ geliştiriliyor. Bulut erişimi yakında geliyor ve abone kaldığın her ay için kullanım kredisi birikecek. Pro şu anda TestFlight üzerinden cmux iOS erişimini içeriyor.",
+    "done": "Kontrol paneline git",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS uygulaması",
+        "body": "cmux’ı telefonunda kullan.",
+        "action": "iOS betasına katıl"
+      },
+      "billing": {
+        "title": "Planını yönet",
+        "body": "Planını, faturalarını ve iptal seçeneklerini görüntüle.",
+        "action": "Planı yönet"
+      }
     }
   }
 }

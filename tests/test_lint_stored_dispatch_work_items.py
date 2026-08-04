@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavior tests for the stored DispatchWorkItem ownership scanner."""
+"""Behavior tests for the deferred-action handle ownership scanner."""
 
 from __future__ import annotations
 
@@ -165,6 +165,40 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
             [(item.name, item.type_text) for item in declarations],
             [("workByName", "<inferred:[DispatchWorkItem]>")],
         )
+
+    def test_audits_stored_task_handles_in_content_view(self) -> None:
+        declarations = LINT.scan_declarations(
+            """
+            struct ContentView: View {
+                @State private var fallbackTask: Task<Void, Never>?
+                @State private var tasksByPanel: [String: Task<Void, Never>] = [:]
+            }
+            """,
+            "Sources/ContentView.swift",
+        )
+
+        self.assertEqual(
+            [(item.name, item.type_text, item.context) for item in declarations],
+            [
+                ("fallbackTask", "Task<Void,Never>?", "member:ContentView"),
+                (
+                    "tasksByPanel",
+                    "[String:Task<Void,Never>]",
+                    "member:ContentView",
+                ),
+            ],
+        )
+
+    def test_does_not_audit_stored_task_handles_outside_content_view(self) -> None:
+        declarations = self.scan(
+            """
+            struct FixtureView: View {
+                @State private var task: Task<Void, Never>?
+            }
+            """
+        )
+
+        self.assertEqual(declarations, [])
 
     def test_allowance_comparison_rejects_changed_ownership_and_stale_entries(self) -> None:
         allowance = LINT.Allowance(

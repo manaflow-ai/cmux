@@ -3526,7 +3526,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard."
+    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
+    "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
+    "signedOutSignIn": "Se connecter"
   },
   "platforms": {
     "macos": "macOS",
@@ -3603,6 +3605,37 @@
       "primaryCta": "Télécharger le .deb",
       "requirements": "Debian ou Ubuntu · x64",
       "installBody": "Téléchargez le paquet Debian et installez-le avec votre gestionnaire de paquets. Choisissez le ZIP portable pour une installation par utilisateur et les mises à jour dans l’application."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Bienvenue dans cmux Pro 🎉",
+      "fallbackName": "ami",
+      "greeting": "Bonjour {name},",
+      "thanks": "Merci d’avoir rejoint cmux Pro ! Nous peaufinons encore l’expérience Pro complète. L’accès au cloud arrive bientôt.",
+      "cloudStatus": "Lors du lancement de l’accès au cloud, nous ajouterons à votre compte des crédits d’utilisation calculés selon votre nombre de mois d’abonnement.",
+      "currentBenefit": "En attendant, votre avantage Pro est l’accès anticipé à cmux sur iOS. Inscrivez-vous avec le lien ci-dessous, puis Apple vous enverra votre invitation TestFlight une fois l’inscription terminée.",
+      "testflightLink": "S’inscrire à TestFlight : {url}",
+      "testflightLinkLabel": "S’inscrire à TestFlight",
+      "signoff": "Ravis de vous compter parmi nous !\nL’équipe cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro est actif",
+    "title": "Bienvenue dans cmux Pro",
+    "body": "Les fonctionnalités Pro sont encore en cours de développement. L’accès au cloud arrive bientôt, avec des crédits d’utilisation cumulés pour chaque mois d’abonnement. Aujourd’hui, Pro inclut l’accès à cmux iOS via TestFlight.",
+    "done": "Accéder au tableau de bord",
+    "steps": {
+      "iosApp": {
+        "title": "App cmux pour iOS",
+        "body": "Utilisez cmux sur votre téléphone.",
+        "action": "Rejoindre la bêta iOS"
+      },
+      "billing": {
+        "title": "Gérer votre abonnement",
+        "body": "Consultez votre abonnement, vos factures et les options de résiliation.",
+        "action": "Gérer l’abonnement"
+      }
     }
   }
 }

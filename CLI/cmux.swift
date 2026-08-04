@@ -185,15 +185,7 @@ struct ClaudeHookActiveSessionRecord: Codable {
     var updatedAt: TimeInterval
 }
 
-struct AgentHookLaunchCommandRecord: Codable {
-    var launcher: String?
-    var executablePath: String?
-    var arguments: [String]
-    var workingDirectory: String?
-    var environment: [String: String]?
-    var capturedAt: TimeInterval?
-    var source: String?
-}
+typealias AgentHookLaunchCommandRecord = AgentLaunchCommand
 
 private struct CodexMonitorLeaseRecord: Codable {
     var leaseId: String
@@ -3357,6 +3349,9 @@ struct CMUXCLI {
         if normalizedCommand == "surface-resume" {
             return false
         }
+        if normalizedCommand == "restore" {
+            return false
+        }
         if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
             return false
         }
@@ -3793,6 +3788,16 @@ struct CMUXCLI {
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
+            if command == "restore", explicitSocketPath == nil {
+                throw loggedRestoreError(
+                    stage: "socket.startup",
+                    detail: String(reflecting: error),
+                    message: String(
+                        localized: "cli.restore.error.socketNotReady",
+                        defaultValue: "restore: cmux is still opening. Retry the visible restore command in a moment."
+                    )
+                )
+            }
             throw error
         }
         defer { client.close() }
@@ -3822,6 +3827,10 @@ struct CMUXCLI {
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
+        case "__sidebar_footer_icon_balance":
+            let response = try sendV1Command("__sidebar_footer_icon_balance", client: client)
+            print(response)
+
         case "__internal_flags":
             let response = try sendV1Command("__internal_flags", client: client)
             print(response)
@@ -4916,6 +4925,13 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowId
+            )
+
+        case "restore":
+            try runRestoreCommand(
+                commandArgs: commandArgs,
+                client: client,
+                processEnvironment: processEnv
             )
 
         case "surface-resume":
@@ -6938,6 +6954,14 @@ struct CMUXCLI {
                     throw CLIError(message: "surface resume set requires --shell <command> or -- <argv...>")
                 }
                 commandText = argv.map(cliShellQuote).joined(separator: " ")
+                params["launch_command"] = controlAgentLaunchCommandPayload(
+                    AgentLaunchCommand(
+                        executablePath: argv[0],
+                        arguments: argv,
+                        workingDirectory: params["cwd"] as? String,
+                        source: "cli"
+                    )
+                )
             }
             guard !commandText.isEmpty else {
                 throw CLIError(message: "surface resume set requires a non-empty command")
@@ -10210,10 +10234,10 @@ struct CMUXCLI {
                 "  cmux_relay_cli=\"$HOME/.cmux/bin/cmux\"",
                 "  if [ ! -x \"$cmux_relay_cli\" ]; then cmux_relay_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
                 "  if [ -n \"$cmux_relay_cli\" ]; then",
-                "    ( cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\"}'",
+                "    ( cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\",\"terminal_lifecycle_id\":\"__CMUX_TERMINAL_LIFECYCLE_ID__\",\"attempt_id\":\"__CMUX_SSH_ATTEMPT_ID__\"}'",
                 "      cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"reason\":\"command\"}'",
                 "      if [ -n \"__CMUX_SURFACE_ID__\" ]; then",
-                "        cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\"}'",
+                "        cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\",\"terminal_lifecycle_id\":\"__CMUX_TERMINAL_LIFECYCLE_ID__\",\"attempt_id\":\"__CMUX_SSH_ATTEMPT_ID__\"}'",
                 "        cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"reason\":\"command\"}'",
                 "      fi",
                 "      env -u CMUX_SOCKET CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
@@ -14396,11 +14420,11 @@ struct CMUXCLI {
             let (outPathOpt, _) = parseOption(subArgs, name: "--out")
             let localJSONOutput = hasFlag(subArgs, name: "--json")
             let outputAsJSON = effectiveJSONOutput || localJSONOutput
-            // Leave room beyond the app's capture deadline for its liveness probe and recovery reply.
+            let responseTimeout = BrowserScreenshotTimingBudget().clientResponseTimeout
             var payload = try client.sendV2(
                 method: "browser.screenshot",
                 params: ["surface_id": sid],
-                responseTimeout: 25
+                responseTimeout: responseTimeout
             )
 
             func fileURL(fromPath rawPath: String) -> URL {
@@ -15670,6 +15694,16 @@ struct CMUXCLI {
             If the app is already running, this restores the last saved session into the current app.
             If the app is not running, this launches cmux and lets startup restore reopen the saved session.
             """
+        case "restore":
+            return String(localized: "cli.restore.help", defaultValue: """
+            Usage: cmux restore <kind> <checkpoint-id>
+                   cmux restore --surface [id|ref]
+
+            Replace this CLI process with the persisted surface process. New
+            records preserve argv, environment, and cwd as structured values;
+            command-only records from older builds use a compatibility shell.
+            With no id or ref, --surface uses the calling cmux surface.
+            """)
         case "sessions", "session-debug": return sessionsUsage()
         case "feedback":
             return """
@@ -26068,7 +26102,7 @@ struct CMUXCLI {
         return false
     }
 
-    private func resolveTerminalBinding(ttyName: String, client: SocketClient) -> CallerTerminalBinding? {
+    func resolveTerminalBinding(ttyName: String, client: SocketClient) -> CallerTerminalBinding? {
         guard let payload = try? client.sendV2(method: "debug.terminals") else {
             return nil
         }
@@ -28289,6 +28323,12 @@ struct CMUXCLI {
         }
         if let resumeEnvironment, !resumeEnvironment.isEmpty {
             params["environment"] = resumeEnvironment
+        }
+        if let launchCommand {
+            params["launch_command"] = controlAgentLaunchCommandPayload(launchCommand)
+        }
+        if let observedPermissionMode {
+            params["permission_mode"] = observedPermissionMode
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
     }
@@ -35234,6 +35274,9 @@ export default CMUXSessionRestore;
                 print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
                 return true
             }
+            if def.name == "pi", action == "session-start" {
+                refreshManagedPiExtensionIfNeeded(def)
+            }
             let actionArgs = Array(rest.dropFirst())
             switch action {
             case "inject-args" where def.name == "codex":
@@ -35853,6 +35896,7 @@ export default CMUXSessionRestore;
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
+          restore <kind> <checkpoint-id> | restore --surface [id|ref]
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]

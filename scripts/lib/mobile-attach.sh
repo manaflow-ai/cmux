@@ -92,11 +92,11 @@ cmux_attach_mac_bundle_id() {
 }
 
 # Unsigned Simulator apps have no application-identifier entitlement, so iOS
-# rejects their Keychain reads. Seed the existing UserDefaults migration mirror
-# with a deterministic per-bundle UUID before launch. The Iroh runtime then uses
-# that stable value without weakening the physical-device Keychain fail-closed
-# path. Recreated isolated simulators for the same tag also reuse one broker
-# device slot instead of leaking a new slot on every verification run.
+# rejects their Keychain reads. Produce a deterministic per-bundle UUID for the
+# simulator-only authoritative identity store. The launcher passes it directly
+# into the app process; writing the external defaults domain as well keeps the
+# value inspectable from simctl. Recreated isolated simulators for the same tag
+# reuse one broker device slot instead of leaking a slot on every verification.
 cmux_attach_seed_simulator_device_id() {
   local simulator_id="${1:?simulator id is required}"
   local bundle_id="${2:?bundle id is required}"
@@ -111,6 +111,7 @@ PY
 )"
   xcrun simctl spawn "$simulator_id" defaults write \
     "$bundle_id" cmux.deviceRegistry.iosDeviceID -string "$device_id"
+  printf '%s' "$device_id"
 }
 
 # The tagged Mac app's debug socket path.

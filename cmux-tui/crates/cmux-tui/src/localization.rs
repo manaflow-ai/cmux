@@ -24,6 +24,63 @@ pub(crate) struct ForeignViewportMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct GraphicsMessages {
+    pub output_failed: &'static str,
+    pub parser_recovery_failed: &'static str,
+    kitty_image_budget_worker_start_failed: &'static str,
+    kitty_image_budget_update_retrying: &'static str,
+    kitty_image_budget_update_exhausted: &'static str,
+    cell_pixel_update_retries_exhausted: &'static str,
+    browser_surface_resize_failed: &'static str,
+}
+
+impl GraphicsMessages {
+    pub(crate) fn kitty_image_budget_worker_start_failed(&self, error: &str) -> String {
+        self.kitty_image_budget_worker_start_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn kitty_image_budget_update_failed(
+        &self,
+        retry_exhausted: bool,
+        summary: &str,
+    ) -> String {
+        let template = if retry_exhausted {
+            self.kitty_image_budget_update_exhausted
+        } else {
+            self.kitty_image_budget_update_retrying
+        };
+        template.replace("{summary}", summary)
+    }
+
+    pub(crate) fn cell_pixel_update_retries_exhausted(
+        &self,
+        attempts: u8,
+        remaining: usize,
+        cell_pixels: (u16, u16),
+    ) -> String {
+        self.cell_pixel_update_retries_exhausted
+            .replace("{attempts}", &attempts.to_string())
+            .replace("{remaining}", &remaining.to_string())
+            .replace("{width}", &cell_pixels.0.to_string())
+            .replace("{height}", &cell_pixels.1.to_string())
+    }
+
+    pub(crate) fn browser_surface_resize_failed(
+        &self,
+        surface: u64,
+        cols: u16,
+        rows: u16,
+        error: &str,
+    ) -> String {
+        self.browser_surface_resize_failed
+            .replace("{surface}", &surface.to_string())
+            .replace("{cols}", &cols.to_string())
+            .replace("{rows}", &rows.to_string())
+            .replace("{error}", error)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct TerminalMessages {
     pub clear_history_help: &'static str,
     pub clear_history_failed: &'static str,
@@ -216,16 +273,19 @@ impl LayoutMessages {
             .replace("{ratio}", &ratio.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn unsupported_server_command(&self, command: &str) -> String {
         self.unsupported_server_command.replace("{command}", command)
     }
 
+    #[cfg(test)]
     pub(crate) fn layout_undo_applied(&self, screen: u64, revision: u64) -> String {
         self.layout_undo_applied
             .replace("{screen}", &screen.to_string())
             .replace("{revision}", &revision.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn layout_undo_confirmation_required(&self, revision: u64, panes: &str) -> String {
         self.layout_undo_confirmation_required
             .replace("{revision}", &revision.to_string())
@@ -271,6 +331,13 @@ impl ConfigMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AttachMessages {
     pub filtered_subscription_unavailable: &'static str,
+    pub remote_attach_queue_full: &'static str,
+    remote_attach_workers_failed_template: &'static str,
+    surface_sync_failed_template: &'static str,
+    surface_sync_unknown_template: &'static str,
+    surface_sync_attach: &'static str,
+    surface_sync_resize: &'static str,
+    surface_sync_operation: &'static str,
     unknown_terminal_prefix: &'static str,
     unknown_terminal_suffix: &'static str,
     ambiguous_terminal_prefix: &'static str,
@@ -280,14 +347,42 @@ pub(crate) struct AttachMessages {
 }
 
 impl AttachMessages {
+    pub fn remote_attach_workers_failed(&self, error: &str) -> String {
+        self.remote_attach_workers_failed_template.replace("{error}", error)
+    }
+
+    fn surface_sync_operation(&self, operation: &str) -> &'static str {
+        match operation {
+            "attach" => self.surface_sync_attach,
+            "resize" => self.surface_sync_resize,
+            _ => self.surface_sync_operation,
+        }
+    }
+
+    pub fn surface_sync_failed(&self, surface: u64, operation: &str, error: &str) -> String {
+        self.surface_sync_failed_template
+            .replace("{surface}", &surface.to_string())
+            .replace("{operation}", self.surface_sync_operation(operation))
+            .replace("{error}", error)
+    }
+
+    pub fn surface_sync_unknown(&self, surface: u64, operation: &str, error: &str) -> String {
+        self.surface_sync_unknown_template
+            .replace("{surface}", &surface.to_string())
+            .replace("{operation}", self.surface_sync_operation(operation))
+            .replace("{error}", error)
+    }
+
     pub fn unknown_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn ambiguous_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.ambiguous_terminal_prefix, self.ambiguous_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn browser_not_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.browser_terminal_prefix, self.browser_terminal_suffix)
     }
@@ -452,10 +547,31 @@ const fn decimal_width(mut value: u16) -> usize {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StartupMessages {
+    schema_too_new: &'static str,
+    pub session_socket: &'static str,
+    pub stop_newer_server: &'static str,
+    pub no_server_listening: &'static str,
+    pub forced_handoff_unsupported: &'static str,
+    pub different_server: &'static str,
+    pub server_not_verified: &'static str,
+    pub saved_state_requires_newer: &'static str,
+    pub start_separate_session: &'static str,
+}
+
+impl StartupMessages {
+    pub(crate) fn schema_too_new(&self, session: &str, version: &str) -> String {
+        self.schema_too_new.replace("{version}", version).replace("{session}", session)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
+    pub startup: StartupMessages,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
+    pub graphics: GraphicsMessages,
     pub terminal: TerminalMessages,
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
@@ -477,6 +593,17 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    startup: StartupMessages {
+        schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
+        session_socket: "session socket",
+        stop_newer_server: "a newer cmux server owns this saved session; stop it before retrying:",
+        no_server_listening: "no server is listening on this socket; nothing needs to be stopped",
+        forced_handoff_unsupported: "this server cannot accept a safe forced shutdown command; use the newer cmux build that started it to stop the session",
+        different_server: "this socket belongs to a different cmux session; no shutdown command is shown",
+        server_not_verified: "cmux could not verify which session owns this socket; no shutdown command is shown",
+        saved_state_requires_newer: "the saved state still requires a newer cmux; upgrade cmux to reopen this session",
+        start_separate_session: "or start this build in a separate session:",
+    },
     pairing: PairingMessages {
         title: "Approve browser?",
         confirm: "Confirm this code matches the browser:",
@@ -485,6 +612,15 @@ static ENGLISH: Catalog = Catalog {
         approve: "[ Approve enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "terminal grid" },
+    graphics: GraphicsMessages {
+        output_failed: "Terminal graphics output failed; restoring the terminal",
+        parser_recovery_failed: "Terminal graphics output could not reset the terminal parser; restoring the terminal",
+        kitty_image_budget_worker_start_failed: "Failed to start Kitty image budget worker: {error}",
+        kitty_image_budget_update_retrying: "Kitty image budget update failed, retrying: {summary}",
+        kitty_image_budget_update_exhausted: "Kitty image budget update failed, stopped after exhausting retries: {summary}",
+        cell_pixel_update_retries_exhausted: "Cell pixel update stopped after {attempts} retry attempts with {remaining} unconverged surface(s) at {width}x{height}; a later host acknowledgement can still recover",
+        browser_surface_resize_failed: "Browser surface {surface} resize to {cols}x{rows} failed: {error}",
+    },
     terminal: TerminalMessages {
         clear_history_help: "Clear PTY history while preserving its active prompt.",
         clear_history_failed: "Could not clear terminal history",
@@ -534,7 +670,7 @@ OPTIONS:
 The agent opens one outbound connection. It never opens a public listener or
 edits shell files. Authenticate with the configured host before retrying.
 ",
-        usage: "cmux machine-agent           Share one local session through the configured host",
+        usage: "cmux machine-agent       Share one local session through the configured host",
         pairing_code: "Pairing code",
         registered: "Sharing local cmux session",
         retrying: "Cloud connection lost; retrying in {milliseconds} ms",
@@ -623,10 +759,17 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
+        remote_attach_queue_full: "remote surface attach queue is full",
+        remote_attach_workers_failed_template: "could not start surface attach workers: {error}",
+        surface_sync_failed_template: "surface {surface} {operation} failed; retries are rate-limited: {error}",
+        surface_sync_unknown_template: "surface {surface} {operation} outcome is unknown; detach and reconnect before sending more input: {error}",
+        surface_sync_attach: "attach",
+        surface_sync_resize: "resize",
+        surface_sync_operation: "operation",
         unknown_terminal_prefix: "unknown terminal ",
-        unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
+        unknown_terminal_suffix: "; use `cmux terminal list` to list terminal IDs",
         ambiguous_terminal_prefix: "ambiguous terminal reference ",
-        ambiguous_terminal_suffix: "; use an unambiguous id from `cmux-tui ids`",
+        ambiguous_terminal_suffix: "; use an unambiguous ID from `cmux terminal list`",
         browser_terminal_prefix: "surface ",
         browser_terminal_suffix: " is a browser, not a terminal",
     },
@@ -717,6 +860,17 @@ edits shell files. Authenticate with the configured host before retrying.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    startup: StartupMessages {
+        schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",
+        session_socket: "セッションソケット",
+        stop_newer_server: "新しい cmux サーバーがこの保存済みセッションを所有しています。再試行する前に停止:",
+        no_server_listening: "このソケットを待ち受けているサーバーはありません。停止は不要です",
+        forced_handoff_unsupported: "このサーバーは安全な強制停止コマンドに対応していません。セッションを停止するには、起動に使用した新しい cmux ビルドを使用してください",
+        different_server: "このソケットは別の cmux セッションに属しています。シャットダウンコマンドは表示しません",
+        server_not_verified: "このソケットを所有するセッションを確認できませんでした。シャットダウンコマンドは表示しません",
+        saved_state_requires_newer: "保存状態には新しい cmux が必要です。このセッションを再度開くには cmux をアップグレードしてください",
+        start_separate_session: "または、このビルドを別のセッションで開始:",
+    },
     pairing: PairingMessages {
         title: "ブラウザを承認しますか？",
         confirm: "ブラウザのコードと一致するか確認:",
@@ -725,6 +879,15 @@ static JAPANESE: Catalog = Catalog {
         approve: "[ 承認 enter ]",
     },
     foreign_viewport: ForeignViewportMessages { terminal_grid: "端末グリッド" },
+    graphics: GraphicsMessages {
+        output_failed: "ターミナル画像の出力に失敗したため、ターミナルを復元します",
+        parser_recovery_failed: "ターミナル画像の出力後にパーサーをリセットできなかったため、ターミナルを復元します",
+        kitty_image_budget_worker_start_failed: "Kitty 画像予算ワーカーを開始できませんでした: {error}",
+        kitty_image_budget_update_retrying: "Kitty 画像予算の更新に失敗しました。再試行しています: {summary}",
+        kitty_image_budget_update_exhausted: "Kitty 画像予算の更新に失敗し、再試行回数の上限に達したため停止しました: {summary}",
+        cell_pixel_update_retries_exhausted: "セルピクセル更新は {attempts} 回の再試行後に停止しました。{width}x{height} で未収束のサーフェスが {remaining} 個あります。後続のホスト確認応答で復旧できます",
+        browser_surface_resize_failed: "ブラウザサーフェス {surface} の {cols}x{rows} へのサイズ変更に失敗しました: {error}",
+    },
     terminal: TerminalMessages {
         clear_history_help: "アクティブなプロンプトを保持したまま PTY 履歴を消去します。",
         clear_history_failed: "ターミナル履歴を消去できませんでした",
@@ -774,7 +937,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
 エージェントは外向きの接続を 1 つ開きます。公開リスナーを開いたり、シェルファイル
 を編集したりしません。再試行する前に、設定したホストで認証してください。
 ",
-        usage: "cmux machine-agent           設定したホスト経由でローカルセッションを共有",
+        usage: "cmux machine-agent       設定したホスト経由でローカルセッションを共有",
         pairing_code: "ペアリングコード",
         registered: "ローカル cmux セッションを共有中",
         retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
@@ -863,10 +1026,17 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
+        remote_attach_queue_full: "リモートサーフェス接続キューがいっぱいです",
+        remote_attach_workers_failed_template: "リモートサーフェス接続ワーカーを開始できませんでした: {error}",
+        surface_sync_failed_template: "サーフェス {surface} の{operation}に失敗しました。再試行は制限されています: {error}",
+        surface_sync_unknown_template: "サーフェス {surface} の{operation}結果は不明です。入力を続ける前に切断して再接続してください: {error}",
+        surface_sync_attach: "接続",
+        surface_sync_resize: "サイズ変更",
+        surface_sync_operation: "操作",
         unknown_terminal_prefix: "ターミナル ",
-        unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
+        unknown_terminal_suffix: " が見つかりません。`cmux terminal list` でターミナル ID 一覧を確認してください",
         ambiguous_terminal_prefix: "ターミナル参照 ",
-        ambiguous_terminal_suffix: " は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください",
+        ambiguous_terminal_suffix: " は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください",
         browser_terminal_prefix: "サーフェス ",
         browser_terminal_suffix: " はブラウザであり、ターミナルではありません",
     },
@@ -1008,13 +1178,26 @@ mod tests {
             JAPANESE.attach.filtered_subscription_unavailable,
             "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"
         );
+        assert_eq!(ENGLISH.attach.remote_attach_queue_full, "remote surface attach queue is full");
+        assert_eq!(
+            JAPANESE.attach.remote_attach_queue_full,
+            "リモートサーフェス接続キューがいっぱいです"
+        );
+        assert_eq!(
+            ENGLISH.attach.remote_attach_workers_failed("os detail"),
+            "could not start surface attach workers: os detail"
+        );
+        assert_eq!(
+            JAPANESE.attach.remote_attach_workers_failed("os detail"),
+            "リモートサーフェス接続ワーカーを開始できませんでした: os detail"
+        );
         assert_eq!(
             ENGLISH.attach.unknown_terminal("missing"),
-            "unknown terminal \"missing\"; use `cmux-tui ids` to list surfaces"
+            "unknown terminal \"missing\"; use `cmux terminal list` to list terminal IDs"
         );
         assert_eq!(
             JAPANESE.attach.ambiguous_terminal("000010"),
-            "ターミナル参照 \"000010\" は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください"
+            "ターミナル参照 \"000010\" は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください"
         );
         assert_eq!(
             JAPANESE.attach.browser_not_terminal("browser"),
