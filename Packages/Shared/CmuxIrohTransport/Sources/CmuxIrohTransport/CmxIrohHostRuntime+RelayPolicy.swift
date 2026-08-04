@@ -42,42 +42,39 @@ extension CmxIrohHostRuntime {
             throw CmxIrohHostRuntimeError.relayFleetMismatch
         }
         let revision = lifecycleRevision
-        try await connectivityEngine.replaceRelayProfile(
-            profile,
-            expectedIdentity: binding.endpointID
-        )
+
+        relayActivationTask?.cancel()
+        relayActivationTask = nil
+        await relayCoordinator?.deactivate()
+        relayCoordinator = nil
+        if profile.source == .managed, !profile.allowedRelayURLs.isEmpty {
+            let coordinator = CmxIrohRelayCredentialCoordinator(
+                supervisor: connectivityEngine,
+                broker: broker,
+                managedRelayURLs: replacementManagedURLs,
+                selectedRelayURLs: profile.allowedRelayURLs,
+                credentialDidInstall: { [handleRelayCredential] response in
+                    await handleRelayCredential(response, binding)
+                }
+            )
+            relayCoordinator = coordinator
+            try await coordinator.activateManagedPolicy(
+                bindingID: binding.bindingID,
+                endpointIdentity: binding.endpointID,
+                profile: profile,
+                bootstrap: relayBootstrap
+            )
+        } else {
+            try await connectivityEngine.replaceRelayProfile(
+                profile,
+                expectedIdentity: binding.endpointID
+            )
+        }
         try requireCurrent(revision)
 
         managedRelayURLs = replacementManagedURLs
         currentEndpointRelayProfile = profile
         await admissionController?.updateManagedRelayURLs(replacementManagedURLs)
         try requireCurrent(revision)
-
-        relayActivationTask?.cancel()
-        relayActivationTask = nil
-        await relayCoordinator?.deactivate()
-        relayCoordinator = nil
-        guard profile.source == .managed,
-              !profile.allowedRelayURLs.isEmpty else { return }
-        let coordinator = CmxIrohRelayCredentialCoordinator(
-            supervisor: connectivityEngine,
-            broker: broker,
-            managedRelayURLs: replacementManagedURLs,
-            selectedRelayURLs: profile.allowedRelayURLs,
-            credentialDidInstall: { [handleRelayCredential] response in
-                await handleRelayCredential(response, binding)
-            }
-        )
-        relayCoordinator = coordinator
-        do {
-            try await coordinator.activate(
-                bindingID: binding.bindingID,
-                endpointIdentity: binding.endpointID,
-                bootstrap: relayBootstrap
-            )
-        } catch {
-            // The verified allowlist is already live; direct paths remain usable
-            // while the coordinator retries a managed credential refresh.
-        }
     }
 }
