@@ -419,7 +419,7 @@ public actor CmxIrohHostRuntime {
         connection: any CmxIrohConnection,
         runtimeGeneration: UInt64,
         lifecycleRevision revision: UInt64,
-        markAdmitted: @escaping CmxIrohEndpointServer.AdmissionMarker
+        markAdmitted: CmxIrohEndpointServer.AdmissionMarker
     ) async throws {
         try requireCurrent(revision)
         guard let admissionController,
@@ -485,7 +485,13 @@ public actor CmxIrohHostRuntime {
             publishSelectedPathChange()
         }
         await handleTransport(
-            CmxIrohAdmittedServerSession(peer: peer, session: session),
+            CmxIrohAdmittedServerSession(
+                peer: peer,
+                session: session,
+                promoteUsableSession: {
+                    await markAdmitted.markUsable()
+                }
+            ),
             isCurrent
         )
     }
