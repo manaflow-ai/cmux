@@ -271,6 +271,71 @@ struct MobileHostIrohStartupRetryTests {
         runtime.signOutIntentActive = originalSignOutIntentActive
         runtime.lifecycleRevision = originalRevision
     }
+
+    @Test
+    func staleDeactivationCannotClearReplacementRuntimeState() async {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalDesiredActive = runtime.desiredActive
+        let originalSignOutIntentActive = runtime.signOutIntentActive
+        let originalRevision = runtime.lifecycleRevision
+        let probe = MobileHostIrohDeactivationProbe()
+        runtime.desiredActive = true
+        runtime.signOutIntentActive = false
+        runtime.lifecycleRevision = 1_000
+
+        await runtime.handleActiveRuntimeDeactivation(
+            revision: 999,
+            stopLANPublication: {
+                probe.didStopLAN = true
+            },
+            clearHostRuntime: {
+                probe.didClearHost = true
+            }
+        )
+
+        #expect(!probe.didStopLAN)
+        #expect(!probe.didClearHost)
+        runtime.desiredActive = originalDesiredActive
+        runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.lifecycleRevision = originalRevision
+    }
+
+    @Test
+    func deactivationRechecksOwnershipAfterSuspendingCleanup() async {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalDesiredActive = runtime.desiredActive
+        let originalSignOutIntentActive = runtime.signOutIntentActive
+        let originalRevision = runtime.lifecycleRevision
+        let probe = MobileHostIrohDeactivationProbe()
+        runtime.desiredActive = true
+        runtime.signOutIntentActive = false
+        runtime.lifecycleRevision = 2_000
+
+        await runtime.handleActiveRuntimeDeactivation(
+            revision: 2_000,
+            stopLANPublication: {
+                probe.didStopLAN = true
+                // A replacement activation took ownership while the old
+                // callback was suspended in LAN cleanup.
+                runtime.lifecycleRevision = 2_001
+            },
+            clearHostRuntime: {
+                probe.didClearHost = true
+            }
+        )
+
+        #expect(probe.didStopLAN)
+        #expect(!probe.didClearHost)
+        runtime.desiredActive = originalDesiredActive
+        runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.lifecycleRevision = originalRevision
+    }
+}
+
+@MainActor
+private final class MobileHostIrohDeactivationProbe {
+    var didStopLAN = false
+    var didClearHost = false
 }
 
 private actor MobileHostIrohStartupRetryGate {

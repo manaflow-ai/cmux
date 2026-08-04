@@ -462,7 +462,7 @@ public actor MobileChatEventSource: ChatEventSource {
         case .invalidResponse, .connectionClosed, .requestTimedOut,
              .transportWriteTimedOut,
              .insecureManualRoute, .attachTicketExpired,
-             .authorizationFailed, .accountMismatch:
+             .authorizationFailed, .accountMismatch, .routeCleanupBlocked:
             return .macUnreachable
         case .rpcError(let code, _):
             switch code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {

@@ -8,17 +8,26 @@ extension VerticalTabsSidebar {
     func sidebarWorkspaceGroupTableConfiguration(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
-        renderContext: WorkspaceListRenderContext,
-        showModifierHoldHints: Bool
+        renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableRowConfiguration {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
+        let isMultiSelected = selectedTabIds.contains(group.anchorWorkspaceId)
+            && selectedTabIds.count > 1
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
             explicit: group.iconSymbol,
             configured: resolvedConfig?.iconSymbol
+        )
+        let multiSelectionBackgroundStyle = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            isActive: false,
+            isMultiSelected: true,
+            customColorHex: effectiveColor,
+            colorScheme: renderContext.environment.colorScheme,
+            sidebarSelectionColorHex: settings.selectionColorHex
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -40,13 +49,6 @@ extension VerticalTabsSidebar {
         let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
         let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
         let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
-        let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
-        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
-            at: anchorIndex,
-            workspaceCount: renderContext.workspaceCount
-        )
-        let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
-        let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -60,10 +62,6 @@ extension VerticalTabsSidebar {
             tabIds: renderContext.sidebarReorderIds,
             indicatorScope: dragState.dropIndicatorScope
         )
-        let shortcutHintText: String? = {
-            guard showsHintForAnchor, let shortcutDigit else { return nil }
-            return "\(modifierSymbol)\(shortcutDigit)"
-        }()
         let model = SidebarGroupHeaderRowModel(
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
@@ -73,6 +71,8 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
+            isMultiSelected: isMultiSelected,
+            multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
@@ -80,7 +80,7 @@ extension VerticalTabsSidebar {
             hasLatestNotifications: anchorHasLatestNotification,
             canMarkAllRead: canMarkAllRead,
             canMarkAllUnread: canMarkAllUnread,
-            shortcutHintText: shortcutHintText,
+            shortcutHintText: nil,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             fontScale: settings.sidebarFontScale,
@@ -96,12 +96,23 @@ extension VerticalTabsSidebar {
             onToggleCollapsed: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] in
+            onFocusAnchor: { [weak tabManager, anchorId = group.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
                 guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
-                tabManager.selectWorkspace(anchorTab)
-                if selectedTabIds.wrappedValue != [anchorId] {
-                    selectedTabIds.wrappedValue = [anchorId]
+                if modifiers.contains(.command) || modifiers.contains(.shift) {
+                    let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                    let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
+                        current: selectedTabIds.wrappedValue,
+                        clickedAnchorId: anchorId,
+                        anchorIds: anchorIds
+                    )
+                    selectedTabIds.wrappedValue = toggledSelection
+                    tabManager.selectWorkspace(anchorTab)
+                } else {
+                    tabManager.selectWorkspace(anchorTab)
+                    if selectedTabIds.wrappedValue != [anchorId] {
+                        selectedTabIds.wrappedValue = [anchorId]
+                    }
                 }
                 if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
                     lastSidebarSelectionIndex.wrappedValue = anchorIndex
@@ -202,17 +213,26 @@ extension VerticalTabsSidebar {
         renderContext: WorkspaceListRenderContext,
         unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary],
         notificationIndex: SidebarWorkspaceNotificationIndex,
-        shouldCollectWorkspaceDropTargets: Bool,
-        showModifierHoldHints: Bool
+        shouldCollectWorkspaceDropTargets: Bool
     ) -> SidebarWorkspaceGroupRowSnapshot {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
+        let isMultiSelected = selectedTabIds.contains(group.anchorWorkspaceId)
+            && selectedTabIds.count > 1
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
             explicit: group.iconSymbol,
             configured: resolvedConfig?.iconSymbol
+        )
+        let multiSelectionBackgroundStyle = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            isActive: false,
+            isMultiSelected: true,
+            customColorHex: effectiveColor,
+            colorScheme: renderContext.environment.colorScheme,
+            sidebarSelectionColorHex: settings.selectionColorHex
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -244,13 +264,6 @@ extension VerticalTabsSidebar {
         let canMarkAllUnread = nonAnchorMemberIds.contains {
             (unreadSummariesByWorkspaceId[$0]?.unreadCount ?? 0) == 0
         }
-        let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
-        let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
-            at: anchorIndex,
-            workspaceCount: renderContext.workspaceCount
-        )
-        let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
-        let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let rowId = SidebarWorkspaceRenderItemID.group(group.id)
         let isPointerHovering = pointerInteractionMonitor.hoveredRowId == rowId
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
@@ -275,6 +288,8 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
+            isMultiSelected: isMultiSelected,
+            multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
@@ -282,9 +297,9 @@ extension VerticalTabsSidebar {
             hasLatestNotifications: anchorHasLatestNotification,
             canMarkAllRead: canMarkAllRead,
             canMarkAllUnread: canMarkAllUnread,
-            shortcutDigit: shortcutDigit,
-            shortcutModifierSymbol: modifierSymbol,
-            showsShortcutHint: showsHintForAnchor,
+            shortcutDigit: nil,
+            shortcutModifierSymbol: nil,
+            showsShortcutHint: false,
             isPointerHovering: isPointerHovering,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
@@ -323,6 +338,8 @@ extension VerticalTabsSidebar {
             isCollapsed: snapshot.isCollapsed,
             isPinned: snapshot.isPinned,
             isAnchorActive: snapshot.isAnchorActive,
+            isMultiSelected: snapshot.isMultiSelected,
+            multiSelectionBackgroundStyle: snapshot.multiSelectionBackgroundStyle,
             memberCount: snapshot.memberCount,
             anchorUnreadCount: snapshot.anchorUnreadCount,
             canMarkRead: snapshot.canMarkRead,
@@ -348,12 +365,23 @@ extension VerticalTabsSidebar {
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
-            onFocusAnchor: { [weak tabManager, anchorId = snapshot.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] in
+            onFocusAnchor: { [weak tabManager, anchorId = snapshot.anchorWorkspaceId, selectedTabIds = $selectedTabIds, lastSidebarSelectionIndex = $lastSidebarSelectionIndex] modifiers in
                 guard let tabManager else { return }
                 guard let anchorTab = tabManager.tabs.first(where: { $0.id == anchorId }) else { return }
-                tabManager.selectWorkspace(anchorTab)
-                if selectedTabIds.wrappedValue != [anchorId] {
-                    selectedTabIds.wrappedValue = [anchorId]
+                if modifiers.contains(.command) || modifiers.contains(.shift) {
+                    let anchorIds = Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+                    let toggledSelection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
+                        current: selectedTabIds.wrappedValue,
+                        clickedAnchorId: anchorId,
+                        anchorIds: anchorIds
+                    )
+                    selectedTabIds.wrappedValue = toggledSelection
+                    tabManager.selectWorkspace(anchorTab)
+                } else {
+                    tabManager.selectWorkspace(anchorTab)
+                    if selectedTabIds.wrappedValue != [anchorId] {
+                        selectedTabIds.wrappedValue = [anchorId]
+                    }
                 }
                 if let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == anchorId }) {
                     lastSidebarSelectionIndex.wrappedValue = anchorIndex

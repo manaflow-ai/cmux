@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import OSLog
 
@@ -138,7 +139,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             iconAssetName: "AgentIcons/Pi",
             detect: CmuxVaultAgentDetectRule(processName: "pi", argvContains: ["pi"]),
             sessionIdSource: .piSessionFile,
-            resumeCommand: "{{executable}} --session {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.pi.commandTemplate,
             forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.pi/agent/sessions"
@@ -155,7 +156,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
                 alternateArgvContains: ["@oh-my-pi/pi-coding-agent"]
             ),
             sessionIdSource: .piSessionFile,
-            resumeCommand: "{{executable}} --session {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.omp.commandTemplate,
             forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.omp/agent/sessions"
@@ -191,7 +192,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             iconAssetName: "AgentIcons/Antigravity",
             detect: CmuxVaultAgentDetectRule(processNames: ["agy", "antigravity"]),
             sessionIdSource: .argvOption("--conversation"),
-            resumeCommand: "{{executable}} --conversation {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.antigravity.commandTemplate,
             cwd: .preserve,
             sessionDirectory: "~/.gemini/antigravity-cli"
         )
@@ -203,7 +204,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             name: "Grok",
             detect: CmuxVaultAgentDetectRule(processNames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"]),
             sessionIdSource: .grokSessionDirectory,
-            resumeCommand: "{{executable}} -r {{sessionId}}",
+            resumeCommand: RegisteredAgentResumeKind.grok.commandTemplate,
             cwd: .preserve,
             sessionDirectory: "~/.grok/sessions"
         )

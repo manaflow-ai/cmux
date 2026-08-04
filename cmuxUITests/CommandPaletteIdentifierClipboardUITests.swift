@@ -17,7 +17,7 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
     }
 
     func testCmdShiftPCopyIdentifierCommandsWriteExpectedClipboardPayloads() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-menuBarOnly", "false"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
@@ -67,7 +67,7 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
     }
 
     func testCmdShiftPOpenCmuxJSONOpensUserConfigFile() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let capturePath = "/tmp/cmux-ui-test-open-cmux-json-\(UUID().uuidString).txt"
         try? FileManager.default.removeItem(atPath: capturePath)
         addTeardownBlock {

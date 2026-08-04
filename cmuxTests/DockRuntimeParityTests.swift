@@ -22,12 +22,15 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
     var isDirty = false
 
     private(set) var flashReasons: [WorkspaceAttentionFlashReason] = []
+    private(set) var closeCount = 0
 
     init(title: String) {
         displayTitle = title
     }
 
-    func close() {}
+    func close() {
+        closeCount += 1
+    }
     func focus() {}
     func unfocus() {}
 
@@ -60,6 +63,30 @@ private extension DockSplitStore {
 @Suite("Dock runtime parity", .serialized)
 struct DockRuntimeParityTests {
     private static let socketWorker = DispatchQueue(label: "DockRuntimeParityTests.socketWorker")
+
+    @Test("Reconciling a stale tab alias preserves the live panel owner")
+    func reconcilingStaleTabAliasPreservesLivePanelOwner() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = DockRuntimeParityPanel(title: "Shared panel")
+        let paneID = try dock.seedRuntimeParityPanel(panel)
+        let liveTabID = try #require(dock.surfaceId(forPanelId: panel.id))
+        let staleAliasID = try #require(
+            dock.bonsplitController.createTab(
+                title: "Stale alias",
+                icon: panel.displayIcon,
+                kind: panel.panelType.rawValue,
+                isDirty: false,
+                inPane: paneID
+            )
+        )
+        dock.surfaceIdToPanelId[staleAliasID] = panel.id
+
+        #expect(dock.bonsplitController.closeTab(staleAliasID))
+
+        #expect(dock.panel(for: liveTabID) === panel)
+        #expect(dock.surfaceIdToPanelId[staleAliasID] == nil)
+        #expect(panel.closeCount == 0)
+    }
 
     private func socketEnvelope(
         method: String,
@@ -222,6 +249,56 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Explicit socket flashes route as user initiated in both Dock scopes")
+    func explicitSocketFlashesRouteAsUserInitiatedInBothDockScopes() async throws {
+        try await withAppContext { appDelegate, _, workspace, windowID in
+            let workspaceDock = workspace.dockSplit
+            let globalDock = appDelegate.windowDock(forWindowId: windowID)
+            let workspacePanel = DockRuntimeParityPanel(title: "Workspace Dock")
+            let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
+            try workspaceDock.seedRuntimeParityPanel(workspacePanel)
+            try globalDock.seedRuntimeParityPanel(globalPanel)
+
+            let workspaceFlash = TerminalController.shared.controlSurfaceTriggerFlash(
+                routing: ControlRoutingSelectors(
+                    hasWindowIDParam: true,
+                    windowID: windowID,
+                    groupID: nil,
+                    workspaceID: workspace.id,
+                    surfaceID: workspacePanel.id,
+                    paneID: nil
+                ),
+                surfaceID: workspacePanel.id
+            )
+            guard case .flashed(_, let workspaceID, let workspaceSurfaceID) = workspaceFlash else {
+                Issue.record("Workspace Dock flash did not resolve: \(workspaceFlash)")
+                return
+            }
+            #expect(workspaceID == workspace.id)
+            #expect(workspaceSurfaceID == workspacePanel.id)
+
+            let globalFlash = TerminalController.shared.controlSurfaceTriggerFlash(
+                routing: ControlRoutingSelectors(
+                    hasWindowIDParam: true,
+                    windowID: windowID,
+                    groupID: nil,
+                    workspaceID: globalDock.workspaceId,
+                    surfaceID: globalPanel.id,
+                    paneID: nil
+                ),
+                surfaceID: globalPanel.id
+            )
+            guard case .flashed(_, let globalWorkspaceID, let globalSurfaceID) = globalFlash else {
+                Issue.record("Global Dock flash did not resolve: \(globalFlash)")
+                return
+            }
+            #expect(globalWorkspaceID == globalDock.workspaceId)
+            #expect(globalSurfaceID == globalPanel.id)
+            #expect(workspacePanel.flashReasons == [.userInitiated])
+            #expect(globalPanel.flashReasons == [.userInitiated])
+        }
+    }
+
     @Test(
         "Dock surfaces are discoverable and workspace Dock terminals resolve by bare ID",
         .timeLimit(.minutes(1))
@@ -330,5 +407,118 @@ struct DockRuntimeParityTests {
             let readResult = try #require(readEnvelope["result"] as? [String: Any])
             #expect(readResult["surface_id"] as? String == workspaceTerminal.id.uuidString)
         }
+    }
+}
+
+@MainActor
+@Suite("Dock notification attention", .serialized)
+struct DockNotificationAttentionTests {
+    @Test("Single-pane Dock attention bypasses workspace split gating")
+    func singlePaneDockAttentionBypassesWorkspaceSplitGating() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = DockRuntimeParityPanel(title: "Dock")
+        try dock.seedRuntimeParityPanel(panel)
+
+        let appDelegate = try #require(AppDelegate.shared, "Expected app-host AppDelegate")
+        let routed = appDelegate.routeNotificationAttentionFlash(
+            workspaceID: dock.workspaceId,
+            panelID: panel.id,
+            reason: .notificationArrival,
+            requiresSplit: true
+        )
+
+        #expect(routed)
+        #expect(panel.flashReasons == [.notificationArrival])
+    }
+
+    @Test("Dock unread projection is scoped to active Dock panels")
+    func dockUnreadProjectionIsScopedToActiveDockPanels() {
+        let workspaceID = UUID()
+        let firstPanelID = UUID()
+        let secondPanelID = UUID()
+        let foreignPanelID = UUID()
+        let unread = SidebarUnreadModel()
+        let projection = DockUnreadPanelProjection(
+            source: unread,
+            workspaceID: workspaceID,
+            panelIDs: [firstPanelID, secondPanelID],
+            isActive: true
+        )
+
+        unread.apply(
+            totalUnreadCount: 2,
+            summaries: [:],
+            unreadSurfaceKeys: [
+                SidebarSurfaceUnreadKey(workspaceId: workspaceID, surfaceId: firstPanelID),
+                SidebarSurfaceUnreadKey(workspaceId: UUID(), surfaceId: foreignPanelID),
+            ],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+        #expect(projection.unreadPanelIDs == [firstPanelID])
+
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: [:],
+            unreadSurfaceKeys: [],
+            focusedReadIndicatorByWorkspaceId: [workspaceID: secondPanelID],
+            manualUnreadWorkspaceIds: []
+        )
+        #expect(projection.unreadPanelIDs == [secondPanelID])
+
+        projection.updateContext(
+            panelIDs: [firstPanelID, secondPanelID],
+            isActive: false
+        )
+        #expect(projection.unreadPanelIDs.isEmpty)
+
+        unread.apply(
+            totalUnreadCount: 1,
+            summaries: [:],
+            unreadSurfaceKeys: [
+                SidebarSurfaceUnreadKey(workspaceId: workspaceID, surfaceId: firstPanelID),
+            ],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+        #expect(projection.unreadPanelIDs.isEmpty)
+
+        projection.updateContext(
+            panelIDs: [firstPanelID, secondPanelID],
+            isActive: true
+        )
+        #expect(projection.unreadPanelIDs == [firstPanelID])
+    }
+
+    @Test("Dock panel content receives projected unread state")
+    func dockPanelContentReceivesProjectedUnreadState() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = DockRuntimeParityPanel(title: "Dock")
+        let paneID = try dock.seedRuntimeParityPanel(panel)
+        let tabID = try #require(dock.surfaceId(forPanelId: panel.id))
+        let content = DockSplitContentView(
+            store: dock,
+            appearance: .fromConfig(WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "test.dock.unread")),
+            appearanceRevision: 0,
+            windowAppearance: .rightSidebarPanelViewTestDefault,
+            rightSidebarOwnsInputFocus: false,
+            unreadPanelIDs: [panel.id]
+        )
+
+        let unreadPanelView = content.panelView(panel: panel, tabID: tabID, paneID: paneID)
+        let readContent = DockSplitContentView(
+            store: dock,
+            appearance: content.appearance,
+            appearanceRevision: 0,
+            windowAppearance: content.windowAppearance,
+            rightSidebarOwnsInputFocus: false,
+            unreadPanelIDs: []
+        )
+        let readPanelView = readContent.panelView(panel: panel, tabID: tabID, paneID: paneID)
+
+        #expect(unreadPanelView.panelContentView().hasUnreadNotification)
+        #expect(unreadPanelView != readPanelView)
+        let otherUnreadContent = DockSplitContentView(store: dock, appearance: content.appearance, appearanceRevision: 0, windowAppearance: content.windowAppearance, rightSidebarOwnsInputFocus: false, unreadPanelIDs: [UUID()])
+        #expect(readPanelView == otherUnreadContent.panelView(panel: panel, tabID: tabID, paneID: paneID))
     }
 }

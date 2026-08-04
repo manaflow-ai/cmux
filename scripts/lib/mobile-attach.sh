@@ -91,6 +91,29 @@ cmux_attach_mac_bundle_id() {
   printf 'com.cmuxterm.app.debug.%s' "$(cmux_attach__bundle_seg "$1")"
 }
 
+# Unsigned Simulator apps have no application-identifier entitlement, so iOS
+# rejects their Keychain reads. Produce a deterministic per-bundle UUID for the
+# simulator-only authoritative identity store. The launcher passes it directly
+# into the app process; writing the external defaults domain as well keeps the
+# value inspectable from simctl. Recreated isolated simulators for the same tag
+# reuse one broker device slot instead of leaking a slot on every verification.
+cmux_attach_seed_simulator_device_id() {
+  local simulator_id="${1:?simulator id is required}"
+  local bundle_id="${2:?bundle id is required}"
+  local device_id
+  device_id="$(CMUX_SIMULATOR_BUNDLE_ID="$bundle_id" /usr/bin/python3 - <<'PY'
+import os
+import uuid
+
+bundle_id = os.environ["CMUX_SIMULATOR_BUNDLE_ID"]
+print(uuid.uuid5(uuid.NAMESPACE_URL, f"cmux-ios-simulator-device:{bundle_id}"))
+PY
+)"
+  xcrun simctl spawn "$simulator_id" defaults write \
+    "$bundle_id" cmux.deviceRegistry.iosDeviceID -string "$device_id"
+  printf '%s' "$device_id"
+}
+
 # The tagged Mac app's debug socket path.
 cmux_attach_socket_path() {
   printf '/tmp/cmux-debug-%s.sock' "$(cmux_attach__slug "$1")"
