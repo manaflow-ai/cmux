@@ -363,7 +363,7 @@ struct WorkspaceFloatingDockParkingRegressionTests {
 
     @Test
     @MainActor
-    func internalRightBoundaryNeverResizesTheRealPanel() throws {
+    func internalRightBoundaryNeverResizesTheRealPanel() async throws {
         _ = NSApplication.shared
         let visibleFrame = try #require(NSScreen.main?.visibleFrame)
         let rightNeighbor = CGRect(
@@ -408,6 +408,8 @@ struct WorkspaceFloatingDockParkingRegressionTests {
             try? FileManager.default.removeItem(at: noteURL)
         }
         controller.show(focus: false)
+        let originalWindow = try #require(controller.window)
+        let originalContent = try #require(originalWindow.contentView)
         let snapshot = WorkspaceFloatingDockParkingSnapshot(
             restoreFrame: restoreFrame,
             visibleScreenFrame: visibleFrame,
@@ -446,6 +448,29 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         )
         #expect(controller.window?.ignoresMouseEvents == true)
         #expect(dock.screenFrame == restoreFrame)
+
+        let parkedWindowFrame = originalWindow.frame
+        let parkedPresentationFrame = presentationWindow.frame
+        parent.setFrame(
+            CGRect(x: 260, y: 190, width: 1_100, height: 760),
+            display: false
+        )
+        #expect(originalWindow.frame == parkedWindowFrame)
+        #expect(presentationWindow.frame == parkedPresentationFrame)
+
+        dock.setStashed(false)
+        controller.show(focus: false)
+        try await Task.sleep(nanoseconds: 350_000_000)
+
+        #expect(controller.window === originalWindow)
+        #expect(originalWindow.isVisible)
+        #expect(originalWindow.isAccessibilityHidden() == false)
+        #expect(originalWindow.contentView === originalContent)
+        #expect(originalWindow.parent === parent)
+        #expect(originalWindow.frame == restoreFrame)
+        #expect(presentationWindow.isVisible == false)
+        #expect(presentationWindow.isAccessibilityHidden() == true)
+        #expect(accessoryWindow.isAccessibilityHidden() == true)
     }
 }
 
