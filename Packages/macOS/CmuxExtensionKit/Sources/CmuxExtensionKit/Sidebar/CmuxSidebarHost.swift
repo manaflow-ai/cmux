@@ -133,6 +133,17 @@ public struct CmuxSidebarHost {
         try await send(.toggleSurfaceZoom(workspaceID: workspaceID, surfaceID: surfaceID))
     }
 
+    /// Sends a single command to an existing terminal surface and presses Enter.
+    ///
+    /// This requires the `.runCommand` action scope.
+    public func runCommand(
+        _ command: String,
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) async throws {
+        try await send(.runCommand(workspaceID: workspaceID, surfaceID: surfaceID, command: command))
+    }
+
     private func send(_ action: CmuxSidebarAction) async throws {
         let result = await perform(action)
         guard result.accepted else {

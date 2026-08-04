@@ -24,6 +24,8 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
     case splitBrowser(workspaceID: UUID, surfaceID: UUID, direction: CmuxSidebarSplitDirection, url: String?)
     case toggleSurfaceZoom(workspaceID: UUID, surfaceID: UUID)
     case openURL(String)
+    /// Run a command in the identified existing terminal surface.
+    case runCommand(workspaceID: UUID, surfaceID: UUID, command: String)
 
     public var requiredScopes: Set<CmuxExtensionActionScope> {
         switch self {
@@ -53,6 +55,8 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
             return [.zoomSurface]
         case .openURL:
             return [.openURL]
+        case .runCommand:
+            return [.runCommand]
         }
     }
 }

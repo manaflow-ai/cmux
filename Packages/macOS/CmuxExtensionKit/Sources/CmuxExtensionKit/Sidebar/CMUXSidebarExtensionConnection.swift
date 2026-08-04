@@ -201,29 +201,34 @@ final class CMUXSidebarExtensionConnection: @unchecked Sendable {
     }
 
     private func markInterrupted(ifCurrentGeneration generation: UInt64) {
-        let repliesToDrain = withState { state -> [ActionReplyHandler]? in
+        let transition = withState { state -> (connection: NSXPCConnection?, replies: [ActionReplyHandler], generation: UInt64)? in
             guard state.generation == generation else { return nil }
+            state.generation += 1
+            let connection = state.connection
+            state.connection = nil
             state.host = nil
             let replies = pendingReplies(from: &state, matching: generation)
-            return replies
+            return (connection, replies, state.generation)
         }
-        if let repliesToDrain {
-            deliver(.rejected("cmux connection was interrupted"), to: repliesToDrain)
-            report(.waitingForHost, ifCurrentGeneration: generation)
+        if let transition {
+            transition.connection?.invalidate()
+            deliver(.rejected("cmux connection was interrupted"), to: transition.replies)
+            report(.waitingForHost, ifCurrentGeneration: transition.generation)
         }
     }
 
     private func clearConnection(ifCurrentGeneration generation: UInt64) {
-        let repliesToDrain = withState { state -> [ActionReplyHandler]? in
+        let transition = withState { state -> (replies: [ActionReplyHandler], generation: UInt64)? in
             guard state.generation == generation else { return nil }
+            state.generation += 1
             state.connection = nil
             state.host = nil
             let replies = pendingReplies(from: &state, matching: generation)
-            return replies
+            return (replies, state.generation)
         }
-        if let repliesToDrain {
-            deliver(.rejected("cmux connection was closed"), to: repliesToDrain)
-            report(.waitingForHost, ifCurrentGeneration: generation)
+        if let transition {
+            deliver(.rejected("cmux connection was closed"), to: transition.replies)
+            report(.waitingForHost, ifCurrentGeneration: transition.generation)
         }
     }
 

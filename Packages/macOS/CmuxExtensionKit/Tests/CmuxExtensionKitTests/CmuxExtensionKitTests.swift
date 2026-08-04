@@ -204,15 +204,15 @@ struct CMUXExtensionKitTests {
 
         let actionScopedSnapshot = snapshot.filtered(
             for: [CmuxExtensionScope.workspaceMetadata],
-            actionScopes: [CmuxExtensionActionScope.selectWorkspace]
+            actionScopes: [CmuxExtensionActionScope.selectWorkspace, .runCommand]
         )
-        #expect(actionScopedSnapshot.grantedActionScopes == [.selectWorkspace])
+        #expect(actionScopedSnapshot.grantedActionScopes == [.selectWorkspace, .runCommand])
 
         let manifest = CmuxExtensionManifest(
             id: "dev.example.sidebar",
             displayName: "Example Sidebar",
             readScopes: [.workspaceMetadata, .networkPorts],
-            actionScopes: [.selectWorkspace, .closeWorkspace]
+            actionScopes: [.selectWorkspace, .closeWorkspace, .runCommand]
         )
         let decodedManifest = try CmuxSidebarXPCCodec.decodeManifest(
             try CmuxSidebarXPCCodec.encodeManifest(manifest)
@@ -225,6 +225,18 @@ struct CMUXExtensionKitTests {
             try CmuxSidebarXPCCodec.encodeAction(action)
         )
         #expect(decodedAction == action)
+
+        let surfaceID = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        let commandAction = CmuxSidebarAction.runCommand(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            command: "printf hello"
+        )
+        #expect(commandAction.requiredScopes == [.runCommand])
+        let decodedCommandAction = try CmuxSidebarXPCCodec.decodeAction(
+            try CmuxSidebarXPCCodec.encodeAction(commandAction)
+        )
+        #expect(decodedCommandAction == commandAction)
 
         let result = CmuxSidebarActionResult.rejected("Not found")
         let decodedResult = try CmuxSidebarXPCCodec.decodeActionResult(
@@ -245,6 +257,7 @@ struct CMUXExtensionKitTests {
         var actions = [CmuxSidebarAction]()
         var refreshCount = 0
         let workspaceID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+        let surfaceID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
         let url = URL(string: "https://example.com/pr/1")!
         let host = CmuxSidebarHost(
             performAction: { action, reply in
@@ -265,6 +278,7 @@ struct CMUXExtensionKitTests {
         try await host.selectPreviousWorkspace()
         try await host.createTerminalSurface(in: workspaceID)
         try await host.createBrowserSurface(in: workspaceID, url: url)
+        try await host.runCommand("printf hello", workspaceID: workspaceID, surfaceID: surfaceID)
         try await host.openURL(url)
 
         #expect(refreshCount == 1)
@@ -277,6 +291,7 @@ struct CMUXExtensionKitTests {
             .selectPreviousWorkspace,
             .createTerminalSurface(workspaceID: workspaceID),
             .createBrowserSurface(workspaceID: workspaceID, url: "https://example.com/pr/1"),
+            .runCommand(workspaceID: workspaceID, surfaceID: surfaceID, command: "printf hello"),
             .openURL("https://example.com/pr/1"),
         ])
     }

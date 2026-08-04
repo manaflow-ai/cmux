@@ -23,4 +23,6 @@ public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable, 
     case navigateSurface
     case openURL
     case createWorkspaceWithPath
+    /// Run commands in existing terminal surfaces.
+    case runCommand
 }
