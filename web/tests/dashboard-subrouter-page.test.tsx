@@ -4,7 +4,9 @@ import enMessages from "../messages/en.json";
 
 const authorizationFailure = new Error("Stack authorization deadline exceeded");
 let authorizationAvailable = false;
+let authJsonAvailable = true;
 let cutoverReady = true;
+let hostedControlConfigured = true;
 let hostedExchangeCalls = 0;
 
 mock.module("next-intl/server", () => ({
@@ -41,9 +43,14 @@ mock.module("@/i18n/navigation", () => ({
 mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
   getStackServerApp: () => ({
-    getAuthJson: async () => ({ accessToken: "test-access-token" }),
+    getAuthJson: async () => {
+      if (!authJsonAvailable) throw new Error("Stack refresh unavailable");
+      return { accessToken: "test-access-token" };
+    },
   }),
 }));
+
+class TestSubrouterAuthorizationUnavailableError extends Error {}
 
 mock.module("../services/vms/auth", () => ({
   withSubrouterAuthorizationDeadline: async (
@@ -53,8 +60,11 @@ mock.module("../services/vms/auth", () => ({
     return await operation(new AbortController().signal);
   },
   verifySubrouterRequest: async () => ({ id: "user-1" }),
+  SubrouterAuthorizationUnavailableError:
+    TestSubrouterAuthorizationUnavailableError,
   isSubrouterAuthorizationError: (error: unknown) =>
-    error === authorizationFailure,
+    error === authorizationFailure ||
+    error instanceof TestSubrouterAuthorizationUnavailableError,
 }));
 
 mock.module("../services/subrouter/routeHelpers", () => ({
@@ -68,6 +78,7 @@ mock.module("../services/subrouter/routeHelpers", () => ({
 
 mock.module("../services/subrouter/hostedClient", () => ({
   createHostedSubrouterClient: () => ({
+    tenantControlConfigured: hostedControlConfigured,
     exchangeTeam: async () => {
       hostedExchangeCalls += 1;
       return {
@@ -99,7 +110,9 @@ const { default: SubrouterOverviewPage } = await import(
 describe("Subrouter dashboard", () => {
   beforeEach(() => {
     authorizationAvailable = false;
+    authJsonAvailable = true;
     cutoverReady = true;
+    hostedControlConfigured = true;
     hostedExchangeCalls = 0;
   });
 
@@ -132,6 +145,37 @@ describe("Subrouter dashboard", () => {
     expect(html).toContain(
       "Shared accounts are temporarily unavailable while migration finishes. Try again shortly.",
     );
+  });
+
+  test("renders recovery UI when the bounded Stack session refresh fails", async () => {
+    authorizationAvailable = true;
+    authJsonAvailable = false;
+
+    const page = await SubrouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+    const html = renderToStaticMarkup(page);
+
+    expect(html).toContain("Accounts could not load");
+    expect(html).toContain(
+      "The account service could not be reached. Try again shortly.",
+    );
+    expect(hostedExchangeCalls).toBe(0);
+  });
+
+  test("renders setup guidance when hosted tenant control is not configured", async () => {
+    authorizationAvailable = true;
+    hostedControlConfigured = false;
+
+    const page = await SubrouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({}),
+    });
+    const html = renderToStaticMarkup(page);
+
+    expect(html).toContain("AI accounts are not configured");
+    expect(hostedExchangeCalls).toBe(0);
   });
 });
 
