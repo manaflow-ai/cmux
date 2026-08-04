@@ -18,7 +18,7 @@ struct OnboardingSceneContent<Visual: View>: View {
             if usesWideLayout {
                 HStack(alignment: .center, spacing: wideSpacing) {
                     OnboardingSceneCopy(title: title, message: message, alignment: .leading)
-                        .frame(maxWidth: 390)
+                        .frame(maxWidth: wideCopyMaxWidth)
                         .layoutPriority(1)
                     visual
                         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
@@ -51,15 +51,19 @@ struct OnboardingSceneContent<Visual: View>: View {
     }
 
     private var wideSpacing: CGFloat {
-        verticalSizeClass == .compact ? 24 : 48
+        verticalSizeClass == .compact ? 16 : 48
     }
 
     private var wideHorizontalPadding: CGFloat {
-        verticalSizeClass == .compact ? 24 : 48
+        verticalSizeClass == .compact ? 16 : 48
     }
 
     private var wideVerticalPadding: CGFloat {
-        verticalSizeClass == .compact ? 8 : 32
+        verticalSizeClass == .compact ? 4 : 32
+    }
+
+    private var wideCopyMaxWidth: CGFloat {
+        verticalSizeClass == .compact ? 280 : 390
     }
 }
 #endif

@@ -98,35 +98,35 @@ private extension OnboardingConnectionVisualDensity {
     var pickerOptionSpacing: CGFloat {
         switch self {
         case .regular: 10
-        case .compact: 6
+        case .compact: 4
         }
     }
 
     var pickerRowSpacing: CGFloat {
         switch self {
         case .regular: 12
-        case .compact: 8
+        case .compact: 6
         }
     }
 
     var pickerIconWidth: CGFloat {
         switch self {
         case .regular: 26
-        case .compact: 22
+        case .compact: 20
         }
     }
 
     var pickerHorizontalPadding: CGFloat {
         switch self {
         case .regular: 16
-        case .compact: 12
+        case .compact: 10
         }
     }
 
     var pickerVerticalPadding: CGFloat {
         switch self {
         case .regular: 12
-        case .compact: 8
+        case .compact: 6
         }
     }
 

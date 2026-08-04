@@ -7,6 +7,7 @@ struct OnboardingConnectionView: View {
     let phase: OnboardingConnectionPhase
     let connectionMethod: MobileConnectionMethod
     let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
         ZStack {
@@ -37,18 +38,33 @@ struct OnboardingConnectionView: View {
         }
     }
 
+    @ViewBuilder
     private func connectionVisual(density: OnboardingConnectionVisualDensity) -> some View {
-        VStack(spacing: density.sectionSpacing) {
-            OnboardingConnectionPreview(phase: phase, density: density)
-            if showsMethodPicker {
+        if verticalSizeClass == .compact, showsMethodPicker {
+            HStack(alignment: .center, spacing: density.sectionSpacing) {
+                OnboardingConnectionPreview(phase: phase, density: density)
+                    .frame(maxWidth: .infinity)
                 OnboardingConnectionMethodPicker(
                     method: connectionMethod,
                     density: density,
                     onSelect: onSelectConnectionMethod
                 )
+                .frame(maxWidth: .infinity)
             }
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+            VStack(spacing: density.sectionSpacing) {
+                OnboardingConnectionPreview(phase: phase, density: density)
+                if showsMethodPicker {
+                    OnboardingConnectionMethodPicker(
+                        method: connectionMethod,
+                        density: density,
+                        onSelect: onSelectConnectionMethod
+                    )
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var title: String {

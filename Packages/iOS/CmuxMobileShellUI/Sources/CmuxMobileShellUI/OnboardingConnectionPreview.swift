@@ -134,42 +134,42 @@ private extension OnboardingConnectionVisualDensity {
     var previewContentSpacing: CGFloat {
         switch self {
         case .regular: 20
-        case .compact: 8
+        case .compact: 6
         }
     }
 
     var previewDeviceSpacing: CGFloat {
         switch self {
         case .regular: 14
-        case .compact: 10
+        case .compact: 8
         }
     }
 
     var previewHorizontalPadding: CGFloat {
         switch self {
         case .regular: 24
-        case .compact: 14
+        case .compact: 10
         }
     }
 
     var previewVerticalPadding: CGFloat {
         switch self {
         case .regular: 28
-        case .compact: 12
+        case .compact: 8
         }
     }
 
     var previewCornerRadius: CGFloat {
         switch self {
         case .regular: 28
-        case .compact: 20
+        case .compact: 18
         }
     }
 
     var previewDeviceSize: CGFloat {
         switch self {
         case .regular: 74
-        case .compact: 44
+        case .compact: 40
         }
     }
 
@@ -183,7 +183,7 @@ private extension OnboardingConnectionVisualDensity {
     var previewAccountSize: CGFloat {
         switch self {
         case .regular: 52
-        case .compact: 40
+        case .compact: 36
         }
     }
 
