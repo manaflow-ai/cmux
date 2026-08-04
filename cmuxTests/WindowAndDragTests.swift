@@ -2032,34 +2032,42 @@ final class MainWindowDragBehaviorTests: XCTestCase {
         )
     }
 
-    func testMainWindowDragBehaviorRequiresExplicitDragZones() {
+    func testMainWindowDragBehaviorKeepsNativeWindowMovableOutsideExplicitSuppression() {
         let window = CmuxMainWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        defer { window.orderOut(nil) }
-        window.isMovable = true
+        defer {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+            window.orderOut(nil)
+        }
+        window.isMovable = false
         window.isMovableByWindowBackground = true
 
         configureCmuxMainWindowDragBehavior(window)
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             window.isMovable,
-            "Main windows must not use native AppKit titlebar dragging because pane tabs live in the titlebar band"
+            "Main windows must stay movable so AppKit enables Window > Move & Resize"
         )
         XCTAssertFalse(window.isMovableByWindowBackground)
 
-        let previous = withTemporaryWindowMovableEnabled(window: window) {
-            XCTAssertTrue(window.isMovable)
-        }
+        XCTAssertEqual(
+            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable)
 
-        XCTAssertEqual(previous, false)
+        configureCmuxMainWindowDragBehavior(window)
         XCTAssertFalse(
             window.isMovable,
-            "Explicit chrome drag zones may temporarily enable movement, but the main window must return to pane-tab-safe immovable state"
+            "Reapplying main-window configuration must not interrupt an active pane-tab drag"
         )
+
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertTrue(window.isMovable)
     }
 }
 
