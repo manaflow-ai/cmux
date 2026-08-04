@@ -47,7 +47,7 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. The first product scene uses a real captured agent terminal session,
+    /// path. The first product scene uses the shipped workspace-list capture,
     /// while the notification scene shows the shipped chronological feed. The
     /// connection scene keeps its live connection-state illustration. Relaunching
     /// after the simulated search finishes must resume at Connect and expose QR
