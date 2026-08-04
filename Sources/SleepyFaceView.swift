@@ -134,26 +134,17 @@ struct SleepyFaceView: View {
                 .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.52, green: 0.30, blue: 0.40)))
 
                 Button {
-                    // The real macOS login lock — genuinely secure (Apple's), unlike
-                    // the overlay. The screensaver stays up behind it as the backdrop.
+                    // The real macOS login lock — genuinely secure (the system's),
+                    // unlike the overlay. The screensaver stays up behind it as the
+                    // backdrop.
                     //
-                    // Gated on the shared UI state exactly like Low Power below, so
-                    // clicks from two displays (or a double click) can't run
-                    // overlapping lock attempts whose completions race to report a
-                    // stale result on one overlay.
-                    guard !powerUIState.isLocking else { return }
-                    powerUIState.isLocking = true
-                    powerUIState.lockFailed = false
-                    let power = power
-                    let ui = powerUIState
-                    Task {
-                        // Surface a failed lock: this button silently did nothing on
-                        // systems missing the CGSession tool, which reads as "the
-                        // lock is broken" with no explanation.
-                        let locked = await power.lockMacNow()
-                        ui.lockFailed = !locked
-                        ui.isLocking = false
-                    }
+                    // The attempt is owned by the shared state, which the controller
+                    // cancels on teardown: every display shows this button, and a
+                    // lock finishing after Sleepy Mode ended must not report onto a
+                    // later session. Failure is surfaced there too, because this
+                    // button silently did nothing on systems missing the CGSession
+                    // tool, which reads as "the lock is broken" with no explanation.
+                    powerUIState.lockMac(using: power)
                 } label: {
                     Label(String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"), systemImage: "lock.fill")
                 }
