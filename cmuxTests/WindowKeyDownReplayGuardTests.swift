@@ -153,6 +153,30 @@ struct WindowKeyDownReplayGuardTests {
         )
     }
 
+    private func makeCommandCKeyDownEvent(windowNumber: Int) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        )
+    }
+
+    private func installMenuWithoutCopy() -> NSMenu? {
+        let previousMenu = NSApp.mainMenu
+        // A disabled synthetic key equivalent can be reported as handled by
+        // NSMenu in headless test hosts. An absent item reliably models the
+        // unavailable Copy menu action Speakly encounters without a selection.
+        NSApp.mainMenu = NSMenu(title: "Main")
+        return previousMenu
+    }
+
     private func installUndoMenu(probe: MenuActionProbe) -> NSMenu? {
         let previousMenu = NSApp.mainMenu
         let menu = NSMenu(title: "Main")
@@ -281,6 +305,34 @@ struct WindowKeyDownReplayGuardTests {
         #expect(window.performKeyEquivalent(with: event))
         #expect(window.performKeyEquivalent(with: event))
         #expect(responder.keyDownEvents.count == 2)
+    }
+
+    /// Speakly posts Cmd+C to capture context before recording. With no
+    /// terminal selection, unavailable Copy must remain a native no-op.
+    @Test
+    func speaklySyntheticCopyWithoutSelectionDoesNotReplayIntoGhostty() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let (window, terminal) = makeWindowWithTerminalResponder()
+        let previousMenu = installMenuWithoutCopy()
+        defer {
+            NSApp.mainMenu = previousMenu
+            window.orderOut(nil)
+            window.close()
+        }
+
+        guard let event = makeCommandCKeyDownEvent(windowNumber: window.windowNumber) else {
+            Issue.record("Failed to construct Speakly's synthetic Copy key event")
+            return
+        }
+
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(
+            terminal.afterMenuMissEvents.isEmpty,
+            Comment(rawValue: "Speakly's unavailable terminal Copy must not replay Cmd+C into Ghostty's terminal-input path")
+        )
+        #expect(terminal.keyDownEvents.isEmpty)
     }
 
     @Test
