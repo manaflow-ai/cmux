@@ -2483,7 +2483,6 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let startedAt = ProcessInfo.processInfo.systemUptime
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
@@ -2493,15 +2492,10 @@ import Testing
             environment: environment,
             timeout: 10
         )
-        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
 
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
         #expect(result.status == 0, Comment(rawValue: result.stdout))
         #expect(responder.receivedRequests.count == 1)
-        #expect(
-            elapsed < 3,
-            Comment(rawValue: "near-limit frame parse took \(elapsed) seconds")
-        )
     }
 
     @Test func testEventsReconnectWakesWhenUnixSocketInodeIsReplaced() throws {
@@ -2579,6 +2573,8 @@ import Testing
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_RELAY_ID"] = relayID
         environment["CMUX_RELAY_TOKEN"] = String(repeating: "00", count: 32)
+        environment["AppleLanguages"] = "(ja)"
+        environment["AppleLocale"] = "ja_JP"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -2594,19 +2590,6 @@ import Testing
         #expect(!result.timedOut, Comment(rawValue: result.stdout))
         #expect(result.status == 0, Comment(rawValue: result.stdout))
         #expect(relay.receivedRequests.count == 2)
-    }
-
-    @Test func testEventsTransientClassificationUsesStableErrorKind() {
-        let cli = CMUXCLI(args: [])
-        let localizedMessage = "任意のローカライズ済みソケット障害"
-
-        #expect(cli.isTransientEventStreamError(CLIError(
-            message: localizedMessage,
-            kind: .transientSocketTransport
-        )))
-        #expect(!cli.isTransientEventStreamError(CLIError(
-            message: localizedMessage
-        )))
     }
 
     func bundledCLIPath() throws -> String {

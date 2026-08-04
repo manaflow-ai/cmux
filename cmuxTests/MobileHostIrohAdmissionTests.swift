@@ -376,7 +376,6 @@ struct IrohTailscaleVersionSkewMacGateTests {
 extension MobileHostAuthorizationTests {
 
     @Test func testIrohAdmittedStatusIncludesIdentityWhileTCPPublicStatusDoesNot() async throws {
-        let publicStatusStore = MobileHostPublicStatusStore()
         let request = MobileHostRPCRequest(
             id: "host-status",
             method: "mobile.host.status",
@@ -386,7 +385,6 @@ extension MobileHostAuthorizationTests {
         let admitted = await MobileHostService.connectionStatusResult(
             for: request,
             authorization: try irohAdmissionContext(),
-            publicStatusStore: publicStatusStore,
             supportsArtifactLane: true,
             stackStatus: { _ in .ok(["routes": []]) }
         )
@@ -400,7 +398,6 @@ extension MobileHostAuthorizationTests {
         let admittedWithoutHandler = await MobileHostService.connectionStatusResult(
             for: request,
             authorization: try irohAdmissionContext(),
-            publicStatusStore: publicStatusStore,
             supportsArtifactLane: false,
             stackStatus: { _ in .ok(["routes": []]) }
         )
@@ -413,7 +410,6 @@ extension MobileHostAuthorizationTests {
         let tcp = await MobileHostService.connectionStatusResult(
             for: request,
             authorization: .stackBearer,
-            publicStatusStore: publicStatusStore,
             stackStatus: { _ in
                 .ok(MobileHostService.publicStatusPayload(routes: []))
             }
