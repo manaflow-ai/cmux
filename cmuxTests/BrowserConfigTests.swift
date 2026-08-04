@@ -1855,6 +1855,39 @@ final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
 
 @MainActor
 final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
+    /// The terminal background the browser paints under a page is opaque: the
+    /// terminal color is composited over the window background at the Ghostty
+    /// opacity so blank/loading regions never show window gray through the page.
+    /// Blend it here rather than asking the product for the answer, so a panel
+    /// that ignores the notification (or drops the opacity) still fails.
+    private func expectedUnderPageBackgroundColor(
+        terminalColor: NSColor,
+        opacity: CGFloat
+    ) throws -> NSColor {
+        let terminal = try XCTUnwrap(terminalColor.usingColorSpace(.sRGB))
+        let base = try XCTUnwrap(NSColor.windowBackgroundColor.usingColorSpace(.sRGB))
+        return NSColor(
+            srgbRed: terminal.redComponent * opacity + base.redComponent * (1 - opacity),
+            green: terminal.greenComponent * opacity + base.greenComponent * (1 - opacity),
+            blue: terminal.blueComponent * opacity + base.blueComponent * (1 - opacity),
+            alpha: 1.0
+        )
+    }
+
+    /// Compares two colors channel-wise. WebKit stores `underPageBackgroundColor`
+    /// with 8-bit channels, so the tolerance has to clear one quantization step.
+    private func assertColorsMatch(
+        _ actual: NSColor,
+        _ expected: NSColor,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005, file: file, line: line)
+    }
+
     func testBrowserPanelEnablesInspectableWebViewAndDeveloperExtras() {
         let panel = BrowserPanel(workspaceId: UUID())
         let developerExtras = panel.webView.configuration.preferences.value(forKey: "developerExtrasEnabled") as? Bool
@@ -1865,7 +1898,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         }
     }
 
-    func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() {
+    func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() throws {
         let panel = BrowserPanel(workspaceId: UUID())
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
         let updatedOpacity = 0.57
@@ -1879,16 +1912,12 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             ]
         )
 
-        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible under-page background colors")
-            return
-        }
-
-        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
+        let actual = try XCTUnwrap(panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB))
+        let expected = try expectedUnderPageBackgroundColor(
+            terminalColor: updatedColor,
+            opacity: updatedOpacity
+        )
+        assertColorsMatch(actual, expected)
     }
 
     func testBrowserPanelStartsAsNewTabWithoutLoadingAboutBlank() {
@@ -1923,6 +1952,20 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .deferredURL)
     }
 
+    func testBrowserPanelWithDeferredInitialRequestIsNotNewTabPage() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/restored-request"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialRequest: URLRequest(url: url),
+            renderInitialNavigation: false
+        )
+
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.currentURL, url)
+        XCTAssertFalse(panel.isShowingNewTabPage)
+        XCTAssertEqual(panel.webViewLifecycleState, .deferredURL)
+    }
+
     func testBrowserPanelThemeModeUpdatesWebViewAppearance() {
         let panel = BrowserPanel(workspaceId: UUID())
 
@@ -1936,7 +1979,9 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertNil(panel.webView.appearance)
     }
 
-    func testBrowserPanelRefreshesUnderPageBackgroundColorWithGhosttyOpacity() {
+    /// Same refresh, but with the opacity boxed as `NSNumber` the way the
+    /// Ghostty notification carries it.
+    func testBrowserPanelRefreshesUnderPageBackgroundColorWithGhosttyOpacity() throws {
         let panel = BrowserPanel(workspaceId: UUID())
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
 
@@ -1949,16 +1994,12 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             ]
         )
 
-        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible under-page background colors")
-            return
-        }
-
-        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005)
-        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
+        let actual = try XCTUnwrap(panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB))
+        let expected = try expectedUnderPageBackgroundColor(
+            terminalColor: updatedColor,
+            opacity: 0.57
+        )
+        assertColorsMatch(actual, expected)
     }
 }
 
@@ -2681,21 +2722,27 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-            // Read live WebKit state instead of the panel's published mirrors.
-            // `BrowserPanel.init` publishes `currentURL` synchronously and the
-            // `isLoading` mirror only turns true after a KVO -> main-actor hop,
-            // so the mirrored predicate reads true before the load has started.
-            // `backForwardList.currentItem` appears only once a navigation
-            // commits, so this cannot pass on a load that has not begun.
+            // Check the web view's own URL, not the omnibar string. The panel
+            // publishes the destination URL as soon as a navigation is requested
+            // and only raises `isLoading` once WebKit reports the provisional
+            // navigation, so the omnibar already reads as the target while
+            // `isLoading` is still false — a window in which this would return
+            // before the page had loaded at all. Require both WebKit's committed
+            // history item and the panel's debounced loading mirror to settle.
             if panel.webView.url?.absoluteString == url.absoluteString,
                !panel.webView.isLoading,
-               panel.webView.backForwardList.currentItem?.url.absoluteString == url.absoluteString {
+               panel.webView.backForwardList.currentItem?.url.absoluteString == url.absoluteString,
+               !panel.isLoading {
                 return
             }
         }
 
         XCTFail(
-            "Timed out waiting for browser panel to load \(url.absoluteString). Live=\(panel.webView.url?.absoluteString ?? "nil") committed=\(panel.webView.backForwardList.currentItem?.url.absoluteString ?? "nil") loading=\(panel.webView.isLoading)",
+            "Timed out waiting for browser panel to load \(url.absoluteString). "
+                + "Live=\(panel.webView.url?.absoluteString ?? "nil") "
+                + "Committed=\(panel.webView.backForwardList.currentItem?.url.absoluteString ?? "nil") "
+                + "Omnibar=\(panel.preferredURLStringForOmnibar() ?? "nil") "
+                + "webViewLoading=\(panel.webView.isLoading) panelLoading=\(panel.isLoading)",
             file: file,
             line: line
         )
