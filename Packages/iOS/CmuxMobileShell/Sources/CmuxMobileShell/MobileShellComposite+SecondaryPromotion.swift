@@ -296,6 +296,9 @@ extension MobileShellComposite {
         _ subscription: SecondaryMacSubscription,
         shouldRetry: Bool
     ) async {
+        if removeFailedControlCapabilityFromFocusedSession(subscription) {
+            return
+        }
         guard beginSecondaryMacDrainReservation(
             subscription,
             postDrainAction: shouldRetry ? .retry : .none
@@ -309,6 +312,26 @@ extension MobileShellComposite {
             finishRetiredSecondaryPromotionCandidate(subscription)
             return
         }
+    }
+
+    /// A control consumer can fail after its peer has acquired focus. Remove
+    /// only that failed capability; foreground recovery continues owning the
+    /// shared client, and the next demotion can install fresh control work.
+    private func removeFailedControlCapabilityFromFocusedSession(
+        _ subscription: SecondaryMacSubscription
+    ) -> Bool {
+        let ownerKey = subscription.ownerKey
+        guard secondaryMacSubscriptions[ownerKey] === subscription,
+              subscription.client === remoteClient,
+              let focused = connections[ownerKey],
+              focused.client === subscription.client else {
+            return false
+        }
+        cancelSecondaryControlReassertion(ifOwnedBy: subscription)
+        subscription.detachKeepingClient()
+        subscription.hasActivatedControlStream = false
+        secondaryMacSubscriptions[ownerKey] = nil
+        return true
     }
 
     func finishCompletedSecondaryMacDrainReservations() {

@@ -3372,6 +3372,85 @@ import Testing
         await client.disconnect()
     }
 
+    @Test func focusedControlFailurePreservesSharedPeerSession() async throws {
+        let router = LivenessHostRouter()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: router,
+                box: TransportBox()
+            ),
+            now: { Date() }
+        )
+        let route = try CmxAttachRoute(
+            id: "focused-control-failure",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 57_101)
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-a",
+            terminalID: "terminal-a",
+            macDeviceID: "mac-a",
+            macDisplayName: "Mac A",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3_600)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let subscription = SecondaryMacSubscription(
+            macDeviceID: "mac-a",
+            client: client,
+            route: route,
+            ticket: ticket,
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        let connection = MacConnection(
+            macDeviceID: "mac-a",
+            ticket: ticket,
+            route: route,
+            client: client,
+            generation: UUID(),
+            displayName: "Mac A",
+            instanceTag: nil,
+            supportedHostCapabilities: ["events.v1"],
+            actionCapabilities: .none
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .connected
+        )
+        shell.remoteClient = client
+        shell.foregroundMacDeviceID = "mac-a"
+        shell.secondaryMacSubscriptions[connection.ownerKey] = subscription
+        #expect(shell.installFocusedConnectionPreservingControl(connection))
+
+        await shell.retireSecondaryControlOwner(
+            subscription,
+            shouldRetry: true
+        )
+
+        #expect(shell.remoteClient === client)
+        #expect(shell.connections[connection.ownerKey]?.client === client)
+        #expect(shell.secondaryMacSubscriptions[connection.ownerKey] == nil)
+        #expect(shell.liveMacConnections == [
+            MobileMacConnectionSnapshot(
+                macDeviceID: "mac-a",
+                displayName: "Mac A",
+                instanceTag: nil,
+                role: .focused
+            ),
+        ])
+        #expect(shell.secondaryMacDrainReservation(
+            for: connection.ownerKey
+        ) == nil)
+        await client.disconnect()
+    }
+
     @Test func staleGenerationCannotDemoteOrInvalidateReusedFocusedClient() async throws {
         let router = LivenessHostRouter()
         let runtime = LivenessTestRuntime(

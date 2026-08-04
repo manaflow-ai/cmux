@@ -8955,6 +8955,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryMacSubscriptions[connection.ownerKey] = nil
     }
 
+    /// Cancel only the keyed keepalive RPC owned by this exact control
+    /// capability. A replacement subscription under the same pairing wins.
+    func cancelSecondaryControlReassertion(
+        ifOwnedBy subscription: SecondaryMacSubscription
+    ) {
+        let ownerKey = subscription.ownerKey
+        guard secondaryControlReassertionOwnerIDsByOwnerKey[ownerKey]
+                == ObjectIdentifier(subscription) else {
+            return
+        }
+        secondaryControlReassertionTasksByOwnerKey[ownerKey]?.cancel()
+        secondaryControlReassertionTasksByOwnerKey[ownerKey] = nil
+        secondaryControlReassertionTokensByOwnerKey[ownerKey] = nil
+        secondaryControlReassertionOwnerIDsByOwnerKey[ownerKey] = nil
+    }
+
     /// A superseded handoff may return after the old Mac has already
     /// acknowledged terminal unsubscription. If it is still the published
     /// foreground, retire that now-renderless connection so cancellation
