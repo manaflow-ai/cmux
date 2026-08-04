@@ -621,7 +621,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private func resolvedMarkdownFilePath(_ rawPath: String) -> String? {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
-            guard MarkdownPanelFileLinkResolver.isMarkdownPathLike(trimmed) else { return nil }
             return MarkdownPanelFileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
         }
 
@@ -838,11 +837,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.handleExternalLink url=\(url.absoluteString)")
 #endif
-            // First preference: links that resolve to local markdown files
-            // open as markdown tabs in cmux, not in the browser.
-            let fileCandidate = url.scheme == "file" ? url.path : url.absoluteString
-            if let markdownPath = resolvedMarkdownFilePath(fileCandidate) {
-                openMarkdownFile(markdownPath)
+            if let localPath = MarkdownPanelFileLinkResolver.resolveLocalFile(
+                rawPath: url.scheme == "file" ? url.path : url.absoluteString,
+                relativeToMarkdownFile: filePath
+            ) {
+                if MarkdownPanelFileLinkResolver.isMarkdownPathLike(localPath) { openMarkdownFile(localPath) }
+                else { NSWorkspace.shared.open(URL(fileURLWithPath: localPath)) }
                 return
             }
 
