@@ -1,3 +1,4 @@
+import CmuxSidebar
 import CmuxSwiftRender
 import Foundation
 import Testing
@@ -73,6 +74,71 @@ struct CustomSidebarValidationTests {
         #expect(report.errorCount == 0)
     }
 
+    @Test("default validation data renders like the runtime context builder")
+    func defaultValidationDataMatchesRuntimeBuilder() throws {
+        let source = """
+        VStack {
+            Text(clock.time)
+            ForEach(workspaces) { workspace in
+                Text(workspace.title)
+                if let pullRequest = workspace.pr {
+                    Text(pullRequest.label)
+                }
+                if let progress = workspace.progress {
+                    ProgressView(value: progress.value, total: 1.0)
+                }
+                if let branch = workspace.branch {
+                    Text(branch)
+                }
+                if let latestAt = workspace.latestAt {
+                    Text("\\(latestAt)")
+                }
+                if let remote = workspace.remote {
+                    Text(remote.target)
+                }
+            }
+        }
+        """
+        let interpreter = SwiftViewInterpreter()
+        let runtimeNode = try #require(interpreter.evaluate(source, state: Self.representativeRuntimeContext))
+        let validationNode = try #require(
+            interpreter.evaluate(source, state: CustomSidebarValidator.defaultDataContext)
+        )
+
+        #expect(validationNode == runtimeNode)
+    }
+
+    @Test("reports a supported root whose dynamic content collapses to empty")
+    func reportsEmptyRenderedContainer() throws {
+        let directory = try temporaryDirectory()
+        let fileURL = directory.appendingPathComponent("empty.swift")
+        try """
+        VStack {
+            ForEach(workspaces) { workspace in
+                if workspace.unread > 100 {
+                    Text(workspace.title)
+                }
+            }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(entry.errorMessage == "Sidebar rendered no visible content.")
+    }
+
+    @Test("reports the status board when referenced optional data has no effect")
+    func reportsStatusBoardWithoutOptionalDataCoverage() {
+        let fileURL = examplesDirectory().appendingPathComponent("status-board.swift")
+
+        let entry = validator.validate(fileURL: fileURL)
+
+        #expect(
+            entry.errorMessage
+                == "Sidebar output did not change when its referenced optional workspace data was removed."
+        )
+    }
+
     @MainActor
     @Test("model re-resolves preferred file kind on reload")
     func modelReresolvesPreferredFileKind() throws {
@@ -127,6 +193,86 @@ struct CustomSidebarValidationTests {
         }
         return directory.appendingPathComponent("Examples/CustomSidebars", isDirectory: true)
     }
+
+    private static let representativeRuntimeContext: [String: SwiftValue] = {
+        let selectedId = UUID(uuidString: "00000000-0000-0000-0000-000000000412")!
+        let sparseId = UUID(uuidString: "00000000-0000-0000-0000-000000000413")!
+        let surfaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000414")!
+        let pullRequest: SwiftValue = .object([
+            "number": .int(412),
+            "label": .string("PR #412"),
+            "url": .string("https://github.com/manaflow-ai/cmux/pull/412"),
+            "status": .string("open"),
+            "stale": .bool(false),
+            "branch": .string("fix/checkout"),
+        ])
+        let richWorkspace = CustomSidebarWorkspaceSnapshot(
+            id: selectedId,
+            title: "checkout-flow",
+            isSelected: true,
+            isPinned: false,
+            index: 0,
+            directory: "/Users/cmux/checkout-flow",
+            listeningPorts: [3000],
+            unreadCount: 3,
+            surfaces: [
+                CustomSidebarSurfaceSnapshot(
+                    panelId: surfaceId,
+                    title: "Tests",
+                    isFocused: true,
+                    isPinned: false,
+                    directory: "/Users/cmux/checkout-flow",
+                    gitBranch: "fix/checkout",
+                    gitIsDirty: false,
+                    listeningPorts: [3000]
+                ),
+            ],
+            surfaceCount: 1,
+            customDescription: "Checkout work",
+            customColor: "#7AA2F7",
+            gitBranch: "fix/checkout",
+            gitIsDirty: false,
+            pullRequestValues: [pullRequest],
+            progress: .init(value: 0.41, label: "Tests running"),
+            latestConversationMessage: "Waiting for review",
+            latestSubmittedMessage: "Finish checkout coverage",
+            latestSubmittedAt: Date(timeIntervalSince1970: 1_779_999_400),
+            remote: .init(target: "aws-m4pro-1", stateRawValue: "connected", isConnected: true)
+        )
+        let sparseWorkspace = CustomSidebarWorkspaceSnapshot(
+            id: sparseId,
+            title: "notes",
+            isSelected: false,
+            isPinned: false,
+            index: 1,
+            directory: "/Users/cmux/notes",
+            listeningPorts: [],
+            unreadCount: 0,
+            surfaces: [],
+            surfaceCount: 0,
+            customDescription: nil,
+            customColor: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            pullRequestValues: [],
+            progress: nil,
+            latestConversationMessage: nil,
+            latestSubmittedMessage: nil,
+            latestSubmittedAt: nil,
+            remote: nil
+        )
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return CustomSidebarDataContextBuilder(calendar: calendar).dataContext(
+            for: CustomSidebarContextSnapshot(
+                workspaces: [richWorkspace, sparseWorkspace],
+                selectedWorkspaceId: selectedId,
+                selectedWorkspaceTitle: richWorkspace.title,
+                totalUnreadCount: 3,
+                now: Date(timeIntervalSince1970: 1_780_000_000)
+            )
+        )
+    }()
 
     private static let richSidebarContext: [String: SwiftValue] = [
         "workspaceCount": .int(3),

@@ -15,6 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxSidebar"),
         .package(path: "../CmuxSwiftRender"),
         .package(path: "../CmuxSettings"),
         .package(path: "../CmuxFoundation"),
@@ -33,7 +34,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxSwiftRenderUITests",
-            dependencies: ["CmuxSwiftRenderUI"]
+            dependencies: [
+                "CmuxSwiftRenderUI",
+                .product(name: "CmuxSidebar", package: "CmuxSidebar"),
+            ]
         ),
     ]
 )
