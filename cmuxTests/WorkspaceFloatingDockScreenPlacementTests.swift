@@ -429,6 +429,7 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         #expect(presentationWindow.frame == snapshot.restingVisibleFrame)
         #expect(presentationWindow.isVisible)
         #expect(presentationWindow.parent == nil)
+        #expect(!presentationWindow.styleMask.contains(.nonactivatingPanel))
         #expect(presentationWindow.isExcludedFromWindowsMenu)
         #expect(presentationWindow.collectionBehavior.contains(.ignoresCycle))
         #expect(
