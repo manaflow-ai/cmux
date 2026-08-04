@@ -77,7 +77,7 @@ extension GitMetadataService {
         }
 
         components.scheme = switch scheme {
-        case "ssh", "git": "https"
+        case "ssh", "git": repositoryLinkIsPrivateIPv4(host) ? "http" : "https"
         default: scheme
         }
         if scheme == "ssh" || scheme == "git" {
@@ -115,10 +115,32 @@ extension GitMetadataService {
         }
 
         var components = URLComponents()
-        components.scheme = "https"
+        components.scheme = repositoryLinkIsPrivateIPv4(host) ? "http" : "https"
         components.host = host
         components.path = "/\(displayName)"
         return components.url
+    }
+
+    /// Whether a host is a literal IPv4 address in one of the RFC 1918 ranges.
+    private nonisolated static func repositoryLinkIsPrivateIPv4(_ host: String) -> Bool {
+        let components = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard components.count == 4 else { return false }
+
+        let octets = components.compactMap { component -> Int? in
+            guard !component.isEmpty,
+                  component.allSatisfy({ $0.isASCII && $0.isNumber }) else {
+                return nil
+            }
+            return Int(component)
+        }
+        guard octets.count == 4,
+              octets.allSatisfy({ (0...255).contains($0) }) else {
+            return false
+        }
+
+        return octets[0] == 10
+            || (octets[0] == 172 && (16...31).contains(octets[1]))
+            || (octets[0] == 192 && octets[1] == 168)
     }
 
     /// Whether an SCP address is distinct from a bare URI scheme prefix.
