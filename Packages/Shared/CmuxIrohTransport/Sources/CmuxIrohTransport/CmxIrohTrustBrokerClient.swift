@@ -354,6 +354,10 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                        response.snapshotIsComplete {
                         return snapshot
                     }
+                    if response.protocolVersion
+                        == CmxConnectivitySyncResponse.scopedProtocolVersion {
+                        throw CmxIrohTrustBrokerClientError.invalidResponse
+                    }
                 } catch let error as CmxIrohTrustBrokerClientError
                     where Self.isMissingScopedDiscoveryRoute(error) {
                     // Older servers have only paginated global discovery.

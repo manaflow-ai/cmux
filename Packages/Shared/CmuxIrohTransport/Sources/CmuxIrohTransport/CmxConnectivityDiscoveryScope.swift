@@ -52,16 +52,16 @@ public struct CmxConnectivityDiscoveryScope: Codable, Equatable, Sendable {
         peerTags: [String]? = nil,
         peerPairingEnabled: Bool? = nil
     ) throws {
-        let sortedTags = peerTags?.sorted()
         guard Self.isCanonicalUUID(deviceID),
               Self.isCanonicalUUID(appInstanceID),
               Self.isSafeTag(tag),
               platform != peerPlatform,
-              sortedTags.map({ (1 ... 8).contains($0.count) }) ?? true,
-              sortedTags.map({ Set($0).count == $0.count }) ?? true,
-              sortedTags?.allSatisfy(Self.isSafeTag) ?? true else {
+              peerTags.map({ (1 ... 8).contains($0.count) }) ?? true,
+              peerTags.map({ Set($0).count == $0.count }) ?? true,
+              peerTags?.allSatisfy(Self.isSafeTag) ?? true else {
             throw CmxConnectivityDiscoveryScopeError.invalidScope
         }
+        let sortedTags = peerTags?.sorted()
         localBinding = LocalBinding(
             deviceID: deviceID,
             appInstanceID: appInstanceID,

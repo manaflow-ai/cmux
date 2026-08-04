@@ -327,7 +327,8 @@ public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
     /// validated scoped-registration request.
     public var embeddedDiscoveryComplete: Bool {
         discovery != nil
-            && (discoveryComplete == true || discoveryScopeComplete == true)
+            && (discoveryComplete == true
+                || (discoveryScope != nil && discoveryScopeComplete == true))
     }
 
     /// Creates a registration response for alternate brokers and tests.

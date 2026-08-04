@@ -160,6 +160,36 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func scopedRegistrationCompletenessRequiresAnEchoedScope() async throws {
+        var responseObject = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(Self.registrationResponse.utf8)
+            ) as? [String: Any]
+        )
+        responseObject["revision"] = 7
+        responseObject["discovery"] = try Self.discoveryObject(revision: 7)
+        responseObject["discovery_complete"] = false
+        responseObject["discovery_scope_complete"] = true
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 201, body: try Self.jsonString(responseObject)),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let response = try await client.register(
+            CmxIrohRegisterRequest(
+                challengeID: "123e4567-e89b-42d3-a456-426614174000",
+                nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                payload: "e30",
+                signature: String(repeating: "A", count: 86)
+            )
+        )
+
+        #expect(response.discoveryScope == nil)
+        #expect(response.discoveryScopeComplete == true)
+        #expect(!response.embeddedDiscoveryComplete)
+    }
+
+    @Test
     func issuedRegistrationBuildsTheExactManagedRelayFleet() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(status: 201, body: Self.registrationResponse),
@@ -822,6 +852,35 @@ struct CmxIrohTrustBrokerClientTests {
         )
         #expect(object["protocol_version"] as? Int == 3)
         #expect(object["discovery_scope"] != nil)
+    }
+
+    @Test
+    func scopedDiscoveryRejectsIncompleteV3WithoutFetchingGlobalBindings() async throws {
+        let scope = try iosDiscoveryScope()
+        let snapshot = try Self.discoveryObject(revision: 2)
+        let responseBody = try Self.jsonString([
+            "protocol_version": 3,
+            "revision": 2,
+            "changed": true,
+            "reset": false,
+            "discovery_scope": try scopeObject(scope),
+            "snapshot": snapshot,
+            "snapshot_scope_complete": false,
+        ])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: responseBody),
+        ])
+        let client = try makeClient(
+            transport: transport,
+            discoveryScope: scope
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.discover()
+        }
+        #expect(await transport.requests().compactMap { $0.url?.path } == [
+            "/api/connectivity/v3/sync",
+        ])
     }
 
     @Test
