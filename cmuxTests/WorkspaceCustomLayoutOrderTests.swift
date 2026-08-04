@@ -127,6 +127,35 @@ import Testing
         )
     }
 
+    @Test func selectedOnlyBackgroundTabPreservesGlobalFocus() throws {
+        let workspace = Workspace()
+        let focusedPaneBefore = try #require(workspace.bonsplitController.focusedPaneId)
+        let focusedPanelBefore = try #require(workspace.focusedPanelId)
+
+        workspace.applyCustomLayout(
+            .split(CmuxSplitDefinition(
+                direction: .horizontal,
+                children: [
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Focused"),
+                    ])),
+                    .pane(CmuxPaneDefinition(surfaces: [
+                        CmuxSurfaceDefinition(type: .terminal, name: "Background A", selected: true),
+                        CmuxSurfaceDefinition(type: .terminal, name: "Background B"),
+                    ])),
+                ]
+            )),
+            baseCwd: NSTemporaryDirectory()
+        )
+
+        let panes = try Self.twoPaneIDs(in: workspace)
+        #expect(panes.first == focusedPaneBefore)
+        #expect(workspace.bonsplitController.selectedTab(inPane: panes.first)?.title == "Focused")
+        #expect(workspace.bonsplitController.selectedTab(inPane: panes.second)?.title == "Background A")
+        #expect(workspace.bonsplitController.focusedPaneId == focusedPaneBefore)
+        #expect(workspace.focusedPanelId == focusedPanelBefore)
+    }
+
     @Test(arguments: [CapturePath.savedLayout, .configAction])
     func capturedLayoutsRestoreSelectedTabsInEveryPane(capturePath: CapturePath) throws {
         let original = Workspace()
