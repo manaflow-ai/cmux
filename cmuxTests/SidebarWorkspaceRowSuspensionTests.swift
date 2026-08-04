@@ -145,6 +145,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         return SidebarAppKitRowActions(
             commands: commands,
             onOpenStatusURL: { _ in },
+            onOpenWorkspaceDescriptionURL: { _ in },
             onOpenPullRequest: { _ in },
             onOpenPort: { _ in },
             onToggleChecklistExpansion: {},
