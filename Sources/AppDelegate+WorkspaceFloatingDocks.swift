@@ -99,7 +99,7 @@ extension AppDelegate {
 
     func workspaceFloatingDockWindow(for dock: WorkspaceFloatingDock) -> NSWindow? {
         mainWindowContexts.values.lazy.compactMap {
-            $0.workspaceFloatingDockPresenter?.window(for: dock)
+            $0.workspaceFloatingDockPresenter?.presentedWindow(for: dock)
         }.first
     }
 

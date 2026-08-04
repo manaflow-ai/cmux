@@ -236,6 +236,10 @@ final class WorkspaceFloatingDockPresenter {
         controllers[dock.id]?.window
     }
 
+    func presentedWindow(for dock: WorkspaceFloatingDock) -> NSWindow? {
+        controllers[dock.id]?.presentedWindow
+    }
+
     func focus(_ dock: WorkspaceFloatingDock) {
         guard isKeyContextVisible else { return }
         controllers[dock.id]?.show(focus: true)
