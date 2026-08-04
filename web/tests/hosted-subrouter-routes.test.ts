@@ -143,6 +143,25 @@ describe("hosted Subrouter account routes", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("returns service unavailable when hosted tenant control is not configured", async () => {
+    const configuredToken = process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN;
+    delete process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN;
+    try {
+      const response = await exchangeRoute.POST(
+        request("/api/subrouter/exchange", { method: "POST", body: "{}" }),
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "service_unavailable" });
+      expect(calls).toHaveLength(0);
+    } finally {
+      if (configuredToken === undefined) {
+        delete process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN;
+      } else {
+        process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN = configuredToken;
+      }
+    }
+  });
+
   test("returns 401 without a Stack user and never contacts hosted Subrouter", async () => {
     currentUser = null;
 
