@@ -2104,6 +2104,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         recordsPairingAttempt: Bool,
+        supersedesRecoveryAttempt: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2160,8 +2161,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearPairingVersionWarning()
         } else {
             attemptID = recordsPairingAttempt
-                ? beginPairingAttempt(method: "manual")
-                : beginPairingValidationAttempt()
+                ? beginPairingAttempt(
+                    method: "manual",
+                    supersedesRecoveryAttempt: supersedesRecoveryAttempt
+                )
+                : beginPairingAttempt(
+                    supersedesRecoveryAttempt: supersedesRecoveryAttempt
+                )
         }
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
@@ -2189,7 +2195,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             if let sameRouteProbeClient {
                 guard remoteClient === sameRouteProbeClient else { return }
-                preparePairingConnectionAttempt()
+                preparePairingConnectionAttempt(
+                    supersedesRecoveryAttempt: supersedesRecoveryAttempt
+                )
             }
             let noThrowFailure = try await connect(
                 ticket: ticket,
@@ -2364,9 +2372,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return .failed(.authorizationFailed)
         }
-        if let result = storedMacReconnectInterruptionResult(generation: generation) {
-            return result ? .connected : .superseded
-        }
         // Pull the authoritative per-user backup first so saved-Mac routes are
         // current before we dial: a Mac that relaunched on a new port republishes
         // to the backup, and LWW by lastSeenAt keeps any live local edit. Without
@@ -2509,6 +2514,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     instanceTag: mac.instanceTag,
                     legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
                     automaticReconnectAccountID: scope.userID,
+                    supersedesRecoveryAttempt: false,
                     ifStillCurrent: { [weak self] in
                         self?.storedMacReconnectGeneration == generation
                     }
@@ -2531,6 +2537,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         instanceTag: mac.instanceTag,
                         legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
                         automaticReconnectAccountID: scope.userID,
+                        supersedesRecoveryAttempt: false,
                         ifStillCurrent: { [weak self] in
                             self?.storedMacReconnectGeneration == generation
                         }
@@ -9013,21 +9020,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The one shared entry every pairing flow funnels through, so it is also the
     /// single `ios_pairing_started` fire-site. `method` is `qr`/`manual`/
     /// `attach_url`; pass `nil` for non-instrumented internal flows (preview).
-    private func beginPairingAttempt(method: String? = nil) -> UUID {
+    private func beginPairingAttempt(
+        method: String? = nil,
+        supersedesRecoveryAttempt: Bool = true
+    ) -> UUID {
         let attemptID = beginPairingValidationAttempt(method: method)
-        preparePairingConnectionAttempt()
+        preparePairingConnectionAttempt(
+            supersedesRecoveryAttempt: supersedesRecoveryAttempt
+        )
         return attemptID
     }
 
     /// Supersede recovery and terminal work only after any non-destructive
     /// ticket probe has succeeded and a foreground replacement can proceed.
-    private func preparePairingConnectionAttempt() {
+    private func preparePairingConnectionAttempt(
+        supersedesRecoveryAttempt: Bool = true
+    ) {
         // Any explicit connect supersedes launch/network recovery, including a
-        // recovery parked while the scene was inactive.
-        pendingInactiveRecoveryTrigger = nil
-        connectionRecoveryOwner.cancel()
-        applyConnectionRecoveryOwnerState()
-        invalidateStoredMacReconnectAttempt()
+        // recovery suspended in a registry refresh or parked while the scene
+        // was inactive.
+        if supersedesRecoveryAttempt {
+            pendingInactiveRecoveryTrigger = nil
+            connectionRecoveryOwner.cancel()
+            applyConnectionRecoveryOwnerState()
+            invalidateStoredMacReconnectAttempt()
+        }
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()

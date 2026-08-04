@@ -306,12 +306,26 @@ extension MobileShellComposite {
                 // shared reconnect entry owns the hard deadline after claiming
                 // its generation synchronously, so every lifecycle caller gets
                 // the same wedge protection without a second race here.
-                let reconnectOutcome = await self.reconnectActiveMacOutcome(
+                var reconnectOutcome = await self.reconnectActiveMacOutcome(
                     stackUserID: stackUserID,
                     refreshBackupBeforeDial: false
                 )
                 guard !Task.isCancelled,
                       self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                if expectedClient == nil,
+                   case .failed(.routeGated) = reconnectOutcome {
+                    // A disconnected foreground resume can race the old
+                    // fire-and-forget client teardown. The first dial may be
+                    // refused before it reaches the host; one immediate retry
+                    // lets the scheduled teardown transfer its route lease.
+                    await Task.yield()
+                    reconnectOutcome = await self.reconnectActiveMacOutcome(
+                        stackUserID: stackUserID,
+                        refreshBackupBeforeDial: false
+                    )
+                    guard !Task.isCancelled,
+                          self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                }
                 guard self.settleConnectionRecovery(
                     attempt,
                     outcome: reconnectOutcome,
@@ -532,6 +546,7 @@ extension MobileShellComposite {
         port: Int,
         pairedMacDeviceID: String,
         instanceTag: String? = nil,
+        supersedesRecoveryAttempt: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         await connectManualHost(
@@ -543,6 +558,7 @@ extension MobileShellComposite {
                 storedInstanceTag: instanceTag
             ),
             recordsPairingAttempt: false,
+            supersedesRecoveryAttempt: supersedesRecoveryAttempt,
             ifStillCurrent: ifStillCurrent
         )
     }
@@ -580,6 +596,7 @@ extension MobileShellComposite {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        supersedesRecoveryAttempt: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         await connectStoredMacOutcome(
@@ -592,6 +609,7 @@ extension MobileShellComposite {
             legacyTailscaleRoutes: legacyTailscaleRoutes,
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
+            supersedesRecoveryAttempt: supersedesRecoveryAttempt,
             ifStillCurrent: ifStillCurrent
         )
     }
@@ -607,6 +625,7 @@ extension MobileShellComposite {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        supersedesRecoveryAttempt: Bool = true,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
@@ -633,7 +652,10 @@ extension MobileShellComposite {
                 persistedRoutes: legacyTailscaleRoutes
             ) != nil
         }
-        if firstRoute.kind == .iroh || hasAuthorizedLegacyTailscaleRoute {
+        let routeCanUseStoredTicket = firstRoute.kind == .iroh
+            || hasAuthorizedLegacyTailscaleRoute
+            || MobileShellRouteAuthPolicy.routeAllowsStackAuth(firstRoute)
+        if routeCanUseStoredTicket {
             do {
                 let ticket = try Self.storedMacTicket(
                     name: name,
@@ -681,6 +703,7 @@ extension MobileShellComposite {
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     recordsPairingAttempt: recordsPairingAttempt,
+                    supersedesRecoveryAttempt: supersedesRecoveryAttempt,
                     ifStillCurrent: ifStillCurrent
                 )
                 if connectionState == .connected,
