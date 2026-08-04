@@ -3380,8 +3380,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         presenter.refresh()
 
         XCTAssertTrue(presenter.owns(window: originalWindow))
-        XCTAssertTrue(originalWindow.isVisible)
+        XCTAssertFalse(originalWindow.isVisible)
         XCTAssertTrue(originalWindow.contentView === originalContent)
+        let parkedPresentation = try XCTUnwrap(presenter.presentedWindow(for: dock))
+        XCTAssertFalse(parkedPresentation === originalWindow)
+        XCTAssertTrue(parkedPresentation.isVisible)
+        XCTAssertTrue(presenter.owns(window: parkedPresentation))
         XCTAssertNil(
             originalWindow.parent,
             "A screen-anchored parked window must not inherit main-window geometry"
@@ -3413,6 +3417,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         presenter.refresh()
 
         XCTAssertTrue(presenter.owns(window: originalWindow))
+        XCTAssertTrue(presenter.presentedWindow(for: dock) === originalWindow)
+        XCTAssertFalse(parkedPresentation.isVisible)
         XCTAssertTrue(originalWindow.contentView === originalContent)
         XCTAssertTrue(originalWindow.parent === parent)
         XCTAssertEqual(
