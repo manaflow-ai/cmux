@@ -4,7 +4,7 @@ import { and, count, eq, gt, lt } from "drizzle-orm";
 import { env } from "@/app/env";
 import { cloudDb } from "../../../../../../db/client";
 import { vaultCliAuthRequests } from "../../../../../../db/schema";
-import { withVaultApiRoute } from "../../../../../../services/vault/routeHelpers";
+import { withCliAuthApiRoute } from "../../../../../../services/vault/routeHelpers";
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
@@ -22,7 +22,7 @@ const INTERVAL_SECONDS = 3;
 const MAX_PENDING_REQUESTS = 500;
 
 export async function POST(request: Request): Promise<Response> {
-  return withVaultApiRoute(
+  return withCliAuthApiRoute(
     request,
     "/api/vault/cli/auth/start",
     { "cmux.vault.operation": "cli_auth.start" },
@@ -45,6 +45,15 @@ export async function POST(request: Request): Promise<Response> {
       const body = await readVaultJsonObject(request);
       if (!body.ok) {
         return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
+      }
+      const requestedClient = body.value.client;
+      const client = requestedClient === undefined
+        ? "cmux-vault"
+        : requestedClient === "cmux-vault" || requestedClient === "subrouter"
+        ? requestedClient
+        : null;
+      if (!client) {
+        return jsonResponse({ error: "invalid_client" }, 400);
       }
 
       const deviceCode = randomBytes(32).toString("hex");
@@ -78,6 +87,7 @@ export async function POST(request: Request): Promise<Response> {
       await db.insert(vaultCliAuthRequests).values({
         deviceCodeHash,
         userCode,
+        client,
         status: "pending",
         createdAt: now,
         expiresAt,
@@ -100,7 +110,6 @@ export async function POST(request: Request): Promise<Response> {
     },
   );
 }
-
 function hashDeviceCode(deviceCode: string): string {
   return createHash("sha256").update(deviceCode).digest("hex");
 }

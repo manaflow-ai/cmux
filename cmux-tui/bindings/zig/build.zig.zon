@@ -1,0 +1,13 @@
+.{
+    .name = .cmux_tui,
+    .version = "1.0.0",
+    .fingerprint = 0xe5dae95f9a327143,
+    .minimum_zig_version = "0.15.2",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "examples",
+        "README.md",
+    },
+}

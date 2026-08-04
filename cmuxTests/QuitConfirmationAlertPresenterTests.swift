@@ -11,31 +11,31 @@ import Testing
 @Suite
 struct QuitConfirmationAlertPresenterTests {
     @Test
-    func pendingTerminateReplyWaitsOnlyForTerminateOwnedConfirmation() {
+    func pendingTerminateReplyWaitsForOwnedCleanupOrTerminateOwnedConfirmation() {
         #expect(
             AppDelegate.pendingTerminateReply(
-                isAwaitingTerminateKills: true,
+                isAwaitingTerminateCleanup: true,
                 hasActiveQuitConfirmation: false,
                 activeQuitConfirmationOwnsTerminateRequest: false
             ) == .terminateLater
         )
         #expect(
             AppDelegate.pendingTerminateReply(
-                isAwaitingTerminateKills: false,
+                isAwaitingTerminateCleanup: false,
                 hasActiveQuitConfirmation: true,
                 activeQuitConfirmationOwnsTerminateRequest: true
             ) == .terminateLater
         )
         #expect(
             AppDelegate.pendingTerminateReply(
-                isAwaitingTerminateKills: false,
+                isAwaitingTerminateCleanup: false,
                 hasActiveQuitConfirmation: true,
                 activeQuitConfirmationOwnsTerminateRequest: false
             ) == .terminateCancel
         )
         #expect(
             AppDelegate.pendingTerminateReply(
-                isAwaitingTerminateKills: false,
+                isAwaitingTerminateCleanup: false,
                 hasActiveQuitConfirmation: false,
                 activeQuitConfirmationOwnsTerminateRequest: false
             ) == nil
@@ -102,6 +102,55 @@ struct QuitConfirmationAlertPresenterTests {
 
         #expect(completedResponse == .alertFirstButtonReturn)
         #expect(completedSuppressionState == .off)
+    }
+
+    @Test
+    func joinedCancellationActionRunsOnlyAfterCancel() {
+        let alert = QuitConfirmationAlertSpy()
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        var cancellationCount = 0
+        let presenter = QuitConfirmationAlertPresenter(
+            alert: alert,
+            presentingWindowProvider: { hostWindow }
+        ) { _, _ in }
+
+        presenter.present()
+        presenter.joinCancellationAction {
+            cancellationCount += 1
+        }
+
+        #expect(cancellationCount == 0)
+        alert.capturedSheetCompletion?(.alertSecondButtonReturn)
+        #expect(cancellationCount == 1)
+    }
+
+    @Test
+    func joinedCancellationActionDoesNotRunAfterQuit() {
+        let alert = QuitConfirmationAlertSpy()
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        var cancellationCount = 0
+        let presenter = QuitConfirmationAlertPresenter(
+            alert: alert,
+            presentingWindowProvider: { hostWindow }
+        ) { _, _ in }
+
+        presenter.present()
+        presenter.joinCancellationAction {
+            cancellationCount += 1
+        }
+
+        alert.capturedSheetCompletion?(.alertFirstButtonReturn)
+        #expect(cancellationCount == 0)
     }
 }
 
