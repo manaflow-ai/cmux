@@ -60,6 +60,19 @@ final class MarkdownLinkBoundaryRegressionTests {
         }
     }
 
+    @Test
+    func renderedColonFilenameRemainsALocalMarkdownCandidate() async throws {
+        try await withLoadedMarkdownShell { webView in
+            let snapshot = try await renderLinkBoundarySnapshot(
+                "[Chapter](chapter:one.md)",
+                in: webView
+            )
+
+            #expect(snapshot.href == "chapter:one.md")
+            #expect(snapshot.fileCandidate == "chapter:one.md")
+        }
+    }
+
     private func withLoadedMarkdownShell<T>(
         _ body: (WKWebView) async throws -> T
     ) async throws -> T {
@@ -113,6 +126,7 @@ final class MarkdownLinkBoundaryRegressionTests {
                 innerHTML: anchor && anchor.innerHTML,
                 imageAlt: image && image.getAttribute('alt'),
                 imageTitle: image && image.getAttribute('title'),
+                fileCandidate: anchor && anchor.getAttribute('data-cmux-file-candidate'),
                 trailingText: trailing && trailing.textContent,
                 periodHitHref: periodHit && periodHit.getAttribute && periodHit.getAttribute('href')
               };
@@ -127,6 +141,7 @@ final class MarkdownLinkBoundaryRegressionTests {
             innerHTML: raw["innerHTML"] as? String,
             imageAlt: raw["imageAlt"] as? String,
             imageTitle: raw["imageTitle"] as? String,
+            fileCandidate: raw["fileCandidate"] as? String,
             trailingText: raw["trailingText"] as? String ?? "",
             periodHitHref: raw["periodHitHref"] as? String
         )
@@ -140,6 +155,7 @@ private struct LinkBoundarySnapshot {
     let innerHTML: String?
     let imageAlt: String?
     let imageTitle: String?
+    let fileCandidate: String?
     let trailingText: String
     let periodHitHref: String?
 }
