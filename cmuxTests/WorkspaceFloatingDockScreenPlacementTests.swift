@@ -428,6 +428,8 @@ struct WorkspaceFloatingDockParkingRegressionTests {
         })
         #expect(presentationWindow.frame == snapshot.restingVisibleFrame)
         #expect(presentationWindow.isVisible)
+        #expect(controller.window?.isAccessibilityHidden() == true)
+        #expect(presentationWindow.isAccessibilityHidden() == false)
         #expect(presentationWindow.parent == nil)
         #expect(!presentationWindow.styleMask.contains(.nonactivatingPanel))
         #expect(presentationWindow.isExcludedFromWindowsMenu)
