@@ -1,4 +1,4 @@
-import CMUXMobileCore
+public import CMUXMobileCore
 import Foundation
 
 /// A lightweight snapshot of any Mac-rendered workspace surface.
@@ -69,12 +69,21 @@ public struct MobileSurfacePreview: Identifiable, Equatable, Sendable {
     public let title: String
     /// Backing path for file-oriented surfaces, when supplied by the Mac.
     public let filePath: String?
+    /// Bounded checklist/status data for a todo surface.
+    public let todo: MobileTodoSnapshot?
 
     /// Creates a surface preview from projected wire data.
-    public init(id: ID, kind: Kind, title: String, filePath: String? = nil) {
+    public init(
+        id: ID,
+        kind: Kind,
+        title: String,
+        filePath: String? = nil,
+        todo: MobileTodoSnapshot? = nil
+    ) {
         self.id = id
         self.kind = kind
         self.title = title
         self.filePath = filePath
+        self.todo = todo
     }
 }

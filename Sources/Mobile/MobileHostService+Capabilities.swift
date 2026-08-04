@@ -60,6 +60,7 @@ extension MobileHostService {
             "workspace.actions.v1",
             "workspace.surfaces.v1",
             "surface.focus.v1",
+            "todo.v1",
             Self.workspaceChangesCapability,
             "workspace.metadata.v1",
             "workspace.read_state.v1",
