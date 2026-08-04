@@ -10216,7 +10216,7 @@ fn handle_command_with_cancellation(
         Command::ScrollSurface { surface, delta } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            surface.scroll_delta(delta)?;
+            mux.scroll_surface_viewport(&surface, delta)?;
             Ok(json!({}))
         }
         Command::Subscribe { tree_events, surface } => {
@@ -18101,8 +18101,7 @@ mod tests {
                 }
             })
             .unwrap();
-        let shared_scrollbar =
-            surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap();
+        let shared_scrollbar = surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap();
         let view_scrollbar = surface.view_scrollbar().unwrap();
         let events = mux.subscribe();
 

@@ -382,7 +382,7 @@ fn execute_terminal_effect(
         "terminal.history.clear" => {
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
-        "terminal.viewport.scroll" => terminal_scroll_viewport(&surface, &fields),
+        "terminal.viewport.scroll" => terminal_scroll_viewport(mux, &surface, &fields),
         "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
@@ -753,6 +753,7 @@ fn terminal_write(surface: &Surface, fields: &Map<String, Value>) -> Result<(), 
 }
 
 fn terminal_scroll_viewport(
+    mux: &Mux,
     surface: &Surface,
     fields: &Map<String, Value>,
 ) -> Result<(), ActionFailure> {
@@ -763,8 +764,7 @@ fn terminal_scroll_viewport(
             json!({"delta_rows":delta_rows}),
         ))
     })?;
-    surface
-        .scroll_delta(delta_rows)
+    mux.scroll_surface_viewport(surface, delta_rows)
         .map_err(|error| ActionFailure::Indeterminate(error.to_string()))
 }
 
@@ -2333,14 +2333,14 @@ mod tests {
     #[test]
     fn terminal_viewport_scroll_uses_one_bounded_receipt_without_session_journal_churn() {
         let (mux, surface, selectors) = terminal_fixture(None);
-        let bottom = surface
+        surface
             .try_with_terminal(|terminal| {
                 for index in 0..20 {
                     terminal.vt_write(format!("line-{index}\r\n").as_bytes());
                 }
-                terminal.scrollbar().expect("fixture has scrollback")
             })
             .unwrap();
+        let bottom = surface.view_scrollbar().expect("fixture has scrollback");
         assert!(!bottom.scrolled_back());
 
         let revision = mux.with_state(|state| state.resource_revision);
@@ -2363,11 +2363,18 @@ mod tests {
         assert_eq!(first["value"], json!({}));
         assert_eq!(first["revision"], revision.to_string());
         assert_eq!(first["replayed"], false);
-        let after_first = surface
-            .try_with_terminal(|terminal| terminal.scrollbar().expect("fixture has scrollback"))
-            .unwrap();
+        let after_first = surface.view_scrollbar().expect("fixture has scrollback");
         assert!(after_first.scrolled_back());
         assert!(after_first.offset < bottom.offset);
+        assert_eq!(
+            surface
+                .try_with_terminal(|terminal| {
+                    terminal.scrollbar().expect("fixture has scrollback")
+                })
+                .unwrap(),
+            bottom,
+            "a backend projection must not change the shared compatibility viewport"
+        );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, terminal_revision);
         assert_eq!(mux.resource_event_epoch(), event_epoch);
@@ -2380,11 +2387,7 @@ mod tests {
         assert_eq!(replay["revision"], first["revision"]);
         assert_eq!(replay["replayed"], true);
         assert_eq!(
-            surface
-                .try_with_terminal(|terminal| {
-                    terminal.scrollbar().expect("fixture has scrollback")
-                })
-                .unwrap(),
+            surface.view_scrollbar().expect("fixture has scrollback"),
             after_first,
             "receipt replay must not apply the viewport delta twice"
         );

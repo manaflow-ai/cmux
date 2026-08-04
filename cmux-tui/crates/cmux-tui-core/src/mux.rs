@@ -6863,6 +6863,23 @@ impl Mux {
         self.with_state(Self::active_surface_in_state)
     }
 
+    /// Scroll one backend-owned view without mutating the terminal runtime
+    /// shared by the terminal's other placements.
+    pub fn scroll_surface_viewport(&self, surface: &Surface, delta: isize) -> anyhow::Result<()> {
+        let before = surface.view_scrollbar();
+        let after = surface.view_scroll_delta(delta)?;
+        if after != before
+            && let Some(scrollbar) = after
+        {
+            self.emit(MuxEvent::ScrollChanged {
+                surface: surface.id,
+                offset: scrollbar.offset,
+                at_bottom: !scrollbar.scrolled_back(),
+            });
+        }
+        Ok(())
+    }
+
     fn clear_viewed_notification(&self, surface: Option<SurfaceId>) {
         let Some(surface) = surface else { return };
         let state = self.state.lock().unwrap();
@@ -6934,25 +6951,20 @@ impl Mux {
                 ledger.pop_front();
             }
         }
+        // Shared topology focus is only a default projection. A frontend must
+        // explicitly acknowledge a viewed notification through its selection
+        // action, so local focus in one client cannot hide attention from the
+        // others.
         let mut unread_changed = false;
-        let active_surface = self.active_surface();
-        let active_terminal_id = active_surface.and_then(|active| {
-            let state = self.state.lock().unwrap();
-            state
-                .surfaces
-                .get(&active)
-                .or_else(|| state.terminal_runtime_by_id(active))
-                .and_then(|surface| surface.terminal_public_id().cloned())
-        });
         match terminal_id {
-            Some(terminal_id) if active_terminal_id.as_ref() != Some(&terminal_id) => {
+            Some(terminal_id) => {
                 self.terminal_notifications.lock().unwrap().insert(
                     terminal_id,
                     SurfaceNotification { notification: id, level, unread: true },
                 );
                 unread_changed = true;
             }
-            None if surface.is_some_and(|surface| active_surface != Some(surface)) => {
+            None if surface.is_some() => {
                 let surface = surface.expect("checked notification surface");
                 self.placement_notifications
                     .lock()
@@ -6960,7 +6972,7 @@ impl Mux {
                     .insert(surface, SurfaceNotification { notification: id, level, unread: true });
                 unread_changed = true;
             }
-            Some(_) | None => {}
+            None => {}
         }
         self.emit(MuxEvent::Notification(NotificationEvent {
             notification: id,
@@ -7082,6 +7094,7 @@ impl Mux {
                 let runtime = state
                     .surfaces
                     .get(&surface)
+                    .or_else(|| state.terminal_runtime_by_id(surface))
                     .with_context(|| format!("unknown surface {surface}"))?;
                 let identity = runtime.resource_identity().with_context(|| {
                     format!("surface {surface} has no durable resource identity")
