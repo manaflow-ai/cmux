@@ -1,5 +1,6 @@
-import Foundation
+import CMUXAgentLaunch
 import CmuxTerminal
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -495,6 +496,58 @@ struct GhosttyTerminalStartupEnvironmentTests {
         expectEqual(merged["TERM"], TerminalSurface.managedTerminalType)
         expectEqual(merged["COLORTERM"], TerminalSurface.managedColorTerm)
         expectEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+    }
+
+    @Test
+    func spawnedPaneDoesNotInheritClaudeSessionOrTrustState() throws {
+        let policy = ClaudeSessionEnvironmentPolicy()
+        let staleKeys = policy.inheritedIndependentLaunchKeys.sorted()
+        var inheritedEnvironment = Dictionary(
+            uniqueKeysWithValues: staleKeys.map { ($0, "stale-parent-value") }
+        )
+        inheritedEnvironment["PATH"] = "/usr/bin:/bin"
+        inheritedEnvironment["CLAUDE_CODE_USE_VERTEX"] = "1"
+        inheritedEnvironment["ANTHROPIC_AUTH_TOKEN"] = "third-party-auth-token"
+        inheritedEnvironment["CUSTOM_FLAG"] = "preserved"
+
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: inheritedEnvironment,
+            protectedKeys: [],
+            additionalEnvironment: [
+                staleKeys[0]: "stale-workspace-value"
+            ],
+            initialEnvironmentOverrides: [
+                staleKeys[1]: "stale-surface-value",
+                "CLAUDE_CODE_USE_VERTEX": "1",
+            ],
+            ambientEnvironment: inheritedEnvironment
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.environment = merged
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = try #require(
+            String(data: outputData, encoding: .utf8),
+            "spawned env output was not UTF-8"
+        )
+        let childKeys = Set(output.split(separator: "\n").compactMap { line in
+            line.split(separator: "=", maxSplits: 1).first.map(String.init)
+        })
+
+        #expect(process.terminationStatus == 0, Comment(rawValue: output))
+        for key in staleKeys {
+            #expect(!childKeys.contains(key), Comment(rawValue: output))
+        }
+        #expect(output.contains("CLAUDE_CODE_USE_VERTEX=1"), Comment(rawValue: output))
+        #expect(output.contains("ANTHROPIC_AUTH_TOKEN=third-party-auth-token"), Comment(rawValue: output))
+        #expect(output.contains("CUSTOM_FLAG=preserved"), Comment(rawValue: output))
     }
 
     @Test
