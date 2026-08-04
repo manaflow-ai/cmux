@@ -1184,6 +1184,11 @@ struct ClientResizeRequest {
     terminal_runtime: Option<SurfaceId>,
 }
 
+struct PreparedControlClientResize {
+    request: ClientResizeRequest,
+    attached: Option<crate::server::ClientSizeUpdate>,
+}
+
 struct PendingWorkspaceSurface<'a> {
     pending: &'a Mutex<HashMap<SurfaceId, WorkspaceId>>,
     surface: SurfaceId,
@@ -1541,6 +1546,60 @@ impl ResourceWaitWake {
 }
 
 #[derive(Default)]
+struct TerminalExitDetachTracker {
+    active: Mutex<HashSet<String>>,
+    changed: Condvar,
+}
+
+impl TerminalExitDetachTracker {
+    fn acquire(self: &Arc<Self>, terminal_id: String) -> Option<TerminalExitDetachLease> {
+        if !self.active.lock().unwrap().insert(terminal_id.clone()) {
+            return None;
+        }
+        Some(TerminalExitDetachLease { tracker: self.clone(), terminal_id })
+    }
+
+    fn finish(&self, terminal_id: &str) {
+        let mut active = self.active.lock().unwrap();
+        if active.remove(terminal_id) {
+            self.changed.notify_all();
+        }
+    }
+
+    #[cfg(test)]
+    fn contains(&self, terminal_id: &str) -> bool {
+        self.active.lock().unwrap().contains(terminal_id)
+    }
+
+    #[cfg(test)]
+    fn wait_until_finished(&self, terminal_id: &str, deadline: Instant) -> bool {
+        let mut active = self.active.lock().unwrap();
+        while active.contains(terminal_id) {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next, timeout) = self.changed.wait_timeout(active, remaining).unwrap();
+            active = next;
+            if timeout.timed_out() && active.contains(terminal_id) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+struct TerminalExitDetachLease {
+    tracker: Arc<TerminalExitDetachTracker>,
+    terminal_id: String,
+}
+
+impl Drop for TerminalExitDetachLease {
+    fn drop(&mut self) {
+        self.tracker.finish(&self.terminal_id);
+    }
+}
+
+#[derive(Default)]
 struct TerminalExitWaiters {
     next_id: AtomicU64,
     waiters: Mutex<HashMap<TerminalPublicId, HashMap<u64, Weak<ResourceWaitWake>>>>,
@@ -1718,7 +1777,7 @@ pub struct Mux {
     resource_creation_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
-    terminal_exit_detaches: Mutex<HashSet<String>>,
+    terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     /// Fences the interval between accepting a browser daemon-handoff request
     /// and queueing its acknowledgement. ClientRegistry consults this under
@@ -2066,7 +2125,7 @@ impl Mux {
             resource_creation_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
-            terminal_exit_detaches: Mutex::new(HashSet::new()),
+            terminal_exit_detaches: Arc::new(TerminalExitDetachTracker::default()),
             terminal_adoption_insert_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")
                     .ok()
@@ -4131,6 +4190,73 @@ impl Mux {
         self.state.lock().unwrap().terminal_catalog.get(terminal_id).map(|surface| surface.id)
     }
 
+    pub(crate) fn resource_selectors_for_pane(
+        &self,
+        pane: Option<PaneId>,
+    ) -> anyhow::Result<crate::ResourceSelectors> {
+        let state = self.state.lock().unwrap();
+        let pane = pane.or_else(|| state.active_pane()).context("session has no active pane")?;
+        let (workspace_index, screen_index) =
+            state.screen_of(pane).context("pane has no containing screen")?;
+        let workspace = &state.workspaces[workspace_index];
+        let screen = &workspace.screens[screen_index];
+        let pane =
+            state.resource_indexes.pane_ids.get(&pane).context("pane has no public identity")?;
+        Ok(crate::ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            workspace: Some(workspace.public_id.to_string()),
+            screen: Some(screen.public_id.to_string()),
+            pane: Some(pane.to_string()),
+            ..crate::ResourceSelectors::default()
+        })
+    }
+
+    pub(crate) fn resource_selectors_for_workspace(
+        &self,
+        workspace: Option<WorkspaceId>,
+    ) -> anyhow::Result<crate::ResourceSelectors> {
+        let state = self.state.lock().unwrap();
+        let workspace = match workspace {
+            Some(workspace) => state
+                .workspaces
+                .iter()
+                .find(|candidate| candidate.id == workspace)
+                .context("workspace does not exist")?,
+            None => state
+                .workspaces
+                .get(state.active_workspace)
+                .context("session has no active workspace")?,
+        };
+        Ok(crate::ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            workspace: Some(workspace.public_id.to_string()),
+            ..crate::ResourceSelectors::default()
+        })
+    }
+
+    pub(crate) fn resource_surface_for_created_path(
+        &self,
+        result: &Value,
+    ) -> anyhow::Result<SurfaceId> {
+        let tab = TabPublicId::parse(
+            result["tab_id"]
+                .as_str()
+                .context("creation receipt omitted its tab identity")?
+                .to_string(),
+        )
+        .map_err(anyhow::Error::new)?;
+        self.state
+            .lock()
+            .unwrap()
+            .resource_indexes
+            .tabs
+            .get(&tab)
+            .copied()
+            .context("created tab no longer has a live view")
+    }
+
     /// Read only public terminal completion state. The host UUID and
     /// incarnation remain an internal fencing mechanism and never enter the
     /// resource API result.
@@ -5870,6 +5996,11 @@ impl Mux {
         rows: u16,
         completion: Option<SurfaceResizeCompletion>,
     ) -> anyhow::Result<ControlClientResize> {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        anyhow::ensure!(
+            !self.control_clients.surface_attachment_is_retired_without_current(client, id),
+            "surface {id} attachment was superseded"
+        );
         let requested = clamp_terminal_size(cols, rows);
         let terminal_runtime = self.surface(id).and_then(|surface| surface.terminal_runtime_id());
         // Keep registration, report insertion, and reducer insertion in one
@@ -5877,17 +6008,67 @@ impl Mux {
         // leases through this same sizing lock after dropping the registry lock.
         let mut sizing = self.client_sizing.lock().unwrap();
         let attached = self.control_clients.record_size(client, id, requested.0, requested.1)?;
-        let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
-        let result = self.resize_surface_for_client_locked(
+        let result = self.resize_surface_for_prepared_control_client_locked(
             &mut sizing,
-            Some(&attached_clients),
-            ClientResizeRequest { surface: id, client, requested, completion, terminal_runtime },
+            PreparedControlClientResize {
+                request: ClientResizeRequest {
+                    surface: id,
+                    client,
+                    requested,
+                    completion,
+                    terminal_runtime,
+                },
+                attached: attached.clone(),
+            },
         );
         if result.is_err()
             && let Some((_, _, _, previous)) = attached.as_ref()
         {
             self.control_clients.restore_size(client, id, *previous);
         }
+        drop(sizing);
+        result
+    }
+
+    pub(crate) fn resize_surface_for_prepared_control_client_with_completion(
+        &self,
+        id: SurfaceId,
+        client: u64,
+        requested: (u16, u16),
+        completion: Option<SurfaceResizeCompletion>,
+        attached: Option<crate::server::ClientSizeUpdate>,
+    ) -> anyhow::Result<ControlClientResize> {
+        let requested = clamp_terminal_size(requested.0, requested.1);
+        let terminal_runtime = self.surface(id).and_then(|surface| surface.terminal_runtime_id());
+        let mut sizing = self.client_sizing.lock().unwrap();
+        let result = self.resize_surface_for_prepared_control_client_locked(
+            &mut sizing,
+            PreparedControlClientResize {
+                request: ClientResizeRequest {
+                    surface: id,
+                    client,
+                    requested,
+                    completion,
+                    terminal_runtime,
+                },
+                attached,
+            },
+        );
+        drop(sizing);
+        result
+    }
+
+    fn resize_surface_for_prepared_control_client_locked(
+        &self,
+        sizing: &mut ClientSizingState,
+        prepared: PreparedControlClientResize,
+    ) -> anyhow::Result<ControlClientResize> {
+        let PreparedControlClientResize { request, attached } = prepared;
+        let id = request.surface;
+        let client = request.client;
+        let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
+        let result =
+            self.resize_surface_for_client_locked(sizing, Some(&attached_clients), request);
         let result = result?;
         self.control_clients.set_report_order(client, id, result.2.applied_report_order);
         sizing.note_applied_report(
@@ -5897,7 +6078,6 @@ impl Mux {
             result.1,
             result.2.applied_report_order,
         );
-        drop(sizing);
         Ok(ControlClientResize {
             accepted: result.0.0,
             reservation_id: result.0.1,
@@ -11640,21 +11820,21 @@ impl Mux {
         surface: &Arc<Surface>,
         reason: &'static str,
     ) {
-        if !self.terminal_exit_detaches.lock().unwrap().insert(terminal_id.clone()) {
+        let Some(detach_lease) = self.terminal_exit_detaches.acquire(terminal_id.clone()) else {
             return;
-        }
+        };
         let cleanup_id = terminal_id.clone();
         let mux = Arc::downgrade(self);
         let surface = Arc::downgrade(surface);
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-exit-detach-{terminal_id}"))
             .spawn(move || {
+                let _detach_lease = detach_lease;
                 let mut delay = Duration::from_millis(25);
                 loop {
                     std::thread::sleep(delay);
                     let Some(mux) = mux.upgrade() else { break };
                     if mux.shutting_down.load(Ordering::Acquire) {
-                        mux.terminal_exit_detaches.lock().unwrap().remove(&terminal_id);
                         break;
                     }
                     let reconciled = surface
@@ -11664,10 +11844,7 @@ impl Mux {
                             mux.detach_exited_terminal_topology(&terminal_id).map(drop)
                         });
                     match reconciled {
-                        Ok(()) => {
-                            mux.terminal_exit_detaches.lock().unwrap().remove(&terminal_id);
-                            break;
-                        }
+                        Ok(()) => break,
                         Err(error) => {
                             mux.emit(MuxEvent::Status(format!(
                                 "could not detach exited terminal {terminal_id}: {error}"
@@ -11678,7 +11855,6 @@ impl Mux {
                 }
             });
         if let Err(error) = spawn_result {
-            self.terminal_exit_detaches.lock().unwrap().remove(&cleanup_id);
             self.emit(MuxEvent::Status(format!(
                 "could not schedule exited terminal {cleanup_id} detach: {error}"
             )));
@@ -18961,6 +19137,81 @@ mod tests {
         mux.shutdown();
     }
 
+    #[test]
+    fn receipted_creation_atomically_uses_client_local_fallback_and_replays_it() {
+        let mux = test_mux();
+        let fallback = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let fallback_pane = mux.with_state(|state| state.pane_of(fallback.id).unwrap());
+        let primary = mux.split(fallback_pane, SplitDir::Right, Some((40, 24))).unwrap();
+        let primary_pane = mux.with_state(|state| state.pane_of(primary.id).unwrap());
+        let candidates = vec![
+            mux.resource_selectors_for_pane(Some(primary_pane)).unwrap(),
+            mux.resource_selectors_for_pane(Some(fallback_pane)).unwrap(),
+        ];
+        assert!(mux.close_pane(primary_pane).unwrap());
+
+        let mutation = WorkspaceMutation::new(
+            "selector-fallback-receipt-00000001".to_string(),
+            "selector-fallback-test".to_string(),
+        )
+        .unwrap();
+        let fields = Map::from_iter([
+            ("direction".to_string(), serde_json::json!("right")),
+            ("cols".to_string(), serde_json::json!(40)),
+            ("rows".to_string(), serde_json::json!(24)),
+        ]);
+        let (created, replayed) = mux
+            .receipted_surface_creation(
+                ResourceOperation::PaneSplit,
+                candidates.clone(),
+                fields.clone(),
+                &mutation,
+            )
+            .unwrap();
+        assert!(!replayed);
+        assert_ne!(created, fallback.id);
+        assert!(mux.with_state(|state| state.pane_of(created).is_some()));
+
+        assert!(mux.close_pane(fallback_pane).unwrap());
+        let (replayed_surface, replayed) = mux
+            .receipted_surface_creation(ResourceOperation::PaneSplit, candidates, fields, &mutation)
+            .unwrap();
+        assert!(replayed);
+        assert_eq!(replayed_surface, created);
+        mux.close_surface(created).unwrap();
+    }
+
+    #[test]
+    fn receipted_creation_rejects_fallbacks_that_drop_to_backend_selection() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        let pane_selectors = mux.resource_selectors_for_pane(Some(pane)).unwrap();
+        let session_selectors = crate::ResourceSelectors {
+            machine: pane_selectors.machine.clone(),
+            session: pane_selectors.session.clone(),
+            ..crate::ResourceSelectors::default()
+        };
+        let mutation = WorkspaceMutation::new(
+            "selector-fallback-receipt-00000002".to_string(),
+            "selector-fallback-test".to_string(),
+        )
+        .unwrap();
+
+        let error = mux
+            .receipted_surface_creation(
+                ResourceOperation::TabCreateTerminal,
+                vec![pane_selectors, session_selectors],
+                Map::new(),
+                &mutation,
+            )
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "creation selector fallbacks require pane selectors");
+        assert_eq!(mux.with_state(|state| state.surfaces.len()), 1);
+        mux.close_surface(surface.id).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn failed_atomic_exit_retries_without_exposing_partial_topology() {
@@ -19000,7 +19251,7 @@ mod tests {
                 .lifecycle,
             TerminalLifecycle::Running
         );
-        assert!(mux.terminal_exit_detaches.lock().unwrap().contains(TERMINAL));
+        assert!(mux.terminal_exit_detaches.contains(TERMINAL));
 
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
@@ -19017,7 +19268,10 @@ mod tests {
             mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal.lifecycle,
             TerminalLifecycle::Exited
         );
-        assert!(!mux.terminal_exit_detaches.lock().unwrap().contains(TERMINAL));
+        assert!(
+            mux.terminal_exit_detaches.wait_until_finished(TERMINAL, deadline),
+            "terminal detach retry worker did not release its ownership"
+        );
     }
 
     #[test]

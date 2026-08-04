@@ -8,9 +8,9 @@ use cmux_tui_core::resource::{
     WorkspacePublicId,
 };
 use cmux_tui_core::{
-    BrowserSource, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Node, PaneId, ScreenId,
-    SplitDir, SplitId, State, SurfaceId, SurfaceKind, SurfaceNotification, WorkspaceId,
-    assign_short_ids,
+    BrowserSource, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Node, PaneId,
+    ResourceSelectors, ScreenId, SplitDir, SplitId, State, SurfaceId, SurfaceKind,
+    SurfaceNotification, WorkspaceId, assign_short_ids,
 };
 use serde_json::Value;
 
@@ -26,7 +26,7 @@ pub struct TreeView {
 #[derive(Clone)]
 pub struct WorkspaceView {
     pub id: WorkspaceId,
-    pub public_id: Option<WorkspacePublicId>,
+    pub resource_id: Option<WorkspacePublicId>,
     #[allow(dead_code)]
     pub key: String,
     pub short_id: String,
@@ -38,7 +38,7 @@ pub struct WorkspaceView {
 #[derive(Clone)]
 pub struct ScreenView {
     pub id: ScreenId,
-    pub public_id: Option<ScreenPublicId>,
+    pub resource_id: Option<ScreenPublicId>,
     #[allow(dead_code)]
     pub short_id: String,
     /// User-assigned name, if any (display falls back to the number).
@@ -54,7 +54,7 @@ pub struct ScreenView {
 #[derive(Clone)]
 pub struct PaneView {
     pub id: PaneId,
-    pub public_id: Option<PanePublicId>,
+    pub resource_id: Option<PanePublicId>,
     pub short_id: String,
     /// User-assigned name, if any (display falls back to the active
     /// tab's title).
@@ -87,6 +87,46 @@ pub struct TabNotificationView {
 }
 
 impl TreeView {
+    pub fn session_resource_selectors() -> ResourceSelectors {
+        ResourceSelectors {
+            machine: Some("current".to_string()),
+            session: Some("current".to_string()),
+            ..ResourceSelectors::default()
+        }
+    }
+
+    pub fn resource_selectors_for_workspace(
+        &self,
+        workspace: Option<WorkspaceId>,
+    ) -> Option<ResourceSelectors> {
+        let workspace = match workspace {
+            Some(id) => self.workspaces.iter().find(|workspace| workspace.id == id)?,
+            None => self.active_workspace()?,
+        };
+        Some(ResourceSelectors {
+            workspace: Some(workspace.resource_id.as_ref()?.to_string()),
+            ..Self::session_resource_selectors()
+        })
+    }
+
+    pub fn resource_selectors_for_pane(&self, pane: Option<PaneId>) -> Option<ResourceSelectors> {
+        let pane = pane.or_else(|| self.active_screen().map(|screen| screen.active_pane))?;
+        for workspace in &self.workspaces {
+            for screen in &workspace.screens {
+                let Some(pane) = screen.panes.iter().find(|candidate| candidate.id == pane) else {
+                    continue;
+                };
+                return Some(ResourceSelectors {
+                    workspace: Some(workspace.resource_id.as_ref()?.to_string()),
+                    screen: Some(screen.resource_id.as_ref()?.to_string()),
+                    pane: Some(pane.resource_id.as_ref()?.to_string()),
+                    ..Self::session_resource_selectors()
+                });
+            }
+        }
+        None
+    }
+
     pub fn active_workspace(&self) -> Option<&WorkspaceView> {
         self.workspaces.get(self.active_workspace)
     }
@@ -247,7 +287,7 @@ pub fn tree_from_state_with_notifications(
     let pane_view = |id: &PaneId| {
         state.panes.get(id).map(|pane| PaneView {
             id: pane.id,
-            public_id: Some(pane.public_id.clone()),
+            resource_id: Some(pane.public_id.clone()),
             short_id: short_ids.get(&pane.id).cloned().unwrap_or_default(),
             name: pane.name.clone(),
             active_tab: pane.active_tab,
@@ -306,7 +346,7 @@ pub fn tree_from_state_with_notifications(
             .iter()
             .map(|ws| WorkspaceView {
                 id: ws.id,
-                public_id: Some(ws.public_id.clone()),
+                resource_id: Some(ws.public_id.clone()),
                 key: ws.key.clone(),
                 short_id: short_ids.get(&ws.id).cloned().unwrap_or_default(),
                 name: ws.name.clone(),
@@ -319,7 +359,7 @@ pub fn tree_from_state_with_notifications(
                         screen.root.pane_ids(&mut pane_ids);
                         ScreenView {
                             id: screen.id,
-                            public_id: Some(screen.public_id.clone()),
+                            resource_id: Some(screen.public_id.clone()),
                             short_id: short_ids.get(&screen.id).cloned().unwrap_or_default(),
                             name: screen.name.clone(),
                             layout: screen.root.clone(),
@@ -370,8 +410,8 @@ fn parse_layout(value: &Value) -> Option<Node> {
 fn parse_pane(value: &Value) -> Option<PaneView> {
     Some(PaneView {
         id: value.get("id")?.as_u64()?,
-        public_id: value
-            .get("pane_resource_id")
+        resource_id: value
+            .get("resource_id")
             .and_then(Value::as_str)
             .and_then(|value| PanePublicId::parse(value.to_string()).ok()),
         short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
@@ -465,8 +505,8 @@ pub(super) struct TreeCapabilities {
 fn parse_screen(value: &Value, capabilities: TreeCapabilities) -> Option<ScreenView> {
     Some(ScreenView {
         id: value.get("id")?.as_u64()?,
-        public_id: value
-            .get("screen_resource_id")
+        resource_id: value
+            .get("resource_id")
             .and_then(Value::as_str)
             .and_then(|value| ScreenPublicId::parse(value.to_string()).ok()),
         short_id: value.get("short_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
@@ -542,8 +582,8 @@ pub(super) fn parse_tree_with_capabilities(
         }
         let mut view = WorkspaceView {
             id: ws.get("id").and_then(|v| v.as_u64()).unwrap_or(0),
-            public_id: ws
-                .get("workspace_resource_id")
+            resource_id: ws
+                .get("resource_id")
                 .and_then(Value::as_str)
                 .and_then(|value| WorkspacePublicId::parse(value.to_string()).ok()),
             key: ws.get("key").and_then(Value::as_str).unwrap_or_default().to_string(),
@@ -576,7 +616,7 @@ mod tests {
     fn unnamed_screens_use_zero_based_display_names() {
         let screen = ScreenView {
             id: 1,
-            public_id: None,
+            resource_id: None,
             short_id: "1".to_string(),
             name: None,
             layout: Node::Leaf(1),
@@ -677,6 +717,41 @@ mod tests {
         let screen = &tree.workspaces[0].screens[0];
         assert_eq!(screen.viewport_base_width, None);
         assert!(screen.viewport_splits.is_empty());
+    }
+
+    #[test]
+    fn parser_builds_stable_resource_selectors_for_creation_receipts() {
+        let tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1,
+                "resource_id": "ws_00000000000000000000000000000001",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "resource_id": "screen_00000000000000000000000000000002",
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "resource_id": "pane_00000000000000000000000000000003",
+                        "tabs": []
+                    }]
+                }]
+            }]
+        }));
+
+        assert_eq!(
+            tree.resource_selectors_for_pane(Some(3)),
+            Some(ResourceSelectors {
+                machine: Some("current".to_string()),
+                session: Some("current".to_string()),
+                workspace: Some("ws_00000000000000000000000000000001".to_string()),
+                screen: Some("screen_00000000000000000000000000000002".to_string()),
+                pane: Some("pane_00000000000000000000000000000003".to_string()),
+                ..ResourceSelectors::default()
+            })
+        );
     }
 
     #[test]

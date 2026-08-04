@@ -92,6 +92,9 @@ pub const FRONTEND_JOURNAL_CAPABILITY: &str = "frontend-journal-v1";
 /// that stable security principal for receipts so a reconnect can safely
 /// replay a command instead of creating a second event.
 const LOCAL_JOURNAL_PRINCIPAL: &str = "cmux.local-owner";
+pub const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
+pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
+pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -114,6 +117,9 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         SESSION_JOURNAL_CAPABILITY,
         FRONTEND_JOURNAL_CAPABILITY,
+        VIEW_ATTACHMENT_LEASE_CAPABILITY,
+        CREATION_RECEIPTS_CAPABILITY,
+        CREATION_SELECTOR_FALLBACKS_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
@@ -483,6 +489,37 @@ struct Request {
 }
 
 #[derive(Deserialize)]
+struct CreateSurfaceWithReceiptRequest {
+    operation: String,
+    origin: String,
+    receipt: String,
+    /// Stable public identities captured by the frontend before the request
+    /// is sent. Numeric targets remain a legacy fallback.
+    #[serde(default)]
+    selectors: Option<crate::ResourceSelectors>,
+    /// Ordered client-local selection continuations used only when the
+    /// primary creation target disappeared before the mutation committed.
+    #[serde(default)]
+    selector_fallbacks: Vec<crate::ResourceSelectors>,
+    #[serde(default)]
+    pane: Option<PaneId>,
+    #[serde(default)]
+    workspace: Option<WorkspaceId>,
+    #[serde(default)]
+    argv: Option<Vec<String>>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    width: Option<f32>,
+    #[serde(default)]
+    cols: Option<u16>,
+    #[serde(default)]
+    rows: Option<u16>,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
@@ -629,6 +666,10 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
+    /// Execute one destination-creating TUI action behind a durable receipt.
+    /// Repeating the same receipt with identical fields returns the exact
+    /// created view, so a lost response can never duplicate or retarget it.
+    CreateSurfaceWithReceipt(Box<CreateSurfaceWithReceiptRequest>),
     SendKey {
         surface: SurfaceId,
         keys: Vec<String>,
@@ -1046,10 +1087,23 @@ enum Command {
         cols: u16,
         rows: u16,
     },
+    /// Resize one negotiated view attachment. The opaque lease prevents a
+    /// delayed request from mutating a replacement view or another terminal.
+    ResizeAttachedView {
+        surface: SurfaceId,
+        lease: String,
+        cols: u16,
+        rows: u16,
+    },
     /// Stop this client from contributing a size for a surface while
     /// retaining its attach stream for cached rendering.
     ReleaseSurfaceSize {
         surface: SurfaceId,
+    },
+    /// Stop one negotiated view attachment from contributing geometry.
+    ReleaseAttachedViewSize {
+        surface: SurfaceId,
+        lease: String,
     },
     FocusPane {
         pane: PaneId,
@@ -1135,7 +1189,9 @@ impl Command {
             | Self::CloseSurface { surface }
             | Self::RenameSurface { surface, .. }
             | Self::ResizeSurface { surface, .. }
+            | Self::ResizeAttachedView { surface, .. }
             | Self::ReleaseSurfaceSize { surface }
+            | Self::ReleaseAttachedViewSize { surface, .. }
             | Self::AttachSurface { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::Notify { surface, .. }
@@ -3016,6 +3072,7 @@ impl MessageSink for QueuedSink {
 type ClientAnnouncement = (String, Option<String>, Option<String>);
 /// Size-report update payload: (changed, name, kind, previous size).
 pub(crate) type ClientSizeUpdate = (bool, Option<String>, Option<String>, Option<(u16, u16)>);
+const RETIRED_VIEW_LEASE_CAPACITY: usize = 1024;
 
 #[derive(Clone, Copy)]
 enum ClientTransport {
@@ -3040,11 +3097,40 @@ struct AttachedSurface {
     size: Option<(u16, u16)>,
     committed_size: Option<(u16, u16)>,
     current_report_order: Option<u64>,
+    lease_by_stream: BTreeMap<u64, String>,
+    view_sizes: HashMap<String, Option<(u16, u16)>>,
+    geometry_lease: Option<String>,
 }
 
 struct DetachedSurface {
     final_stream: bool,
     rollback: Option<crate::mux::ClientSizeRollback>,
+    geometry_replacement: Option<Option<(u16, u16)>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ViewLeaseStatus {
+    Current { geometry_owner: bool },
+    Superseded,
+}
+
+enum ViewResizePreparation {
+    GeometryOwner { update: ClientSizeUpdate, previous_view_size: Option<(u16, u16)> },
+    Passive { changed: bool, name: Option<String>, kind: Option<String> },
+    Superseded,
+}
+
+enum ViewReleasePreparation {
+    GeometryOwner { changed: bool, name: Option<String>, kind: Option<String> },
+    Passive,
+    Superseded,
+}
+
+fn mint_view_lease() -> anyhow::Result<String> {
+    let mut bytes = [0_u8; 24];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| anyhow::anyhow!("could not mint view attachment lease: {error}"))?;
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
 struct ResourceClientStream {
@@ -3201,6 +3287,11 @@ struct ClientRecord {
     capabilities: HashSet<String>,
     browser_pointer_owner: Option<BrowserPointerOwner>,
     attached: BTreeMap<SurfaceId, AttachedSurface>,
+    view_leases: HashMap<String, (SurfaceId, u64)>,
+    retired_view_leases: HashMap<String, SurfaceId>,
+    retired_view_lease_order: VecDeque<String>,
+    retired_surfaces: HashSet<SurfaceId>,
+    retired_surface_order: VecDeque<SurfaceId>,
     resource_streams: HashMap<String, ResourceClientStream>,
     resource_waits: HashMap<ResourceRequestId, ResourceClientWait>,
     announced_attached: bool,
@@ -3258,6 +3349,11 @@ impl ClientRegistry {
                 capabilities: HashSet::new(),
                 browser_pointer_owner: None,
                 attached: BTreeMap::new(),
+                view_leases: HashMap::new(),
+                retired_view_leases: HashMap::new(),
+                retired_view_lease_order: VecDeque::new(),
+                retired_surfaces: HashSet::new(),
+                retired_surface_order: VecDeque::new(),
                 resource_streams: HashMap::new(),
                 resource_waits: HashMap::new(),
                 announced_attached: false,
@@ -3443,11 +3539,12 @@ impl ClientRegistry {
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {
-            record.capabilities.extend(
-                capabilities
-                    .into_iter()
-                    .filter(|capability| capability == GUARDED_BROWSER_POINTER_CAPABILITY),
-            );
+            record.capabilities.extend(capabilities.into_iter().filter(|capability| {
+                capability == GUARDED_BROWSER_POINTER_CAPABILITY
+                    || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
+                    || capability == CREATION_RECEIPTS_CAPABILITY
+                    || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
+            }));
         }
         Ok((record.name.clone(), record.kind.clone()))
     }
@@ -3521,6 +3618,22 @@ impl ClientRegistry {
             .clients
             .get(&client)
             .is_some_and(|record| record.capabilities.contains(capability))
+    }
+
+    fn surface_attachment_is_current_or_retired(&self, client: u64, surface: SurfaceId) -> bool {
+        self.state.lock().unwrap().clients.get(&client).is_some_and(|record| {
+            record.attached.contains_key(&surface) || record.retired_surfaces.contains(&surface)
+        })
+    }
+
+    pub(crate) fn surface_attachment_is_retired_without_current(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+    ) -> bool {
+        self.state.lock().unwrap().clients.get(&client).is_some_and(|record| {
+            !record.attached.contains_key(&surface) && record.retired_surfaces.contains(&surface)
+        })
     }
 
     fn browser_pointer_owner(&self, client: u64) -> anyhow::Result<BrowserPointerOwner> {
@@ -3613,15 +3726,36 @@ impl ClientRegistry {
         client: u64,
         surface: SurfaceId,
         stream: OutboundStream,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<String>> {
         let mut state = self.state.lock().unwrap();
         let record = state
             .clients
             .get_mut(&client)
             .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
-        record.attached.entry(surface).or_default().pending_streams.insert(stream.id, stream);
+        let lease = if record.capabilities.contains(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
+            let mut lease = mint_view_lease()?;
+            while record.view_leases.contains_key(&lease)
+                || record.retired_view_leases.contains_key(&lease)
+            {
+                lease = mint_view_lease()?;
+            }
+            Some(lease)
+        } else {
+            None
+        };
+        let stream_id = stream.id;
+        let attached = record.attached.entry(surface).or_default();
+        attached.pending_streams.insert(stream_id, stream);
+        if let Some(lease) = &lease {
+            attached.lease_by_stream.insert(stream_id, lease.clone());
+            attached.view_sizes.insert(lease.clone(), None);
+            if attached.geometry_lease.is_none() {
+                attached.geometry_lease = Some(lease.clone());
+            }
+            record.view_leases.insert(lease.clone(), (surface, stream_id));
+        }
         state.attached_by_surface.entry(surface).or_default().insert(client);
-        Ok(())
+        Ok(lease)
     }
 
     fn commit_surface(
@@ -3644,11 +3778,161 @@ impl ClientRegistry {
             anyhow::anyhow!("client {client} has no pending stream {stream} for surface {surface}")
         })?;
         attached.streams.insert(stream, outbound);
+        if let Some(lease) = attached.lease_by_stream.get(&stream)
+            && let Some(current) = record.view_leases.get_mut(lease)
+        {
+            current.1 = stream;
+        }
         if let Some(rollback) = rollback {
             attached.size_rollbacks.insert(stream, rollback);
         }
         attached.committed_size = attached.size;
         Ok(())
+    }
+
+    fn view_lease_status(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+    ) -> anyhow::Result<ViewLeaseStatus> {
+        let state = self.state.lock().unwrap();
+        let record =
+            state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        if let Some((lease_surface, _)) = record.view_leases.get(lease) {
+            anyhow::ensure!(
+                *lease_surface == surface,
+                "view attachment lease belongs to surface {lease_surface}, not {surface}"
+            );
+            let geometry_owner = record
+                .attached
+                .get(&surface)
+                .and_then(|attached| attached.geometry_lease.as_deref())
+                == Some(lease);
+            return Ok(ViewLeaseStatus::Current { geometry_owner });
+        }
+        if let Some(lease_surface) = record.retired_view_leases.get(lease) {
+            anyhow::ensure!(
+                *lease_surface == surface,
+                "retired view attachment lease belongs to surface {lease_surface}, not {surface}"
+            );
+            return Ok(ViewLeaseStatus::Superseded);
+        }
+        anyhow::bail!("invalid or foreign view attachment lease")
+    }
+
+    fn prepare_view_resize(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+        size: (u16, u16),
+    ) -> anyhow::Result<ViewResizePreparation> {
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let Some((lease_surface, _)) = record.view_leases.get(lease).copied() else {
+            if let Some(lease_surface) = record.retired_view_leases.get(lease) {
+                anyhow::ensure!(
+                    *lease_surface == surface,
+                    "retired view attachment lease belongs to surface {lease_surface}, not {surface}"
+                );
+                return Ok(ViewResizePreparation::Superseded);
+            }
+            anyhow::bail!("invalid or foreign view attachment lease");
+        };
+        anyhow::ensure!(
+            lease_surface == surface,
+            "view attachment lease belongs to surface {lease_surface}, not {surface}"
+        );
+        let Some(attached) = record.attached.get_mut(&surface) else {
+            return Ok(ViewResizePreparation::Superseded);
+        };
+        let previous_view_size = attached.view_sizes.get(lease).copied().flatten();
+        let changed = previous_view_size != Some(size);
+        attached.view_sizes.insert(lease.to_string(), Some(size));
+        if attached.geometry_lease.as_deref() != Some(lease) {
+            return Ok(ViewResizePreparation::Passive {
+                changed,
+                name: record.name.clone(),
+                kind: record.kind.clone(),
+            });
+        }
+        let previous = attached.size;
+        attached.size = Some(size);
+        if attached.pending_streams.is_empty() && !attached.streams.is_empty() {
+            attached.committed_size = attached.size;
+        }
+        Ok(ViewResizePreparation::GeometryOwner {
+            update: (previous != Some(size), record.name.clone(), record.kind.clone(), previous),
+            previous_view_size,
+        })
+    }
+
+    fn restore_view_size(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+        size: Option<(u16, u16)>,
+    ) {
+        let mut state = self.state.lock().unwrap();
+        let Some(record) = state.clients.get_mut(&client) else { return };
+        let Some(attached) = record.attached.get_mut(&surface) else { return };
+        if !attached.view_sizes.contains_key(lease) {
+            return;
+        }
+        attached.view_sizes.insert(lease.to_string(), size);
+        if attached.geometry_lease.as_deref() == Some(lease) {
+            attached.size = size;
+            if attached.pending_streams.is_empty() && !attached.streams.is_empty() {
+                attached.committed_size = size;
+            }
+        }
+    }
+
+    fn release_view_size(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+    ) -> anyhow::Result<ViewReleasePreparation> {
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let Some((lease_surface, _)) = record.view_leases.get(lease).copied() else {
+            if let Some(lease_surface) = record.retired_view_leases.get(lease) {
+                anyhow::ensure!(
+                    *lease_surface == surface,
+                    "retired view attachment lease belongs to surface {lease_surface}, not {surface}"
+                );
+                return Ok(ViewReleasePreparation::Superseded);
+            }
+            anyhow::bail!("invalid or foreign view attachment lease");
+        };
+        anyhow::ensure!(
+            lease_surface == surface,
+            "view attachment lease belongs to surface {lease_surface}, not {surface}"
+        );
+        let Some(attached) = record.attached.get_mut(&surface) else {
+            return Ok(ViewReleasePreparation::Superseded);
+        };
+        let changed = attached.view_sizes.insert(lease.to_string(), None).flatten().is_some();
+        if attached.geometry_lease.as_deref() != Some(lease) {
+            return Ok(ViewReleasePreparation::Passive);
+        }
+        attached.size = None;
+        attached.committed_size = None;
+        attached.current_report_order = None;
+        Ok(ViewReleasePreparation::GeometryOwner {
+            changed,
+            name: record.name.clone(),
+            kind: record.kind.clone(),
+        })
     }
 
     fn announce_attached(&self, client: u64) -> anyhow::Result<Option<ClientAnnouncement>> {
@@ -3668,16 +3952,52 @@ impl ClientRegistry {
         Ok(Some((record.transport.as_str().to_string(), record.name.clone(), record.kind.clone())))
     }
 
+    fn retain_retired_view_lease(record: &mut ClientRecord, lease: String, surface: SurfaceId) {
+        record.retired_view_leases.insert(lease.clone(), surface);
+        record.retired_view_lease_order.push_back(lease);
+        while record.retired_view_lease_order.len() > RETIRED_VIEW_LEASE_CAPACITY {
+            if let Some(expired) = record.retired_view_lease_order.pop_front() {
+                record.retired_view_leases.remove(&expired);
+            }
+        }
+    }
+
+    fn retain_retired_surface(record: &mut ClientRecord, surface: SurfaceId) {
+        if record.retired_surfaces.insert(surface) {
+            record.retired_surface_order.push_back(surface);
+        }
+        while record.retired_surface_order.len() > RETIRED_VIEW_LEASE_CAPACITY {
+            if let Some(expired) = record.retired_surface_order.pop_front() {
+                record.retired_surfaces.remove(&expired);
+            }
+        }
+    }
+
     fn detach_surface(&self, client: u64, surface: SurfaceId, stream: u64) -> DetachedSurface {
         let mut state = self.state.lock().unwrap();
         let Some(record) = state.clients.get_mut(&client) else {
-            return DetachedSurface { final_stream: false, rollback: None };
+            return DetachedSurface {
+                final_stream: false,
+                rollback: None,
+                geometry_replacement: None,
+            };
         };
         let Some(attached) = record.attached.get_mut(&surface) else {
-            return DetachedSurface { final_stream: false, rollback: None };
+            return DetachedSurface {
+                final_stream: false,
+                rollback: None,
+                geometry_replacement: None,
+            };
         };
         attached.streams.remove(&stream);
         attached.pending_streams.remove(&stream);
+        let removed_lease = attached.lease_by_stream.remove(&stream);
+        let removed_geometry_owner = removed_lease
+            .as_deref()
+            .is_some_and(|lease| attached.geometry_lease.as_deref() == Some(lease));
+        if let Some(lease) = &removed_lease {
+            attached.view_sizes.remove(lease);
+        }
         let rollback = attached.size_rollbacks.remove(&stream);
         if let Some(removed) = rollback {
             for remaining in attached.size_rollbacks.values_mut() {
@@ -3688,20 +4008,49 @@ impl ClientRegistry {
                 }
             }
         }
-        if attached.streams.is_empty() && attached.pending_streams.is_empty() {
+        let final_stream = attached.streams.is_empty() && attached.pending_streams.is_empty();
+        let geometry_replacement = if removed_geometry_owner && !final_stream {
+            let replacement = attached
+                .lease_by_stream
+                .iter()
+                .find(|(stream, _)| attached.streams.contains_key(stream))
+                .or_else(|| attached.lease_by_stream.iter().next())
+                .map(|(_, lease)| lease.clone());
+            attached.geometry_lease = replacement.clone();
+            let size = replacement
+                .as_ref()
+                .and_then(|lease| attached.view_sizes.get(lease).copied().flatten());
+            attached.size = size;
+            attached.committed_size = size;
+            attached.current_report_order = None;
+            Some(size)
+        } else {
+            None
+        };
+        let rollback = rollback.filter(|rollback| {
+            geometry_replacement.is_none()
+                && attached.current_report_order == Some(rollback.applied_report_order)
+        });
+        if let Some(lease) = removed_lease {
+            record.view_leases.remove(&lease);
+            Self::retain_retired_view_lease(record, lease, surface);
+        }
+        if final_stream {
             record.attached.remove(&surface);
+            Self::retain_retired_surface(record, surface);
             if let Some(clients) = state.attached_by_surface.get_mut(&surface) {
                 clients.remove(&client);
                 if clients.is_empty() {
                     state.attached_by_surface.remove(&surface);
                 }
             }
-            return DetachedSurface { final_stream: true, rollback };
+            return DetachedSurface {
+                final_stream: true,
+                rollback,
+                geometry_replacement: Some(None),
+            };
         }
-        let rollback = rollback.filter(|rollback| {
-            attached.current_report_order == Some(rollback.applied_report_order)
-        });
-        DetachedSurface { final_stream: false, rollback }
+        DetachedSurface { final_stream: false, rollback, geometry_replacement }
     }
 
     pub(crate) fn record_size(
@@ -5611,6 +5960,7 @@ fn resource_terminal_viewer_resize(
 }
 
 fn release_resource_viewer_size(mux: &Mux, client: u64, surface: SurfaceId) {
+    let _lifecycle = mux.lock_client_sizing_lifecycle();
     let attached = mux.control_clients.clear_size(client, surface);
     let had_report = mux.client_surface_size(surface, client).is_some();
     if had_report {
@@ -7815,6 +8165,186 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
     }
 }
 
+fn create_surface_with_receipt(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: CreateSurfaceWithReceiptRequest,
+) -> anyhow::Result<Value> {
+    let CreateSurfaceWithReceiptRequest {
+        operation,
+        origin,
+        receipt,
+        selectors: supplied_selectors,
+        selector_fallbacks,
+        pane,
+        workspace,
+        argv,
+        cwd,
+        url,
+        width,
+        cols,
+        rows,
+    } = request;
+    anyhow::ensure!(
+        mux.control_clients.supports_capability(client, CREATION_RECEIPTS_CAPABILITY),
+        "client did not negotiate {CREATION_RECEIPTS_CAPABILITY}"
+    );
+    let mutation = WorkspaceMutation::new(receipt, origin)?;
+    let size = paired_surface_size("create-surface-with-receipt", cols, rows)?;
+    let mut fields = serde_json::Map::new();
+    if let Some((cols, rows)) = size {
+        fields.insert("cols".to_string(), json!(cols));
+        fields.insert("rows".to_string(), json!(rows));
+    }
+    let session_selectors = || crate::ResourceSelectors {
+        machine: Some("current".to_string()),
+        session: Some("current".to_string()),
+        ..crate::ResourceSelectors::default()
+    };
+    let pane_selectors = |pane| {
+        supplied_selectors.clone().map(Ok).unwrap_or_else(|| mux.resource_selectors_for_pane(pane))
+    };
+    let workspace_selectors = |workspace| {
+        supplied_selectors
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| mux.resource_selectors_for_workspace(workspace))
+    };
+    let (resource_operation, selectors) = match operation.as_str() {
+        "new-tab" => {
+            anyhow::ensure!(
+                workspace.is_none() && argv.is_none() && url.is_none() && width.is_none()
+            );
+            if let Some(cwd) = cwd {
+                fields.insert("cwd".to_string(), json!(cwd));
+            }
+            (ResourceOperation::TabCreateTerminal, pane_selectors(pane)?)
+        }
+        "run-command" => {
+            anyhow::ensure!(workspace.is_none() && url.is_none() && width.is_none());
+            let argv = argv
+                .filter(|argv| !argv.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("run-command omitted argv"))?;
+            fields.insert("argv".to_string(), json!(argv));
+            if let Some(cwd) = cwd {
+                fields.insert("cwd".to_string(), json!(cwd));
+            }
+            (ResourceOperation::PaneRun, pane_selectors(pane)?)
+        }
+        "new-browser-tab" => {
+            anyhow::ensure!(
+                workspace.is_none() && argv.is_none() && cwd.is_none() && width.is_none()
+            );
+            let url = url
+                .filter(|url| !url.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("browser creation omitted URL"))?;
+            fields.insert("url".to_string(), json!(url));
+            if let Some((cols, rows)) = size {
+                let (cell_width, cell_height) = mux.cell_pixel_size();
+                fields.remove("cols");
+                fields.remove("rows");
+                fields
+                    .insert("width_px".to_string(), json!(u64::from(cols) * u64::from(cell_width)));
+                fields.insert(
+                    "height_px".to_string(),
+                    json!(u64::from(rows) * u64::from(cell_height)),
+                );
+            }
+            (ResourceOperation::TabCreateBrowser, pane_selectors(pane)?)
+        }
+        "new-workspace" => {
+            anyhow::ensure!(
+                pane.is_none()
+                    && workspace.is_none()
+                    && argv.is_none()
+                    && cwd.is_none()
+                    && url.is_none()
+                    && width.is_none()
+            );
+            fields.insert("initial_content".to_string(), json!("terminal"));
+            (
+                ResourceOperation::WorkspaceCreate,
+                supplied_selectors.clone().unwrap_or_else(session_selectors),
+            )
+        }
+        "new-screen" => {
+            anyhow::ensure!(
+                pane.is_none()
+                    && argv.is_none()
+                    && cwd.is_none()
+                    && url.is_none()
+                    && width.is_none()
+            );
+            (ResourceOperation::ScreenCreate, workspace_selectors(workspace)?)
+        }
+        "new-pane" => {
+            anyhow::ensure!(
+                workspace.is_none()
+                    && argv.is_none()
+                    && cwd.is_none()
+                    && url.is_none()
+                    && width.is_none()
+            );
+            (ResourceOperation::PaneCreate, pane_selectors(pane)?)
+        }
+        "new-pane-right" => {
+            anyhow::ensure!(
+                workspace.is_none() && argv.is_none() && cwd.is_none() && url.is_none()
+            );
+            let width =
+                width.ok_or_else(|| anyhow::anyhow!("new-pane-right omitted viewport width"))?;
+            fields.insert("direction".to_string(), json!("right"));
+            fields.insert("viewport_width".to_string(), json!(width));
+            (ResourceOperation::PaneSplit, pane_selectors(pane)?)
+        }
+        "split-right" | "split-down" => {
+            anyhow::ensure!(
+                workspace.is_none()
+                    && argv.is_none()
+                    && cwd.is_none()
+                    && url.is_none()
+                    && width.is_none()
+            );
+            fields.insert(
+                "direction".to_string(),
+                json!(if operation == "split-right" { "right" } else { "down" }),
+            );
+            (ResourceOperation::PaneSplit, pane_selectors(pane)?)
+        }
+        other => anyhow::bail!("unknown receipted creation operation {other:?}"),
+    };
+    anyhow::ensure!(selector_fallbacks.len() <= 7, "too many creation selector fallbacks");
+    anyhow::ensure!(
+        selector_fallbacks.is_empty()
+            || mux
+                .control_clients
+                .supports_capability(client, CREATION_SELECTOR_FALLBACKS_CAPABILITY),
+        "client did not negotiate {CREATION_SELECTOR_FALLBACKS_CAPABILITY}"
+    );
+    anyhow::ensure!(
+        selector_fallbacks.is_empty()
+            || matches!(
+                resource_operation,
+                ResourceOperation::PaneSplit
+                    | ResourceOperation::PaneCreate
+                    | ResourceOperation::PaneRun
+                    | ResourceOperation::TabCreateTerminal
+                    | ResourceOperation::TabCreateBrowser
+            ),
+        "selector fallbacks require a pane-targeted creation"
+    );
+    let mut selector_candidates = Vec::with_capacity(1 + selector_fallbacks.len());
+    selector_candidates.push(selectors);
+    for fallback in selector_fallbacks {
+        if !selector_candidates.contains(&fallback) {
+            selector_candidates.push(fallback);
+        }
+    }
+    let (surface, replayed) =
+        mux.receipted_surface_creation(resource_operation, selector_candidates, fields, &mutation)?;
+    Ok(json!({"surface": surface, "replayed": replayed}))
+}
+
 fn parse_split_dir(dir: &str) -> anyhow::Result<SplitDir> {
     match dir {
         "right" => Ok(SplitDir::Right),
@@ -7923,7 +8453,7 @@ fn pane_json(
     };
     json!({
         "id": id,
-        "pane_resource_id": pane.public_id,
+        "resource_id": state.resource_indexes.pane_ids.get(&id),
         "short_id": short_ids.get(&id).cloned().unwrap_or_default(),
         "name": pane.name,
         "active_tab": pane.active_tab,
@@ -7990,7 +8520,7 @@ fn screen_json(
     screen.root.pane_ids(&mut pane_ids);
     let mut value = json!({
         "id": screen.id,
-        "screen_resource_id": screen.public_id,
+        "resource_id": screen.public_id,
         "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
         "name": screen.name,
         "active": active,
@@ -8053,7 +8583,7 @@ fn workspace_json(
 ) -> Value {
     json!({
         "id": workspace.id,
-        "workspace_resource_id": workspace.public_id,
+        "resource_id": workspace.public_id,
         "key": workspace.key,
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
@@ -8197,6 +8727,10 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
     mux.surface(id)
         .filter(|surface| !surface.is_dead())
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
+}
+
+fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
+    mux.with_state(|state| state.pane_of(id).is_some())
 }
 
 fn resolve_workspace(
@@ -9009,6 +9543,7 @@ fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error)
 }
 
 struct MarkedClientAttach {
+    lease: Option<String>,
     size_rollback: Option<crate::mux::ClientSizeRollback>,
     client_changed: Option<(Option<String>, Option<String>)>,
     resize_reservation: Option<u64>,
@@ -9022,23 +9557,54 @@ fn mark_client_attached(
     stream: OutboundStream,
     initial_size: Option<(u16, u16)>,
 ) -> anyhow::Result<MarkedClientAttach> {
-    mux.control_clients.attach_surface(client, surface, stream.clone())?;
+    let lease = mux.control_clients.attach_surface(client, surface, stream.clone())?;
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
         let rows = rows.max(1);
         let is_browser = mux.surface(surface).is_some_and(|surface| surface.as_browser().is_some());
         let (completion_tx, completion_rx) = std::sync::mpsc::sync_channel(1);
-        let resize = mux
-            .resize_surface_for_control_client_with_completion(
+        let mut previous_view_size = None;
+        let resize = if let Some(lease) = lease.as_deref() {
+            let _lifecycle = mux.lock_client_sizing_lifecycle();
+            match mux.control_clients.prepare_view_resize(client, surface, lease, (cols, rows))? {
+                ViewResizePreparation::GeometryOwner { update, previous_view_size: previous } => {
+                    previous_view_size = Some(previous);
+                    mux.resize_surface_for_prepared_control_client_with_completion(
+                        surface,
+                        client,
+                        (cols, rows),
+                        is_browser.then_some(completion_tx),
+                        Some(update),
+                    )
+                }
+                ViewResizePreparation::Passive { changed, name, kind } => {
+                    return Ok(MarkedClientAttach {
+                        lease: Some(lease.to_string()),
+                        size_rollback: None,
+                        client_changed: changed.then_some((name, kind)),
+                        resize_reservation: None,
+                        resize_completion: None,
+                    });
+                }
+                ViewResizePreparation::Superseded => {
+                    anyhow::bail!("view attachment was superseded before initial sizing");
+                }
+            }
+        } else {
+            mux.resize_surface_for_control_client_with_completion(
                 surface,
                 client,
                 cols,
                 rows,
                 is_browser.then_some(completion_tx),
             )
-            .inspect_err(|_| {
-                cleanup_failed_attach(mux, client, surface, stream.id);
-            })?;
+        }
+        .inspect_err(|_| {
+            if let (Some(lease), Some(previous)) = (lease.as_deref(), previous_view_size) {
+                mux.control_clients.restore_view_size(client, surface, lease, previous);
+            }
+            cleanup_failed_attach(mux, client, surface, stream.id);
+        })?;
         let Some((changed, name, kind, _)) = resize.attached else {
             cleanup_failed_attach(mux, client, surface, stream.id);
             anyhow::bail!("client {client} is not attached to surface {surface}");
@@ -9067,6 +9633,7 @@ fn mark_client_attached(
             }
         }
         return Ok(MarkedClientAttach {
+            lease,
             size_rollback: Some(rollback),
             client_changed: changed.then_some((name, kind)),
             resize_reservation,
@@ -9074,6 +9641,7 @@ fn mark_client_attached(
         });
     }
     Ok(MarkedClientAttach {
+        lease,
         size_rollback: None,
         client_changed: None,
         resize_reservation: None,
@@ -9158,8 +9726,12 @@ fn commit_client_attach_and_start_worker(
 }
 
 fn cleanup_failed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
-    if mux.control_clients.detach_surface(client, surface, stream).final_stream {
+    let _lifecycle = mux.lock_client_sizing_lifecycle();
+    let detached = mux.control_clients.detach_surface(client, surface, stream);
+    if detached.final_stream {
         mux.remove_surface_size_client(surface, client);
+    } else if let Some(replacement) = detached.geometry_replacement {
+        apply_view_geometry_replacement(mux, client, surface, replacement);
     }
 }
 
@@ -9170,21 +9742,52 @@ fn rollback_failed_attach(
     stream: u64,
     size_rollback: Option<crate::mux::ClientSizeRollback>,
 ) {
-    let detached = mux.control_clients.detach_surface(client, surface, stream);
-    if let Some(size_rollback) = detached.rollback.or(size_rollback) {
-        mux.rollback_surface_size_client(surface, client, size_rollback);
-    }
+    let detached = {
+        let _lifecycle = mux.lock_client_sizing_lifecycle();
+        mux.control_clients.detach_surface(client, surface, stream)
+    };
     if detached.final_stream {
+        // A failed first attach is one transaction: restore the geometry that
+        // preceded its provisional size report before removing the report.
+        // Final-stream detach has no surviving view to promote, so the
+        // generic geometry-replacement marker must not suppress this rollback.
+        if let Some(size_rollback) = detached.rollback.or(size_rollback) {
+            mux.rollback_surface_size_client(surface, client, size_rollback);
+        }
         mux.remove_surface_size_client(surface, client);
+    } else if let Some(replacement) = detached.geometry_replacement {
+        apply_view_geometry_replacement(mux, client, surface, replacement);
+    } else if let Some(size_rollback) = detached.rollback.or(size_rollback) {
+        mux.rollback_surface_size_client(surface, client, size_rollback);
     }
 }
 
 fn detach_committed_attach(mux: &Mux, client: u64, surface: SurfaceId, stream: u64) {
+    let lifecycle = mux.lock_client_sizing_lifecycle();
     let detached = mux.control_clients.detach_surface(client, surface, stream);
     if detached.final_stream {
         mux.remove_surface_size_client(surface, client);
+    } else if let Some(replacement) = detached.geometry_replacement {
+        apply_view_geometry_replacement(mux, client, surface, replacement);
     } else if let Some(rollback) = detached.rollback {
+        // Rollback performs its own report-order-checked lifecycle transaction.
+        // Release this transaction first so legacy multi-stream clients cannot
+        // recursively acquire the non-reentrant lifecycle mutex.
+        drop(lifecycle);
         mux.rollback_surface_size_client(surface, client, rollback);
+    }
+}
+
+fn apply_view_geometry_replacement(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    replacement: Option<(u16, u16)>,
+) {
+    if let Some((cols, rows)) = replacement {
+        let _ = mux.resize_surface_for_client_with_reservation(surface, client, cols, rows);
+    } else {
+        mux.remove_surface_size_client(surface, client);
     }
 }
 
@@ -9602,6 +10205,9 @@ fn handle_command_with_cancellation(
                 "terminal_revision": result.terminal_revision,
                 "already_exited": already_exited,
             }))
+        }
+        Command::CreateSurfaceWithReceipt(request) => {
+            create_surface_with_receipt(mux, client, *request)
         }
         Command::SendKey { surface, keys } => {
             let surface = get_surface(mux, surface)?;
@@ -10385,22 +10991,132 @@ fn handle_command_with_cancellation(
         }
         Command::ResizeSurface { surface, cols, rows } => {
             let (cols, rows) = clamp_terminal_size(cols, rows);
+            if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
+                || (!surface_has_view_placement(mux, surface)
+                    && mux
+                        .control_clients
+                        .surface_attachment_is_current_or_retired(client, surface))
+            {
+                return Ok(json!({
+                    "accepted": false,
+                    "reservation_id": null,
+                    "outcome": "superseded",
+                }));
+            }
             // Every live control connection participates through the same
             // client-size reducer. An unattached one-shot resize is removed
             // when its connection closes, so it cannot bypass visible viewers.
             // Recording and reducing happen under the sizing lock so a
             // concurrent detach cannot finish cleanup before this lease exists.
-            let resize = mux
-                .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)?;
+            let resize = match mux
+                .resize_surface_for_control_client_with_reservation(surface, client, cols, rows)
+            {
+                Ok(resize) => resize,
+                Err(_)
+                    if mux
+                        .control_clients
+                        .surface_attachment_is_retired_without_current(client, surface)
+                        || (!surface_has_view_placement(mux, surface)
+                            && mux
+                                .control_clients
+                                .surface_attachment_is_current_or_retired(client, surface)) =>
+                {
+                    return Ok(json!({
+                        "accepted": false,
+                        "reservation_id": null,
+                        "outcome": "superseded",
+                    }));
+                }
+                Err(error) => return Err(error),
+            };
             if let Some((true, name, kind, _)) = resize.attached {
                 mux.emit(MuxEvent::ClientChanged { client, name, kind });
             }
             Ok(json!({
                 "accepted": resize.accepted,
                 "reservation_id": resize.reservation_id,
+                "outcome": "applied",
             }))
         }
+        Command::ResizeAttachedView { surface, lease, cols, rows } => {
+            let _lifecycle = mux.lock_client_sizing_lifecycle();
+            let (cols, rows) = clamp_terminal_size(cols, rows);
+            match mux.control_clients.view_lease_status(client, surface, &lease)? {
+                ViewLeaseStatus::Superseded => {
+                    return Ok(json!({
+                        "accepted": false,
+                        "reservation_id": null,
+                        "outcome": "superseded",
+                    }));
+                }
+                ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+                    return Ok(json!({
+                        "accepted": false,
+                        "reservation_id": null,
+                        "outcome": "superseded",
+                    }));
+                }
+                ViewLeaseStatus::Current { .. } => {}
+            }
+            match mux.control_clients.prepare_view_resize(client, surface, &lease, (cols, rows))? {
+                ViewResizePreparation::Superseded => Ok(json!({
+                    "accepted": false,
+                    "reservation_id": null,
+                    "outcome": "superseded",
+                })),
+                ViewResizePreparation::Passive { .. } => Ok(json!({
+                    "accepted": false,
+                    "reservation_id": null,
+                    "outcome": "passive",
+                })),
+                ViewResizePreparation::GeometryOwner { update, previous_view_size } => {
+                    let resize = match mux
+                        .resize_surface_for_prepared_control_client_with_completion(
+                            surface,
+                            client,
+                            (cols, rows),
+                            None,
+                            Some(update),
+                        ) {
+                        Ok(resize) => resize,
+                        Err(error) => {
+                            mux.control_clients.restore_view_size(
+                                client,
+                                surface,
+                                &lease,
+                                previous_view_size,
+                            );
+                            if !surface_has_view_placement(mux, surface) {
+                                return Ok(json!({
+                                    "accepted": false,
+                                    "reservation_id": null,
+                                    "outcome": "superseded",
+                                }));
+                            }
+                            return Err(error);
+                        }
+                    };
+                    if let Some((true, name, kind, _)) = resize.attached {
+                        mux.emit(MuxEvent::ClientChanged { client, name, kind });
+                    }
+                    Ok(json!({
+                        "accepted": resize.accepted,
+                        "reservation_id": resize.reservation_id,
+                        "outcome": "applied",
+                    }))
+                }
+            }
+        }
         Command::ReleaseSurfaceSize { surface } => {
+            let _lifecycle = mux.lock_client_sizing_lifecycle();
+            if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
+                || (!surface_has_view_placement(mux, surface)
+                    && mux
+                        .control_clients
+                        .surface_attachment_is_current_or_retired(client, surface))
+            {
+                return Ok(json!({"outcome": "superseded"}));
+            }
             let attached = mux.control_clients.clear_size(client, surface);
             let had_report = mux.client_surface_size(surface, client).is_some();
             if had_report {
@@ -10414,7 +11130,33 @@ fn handle_command_with_cancellation(
                     .unwrap_or((None, None));
                 mux.emit(MuxEvent::ClientChanged { client, name, kind });
             }
-            Ok(json!({}))
+            Ok(json!({"outcome": "applied"}))
+        }
+        Command::ReleaseAttachedViewSize { surface, lease } => {
+            let _lifecycle = mux.lock_client_sizing_lifecycle();
+            match mux.control_clients.view_lease_status(client, surface, &lease)? {
+                ViewLeaseStatus::Superseded => {
+                    return Ok(json!({"outcome": "superseded"}));
+                }
+                ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+                    return Ok(json!({"outcome": "superseded"}));
+                }
+                ViewLeaseStatus::Current { .. } => {}
+            }
+            match mux.control_clients.release_view_size(client, surface, &lease)? {
+                ViewReleasePreparation::Superseded => Ok(json!({"outcome": "superseded"})),
+                ViewReleasePreparation::Passive => Ok(json!({"outcome": "passive"})),
+                ViewReleasePreparation::GeometryOwner { changed, name, kind } => {
+                    let had_report = mux.client_surface_size(surface, client).is_some();
+                    if had_report {
+                        mux.remove_surface_size_client(surface, client);
+                    }
+                    if changed || had_report {
+                        mux.emit(MuxEvent::ClientChanged { client, name, kind });
+                    }
+                    Ok(json!({"outcome": "applied"}))
+                }
+            }
         }
         Command::FocusPane { pane } => {
             if !mux.focus_pane(pane) {
@@ -10547,7 +11289,7 @@ fn handle_command_with_cancellation(
             };
             if render_mode {
                 require_pty(&surface)?;
-                let MarkedClientAttach { size_rollback, client_changed, .. } =
+                let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
                     mark_client_attached(
                         mux,
                         client,
@@ -10660,10 +11402,11 @@ fn handle_command_with_cancellation(
                         size_rollback,
                     },
                 )?;
-                return Ok(json!({}));
+                return Ok(lease.map_or_else(|| json!({}), |lease| json!({"lease": lease})));
             }
             if surface.kind() == SurfaceKind::Browser {
                 let MarkedClientAttach {
+                    lease,
                     size_rollback,
                     client_changed,
                     resize_reservation,
@@ -10811,15 +11554,16 @@ fn handle_command_with_cancellation(
                         size_rollback,
                     },
                 )?;
-                return Ok(json!({}));
+                return Ok(lease.map_or_else(|| json!({}), |lease| json!({"lease": lease})));
             }
-            let MarkedClientAttach { size_rollback, client_changed, .. } = mark_client_attached(
-                mux,
-                client,
-                surface_id,
-                outbound_stream.clone(),
-                initial_size,
-            )?;
+            let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
+                mark_client_attached(
+                    mux,
+                    client,
+                    surface_id,
+                    outbound_stream.clone(),
+                    initial_size,
+                )?;
             let attach = match surface.attach_stream_with_lifecycle(lifecycle.clone()) {
                 Ok(attach) => attach,
                 Err(error) => {
@@ -10923,7 +11667,7 @@ fn handle_command_with_cancellation(
                     size_rollback,
                 },
             )?;
-            Ok(json!({}))
+            Ok(lease.map_or_else(|| json!({}), |lease| json!({"lease": lease})))
         }
     }
 }
@@ -11193,6 +11937,44 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         })
+    }
+
+    struct TestSocket {
+        directory: PathBuf,
+        path: PathBuf,
+    }
+
+    impl TestSocket {
+        fn new(label: &str) -> Self {
+            static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+            let directory = loop {
+                let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                let candidate = PathBuf::from("/tmp")
+                    .join(format!("cmux-tui-test-{}-{sequence}", std::process::id()));
+                match std::fs::create_dir(&candidate) {
+                    Ok(()) => break candidate,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create private test socket directory: {error}"),
+                }
+            };
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+                    .expect("secure private test socket directory");
+            }
+            let path = directory.join(format!("{label}.sock"));
+            assert!(unix_socket_path_fits(&path));
+            Self { directory, path }
+        }
+    }
+
+    impl Drop for TestSocket {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_dir(&self.directory);
+        }
     }
 
     fn render_protocol_frame(
@@ -14925,14 +15707,9 @@ mod tests {
 
     #[test]
     fn shutting_down_a_writer_clone_unblocks_the_reader() {
-        let path = std::env::temp_dir().join(format!(
-            "cmux-tui-shutdown-{}-{}.sock",
-            std::process::id(),
-            Instant::now().elapsed().as_nanos()
-        ));
-        let _ = std::fs::remove_file(&path);
-        let listener = transport::listen(&path).unwrap();
-        let _client = transport::connect(&path).unwrap();
+        let socket = TestSocket::new("shutdown");
+        let listener = transport::listen(&socket.path).unwrap();
+        let _client = transport::connect(&socket.path).unwrap();
         let mut reader = listener.accept().unwrap();
         let writer = reader.try_clone_box().unwrap();
         let (done, finished) = std::sync::mpsc::channel();
@@ -14944,7 +15721,6 @@ mod tests {
         writer.shutdown(Shutdown::Both).unwrap();
         assert_eq!(finished.recv_timeout(Duration::from_secs(1)).unwrap().unwrap(), 0);
         read_thread.join().unwrap();
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -14955,17 +15731,9 @@ mod tests {
             term.vt_write(b"history\r\n\x1b]133;A\x07prompt> \x1b[31");
         });
 
-        let nonce =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
-            "write-eof-drain-{}-{}.sock",
-            std::process::id(),
-            nonce % 1_000_000_000
-        ));
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let _ = std::fs::remove_file(&path);
-        let listener = transport::listen(&path).unwrap();
-        let mut client = transport::connect(&path).unwrap();
+        let socket = TestSocket::new("write-eof-drain");
+        let listener = transport::listen(&socket.path).unwrap();
+        let mut client = transport::connect(&socket.path).unwrap();
         let server = listener.accept().unwrap();
         let server_mux = mux.clone();
         let handler = std::thread::spawn(move || handle_connection(server_mux, server));
@@ -15002,7 +15770,6 @@ mod tests {
         }
         let _ = reader.get_ref().shutdown(Shutdown::Both);
         handler.join().unwrap();
-        let _ = std::fs::remove_file(path);
         mux.close_surface(surface.id).unwrap();
 
         let response_ids =
@@ -15041,17 +15808,9 @@ mod tests {
             term.vt_write(b"\x1b]133;A\x07prompt> \x1b[31");
         });
 
-        let nonce =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
-            "clear-concurrency-{}-{}.sock",
-            std::process::id(),
-            nonce % 1_000_000_000
-        ));
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let _ = std::fs::remove_file(&path);
-        let listener = transport::listen(&path).unwrap();
-        let mut client = transport::connect(&path).unwrap();
+        let socket = TestSocket::new("clear-concurrency");
+        let listener = transport::listen(&socket.path).unwrap();
+        let mut client = transport::connect(&socket.path).unwrap();
         let server = listener.accept().unwrap();
         let server_mux = mux.clone();
         let handler = std::thread::spawn(move || handle_connection(server_mux, server));
@@ -15086,7 +15845,6 @@ mod tests {
         }
         let _ = reader.get_ref().shutdown(Shutdown::Both);
         handler.join().unwrap();
-        let _ = std::fs::remove_file(path);
         mux.close_surface(blocked.id).unwrap();
         mux.close_surface(unrelated.id).unwrap();
 
@@ -15116,17 +15874,9 @@ mod tests {
             term.vt_write(b"\x1b]133;A\x07prompt> \x1b[31");
         });
 
-        let nonce =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let path = platform::fallback_runtime_dir().join(format!(
-            "clear-lifecycle-{}-{}.sock",
-            std::process::id(),
-            nonce % 1_000_000_000
-        ));
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let _ = std::fs::remove_file(&path);
-        let listener = transport::listen(&path).unwrap();
-        let mut client = transport::connect(&path).unwrap();
+        let socket = TestSocket::new("clear-lifecycle");
+        let listener = transport::listen(&socket.path).unwrap();
+        let mut client = transport::connect(&socket.path).unwrap();
         let server = listener.accept().unwrap();
         let server_mux = mux;
         let handler = std::thread::spawn(move || handle_connection(server_mux, server));
@@ -15164,7 +15914,6 @@ mod tests {
         }
         let _ = reader.get_ref().shutdown(Shutdown::Both);
         handler.join().unwrap();
-        let _ = std::fs::remove_file(path);
 
         assert!(
             early_response.is_none(),
@@ -16143,7 +16892,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_tree_exposes_the_public_terminal_id_for_startup_attach() {
+    fn workspace_tree_exposes_stable_resource_ids_for_startup_attach_and_receipts() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
         let expected = match &surface.resource_identity().unwrap().content_id {
@@ -16153,6 +16902,13 @@ mod tests {
 
         let tree = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
 
+        for (path, prefix) in [
+            (&tree["workspaces"][0]["resource_id"], "ws_"),
+            (&tree["workspaces"][0]["screens"][0]["resource_id"], "screen_"),
+            (&tree["workspaces"][0]["screens"][0]["panes"][0]["resource_id"], "pane_"),
+        ] {
+            assert!(path.as_str().is_some_and(|id| id.starts_with(prefix)));
+        }
         assert_eq!(
             tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["terminal_resource_id"],
             expected
@@ -16316,6 +17072,170 @@ mod tests {
     }
 
     #[test]
+    fn creation_receipts_replay_exact_surfaces_across_control_connections() {
+        let mux = test_mux();
+        let original = mux.new_workspace(None, Some((100, 30))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(original.id).unwrap());
+        let selectors = mux.resource_selectors_for_pane(Some(pane)).unwrap();
+        let receipt = "split-receipt-00000001";
+        let origin = "tui-receipt-test";
+        let command = |direction: &str| {
+            Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+                operation: format!("split-{direction}"),
+                origin: origin.to_string(),
+                receipt: receipt.to_string(),
+                selectors: Some(selectors.clone()),
+                selector_fallbacks: Vec::new(),
+                pane: Some(pane),
+                workspace: None,
+                argv: None,
+                cwd: None,
+                url: None,
+                width: None,
+                cols: Some(100),
+                rows: Some(30),
+            }))
+        };
+        let register = |writer: &MessageWriter| {
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            handle_command(
+                &mux,
+                client,
+                Command::SetClientInfo {
+                    name: Some("receipt test".to_string()),
+                    kind: Some("tui".to_string()),
+                    capabilities: Some(vec![CREATION_RECEIPTS_CAPABILITY.to_string()]),
+                },
+                writer,
+            )
+            .unwrap();
+            client
+        };
+
+        let first_writer = test_writer();
+        let first_client = register(&first_writer);
+        let first = handle_command(&mux, first_client, command("right"), &first_writer).unwrap();
+        assert_eq!(first["replayed"], false);
+        let created = first["surface"].as_u64().expect("creation omitted its surface");
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["panes"].as_array().unwrap().len(), 2);
+
+        let replay = handle_command(&mux, first_client, command("right"), &first_writer).unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["surface"].as_u64(), Some(created));
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["panes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(mux.close_pane(pane).unwrap());
+        assert!(mux.with_state(|state| state.pane_of(created).is_some()));
+        assert!(disconnect_client(&mux, first_client, true));
+
+        let second_writer = test_writer();
+        let second_client = register(&second_writer);
+        let reconnect_replay =
+            handle_command(&mux, second_client, command("right"), &second_writer).unwrap();
+        assert_eq!(reconnect_replay["replayed"], true);
+        assert_eq!(reconnect_replay["surface"].as_u64(), Some(created));
+
+        let conflict =
+            handle_command(&mux, second_client, command("down"), &second_writer).unwrap_err();
+        assert!(
+            conflict.to_string().contains("bound to different semantics"),
+            "unexpected receipt conflict: {conflict:#}"
+        );
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["panes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(disconnect_client(&mux, second_client, true));
+        mux.shutdown();
+    }
+
+    #[test]
+    fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
+        let mux = test_mux();
+        let fallback = mux.new_workspace(None, Some((100, 30))).unwrap();
+        let fallback_pane = mux.with_state(|state| state.pane_of(fallback.id).unwrap());
+        let primary = mux.split(fallback_pane, SplitDir::Right, Some((50, 30))).unwrap();
+        let primary_pane = mux.with_state(|state| state.pane_of(primary.id).unwrap());
+        let primary_selectors = mux.resource_selectors_for_pane(Some(primary_pane)).unwrap();
+        let fallback_selectors = mux.resource_selectors_for_pane(Some(fallback_pane)).unwrap();
+        assert!(mux.close_pane(primary_pane).unwrap());
+
+        let command = || {
+            Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+                operation: "split-right".to_string(),
+                origin: "tui-fallback-test".to_string(),
+                receipt: "split-fallback-receipt-00000001".to_string(),
+                selectors: Some(primary_selectors.clone()),
+                selector_fallbacks: vec![fallback_selectors.clone()],
+                pane: Some(primary_pane),
+                workspace: None,
+                argv: None,
+                cwd: None,
+                url: None,
+                width: None,
+                cols: Some(50),
+                rows: Some(30),
+            }))
+        };
+        let register = |capabilities: &[&str], writer: &MessageWriter| {
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            handle_command(
+                &mux,
+                client,
+                Command::SetClientInfo {
+                    name: Some("fallback receipt test".to_string()),
+                    kind: Some("tui".to_string()),
+                    capabilities: Some(
+                        capabilities.iter().map(|capability| (*capability).to_string()).collect(),
+                    ),
+                },
+                writer,
+            )
+            .unwrap();
+            client
+        };
+
+        let old_writer = test_writer();
+        let old_client = register(&[CREATION_RECEIPTS_CAPABILITY], &old_writer);
+        let error = handle_command(&mux, old_client, command(), &old_writer).unwrap_err();
+        assert!(error.to_string().contains(CREATION_SELECTOR_FALLBACKS_CAPABILITY));
+        assert!(disconnect_client(&mux, old_client, true));
+
+        let first_writer = test_writer();
+        let first_client = register(
+            &[CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY],
+            &first_writer,
+        );
+        let first = handle_command(&mux, first_client, command(), &first_writer).unwrap();
+        assert_eq!(first["replayed"], false);
+        let created = first["surface"].as_u64().expect("creation omitted its surface");
+        assert!(mux.with_state(|state| state.pane_of(created).is_some()));
+        assert!(mux.close_pane(fallback_pane).unwrap());
+        assert!(disconnect_client(&mux, first_client, true));
+
+        let replay_writer = test_writer();
+        let replay_client = register(
+            &[CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY],
+            &replay_writer,
+        );
+        let replay = handle_command(&mux, replay_client, command(), &replay_writer).unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["surface"].as_u64(), Some(created));
+        assert!(disconnect_client(&mux, replay_client, true));
+        mux.close_surface(created).unwrap();
+        mux.shutdown();
+    }
+
+    #[test]
     fn attached_terminal_resizes_are_view_local_until_geometry_is_claimed() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -16378,6 +17298,31 @@ mod tests {
         };
         assert_eq!(recorded_size(first), (100, 30));
         assert_eq!(recorded_size(second), (132, 44));
+    }
+
+    #[test]
+    fn resize_after_attached_surface_close_is_superseded() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let surface_id = surface.id;
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let stream = writer.start_stream(&attach_overflow_json(surface_id)).unwrap();
+        mux.control_clients.attach_surface(client, surface_id, stream.clone()).unwrap();
+        mux.control_clients.commit_surface(client, surface_id, stream.id, None).unwrap();
+
+        mux.close_surface(surface_id).unwrap();
+        let response = handle_command(
+            &mux,
+            client,
+            Command::ResizeSurface { surface: surface_id, cols: 100, rows: 30 },
+            &writer,
+        )
+        .expect("a late resize from a retired attachment is not an unknown-surface error");
+
+        assert_eq!(response["outcome"], "superseded");
+        assert_eq!(response["accepted"], false);
+        mux.shutdown();
     }
 
     #[test]
@@ -17736,6 +18681,328 @@ mod tests {
     }
 
     #[test]
+    fn attachment_leases_fence_independent_same_connection_views() {
+        let mux = test_mux();
+        let surface = sizing_browser(&mux, (120, 40));
+        let other_surface = mux.new_workspace(None, Some((90, 30))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: Some("lease test".to_string()),
+                kind: Some("tui".to_string()),
+                capabilities: Some(vec![VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
+            },
+            &writer,
+        )
+        .unwrap();
+
+        let first_stream = writer.start_stream(&json!({"event": "first"})).unwrap();
+        let first_attach =
+            mark_client_attached(&mux, client, surface.id, first_stream.clone(), Some((100, 30)))
+                .unwrap();
+        let first_lease = first_attach.lease.clone().expect("negotiated attach omitted its lease");
+        settle_marked_browser_resize(&surface, &first_attach);
+        commit_client_attach(
+            &mux,
+            client,
+            surface.id,
+            first_stream.id,
+            first_attach.client_changed,
+            first_attach.size_rollback,
+        )
+        .unwrap();
+
+        let second_stream = writer.start_stream(&json!({"event": "second"})).unwrap();
+        let second_attach =
+            mark_client_attached(&mux, client, surface.id, second_stream.clone(), Some((80, 24)))
+                .unwrap();
+        let second_lease =
+            second_attach.lease.clone().expect("second negotiated attach omitted its lease");
+        settle_marked_browser_resize(&surface, &second_attach);
+        commit_client_attach(
+            &mux,
+            client,
+            surface.id,
+            second_stream.id,
+            second_attach.client_changed,
+            second_attach.size_rollback,
+        )
+        .unwrap();
+
+        assert_ne!(first_lease, second_lease);
+        assert_eq!(surface.size(), (100, 30));
+        let owner = handle_command(
+            &mux,
+            client,
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: first_lease.clone(),
+                cols: 110,
+                rows: 35,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(owner["outcome"], "applied");
+        settle_browser_size(&surface, (110, 35));
+
+        let passive = handle_command(
+            &mux,
+            client,
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: second_lease.clone(),
+                cols: 70,
+                rows: 20,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(passive["outcome"], "passive");
+        assert_eq!(surface.size(), (110, 35));
+
+        let geometry_before_invalid_requests = surface.size();
+        for (request_client, request_surface, lease, expected) in [
+            (client, surface.id, "fabricated".to_string(), "invalid or foreign"),
+            (client, other_surface.id, second_lease.clone(), "belongs to surface"),
+        ] {
+            let error = handle_command(
+                &mux,
+                request_client,
+                Command::ResizeAttachedView { surface: request_surface, lease, cols: 40, rows: 10 },
+                &writer,
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains(expected), "unexpected lease error: {error:#}");
+        }
+        let foreign_writer = test_writer();
+        let foreign = mux.control_clients.register(ClientTransport::Unix, foreign_writer.clone());
+        let foreign_error = handle_command(
+            &mux,
+            foreign,
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: second_lease.clone(),
+                cols: 40,
+                rows: 10,
+            },
+            &foreign_writer,
+        )
+        .unwrap_err();
+        assert!(foreign_error.to_string().contains("invalid or foreign"));
+        assert_eq!(surface.size(), geometry_before_invalid_requests);
+
+        detach_committed_attach(&mux, client, surface.id, first_stream.id);
+        settle_browser_size(&surface, (70, 20));
+        for command in [
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: first_lease.clone(),
+                cols: 60,
+                rows: 18,
+            },
+            Command::ReleaseAttachedViewSize { surface: surface.id, lease: first_lease.clone() },
+        ] {
+            let retired = handle_command(&mux, client, command, &writer).unwrap();
+            assert_eq!(retired["outcome"], "superseded");
+        }
+
+        let promoted = handle_command(
+            &mux,
+            client,
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: second_lease.clone(),
+                cols: 90,
+                rows: 28,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(promoted["outcome"], "applied");
+        settle_browser_size(&surface, (90, 28));
+
+        detach_committed_attach(&mux, client, surface.id, second_stream.id);
+        let retired = handle_command(
+            &mux,
+            client,
+            Command::ResizeAttachedView {
+                surface: surface.id,
+                lease: second_lease.clone(),
+                cols: 55,
+                rows: 16,
+            },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(retired["outcome"], "superseded");
+
+        let third_stream = writer.start_stream(&json!({"event": "third"})).unwrap();
+        let third_attach =
+            mark_client_attached(&mux, client, surface.id, third_stream.clone(), Some((75, 22)))
+                .unwrap();
+        let third_lease = third_attach.lease.clone().expect("reattach omitted its lease");
+        settle_marked_browser_resize(&surface, &third_attach);
+        commit_client_attach(
+            &mux,
+            client,
+            surface.id,
+            third_stream.id,
+            third_attach.client_changed,
+            third_attach.size_rollback,
+        )
+        .unwrap();
+        assert_ne!(third_lease, first_lease);
+        assert_ne!(third_lease, second_lease);
+        let old_after_reattach = handle_command(
+            &mux,
+            client,
+            Command::ReleaseAttachedViewSize { surface: surface.id, lease: second_lease },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(old_after_reattach["outcome"], "superseded");
+        assert_eq!(surface.size(), (75, 22));
+
+        assert!(disconnect_client(&mux, client, true));
+        assert!(mux.surface(surface.id).is_some(), "disconnect must not close the terminal");
+        assert!(!mux.control_clients.contains(client));
+        assert!(disconnect_client(&mux, foreign, true));
+    }
+
+    #[test]
+    fn attachment_resize_waits_for_detach_lifecycle_and_becomes_superseded() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((100, 30))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: Some("lease fence".to_string()),
+                kind: Some("tui".to_string()),
+                capabilities: Some(vec![VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
+            },
+            &writer,
+        )
+        .unwrap();
+        let stream = writer.start_stream(&json!({"event": "fence"})).unwrap();
+        let surface_id = surface.id;
+        let lease = mux
+            .control_clients
+            .attach_surface(client, surface_id, stream.clone())
+            .unwrap()
+            .expect("negotiated attach omitted its lease");
+        mux.control_clients.commit_surface(client, surface_id, stream.id, None).unwrap();
+
+        let lifecycle = mux.lock_client_sizing_lifecycle();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let resize_mux = mux.clone();
+        let resize_writer = writer;
+        let resize = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let result = handle_command(
+                &resize_mux,
+                client,
+                Command::ResizeAttachedView { surface: surface_id, lease, cols: 80, rows: 24 },
+                &resize_writer,
+            );
+            result_tx.send(result).unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            result_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+            "resize crossed the held detach lifecycle fence"
+        );
+
+        let detached = mux.control_clients.detach_surface(client, surface_id, stream.id);
+        assert!(detached.final_stream);
+        mux.remove_surface_size_client(surface_id, client);
+        drop(lifecycle);
+
+        let result = result_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        assert_eq!(result["outcome"], "superseded");
+        resize.join().unwrap();
+        assert_eq!(mux.client_surface_size(surface_id, client), None);
+        assert!(disconnect_client(&mux, client, true));
+        mux.close_surface(surface_id).unwrap();
+    }
+
+    #[test]
+    fn terminal_view_leases_converge_after_500_rapid_attach_resize_detach_cycles() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: Some("lease stress".to_string()),
+                kind: Some("tui".to_string()),
+                capabilities: Some(vec![VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
+            },
+            &writer,
+        )
+        .unwrap();
+
+        for cycle in 0_u16..500 {
+            let initial = (80 + cycle % 31, 20 + cycle % 13);
+            let resized = (90 + cycle % 23, 24 + cycle % 11);
+            let stream = writer.start_stream(&json!({"event": "stress", "cycle": cycle})).unwrap();
+            let marked =
+                mark_client_attached(&mux, client, surface.id, stream.clone(), Some(initial))
+                    .unwrap();
+            let lease = marked.lease.clone().expect("negotiated attach omitted its lease");
+            commit_client_attach(
+                &mux,
+                client,
+                surface.id,
+                stream.id,
+                marked.client_changed,
+                marked.size_rollback,
+            )
+            .unwrap();
+            let resize = handle_command(
+                &mux,
+                client,
+                Command::ResizeAttachedView {
+                    surface: surface.id,
+                    lease: lease.clone(),
+                    cols: resized.0,
+                    rows: resized.1,
+                },
+                &writer,
+            )
+            .unwrap();
+            assert_eq!(resize["outcome"], "applied", "cycle {cycle}");
+
+            detach_committed_attach(&mux, client, surface.id, stream.id);
+            let stale = handle_command(
+                &mux,
+                client,
+                Command::ResizeAttachedView { surface: surface.id, lease, cols: 40, rows: 10 },
+                &writer,
+            )
+            .unwrap();
+            assert_eq!(stale["outcome"], "superseded", "cycle {cycle}");
+            assert_eq!(mux.client_surface_size(surface.id, client), None, "cycle {cycle}");
+        }
+
+        assert!(mux.surface(surface.id).is_some());
+        assert!(
+            mux.control_clients.list_json(client)[0]["attached"].as_array().unwrap().is_empty()
+        );
+        assert!(disconnect_client(&mux, client, true));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn failed_attach_cleanup_releases_stream_and_size_lease() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, Some((120, 40))).unwrap();
@@ -18149,6 +19416,10 @@ mod tests {
             CLEAR_HISTORY_KEY_CAPABILITY,
             "surface-subscribe-filter",
             SESSION_JOURNAL_CAPABILITY,
+            FRONTEND_JOURNAL_CAPABILITY,
+            VIEW_ATTACHMENT_LEASE_CAPABILITY,
+            CREATION_RECEIPTS_CAPABILITY,
+            CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));

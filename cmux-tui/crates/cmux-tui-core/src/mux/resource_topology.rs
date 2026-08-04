@@ -414,6 +414,58 @@ impl Mux {
         Ok(commit)
     }
 
+    /// Execute a destination-creating frontend action through the durable
+    /// correlation engine. Selector candidates are ordered by the frontend's
+    /// local focus projection; the first still-live path is captured in the
+    /// durable intent while holding the creation lifecycle fence.
+    pub fn receipted_surface_creation(
+        self: &Arc<Self>,
+        operation: ResourceOperation,
+        selector_candidates: Vec<ResourceSelectors>,
+        fields: Map<String, Value>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<(SurfaceId, bool)> {
+        anyhow::ensure!(
+            is_created_path_operation(operation),
+            "{} is not a destination-creating operation",
+            operation_name(operation)
+        );
+        anyhow::ensure!(
+            !selector_candidates.is_empty() && selector_candidates.len() <= 8,
+            "creation requires between one and eight selector candidates"
+        );
+        if selector_candidates.len() > 1 {
+            anyhow::ensure!(
+                selector_candidates
+                    .iter()
+                    .all(|selectors| effect_target(operation, selectors) == ResourceTarget::Pane),
+                "creation selector fallbacks require pane selectors"
+            );
+        }
+        let fingerprint_fields = semantic_creation_fields(&fields);
+        let mut fingerprint = json!({
+            "operation": operation_name(operation),
+            "selectors": &selector_candidates[0],
+            "fields": fingerprint_fields,
+        });
+        if selector_candidates.len() > 1 {
+            fingerprint["selector_fallbacks"] = json!(&selector_candidates[1..]);
+        }
+        let commit = self.resource_correlated_creation_operation(
+            operation,
+            selector_candidates,
+            fields,
+            None,
+            mutation,
+            &fingerprint,
+        )?;
+        if !commit.replayed {
+            self.emit_resource_topology_legacy_events(operation, &commit);
+        }
+        let surface = self.resource_surface_for_created_path(&commit.result)?;
+        Ok((surface, commit.replayed))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn commit_resource_topology_operation(
         self: &Arc<Self>,
@@ -1775,7 +1827,7 @@ impl Mux {
         if is_created_path_operation(operation) {
             return self.resource_correlated_creation_operation(
                 operation,
-                selectors,
+                vec![selectors],
                 fields,
                 expected_revision,
                 mutation,
@@ -2568,7 +2620,7 @@ impl Mux {
     fn resource_correlated_creation_operation(
         self: &Arc<Self>,
         operation: ResourceOperation,
-        selectors: ResourceSelectors,
+        selector_candidates: Vec<ResourceSelectors>,
         fields: Map<String, Value>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
@@ -2593,9 +2645,15 @@ impl Mux {
                 preparation
             } else {
                 let mut state = self.state.lock().unwrap();
+                let selectors = self.select_live_creation_selectors(
+                    operation,
+                    &selector_candidates,
+                    &state,
+                    &registry,
+                )?;
                 let intent = self.resource_topology_effect_intent(
                     operation,
-                    &selectors,
+                    selectors,
                     &effect_fields,
                     ResourceEffectIntentContext {
                         expected_revision,
@@ -2672,6 +2730,27 @@ impl Mux {
                 }
             }
         }
+    }
+
+    fn select_live_creation_selectors<'a>(
+        &self,
+        operation: ResourceOperation,
+        candidates: &'a [ResourceSelectors],
+        state: &State,
+        registry: &WorkspaceRegistry,
+    ) -> anyhow::Result<&'a ResourceSelectors> {
+        let mut last_missing = None;
+        for selectors in candidates {
+            let target = effect_target(operation, selectors);
+            match self.resolve_resource_path_in_state(state, registry, target, selectors) {
+                Ok(_) => return Ok(selectors),
+                Err(error) if error.code == "selector.not_found" => last_missing = Some(error),
+                Err(error) => return Err(anyhow::Error::new(error)),
+            }
+        }
+        Err(anyhow::Error::new(
+            last_missing.expect("non-empty candidates either resolve or report missing"),
+        ))
     }
 
     fn settle_resource_creation(

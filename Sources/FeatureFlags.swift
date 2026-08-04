@@ -139,7 +139,7 @@ final class CmuxFeatureFlags {
                 title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Connect button"),
                 flagDescription: String(
                     localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows Mobile Connect entrypoints that open the iPhone pairing workspace."
+                    defaultValue: "Shows the Mobile Connect button in the sidebar footer."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
             ),

@@ -21,8 +21,9 @@ use cmux_tui_core::{
     SurfaceKind, TerminalPointerSnapshot,
     platform::transport,
     server::{
-        CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
-        ProtocolKeyInput,
+        CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
+        CREATION_SELECTOR_FALLBACKS_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
+        ProtocolKeyInput, VIEW_ATTACHMENT_LEASE_CAPABILITY,
     },
 };
 use cmux_tui_machine_protocol::BearerToken;
@@ -1317,6 +1318,7 @@ pub struct RemoteSession {
     attach_progress: AtomicU64,
     shutdown: AtomicBool,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
+    surface_leases: Mutex<HashMap<SurfaceId, String>>,
     retired_surfaces: Mutex<HashSet<SurfaceId>>,
     tree: Mutex<RemoteTreeCache>,
     tree_refresh: Mutex<()>,
@@ -1569,6 +1571,10 @@ impl RemoteSession {
         self.surfaces.lock().unwrap().get(&id).cloned()
     }
 
+    pub(super) fn attachment_lease(&self, id: SurfaceId) -> Option<String> {
+        self.surface_leases.lock().unwrap().get(&id).cloned()
+    }
+
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
         Self::connect_path(path, true)
     }
@@ -1641,6 +1647,7 @@ impl RemoteSession {
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
+            surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),
@@ -1701,8 +1708,21 @@ impl RemoteSession {
         if let Some(hostname) = local_hostname() {
             client_info["name"] = json!(hostname);
         }
+        let mut negotiated = Vec::new();
         if self.supports_capability(GUARDED_BROWSER_POINTER_CAPABILITY) {
-            client_info["capabilities"] = json!([GUARDED_BROWSER_POINTER_CAPABILITY]);
+            negotiated.push(GUARDED_BROWSER_POINTER_CAPABILITY);
+        }
+        if self.supports_capability(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
+            negotiated.push(VIEW_ATTACHMENT_LEASE_CAPABILITY);
+        }
+        if self.supports_capability(CREATION_RECEIPTS_CAPABILITY) {
+            negotiated.push(CREATION_RECEIPTS_CAPABILITY);
+        }
+        if self.supports_capability(CREATION_SELECTOR_FALLBACKS_CAPABILITY) {
+            negotiated.push(CREATION_SELECTOR_FALLBACKS_CAPABILITY);
+        }
+        if !negotiated.is_empty() {
+            client_info["capabilities"] = json!(negotiated);
         }
         self.request(client_info)?;
         if subscribe {
@@ -2967,25 +2987,41 @@ impl RemoteSession {
             request["rows"] = json!(rows);
         }
         // The vt-state event that follows fills the mirror.
-        if let Err(error) = self.request_with_deadline(request, RequestDeadline::Attach) {
-            {
-                let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
-                let mut surfaces = self.surfaces.lock().unwrap();
-                if surfaces.get(&id).is_some_and(|current| Arc::ptr_eq(current, &surface)) {
-                    surfaces.remove(&id);
+        let response = match self.request_with_deadline(request, RequestDeadline::Attach) {
+            Ok(response) => response,
+            Err(error) => {
+                {
+                    let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+                    let mut surfaces = self.surfaces.lock().unwrap();
+                    if surfaces.get(&id).is_some_and(|current| Arc::ptr_eq(current, &surface)) {
+                        surfaces.remove(&id);
+                    }
                 }
+                if error
+                    .downcast_ref::<RemoteRequestError>()
+                    .is_some_and(RemoteRequestError::is_timeout)
+                {
+                    // The server registers the stream before it queues the attach
+                    // response. Closing the connection is the only protocol-level
+                    // cancellation that guarantees a timed-out stream is released.
+                    self.disconnect_transport();
+                }
+                return Err(error);
             }
-            if error
-                .downcast_ref::<RemoteRequestError>()
-                .is_some_and(RemoteRequestError::is_timeout)
-            {
-                // The server registers the stream before it queues the attach
-                // response. Closing the connection is the only protocol-level
-                // cancellation that guarantees a timed-out stream is released.
+        };
+        let attachment_lease = if self.supports_capability(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
+            let Some(lease) = response.get("lease").and_then(Value::as_str) else {
+                let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+                self.surfaces.lock().unwrap().remove(&id);
                 self.disconnect_transport();
-            }
-            return Err(error);
-        }
+                anyhow::bail!(
+                    "server advertised {VIEW_ATTACHMENT_LEASE_CAPABILITY} but attach returned no lease"
+                );
+            };
+            Some(lease.to_string())
+        } else {
+            None
+        };
         {
             // Retirement can race the remote response. Commit the completed
             // attach only while this exact mirror is still the live entry.
@@ -2998,6 +3034,9 @@ impl RemoteSession {
                 .is_some_and(|candidate| Arc::ptr_eq(candidate, &surface));
             if self.retired_surfaces.lock().unwrap().contains(&id) || !current {
                 return Ok(None);
+            }
+            if let Some(lease) = attachment_lease {
+                self.surface_leases.lock().unwrap().insert(id, lease);
             }
             if let Some(size) = initial_size {
                 surface.set_reported_size(size);
@@ -3014,6 +3053,7 @@ impl RemoteSession {
         let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         self.retired_surfaces.lock().unwrap().insert(id);
         self.surfaces.lock().unwrap().remove(&id);
+        self.surface_leases.lock().unwrap().remove(&id);
         self.surface_overflow_recovery.lock().unwrap().remove(&id);
     }
 
@@ -3432,6 +3472,7 @@ fn test_session_with_writer(
         attach_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
         surfaces: Mutex::new(HashMap::new()),
+        surface_leases: Mutex::new(HashMap::new()),
         retired_surfaces: Mutex::new(HashSet::new()),
         tree: Mutex::new(RemoteTreeCache::default()),
         tree_refresh: Mutex::new(()),
@@ -4313,6 +4354,7 @@ mod tests {
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
+            surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
             tree_refresh: Mutex::new(()),

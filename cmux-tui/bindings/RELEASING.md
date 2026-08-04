@@ -4,13 +4,17 @@ The public release set contains four language packages at one version:
 
 | Language | Distribution | Release ref |
 | --- | --- | --- |
-| Rust | crates.io `cmux-client` and `cmux-sidebar` | `cmux-sdk-vX.Y.Z` |
+| Rust | crates.io `cmux-sdk` and `cmux-sidebar` | `cmux-sdk-vX.Y.Z` |
 | Go | module `github.com/manaflow-ai/cmux/cmux-tui/bindings/go` | `cmux-tui/bindings/go/vX.Y.Z` |
 | TypeScript | npm `cmux-sdk` | `cmux-sdk-vX.Y.Z` |
 | Python | PyPI `cmux-sdk` with import package `cmux` | `cmux-sdk-vX.Y.Z` |
 
 Java, C++, and Zig remain source bindings with package and conformance tests.
 Their metadata does not gate these four releases.
+
+The historical crates.io `cmux-client` 0.1.x package is outside this release
+set. Do not publish new versions from this repository; Rust users install
+`cmux-sdk` and import crate `cmux`.
 
 ## CLI package isolation
 
@@ -87,7 +91,9 @@ authorization is valid for the same workflow run attempt and 15 minutes.
   requires npm user `lawrencechen` to remain the sole package maintainer. A
   **Re-run all jobs** after an ambiguous bootstrap result. The credential-free
   preflight skips publication only for the exact tested archive with matching
-  provenance.
+  provenance. After the stable SDK is live, remove the obsolete `sdk` dist-tag
+  from the CLI package with `npm dist-tag rm cmux sdk`; `latest` remains the
+  `npx cmux` launcher.
 - PyPI: create the `pypi-bootstrap` GitHub environment, then add a pending
   trusted publisher for project `cmux-sdk`, repository `manaflow-ai/cmux`,
   workflow `sdk-bootstrap-pypi.yml`, environment `pypi-bootstrap`. Dispatch it
@@ -117,20 +123,23 @@ authorization is valid for the same workflow run attempt and 15 minutes.
   ```
 
   A credential-free job installs Cargo 1.95.0, tests the source-controlled
-  minimal crate, and uploads its packaged archive. A fresh job checks the
-  archive digest and allowlisted paths, reconstructs the original manifest,
-  and proves Cargo reproduces the exact bytes. Its final step receives the
-  temporary token and publishes with package verification disabled, so crate
-  code never runs beside the credential. A separate credential-free job
-  reconciles the uploaded bytes after an ambiguous result. The bootstrap uses
-  `cmux-sidebar` `0.0.0-bootstrap.0` and preserves stable version `1.0.0`.
+  minimal `cmux-sdk` and `cmux-sidebar` crates, and uploads their packaged
+  archives. Fresh serialized jobs check each archive digest and allowlisted
+  paths, reconstruct the original manifest, and prove Cargo reproduces the
+  exact bytes. Their final steps receive the temporary token and publish with
+  package verification disabled, so crate code never runs beside the
+  credential. Credential-free decisions keep reconciled crates out of the
+  protected publishing environment. A separate credential-free matrix
+  reconciles both uploads after every publish attempt, even when the other
+  crate's job fails. The bootstrap uses `0.0.0-bootstrap.0` for both crates
+  and preserves stable version `1.0.0`.
   **Re-run all jobs** after a failed or ambiguous bootstrap result so the
   credential-free registry preflight decides whether another publish is safe.
-  Configure a trusted publisher for `cmux-sidebar` with owner `manaflow-ai`,
-  repository `cmux`, workflow `sdk-release-cut.yml`, environment `crates-io`.
-  On its crate settings page, enable **Require trusted publishing for all new
-  versions**. Configure the same publisher for existing crate `cmux-client` and
-  enable **Require trusted publishing for all new versions** there too. Then
+  Configure trusted publishers for `cmux-sdk` and `cmux-sidebar` with owner
+  `manaflow-ai`, repository `cmux`, workflow `sdk-release-cut.yml`, environment
+  `crates-io`. On the `cmux-sdk` crate settings page, enable **Require trusted
+  publishing for all new versions**. Enable **Require trusted publishing for
+  all new versions** on `cmux-sidebar` too. Then
   revoke the crates.io API token and delete the `CARGO_BOOTSTRAP_TOKEN`
   environment secret. Both crates must have the sole crates.io owner
   `lawrencecchen` (owner ID `431397`) and repository
@@ -139,17 +148,17 @@ authorization is valid for the same workflow run attempt and 15 minutes.
 - Go: no registry account is required. The module becomes available when the
   path-prefixed semantic-version tag is pushed.
 
-The npm and PyPI `cmux-sdk` names and the crates.io `cmux-sidebar` name were
-unclaimed when this release path was created. Reserve npm with
-`sdk-bootstrap-npm.yml`, PyPI with `sdk-bootstrap-pypi.yml`, and crates.io with
-`sdk-bootstrap-crates.yml` before cutting release tags. The release preflight
-verifies the npm bootstrap provenance, the attested PyPI `0.0.0a0` bootstrap,
-and exact crates.io ownership plus trusted-publishing-only state.
+The npm and PyPI `cmux-sdk` names and the crates.io `cmux-sdk` and
+`cmux-sidebar` names were unclaimed when this release path was created. Reserve
+npm with `sdk-bootstrap-npm.yml`, PyPI with `sdk-bootstrap-pypi.yml`, and both
+crates with `sdk-bootstrap-crates.yml` before cutting release tags. The release
+preflight verifies the npm bootstrap provenance, the attested PyPI `0.0.0a0`
+bootstrap, and exact crates.io ownership plus trusted-publishing-only state.
 
 ## Cutting a release
 
-1. Update the TypeScript, Python, `cmux-client`, and `cmux-sidebar` manifests to
-   the same `X.Y.Z`. Keep the `cmux-sidebar` dependency on `cmux-client` pinned
+1. Update the TypeScript, Python, `cmux-sdk`, and `cmux-sidebar` manifests to
+   the same `X.Y.Z`. Keep the `cmux-sidebar` dependency on `cmux-sdk` pinned
    to that exact version. Go follows the path-prefixed tag. The version must be
    greater than every existing `cmux-sdk-v*` release. Major versions are limited
    to 0 and 1 until the Go module path adopts a `/vN` suffix.
@@ -190,7 +199,7 @@ private key.
 
 The Rust preflight uses the same pinned Cargo version as publishing. It packages
 both crates and tests the extracted `cmux-sidebar` archive with the extracted
-unpublished `cmux-client` archive patched in locally before any tag is created.
+unpublished `cmux-sdk` archive patched in locally before any tag is created.
 The OIDC-enabled jobs package with `--no-verify`, require an exact digest match
 with those archives, and publish with `--no-verify`, so package and dependency
 code runs only in the credential-free preflight.
@@ -206,7 +215,7 @@ deterministic manifest of that downloaded tree with the exact release commit,
 then compiles clean consumers of both its root and `raw` packages. It publishes
 npm, the PyPI
 wheel, and the PyPI source distribution in separate jobs while publishing
-`cmux-client` before `cmux-sidebar`. Each
+`cmux-sdk` before `cmux-sidebar`. Each
 irreversible write has its own rerunnable job. Every job requires the exact
 latest release tag, verifies that its commit is on protected `main`, and binds
 provenance to that commit. Manual publisher dispatches validate only and cannot
@@ -243,9 +252,9 @@ are not repeated.
 Use clean temporary projects with no repository-relative dependencies:
 
 ```bash
-cargo add cmux-client@X.Y.Z
+cargo add cmux-sdk@X.Y.Z
 cargo add cmux-sidebar@X.Y.Z
-cargo tree -p cmux-sidebar@X.Y.Z --depth 1 | grep -F 'cmux-client vX.Y.Z'
+cargo tree -p cmux-sidebar@X.Y.Z --depth 1 | grep -F 'cmux-sdk vX.Y.Z'
 go get github.com/manaflow-ai/cmux/cmux-tui/bindings/go@vX.Y.Z
 npm install cmux-sdk@X.Y.Z
 python -m pip install cmux-sdk==X.Y.Z
@@ -257,8 +266,8 @@ launcher release rather than an SDK artifact.
 ## Safety checks
 
 The cut workflow refuses non-`main` dispatches, mismatched manifest versions,
-release tags that point to another commit, or package names other than
-`cmux-sdk`. It pushes both release tags atomically after Go validation.
+release tags that point to another commit, or unexpected registry package
+names. It pushes both release tags atomically after Go validation.
 Publisher jobs use least-privilege permissions. npm, PyPI, and crates.io
 authenticate with short-lived OIDC credentials. PyPI emits PEP 740 attestations
 and npm publishes provenance. Stable npm and crates.io packages reject API-token

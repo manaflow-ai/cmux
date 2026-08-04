@@ -7151,6 +7151,17 @@ struct CMUXCLI {
         if shellCommand != nil, let unexpected = (remaining + (splitArgs.argv ?? [])).first {
             throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
         }
+        if let unknownFlag = remaining.first(where: { $0.hasPrefix("-") && $0 != "-" }) {
+            let knownFlags = Self.surfaceResumeSetValueOptions.sorted().joined(separator: ", ")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.surfaceResume.set.error.unknownFlag",
+                    defaultValue: "surface resume set: unknown flag '%1$@'. Known flags: %2$@. Use -- <argv...> for command arguments."
+                ),
+                unknownFlag,
+                knownFlags
+            ))
+        }
         if splitArgs.argv != nil, let unexpected = remaining.first {
             throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
         }
@@ -22539,7 +22550,12 @@ struct CMUXCLI {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
-            if FileManager.default.isExecutableFile(atPath: candidate) {
+            // `isExecutableFile(atPath:)` is true for directories, so a directory named
+            // like the binary would otherwise shadow the real executable (#8743).
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
+               FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }
         }
@@ -31091,6 +31107,27 @@ export default CMUXSessionRestore;
                 body: body
             )
         }
+        func notificationTitle(workspaceId: String, surfaceId: String) -> String {
+            let surfaceTitle: String? = {
+                guard def.name == "pi",
+                      let listed = try? client.sendV2(
+                          method: "surface.list",
+                          params: ["workspace_id": workspaceId]
+                      ),
+                      let surfaces = listed["surfaces"] as? [[String: Any]],
+                      let surface = surfaces.first(where: {
+                          surfaceHandleMatches(surfaceId, item: $0)
+                      }) else {
+                    return nil
+                }
+                return surface["title"] as? String
+            }()
+            return AgentHookNotificationPolicy.notificationTitle(
+                agentName: def.name,
+                displayName: def.displayName,
+                surfaceTitle: surfaceTitle
+            )
+        }
         func hasActiveAntigravityBackgroundWork() -> Bool {
             def.name == "antigravity" && (input.rawObject?["fullyIdle"] as? Bool) == false
         }
@@ -31971,7 +32008,12 @@ export default CMUXSessionRestore;
                 let stopMeta: String? = stopNotificationStatus == .idle
                     ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
                     : nil
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
+                let payload = notificationPayload(
+                    title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
+                    subtitle: subtitle,
+                    body: body,
+                    meta: stopMeta
+                )
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
@@ -32370,7 +32412,12 @@ export default CMUXSessionRestore;
                     pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
                         && hasActiveAntigravityBackgroundWork()
                 )
-                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
+                let payload = notificationPayload(
+                    title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
+                    subtitle: summary.subtitle,
+                    body: summary.body,
+                    meta: notificationMeta
+                )
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
