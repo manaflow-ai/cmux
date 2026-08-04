@@ -205,7 +205,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
-        let command = SSHPTYAttachStartupCommandBuilder.command(
+        let generatedCommand = SSHPTYAttachStartupCommandBuilder.command(
             sessionID: "ssh-test-session",
             foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
                 destination: "user@example.test",
@@ -215,6 +215,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 token: "foreground-auth-token"
             )
         )
+        let command = generatedCommand.replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+        XCTAssertNotEqual(command, generatedCommand, "Expected generated command to reference /usr/bin/ssh")
         let result = runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", command],
@@ -275,8 +277,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let generatedScript = try persistentSSHInitialStartupScriptForReconnectTest()
         let bundledCLI = try bundledCLIPath()
-        let rewrittenScript = generatedScript.replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
-        XCTAssertNotEqual(rewrittenScript, generatedScript, "Expected generated wrapper to reference the bundled CLI")
+        let scriptWithFakeCLI = generatedScript.replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
+        XCTAssertNotEqual(scriptWithFakeCLI, generatedScript, "Expected generated wrapper to reference the bundled CLI")
+        let rewrittenScript = scriptWithFakeCLI.replacingOccurrences(of: "/usr/bin/ssh", with: fakeAuth.path)
+        XCTAssertNotEqual(rewrittenScript, scriptWithFakeCLI, "Expected generated wrapper to reference /usr/bin/ssh")
         try writeSSHPTYReconnectTestShell(at: fakeStartup, contents: rewrittenScript)
         for executable in [fakeStartup, fakeAuth, fakeAttach, fakeSleep] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
