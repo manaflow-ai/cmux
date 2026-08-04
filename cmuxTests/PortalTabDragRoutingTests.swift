@@ -36,6 +36,31 @@ final class PortalTabDragRoutingTests: XCTestCase {
         }
     }
 
+    func testPaneDropTargetOverlaySnapshotTracksOnlyRoutingContext() {
+        let context = PaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID())
+        )
+
+        XCTAssertEqual(
+            PaneDropTargetOverlaySnapshot(dropContext: context),
+            PaneDropTargetOverlaySnapshot(dropContext: context)
+        )
+        XCTAssertNotEqual(
+            PaneDropTargetOverlaySnapshot(dropContext: context),
+            PaneDropTargetOverlaySnapshot(dropContext: nil)
+        )
+        XCTAssertNotEqual(
+            PaneDropTargetOverlaySnapshot(dropContext: context),
+            PaneDropTargetOverlaySnapshot(dropContext: PaneDropContext(
+                workspaceId: context.workspaceId,
+                panelId: UUID(),
+                paneId: context.paneId
+            ))
+        )
+    }
+
     func testCompactPaneTabChromeStaysBelowDragHitMinimum() throws {
         let appearance = BonsplitConfiguration.Appearance(
             tabMinWidth: 140,
