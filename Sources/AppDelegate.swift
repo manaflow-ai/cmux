@@ -13117,8 +13117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         onCancel: (() -> Void)? = nil,
         forceConfirmation: Bool = false
     ) -> Bool {
-        guard activeQuitConfirmationAlertPresenter == nil else {
-            onCancel?()
+        if let activeQuitConfirmationAlertPresenter {
+            if let onCancel {
+                activeQuitConfirmationAlertPresenter.joinCancellationAction(onCancel)
+            }
             return true
         }
         if !forceConfirmation && !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
