@@ -1407,7 +1407,16 @@
     "changelog": {
       "title": "Ændringslog",
       "metaDescription": "cmux udgivelsesnoter og versionshistorik. Nye funktioner, fejlrettelser og ændringer for den native macOS-terminal.",
-      "metaTitle": "Ændringslog"
+      "metaTitle": "Ændringslog",
+      "versionTitle": "cmux {version} · Ændringslog",
+      "releaseNavLabel": "Udgivelser omkring cmux {version}",
+      "sections": {
+        "added": "Tilføjet",
+        "changed": "Ændret",
+        "fixed": "Rettet",
+        "removed": "Fjernet",
+        "contributors": "Bidragydere"
+      }
     },
     "navItems": {
       "gettingStarted": "Kom i gang",

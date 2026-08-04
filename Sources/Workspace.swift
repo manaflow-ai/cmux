@@ -7329,7 +7329,14 @@ final class Workspace: Identifiable, ObservableObject {
                     .representedRequestTokens
                 ?? []
             )
-            guard let sourceSurface = surface.surface else {
+            // `liveSurfaceForGhosttyAccess` rather than `surface`: a non-nil wrapper pointer is
+            // not proof the native surface is alive, and reading through a freed one gets the
+            // process SIGKILLed for lock corruption rather than failing recoverably. It
+            // quarantines a pointer the registry no longer owns, so a stale candidate is skipped
+            // here exactly like a torn-down one.
+            guard let sourceSurface = surface.liveSurfaceForGhosttyAccess(
+                reason: "inheritedTerminalConfig"
+            ) else {
                 if let inheritedFontSizeLineage {
                     var config = CmuxSurfaceConfigTemplate()
                     config.fontSizeLineage = inheritedFontSizeLineage
@@ -8250,10 +8257,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
+    /// Passing `nil` for `command` starts the same default shell as a newly created terminal.
     @discardableResult
     func respawnTerminalSurface(
         panelId: UUID,
-        command: String,
+        command: String?,
         workingDirectory: String? = nil,
         tmuxStartCommand: String? = nil,
         focus: Bool? = nil,
@@ -8268,8 +8276,8 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else { return nil }
+        let trimmedCommand = command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if command != nil, trimmedCommand?.isEmpty != false { return nil }
 
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         var respawnConfig = inheritedConfig ?? CmuxSurfaceConfigTemplate()

@@ -1408,7 +1408,16 @@
     "changelog": {
       "title": "កំណត់ត្រាផ្លាស់ប្ដូរ",
       "metaDescription": "កំណត់ត្រាការចេញផ្សាយ cmux និងប្រវត្តិកំណែ។ មុខងារថ្មី, ការជួសជុលកំហុស, និងការផ្លាស់ប្ដូរសម្រាប់ទែមីណល macOS ដើម។",
-      "metaTitle": "កំណត់ហេតុផ្លាស់ប្ដូរ"
+      "metaTitle": "កំណត់ហេតុផ្លាស់ប្ដូរ",
+      "versionTitle": "cmux {version} · កំណត់ហេតុផ្លាស់ប្ដូរ",
+      "releaseNavLabel": "កំណែជិត cmux {version}",
+      "sections": {
+        "added": "បានបន្ថែម",
+        "changed": "បានផ្លាស់ប្តូរ",
+        "fixed": "បានជួសជុល",
+        "removed": "បានដកចេញ",
+        "contributors": "អ្នករួមចំណែក"
+      }
     },
     "navItems": {
       "gettingStarted": "ចាប់ផ្ដើម",
