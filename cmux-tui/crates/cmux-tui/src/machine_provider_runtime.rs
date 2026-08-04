@@ -30,7 +30,7 @@ use crate::machine_provider_client::UnixProviderConnector;
 use crate::machine_provider_client::{
     MachineProviderConnector, ProviderClient, ProviderClientError,
 };
-use crate::machine_runtime::MachineRuntime;
+use crate::machine_runtime::{MachineConnectionLease, MachineRuntime};
 use crate::session::{RemoteSession, Session};
 
 const PROVIDER_REFRESH_QUEUE_CAPACITY: usize = 64;
@@ -164,7 +164,9 @@ pub(crate) struct ProviderMachineController {
     provider: ProviderMachineRuntime,
     local: MachineRuntime,
     active_local: Option<MachineKey>,
+    active_local_lease: Option<Box<dyn MachineConnectionLease>>,
     pending_active_local: Option<Option<MachineKey>>,
+    pending_local_lease: Option<Box<dyn MachineConnectionLease>>,
     pending_provider_switch: bool,
 }
 
@@ -179,7 +181,9 @@ impl ProviderMachineController {
             provider: ProviderMachineRuntime::connect_with(connector, state_root)?,
             local: MachineRuntime::external(configured, connect_external),
             active_local: None,
+            active_local_lease: None,
             pending_active_local: None,
+            pending_local_lease: None,
             pending_provider_switch: false,
         })
     }
@@ -252,6 +256,7 @@ impl ProviderMachineController {
             .filter(|request| matches!(request, MachineRequest::Switch(_)));
         if result.replacement.is_some() && (switching_provider || self.active_local.is_none()) {
             self.pending_active_local = Some(None);
+            self.pending_local_lease = None;
             // Update streams capture the connected machine at subscription time.
             result.restart_updates = true;
             result.ui = self.merge_local_ui_for(result.ui, None);
@@ -279,13 +284,17 @@ impl ProviderMachineController {
     fn switch_local(&mut self, key: MachineKey) -> anyhow::Result<MachineActionResult> {
         // Open the candidate first. Failed SSH or socket authentication leaves
         // the current provider/local session untouched.
-        let session = self.local.connect(key)?;
+        let connection = self.local.connect(key)?;
         let label = self.local.name(key).unwrap_or("machine").to_string();
         self.provider.stage_connection(None, None)?;
         self.pending_active_local = Some(Some(key));
+        self.pending_local_lease = connection.lease;
         let ui = self.provider.ui_state_for_open_connection();
-        let mut result =
-            MachineActionResult::replace(self.merge_local_ui_for(ui, Some(key)), session, label);
+        let mut result = MachineActionResult::replace(
+            self.merge_local_ui_for(ui, Some(key)),
+            connection.session,
+            label,
+        );
         result.restart_updates = true;
         Ok(result)
     }
@@ -352,6 +361,7 @@ impl ProviderMachineController {
     fn close(&mut self) {
         self.abort_replacement();
         self.provider.close();
+        self.active_local_lease = None;
     }
 
     fn commit_replacement(&mut self) -> anyhow::Result<()> {
@@ -361,6 +371,7 @@ impl ProviderMachineController {
         self.provider.commit_replacement()?;
         self.pending_active_local.take();
         self.active_local = active_local;
+        self.active_local_lease = self.pending_local_lease.take();
         self.pending_provider_switch = false;
         Ok(())
     }
@@ -368,6 +379,7 @@ impl ProviderMachineController {
     fn abort_replacement(&mut self) {
         self.provider.abort_replacement();
         self.pending_active_local = None;
+        self.pending_local_lease = None;
     }
 }
 
@@ -3607,7 +3619,9 @@ mod tests {
             provider,
             local: MachineRuntime::external(Vec::new(), true),
             active_local: Some(MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START)),
+            active_local_lease: None,
             pending_active_local: None,
+            pending_local_lease: None,
             pending_provider_switch: false,
         };
         let result = controller.perform_request(provider_connect("PAIR 4J7K;$(opaque)")).unwrap();
@@ -3704,7 +3718,9 @@ mod tests {
             provider,
             local: MachineRuntime::external(Vec::new(), true),
             active_local: Some(MachineKey(crate::machine_runtime::CLIENT_MACHINE_KEY_START)),
+            active_local_lease: None,
             pending_active_local: None,
+            pending_local_lease: None,
             pending_provider_switch: false,
         };
         let accepted = controller.perform_request(provider_connect("PAIR 4J7K")).unwrap();
@@ -3890,7 +3906,9 @@ mod tests {
             provider,
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
+            active_local_lease: None,
             pending_active_local: None,
+            pending_local_lease: None,
             pending_provider_switch: false,
         };
         let Err(error) = controller.perform_request(provider_connect("PAIR 4J7K")) else {
@@ -3962,7 +3980,9 @@ mod tests {
             provider,
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
+            active_local_lease: None,
             pending_active_local: None,
+            pending_local_lease: None,
             pending_provider_switch: false,
         };
         let Err(first_error) = controller.perform_request(provider_connect("PAIR 4J7K")) else {
@@ -4040,7 +4060,9 @@ mod tests {
             provider,
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
+            active_local_lease: None,
             pending_active_local: None,
+            pending_local_lease: None,
             pending_provider_switch: false,
         };
         assert!(controller.perform_request(provider_connect("PAIR 4J7K")).is_err());
@@ -4086,7 +4108,9 @@ mod tests {
             provider,
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
+            active_local_lease: None,
             pending_active_local: None,
+            pending_local_lease: None,
             pending_provider_switch: false,
         };
         let Err(error) = controller.perform_request(local_connect("PAIR 4J7K")) else {
@@ -4127,7 +4151,9 @@ mod tests {
             provider,
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
+            active_local_lease: None,
             pending_active_local: None,
+            pending_local_lease: None,
             pending_provider_switch: false,
         };
 
@@ -4162,7 +4188,9 @@ mod tests {
             provider,
             local: MachineRuntime::external(Vec::new(), true),
             active_local: None,
+            active_local_lease: None,
             pending_active_local: None,
+            pending_local_lease: None,
             pending_provider_switch: false,
         };
         let Err(error) = controller.perform_request(provider_connect("ABCD-EFGH")) else {
@@ -4476,7 +4504,9 @@ mod tests {
             provider: ProviderMachineRuntime::connect(&provider_socket.path, token()).unwrap(),
             local,
             active_local: None,
+            active_local_lease: None,
             pending_active_local: None,
+            pending_local_lease: None,
             pending_provider_switch: true,
         };
 

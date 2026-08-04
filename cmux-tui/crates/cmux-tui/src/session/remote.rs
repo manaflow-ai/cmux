@@ -1498,6 +1498,7 @@ impl RemoteMessageReader for JsonLineReader {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn read_bounded_json_line(
     reader: &mut impl BufRead,
     limit: usize,

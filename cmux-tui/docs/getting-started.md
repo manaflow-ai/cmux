@@ -63,7 +63,7 @@ Resource selectors accept a typed opaque ID, `current`, or an exact name. Names 
 
 ## Remote machines
 
-The optional machine rail keeps rendering local while it connects individual session transports through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. Start a headless cmux session on each remote machine, and make the remote `cmux-tui` or `cmux` executable available to noninteractive SSH. The SSH connector runs its `relay` mode and does not nest a second TUI.
+The optional machine rail keeps rendering local while it connects individual sessions through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. The SSH connector shares the managed lifecycle used by `cmux-tui ssh`: it checks the remote binary, starts the named headless mux and sidecar on demand, and reconnects without nesting a second TUI. Packaged releases can install their pinned remote binary. Source builds require the exact matching binary to be installed remotely.
 
 Packaged clients use the same configuration and can start with:
 

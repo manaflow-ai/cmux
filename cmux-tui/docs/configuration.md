@@ -122,8 +122,8 @@ Every machine has a unique nonempty `id`, a nonempty display `name`, an optional
 | `user` | SSH | string | unset | SSH user, passed as `user@host` |
 | `port` | SSH | integer | unset | SSH port, passed with `-p` |
 | `identity_file` | SSH | string | unset | Local SSH identity path, passed with `-i` |
-| `session` | SSH | string | `"main"` | Remote cmux session passed to `relay --session` |
-| `binary` | SSH | string | `"cmux-tui"` | Remote executable path used for `binary relay`; this is one executable, not a shell command |
+| `session` | SSH | string | `"main"` | Remote cmux session started or reused by the managed connection |
+| `binary` | SSH | string | `"~/.local/bin/cmux-tui"` | Shell-safe remote executable path used for compatibility checks and the managed daemon |
 
 ```json
 {
@@ -156,7 +156,7 @@ Every machine has a unique nonempty `id`, a nonempty display `name`, an optional
 }
 ```
 
-The SSH target invokes noninteractive `ssh -T` with strict host-key checking, disabled agent forwarding, and disabled port forwarding, then runs `binary relay --session session` remotely. It connects to an existing remote server and does not start one. See [Machines](machines.md) for rail behavior and a complete `npx cmux` remote setup.
+The SSH target uses the same managed connection as `cmux-tui ssh`. It probes `binary`, starts or reuses the named remote mux and sidecar, and retains a reconnecting local bridge while that machine is selected. Packaged releases can install their pinned binary when the probe reports it missing or incompatible. Source builds require the exact matching binary to be preinstalled. SSH is noninteractive with strict host-key checking, disabled agent and X11 forwarding, and disabled port forwarding. See [Machines](machines.md) for rail behavior and setup details.
 
 ### Dynamic machine provider
 

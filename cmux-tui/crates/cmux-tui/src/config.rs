@@ -2811,7 +2811,7 @@ pub fn load() -> Config {
                         .unwrap_or_else(|| "main".to_string()),
                     binary: binary
                         .filter(|value| !value.trim().is_empty())
-                        .unwrap_or_else(|| "cmux-tui".to_string()),
+                        .unwrap_or_else(|| "~/.local/bin/cmux-tui".to_string()),
                 }
             }
             _ => {
@@ -4004,8 +4004,11 @@ mod tests {
         assert_eq!(config.machines[0].name, "Mac mini");
         assert!(matches!(
             &config.machines[0].target,
-            MachineTargetConfig::Ssh { host, user: Some(user), session, .. }
-                if host == "mini.local" && user == "lawrence" && session == "main"
+            MachineTargetConfig::Ssh { host, user: Some(user), session, binary, .. }
+                if host == "mini.local"
+                    && user == "lawrence"
+                    && session == "main"
+                    && binary == "~/.local/bin/cmux-tui"
         ));
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);

@@ -762,6 +762,7 @@ pub(crate) struct SidebarMessages {
     pub machine_replacement_stale: &'static str,
     pub machine_replacement_not_pending: &'static str,
     pub machine_replacement_target_missing: &'static str,
+    pub managed_ssh_requires_unix: &'static str,
 }
 
 impl SidebarMessages {
@@ -1381,6 +1382,7 @@ OPTIONS:
         machine_replacement_stale: "Machine replacement decision is stale",
         machine_replacement_not_pending: "Machine replacement is no longer pending",
         machine_replacement_target_missing: "Machine replacement target is missing",
+        managed_ssh_requires_unix: "Managed SSH machine connections require Unix",
     },
 };
 
@@ -1878,6 +1880,7 @@ ID とセッション:
         machine_replacement_stale: "マシン切り替えの状態が古くなっています",
         machine_replacement_not_pending: "保留中のマシン切り替えがありません",
         machine_replacement_target_missing: "マシン切り替え先が見つかりません",
+        managed_ssh_requires_unix: "管理 SSH マシン接続には Unix が必要です",
     },
 };
 

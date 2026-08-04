@@ -30,9 +30,6 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::json;
 
-pub(crate) use remote::{
-    REMOTE_CONTROL_MESSAGE_MAX_BYTES, read_bounded_json_line, read_json_line_with_progress,
-};
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
     RemoteTransportAbort,

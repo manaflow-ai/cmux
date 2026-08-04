@@ -22,13 +22,15 @@ The static catalog shows `+ Connect machine`. It discovers concrete aliases from
 
 Unix targets connect directly to another local cmux control socket. Use an absolute socket path because configuration paths do not pass through a shell.
 
-SSH targets start this process:
+SSH targets use the same managed lifecycle as `cmux-tui ssh`. The client resolves the destination through OpenSSH, probes the configured remote binary, and then opens the remote link. The link starts the named headless mux and its sidecar when they do not exist, so the session does not need a separate supervisor just to connect.
 
 ```text
-ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ClearAllForwardings=yes [-p PORT] [-i IDENTITY_FILE] -- [USER@]HOST 'BINARY' relay --session SESSION
+ssh -T [-p PORT] -o BatchMode=yes -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes [-i IDENTITY_FILE] [USER@]HOST BINARY remote-probe --json
 ```
 
-The remote session must already be running. The remote `binary` must resolve in a noninteractive SSH login and defaults to `cmux-tui`. `relay` copies protocol bytes between stdio and that session's Unix socket. SSH owns host verification, authentication, encryption, and network transport; relay adds no authentication. The client never prompts for a password or new host key inside the TUI. The target must already be trusted in local `known_hosts`, and a key or SSH agent must authenticate it. Agent forwarding and all port forwarding are disabled.
+The remote `binary` defaults to `~/.local/bin/cmux-tui` and must be a shell-safe path. Packaged releases can install their pinned npm build there when the probe reports a missing or recognized incompatible binary. A legacy binary that cannot answer `remote-probe` requires an explicit `cmux-tui ssh HOST --upgrade`. Development and other source builds cannot replace the remote automatically; install the exact matching build at `binary` instead.
+
+The client never prompts for a password or new host key inside the TUI. The target must already be trusted in local `known_hosts`, and a key or SSH agent must authenticate it. Agent forwarding, X11 forwarding, and all port forwarding are disabled. Switching machines drops the old local connection lease after the replacement commits. The remote mux stays available for later attachment. `cmux-tui relay` remains a low-level direct protocol diagnostic and is not the rail connection path.
 
 See [Configuration](configuration.md#machines) for the full schema and examples.
 
@@ -60,21 +62,20 @@ See [Configuration](configuration.md#dynamic-machine-provider) for persistent cl
 
 ## Run with npm
 
-Install cmux on a remote Linux or macOS machine so SSH has a stable executable path, then start a named headless session there:
+Install cmux on a remote Linux or macOS machine so SSH has a stable executable path:
 
 ```bash
 npm install --global cmux
 command -v cmux
-cmux --headless --session agents
 ```
 
-Keep the headless process under your normal service supervisor when it must survive logout. Put the absolute path printed by `command -v cmux` in the target's `binary` field and set `session` to `agents`. After adding that target to the local config, start the client normally:
+Put the absolute path printed by `command -v cmux` in the target's `binary` field and set `session` to `agents`. The first managed connection starts that session on demand. After adding the target to the local config, start the client normally:
 
 ```bash
 npx cmux
 ```
 
-The local `npx cmux` process renders both rails and opens `ssh -T` only when that machine is selected. The remote process serves workspaces and terminals through its existing protocol-v10 session.
+The local `npx cmux` process renders both rails and opens SSH only when that machine is selected. It verifies that the remote package and protocol match, then starts or reuses the remote session. Run `npx cmux ssh dev@buildbox --session agents --upgrade` once when a legacy remote executable is too old to answer the compatibility probe.
 
 For a direct transport check, the equivalent relay is:
 
@@ -82,7 +83,7 @@ For a direct transport check, the equivalent relay is:
 ssh -T dev@buildbox /home/dev/.local/bin/cmux relay --session agents
 ```
 
-This command emits raw JSON-lines protocol traffic, not a second TUI. Normally the machine connector owns it.
+This command emits raw JSON-lines protocol traffic, not a second TUI. It checks an already running mux and bypasses the managed probe, startup, identity pinning, and reconnect path.
 
 ## Share a local machine through Cloud
 

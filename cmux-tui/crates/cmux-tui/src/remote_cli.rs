@@ -28,7 +28,8 @@ use cmux_remote::identity::{
 };
 use cmux_remote::provider::{
     IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
-    RelayCredentialSource, SshProviderConfig, SupportedClientAuthModes, sanitized_route,
+    RelayCredentialSource, SshProvider, SshProviderConfig, SupportedClientAuthModes,
+    sanitized_route,
 };
 use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
@@ -1094,6 +1095,10 @@ fn run_rpc(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn run_ssh(args: &[String]) -> anyhow::Result<()> {
+    connect_with_flags(direct_ssh_flags(args)?)
+}
+
+fn direct_ssh_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     let destination = args
         .first()
         .filter(|argument| !argument.starts_with('-'))
@@ -1108,7 +1113,73 @@ fn run_ssh(args: &[String]) -> anyhow::Result<()> {
         flags.lanes = LanePolicy::Single;
     }
 
-    connect_with_flags(flags)
+    Ok(flags)
+}
+
+/// Programmatic equivalent of `cmux-tui ssh`, used by the native machine
+/// rail so both entrypoints share compatibility checks, daemon startup, and
+/// reconnect behavior.
+pub(crate) struct ManagedSshOptions {
+    pub destination: String,
+    pub session: String,
+    pub remote_binary: String,
+    pub ssh_args: Vec<String>,
+}
+
+pub(crate) struct ManagedSshConnection {
+    pub session: Session,
+    pub lease: ManagedSshLease,
+}
+
+/// Keeps the local bridge and its reconnecting SSH client alive for as long
+/// as the selected machine session owns it.
+pub(crate) struct ManagedSshLease {
+    _runtime: crate::remote_runtime::ClientRuntimeHandle,
+}
+
+pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyhow::Result<()> {
+    ssh_url(&options.destination)?;
+    SshProvider::new(SshProviderConfig {
+        ssh_binary: "ssh".into(),
+        remote_binary: options.remote_binary.clone(),
+        remote_session: options.session.clone(),
+        remote_state_dir: None,
+        extra_args: options.ssh_args.clone(),
+        maximum_frame_bytes: crate::remote_runtime::MAX_CARRIER_FRAME_BYTES,
+    })?;
+    Ok(())
+}
+
+pub(crate) fn connect_managed_ssh(
+    options: ManagedSshOptions,
+) -> anyhow::Result<ManagedSshConnection> {
+    let mut arguments = vec![
+        options.destination,
+        "--session".into(),
+        options.session,
+        "--remote-binary".into(),
+        options.remote_binary,
+    ];
+    for argument in options.ssh_args {
+        arguments.push("--ssh-arg".into());
+        arguments.push(argument);
+    }
+
+    let connected = start_connected(direct_ssh_flags(&arguments)?)?;
+    let local_socket = connected.runtime.info().local_socket.clone();
+    match RemoteSession::connect(&local_socket) {
+        Ok(remote) => Ok(ManagedSshConnection {
+            session: Session::Remote(remote),
+            lease: ManagedSshLease { _runtime: connected.runtime },
+        }),
+        Err(connect_error) => {
+            let cleanup_error = connected.runtime.shutdown().err();
+            match cleanup_error {
+                Some(cleanup_error) => Err(connect_error.context(cleanup_error)),
+                None => Err(connect_error),
+            }
+        }
+    }
 }
 
 fn ssh_url(destination: &str) -> anyhow::Result<String> {
