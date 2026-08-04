@@ -19,6 +19,7 @@ public actor CmxIrohClientSession {
     private var connection: (any CmxIrohConnection)?
     private var controlStream: CmxIrohBidirectionalStream?
     private var serverEventReceiver: CmxIrohClientServerEventReceiver?
+    private var closeCleanupTask: Task<Void, Never>?
     private var controlReceiveBuffer = Data()
     private var terminalCloseAttribution: CmxIrohConnectionCloseAttribution?
     private var closed = false
@@ -257,25 +258,39 @@ public actor CmxIrohClientSession {
         return await connection.observedPathEvents()
     }
 
-    /// Closes the control stream and complete QUIC connection.
+    /// Closes the complete QUIC connection, then cleans up child stream handles.
+    ///
+    /// The parent close runs first because it is the operation that unblocks
+    /// dead child streams. Child cleanup continues asynchronously and cannot
+    /// retain peer ownership or delay a replacement connection.
     public func close() async {
         guard !closed else { return }
         closed = true
         connectionTask?.cancel()
         connectionTask = nil
-        await serverEventReceiver?.close()
+        let receiverToClose = serverEventReceiver
         serverEventReceiver = nil
-        if let controlStream {
-            await controlStream.sendStream.reset(errorCode: 0)
-            await controlStream.receiveStream.stop(errorCode: 0)
-        }
-        if let connection {
-            await connection.close(errorCode: 0, reason: "client_closed")
-            terminalCloseAttribution = await connection.closeAttribution()
-        }
+        let controlStreamToClose = controlStream
         controlStream = nil
-        self.connection = nil
+        let connectionToClose = connection
+        connection = nil
         controlReceiveBuffer.removeAll(keepingCapacity: false)
+
+        if let connectionToClose {
+            await connectionToClose.close(
+                errorCode: 0,
+                reason: "client_closed"
+            )
+            terminalCloseAttribution =
+                await connectionToClose.closeAttribution()
+        }
+        closeCleanupTask = Task {
+            if let controlStreamToClose {
+                await controlStreamToClose.sendStream.reset(errorCode: 0)
+                await controlStreamToClose.receiveStream.stop(errorCode: 0)
+            }
+            await receiverToClose?.close()
+        }
     }
 
     private func establishConnection() async throws -> CmxIrohConnectedControl {

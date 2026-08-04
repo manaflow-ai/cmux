@@ -274,15 +274,15 @@ extension MobileShellComposite {
                     self.macConnectionStatus = .unavailable
                     self.clearRemoteConnectionContext()
                     self.applyConnectionRecoveryOwnerState()
-                    MobileDebugLog.anchormux(
-                        "connection.recovery waiting for physical transport drain "
-                            + "attempt=\(attempt.id.uuidString)"
-                    )
-                    await expectedClient.disconnectAndWaitForTransportDrain()
+                    // Wait only until teardown has detached the old transport
+                    // and transferred its lease to tracked cleanup. Physical
+                    // QUIC cleanup must not sit in front of the reconnect
+                    // deadline: a dead FFI stream can ignore cancellation.
+                    await expectedClient.disconnect()
                     guard !Task.isCancelled,
                           self.connectionRecoveryOwner.isCurrent(attempt) else { return }
                     MobileDebugLog.anchormux(
-                        "connection.recovery physical transport drained "
+                        "connection.recovery stale transport detached "
                             + "attempt=\(attempt.id.uuidString)"
                     )
                 }

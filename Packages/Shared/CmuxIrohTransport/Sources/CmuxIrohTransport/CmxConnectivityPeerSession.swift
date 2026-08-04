@@ -107,11 +107,10 @@ actor CmxConnectivityPeerSession {
     ) async {
         guard controlOwner?.id == ownerID else { return }
         await closeActiveConnection(
-            releasesControlOwner: false,
+            releasesControlOwner: true,
             reason: reason,
             failure: failure
         )
-        releaseControlOwner(ownerID: ownerID)
     }
 
     func updateControlPurpose(
@@ -422,6 +421,18 @@ actor CmxConnectivityPeerSession {
         activeConnection.closureTask?.cancel()
         activeConnection.pathObservationTask?.cancel()
         activeConnection.pathEventObservationTask?.cancel()
+        // Logical ownership ends when the connection is detached, not when
+        // best-effort physical cleanup returns. A pathless Iroh stream can
+        // ignore cancellation; retaining the owner here would queue every
+        // replacement behind that stale FFI call.
+        if releasesControlOwner,
+           self.activeConnection == nil,
+           pendingConnection == nil,
+           let owner = removedOwner {
+            releaseControlOwner(ownerID: owner.id)
+        }
+        self.failure = failure
+        publishSnapshot()
         await activeConnection.session.close()
         await activeConnection.pathEventObservationTask?.value
         await recordSessionClosure(
@@ -430,13 +441,6 @@ actor CmxConnectivityPeerSession {
             failure: failure,
             purpose: closurePurpose
         )
-        guard self.activeConnection == nil,
-              pendingConnection == nil else { return }
-        if releasesControlOwner, let owner = removedOwner {
-            releaseControlOwner(ownerID: owner.id)
-        }
-        self.failure = failure
-        publishSnapshot()
     }
 
     private func closeActiveConnection(
