@@ -360,3 +360,275 @@ extension GlobalSearchShortcutBehaviorTests {
     }
     }
 }
+
+extension GlobalSearchShortcutBehaviorTests {
+    @MainActor
+    @Test func reopeningSearchClearsRetainedQuery() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try makeMainWindow(appDelegate: appDelegate)
+        defer { closeWindow(window, appDelegate: appDelegate) }
+
+        appDelegate.toggleGlobalSearchPalette()
+        let firstPopoverWindow = try #require(
+            waitForSearchPopoverWindow(excluding: window),
+            "The real Search popover must focus its query field"
+        )
+        NSApp.sendEvent(
+            try makeKeyDownEvent(
+                key: "z",
+                modifiers: [],
+                keyCode: 6,
+                windowNumber: firstPopoverWindow.windowNumber
+            )
+        )
+        #expect(
+            waitForSearchFieldText("z", in: firstPopoverWindow),
+            "The fixture must type through the real Search query field"
+        )
+
+        GlobalSearchCoordinator.shared.dismissPalette()
+        #expect(waitUntilGlobalSearchCloses())
+        appDelegate.toggleGlobalSearchPalette()
+        let reopenedPopoverWindow = try #require(
+            waitForSearchPopoverWindow(excluding: window),
+            "The retained Search popover must reopen with its query field focused"
+        )
+
+        #expect(
+            waitForSearchFieldText("", in: reopenedPopoverWindow),
+            "Each Search presentation must start with an empty query"
+        )
+#else
+        Issue.record("Global Search lifecycle coverage requires a DEBUG app-host build")
+#endif
+    }
+
+    @MainActor
+    @Test func returnActivatesSelectedBrowseResultAfterReopen() throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let window = try makeMainWindow(appDelegate: appDelegate)
+        defer { closeWindow(window, appDelegate: appDelegate) }
+        _ = try #require(
+            GlobalSearchCoordinator.shared.browseOpenPanels().first,
+            "The real main-window fixture must provide a selected browse result"
+        )
+
+        appDelegate.toggleGlobalSearchPalette()
+        _ = try #require(waitForSearchPopoverWindow(excluding: window))
+        GlobalSearchCoordinator.shared.dismissPalette()
+        #expect(waitUntilGlobalSearchCloses())
+        RunLoop.main.run(until: Date.now.addingTimeInterval(0.05))
+
+        appDelegate.toggleGlobalSearchPalette()
+        let reopenedPopoverWindow = try #require(
+            waitForSearchPopoverWindow(excluding: window),
+            "The retained Search popover must reopen with a selected browse result"
+        )
+        NSApp.sendEvent(
+            try makeKeyDownEvent(
+                key: "\r",
+                modifiers: [],
+                keyCode: 36,
+                windowNumber: reopenedPopoverWindow.windowNumber
+            )
+        )
+
+        #expect(
+            waitUntilGlobalSearchCloses(),
+            "Return must activate the selected result after the retained popover reopens"
+        )
+#else
+        Issue.record("Global Search lifecycle coverage requires a DEBUG app-host build")
+#endif
+    }
+
+    @MainActor
+    @Test func reopeningSearchRefreshesLiveIndex() async throws {
+#if DEBUG
+        let appDelegate = try #require(AppDelegate.shared)
+        let firstToken = "first\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let secondToken = "second\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let harness = try makeNamedMainWindow(
+            appDelegate: appDelegate,
+            initialWorkspaceTitle: firstToken
+        )
+        defer { closeWindow(harness.window, appDelegate: appDelegate) }
+        let tabManager = try #require(appDelegate.tabManagerFor(windowId: harness.windowID))
+        let firstWorkspace = try #require(tabManager.selectedWorkspace)
+
+        appDelegate.toggleGlobalSearchPalette()
+        _ = try #require(waitForSearchPopoverWindow(excluding: harness.window))
+        #expect(
+            await waitForSearchHit(query: firstToken, workspaceID: firstWorkspace.id),
+            "The first presentation must finish its live-index refresh"
+        )
+        GlobalSearchCoordinator.shared.dismissPalette()
+        #expect(waitUntilGlobalSearchCloses())
+
+        let secondWorkspace = tabManager.addWorkspace(
+            title: secondToken,
+            select: false,
+            eagerLoadTerminal: true,
+            autoWelcomeIfNeeded: false
+        )
+        _ = try #require(
+            appDelegate.globalSearchPanelContexts().first(where: {
+                $0.workspaceID == secondWorkspace.id
+            }),
+            "The new workspace must be visible to the live-index source before reopen"
+        )
+
+        appDelegate.toggleGlobalSearchPalette()
+        _ = try #require(waitForSearchPopoverWindow(excluding: harness.window))
+
+        #expect(
+            await waitForSearchHit(query: secondToken, workspaceID: secondWorkspace.id),
+            "Every Search presentation must refresh panels created after the prior close"
+        )
+#else
+        Issue.record("Global Search lifecycle coverage requires a DEBUG app-host build")
+#endif
+    }
+
+    @MainActor
+    private func makeMainWindow(appDelegate: AppDelegate) throws -> NSWindow {
+        let windowId = appDelegate.createMainWindow()
+        let identifier = "cmux.main.\(windowId.uuidString)"
+        let window = try #require(
+            NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
+        )
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        return window
+    }
+
+    @MainActor
+    private func makeNamedMainWindow(
+        appDelegate: AppDelegate,
+        initialWorkspaceTitle: String
+    ) throws -> (windowID: UUID, window: NSWindow) {
+        let windowID = appDelegate.createMainWindow(
+            initialWorkspaceTitle: initialWorkspaceTitle
+        )
+        let identifier = "cmux.main.\(windowID.uuidString)"
+        let window = try #require(
+            NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
+        )
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        return (windowID, window)
+    }
+
+    @MainActor
+    private func waitForSearchPopoverWindow(
+        excluding mainWindow: NSWindow,
+        timeout: TimeInterval = 2
+    ) -> NSWindow? {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if let window = NSApp.windows.first(where: {
+                $0 !== mainWindow
+                    && $0.isVisible
+                    && $0.firstResponder is NSTextView
+            }) {
+                return window
+            }
+            _ = RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date.now.addingTimeInterval(0.01))
+            )
+        } while Date.now < deadline
+        return nil
+    }
+
+    @MainActor
+    private func waitForSearchFieldText(
+        _ expectedText: String,
+        in popoverWindow: NSWindow,
+        timeout: TimeInterval = 2
+    ) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if (popoverWindow.firstResponder as? NSTextView)?.string == expectedText {
+                return true
+            }
+            _ = RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date.now.addingTimeInterval(0.01))
+            )
+        } while Date.now < deadline
+        return (popoverWindow.firstResponder as? NSTextView)?.string == expectedText
+    }
+
+    @MainActor
+    private func waitForSearchHit(
+        query: String,
+        workspaceID: UUID,
+        timeout: TimeInterval = 3
+    ) async -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            let hits = await GlobalSearchCoordinator.shared.search(query: query)
+            if hits.contains(where: { $0.workspaceID == workspaceID }) {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 25_000_000)
+        } while Date.now < deadline
+        let hits = await GlobalSearchCoordinator.shared.search(query: query)
+        return hits.contains(where: { $0.workspaceID == workspaceID })
+    }
+
+    @MainActor
+    private func makeKeyDownEvent(
+        key: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt16,
+        windowNumber: Int
+    ) throws -> NSEvent {
+        try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: windowNumber,
+                context: nil,
+                characters: key,
+                charactersIgnoringModifiers: key,
+                isARepeat: false,
+                keyCode: keyCode
+            )
+        )
+    }
+
+    @MainActor
+    private func waitUntilGlobalSearchCloses(timeout: TimeInterval = 2) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if !GlobalSearchCoordinator.shared.isPaletteVisible() {
+                return true
+            }
+            _ = RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date.now.addingTimeInterval(0.01))
+            )
+        } while Date.now < deadline
+        return !GlobalSearchCoordinator.shared.isPaletteVisible()
+    }
+
+    @MainActor
+    private func closeWindow(_ window: NSWindow, appDelegate: AppDelegate) {
+        GlobalSearchCoordinator.shared.dismissPalette()
+#if DEBUG
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        let originalConfirmationHandler = appDelegate.debugCloseMainWindowConfirmationHandler
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
+#endif
+        window.animationBehavior = .none
+        window.orderOut(nil)
+        window.close()
+    }
+}
