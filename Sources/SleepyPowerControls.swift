@@ -51,9 +51,14 @@ final class SleepyPowerControls: SleepyPowerControlling {
     /// probing for the tool rather than by comparing OS versions: the exact
     /// release Apple dropped it in is not something to guess at, and a wrong
     /// threshold would break every version in between.
+    ///
+    /// The legacy tool is awaited to completion rather than fire-and-forget: a
+    /// process that starts and then exits non-zero has not locked anything, and
+    /// reporting that as success would leave the user staring at an unlocked Mac
+    /// with no fallback attempted.
     @discardableResult
     func lockMacNow() async -> Bool {
-        if await runner.canRun(Self.legacyLockTool), await runner.run(Self.legacyLockTool, ["-suspend"]) {
+        if await runner.canRun(Self.legacyLockTool), await runner.runAwaitingExit(Self.legacyLockTool, ["-suspend"]) {
             return true
         }
         return await runner.lockScreen()

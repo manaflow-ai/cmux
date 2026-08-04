@@ -23,9 +23,6 @@ struct SleepyFaceView: View {
     @State private var lastMascotPokeAt = 0.0
     @State private var petReactAt: [Int: Double] = [:]
     @State private var moonReactAt: Double?
-    /// Set when "Lock Mac" could not engage any lock mechanism, so the scene can
-    /// say so rather than leaving the button looking inert.
-    @State private var lockFailed = false
 
     var body: some View {
         let config = store.snapshot()
@@ -139,17 +136,29 @@ struct SleepyFaceView: View {
                 Button {
                     // The real macOS login lock — genuinely secure (Apple's), unlike
                     // the overlay. The screensaver stays up behind it as the backdrop.
+                    //
+                    // Gated on the shared UI state exactly like Low Power below, so
+                    // clicks from two displays (or a double click) can't run
+                    // overlapping lock attempts whose completions race to report a
+                    // stale result on one overlay.
+                    guard !powerUIState.isLocking else { return }
+                    powerUIState.isLocking = true
+                    powerUIState.lockFailed = false
                     let power = power
+                    let ui = powerUIState
                     Task {
                         // Surface a failed lock: this button silently did nothing on
                         // systems missing the CGSession tool, which reads as "the
                         // lock is broken" with no explanation.
-                        lockFailed = !(await power.lockMacNow())
+                        let locked = await power.lockMacNow()
+                        ui.lockFailed = !locked
+                        ui.isLocking = false
                     }
                 } label: {
                     Label(String(localized: "sleepyMode.button.lockMac", defaultValue: "Lock Mac"), systemImage: "lock.fill")
                 }
                 .buttonStyle(SleepyPixelButtonStyle(tint: Color(red: 0.34, green: 0.30, blue: 0.60)))
+                .disabled(powerUIState.isLocking)
 
                 Button {
                     let power = power
@@ -185,7 +194,7 @@ struct SleepyFaceView: View {
                 .buttonStyle(SleepyPixelButtonStyle(tint: powerUIState.isOn ? Color(red: 0.24, green: 0.56, blue: 0.32) : Color(red: 0.30, green: 0.42, blue: 0.46)))
                 .disabled(powerUIState.isBusy)
             }
-            if lockFailed {
+            if powerUIState.lockFailed {
                 Text(String(
                     localized: "sleepyMode.lockFailed",
                     defaultValue: "Couldn't lock the Mac \u{2014} use the Apple menu \u{203A} Lock Screen"

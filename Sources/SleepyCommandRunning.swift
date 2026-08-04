@@ -14,6 +14,13 @@ protocol SleepyCommandRunning: Sendable {
     /// Whether `tool` exists and is executable, so a caller can choose between
     /// mechanisms by capability rather than by guessing at an OS version.
     func canRun(_ tool: String) async -> Bool
+    /// Runs `tool` and waits for it to exit, reporting `true` only on a zero
+    /// exit status.
+    ///
+    /// Use this where the caller must know the action actually happened rather
+    /// than merely that the process started — locking the screen must not be
+    /// reported as successful just because the binary launched.
+    @discardableResult func runAwaitingExit(_ tool: String, _ args: [String]) async -> Bool
     /// Run and capture stdout (e.g. `pmset -g`). No privileges.
     func capture(_ tool: String, _ args: [String]) async -> String?
     /// Run a privileged tool via Authorization Services, awaiting its exit.

@@ -70,6 +70,32 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         FileManager.default.isExecutableFile(atPath: tool)
     }
 
+    @discardableResult
+    func runAwaitingExit(_ tool: String, _ args: [String]) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: tool)
+                process.arguments = args
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+                do {
+                    try process.run()
+                } catch {
+                    sleepyCommandLogger.error("Failed to launch \(tool, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    continuation.resume(returning: false)
+                    return
+                }
+                process.waitUntilExit()
+                let status = process.terminationStatus
+                if status != 0 {
+                    sleepyCommandLogger.error("\(tool, privacy: .public) exited with status \(status, privacy: .public)")
+                }
+                continuation.resume(returning: status == 0)
+            }
+        }
+    }
+
     /// Locks the screen through `login.framework`'s `SACLockScreenImmediate`,
     /// resolved at runtime with the same `dlsym` approach this type already uses
     /// for `AuthorizationExecuteWithPrivileges`.
