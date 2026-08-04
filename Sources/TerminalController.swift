@@ -3699,6 +3699,12 @@ class TerminalController {
         // CLI helpers always inject caller workspace_id/surface_id, which
         // would otherwise win even when the group belongs to a different
         // window). Then use workspace/surface/pane lookup and the active window.
+        //
+        // A supplied-but-invalid selector fails closed first: treating it like
+        // an absent one would slide down to the active window and act on a
+        // target the caller never named
+        // (https://github.com/manaflow-ai/cmux/issues/9424).
+        if v2HasRejectedRoutingSelector(params) { return nil }
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2RoutingUUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
@@ -3788,6 +3794,10 @@ class TerminalController {
     /// active scriptable window. Lives here so it can read the controller's
     /// `private` `tabManager` / `v2LocateTabManager`.
     func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
+        // A supplied-but-invalid selector is not an absent one: falling through
+        // would run the command against an implicit window the caller never
+        // named (https://github.com/manaflow-ai/cmux/issues/9424).
+        if routing.hasRejectedSelector { return nil }
         if routing.hasWindowIDParam {
             guard let windowId = routing.windowID else { return nil }
             return AppDelegate.shared?.tabManagerFor(windowId: windowId)

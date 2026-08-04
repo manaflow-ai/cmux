@@ -219,6 +219,70 @@ struct ControlCommandCoordinatorRoutingKindTests {
         #expect(coordinator.routingSelectors(["group_id": .string(dockOwner.uuidString)]).groupID == nil)
     }
 
+    /// A supplied-but-invalid selector must not read as an absent one. Without
+    /// this the walk slides past the `nil` id to the active window and runs the
+    /// command against a target the caller never named — the original bug,
+    /// merely reached one step later.
+    @Test func suppliedButInvalidSelectorsAreMarkedRejected() {
+        let (coordinator, handles) = coordinatorWithOneRefPerKind()
+
+        for params: [String: JSONValue] in [
+            ["group_id": .string("surface:1")],
+            ["group_id": .string(handles.surface.uuidString)],
+            ["workspace_id": .string("pane:1")],
+            ["surface_id": .string("pane:1")],
+            ["pane_id": .string("surface:1")],
+            ["tab_id": .string("workspace:1")],
+            ["terminal_id": .string("pane:1")],
+            ["group_id": .string("workspace_group:99")],
+            ["group_id": .string("   ")],
+            ["group_id": .int(7)],
+        ] {
+            #expect(coordinator.routingSelectors(params).hasRejectedSelector)
+        }
+    }
+
+    @Test func validAndAbsentSelectorsAreNotMarkedRejected() {
+        let (coordinator, handles) = coordinatorWithOneRefPerKind()
+
+        for params: [String: JSONValue] in [
+            [:],
+            ["group_id": .null],
+            ["group_id": .string("workspace_group:1")],
+            ["workspace_id": .string("workspace:1")],
+            ["workspace_id": .string("window:1")],
+            ["surface_id": .string("tab:1")],
+            ["pane_id": .string(handles.pane.uuidString)],
+            // Unknown-but-well-formed ids stay acceptable: that is gap 1.
+            ["group_id": .string(UUID().uuidString)],
+        ] {
+            #expect(!coordinator.routingSelectors(params).hasRejectedSelector)
+        }
+    }
+
+    /// End-to-end: a wrong-kind `group_id` on a destructive command must be
+    /// refused, not routed to whatever window happens to be active.
+    @Test func wrongKindRoutingSelectorRefusesTheCommand() {
+        let coordinator = ControlCommandCoordinator()
+        let context = FakeSurfaceControlCommandContext()
+        // Mirror the app rule: a rejected selector resolves no tab manager.
+        context.routingResolvesTabManager = { !$0.hasRejectedSelector }
+        coordinator.context = context
+        coordinator.ensureRef(kind: .surface, uuid: UUID())
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: ["group_id": .string("surface:1")]
+        ))
+
+        guard case .err(let code, _, _) = result else {
+            Issue.record("expected a wrong-kind group_id to refuse surface.close, got \(result)")
+            return
+        }
+        #expect(code == "unavailable")
+    }
+
     @Test func registryRejectsRefsOutsideTheRequestedKinds() {
         var registry = ControlHandleRegistry()
         let surfaceID = UUID()

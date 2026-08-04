@@ -38,7 +38,12 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlWindowExists(id: UUID) -> Bool { false }
     func controlMoveWindow(id: UUID, toDisplayMatching query: String) -> String? { nil }
     func controlMoveAllWindows(toDisplayMatching query: String) -> ControlMoveAllWindowsResult? { nil }
-    func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
+    /// Overridable routing rule; defaults to the app's "always resolves".
+    var routingResolvesTabManager: (ControlRoutingSelectors) -> Bool = { _ in true }
+
+    func controlSurfaceRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool {
+        routingResolvesTabManager(routing)
+    }
     func controlSurfaceList(routing: ControlRoutingSelectors) -> ControlSurfaceListSnapshot? {
         surfaceListSnapshot
     }

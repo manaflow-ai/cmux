@@ -408,7 +408,25 @@ public final class ControlCommandCoordinator {
             surfaceID: routingUUID(params, "surface_id")
                 ?? routingUUID(params, "terminal_id")
                 ?? routingUUID(params, "tab_id"),
-            paneID: routingUUID(params, "pane_id")
+            paneID: routingUUID(params, "pane_id"),
+            hasRejectedSelector: hasRejectedRoutingSelector(params)
         )
     }
+
+    /// Whether any routing selector was supplied but failed to resolve, which
+    /// must fail the routing walk rather than read as an absent selector.
+    ///
+    /// `window_id` is excluded: its presence is already carried separately by
+    /// ``ControlRoutingSelectors/hasWindowIDParam`` and handled by the walk.
+    func hasRejectedRoutingSelector(_ params: [String: JSONValue]) -> Bool {
+        Self.routingSelectorKeys.contains { key in
+            hasNonNull(params, key) && routingUUID(params, key) == nil
+        }
+    }
+
+    /// The routing selector keys whose supplied-but-invalid state fails closed.
+    /// `public` so the legacy `[String: Any]` routing walk applies the same set.
+    public static let routingSelectorKeys = [
+        "group_id", "workspace_id", "surface_id", "terminal_id", "tab_id", "pane_id",
+    ]
 }
