@@ -707,7 +707,11 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         let pollService = PullRequestPollService(
             gitMetadataService: discovery,
-            probeService: manager.pullRequestProbeService
+            probeService: manager.pullRequestProbeService,
+            mobileHostDeferral: MobileHostDeferralPolicy(
+                deferralInterval: 0,
+                quietInterval: 0
+            )
         )
         pollService.attach(host: manager)
 
