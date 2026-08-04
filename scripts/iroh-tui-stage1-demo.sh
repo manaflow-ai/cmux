@@ -105,7 +105,7 @@ docker build \
     "$REPO_ROOT"
 
 docker run --rm "$builder_image" \
-    awk '/^nameserver[[:space:]]/ { print "nameserver " $2; exit }' \
+    awk '/^nameserver[[:space:]]/ { print "nameserver " $2; exit }' /etc/resolv.conf \
     > "$linux_resolv_conf"
 if ! grep -Eq '^nameserver [0-9a-fA-F:.]+$' "$linux_resolv_conf"; then
     echo "failed to derive a clean Docker resolver configuration" >&2
