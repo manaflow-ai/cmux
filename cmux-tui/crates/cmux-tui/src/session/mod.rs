@@ -493,6 +493,10 @@ impl Session {
             Session::Remote(remote) => {
                 if remote.refresh_tree()?.workspaces.is_empty() {
                     remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
+                    anyhow::ensure!(
+                        !remote.refresh_tree()?.workspaces.is_empty(),
+                        "remote session did not expose the workspace it created"
+                    );
                 }
                 Ok(())
             }
