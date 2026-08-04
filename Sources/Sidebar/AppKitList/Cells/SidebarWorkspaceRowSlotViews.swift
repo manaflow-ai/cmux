@@ -231,6 +231,7 @@ final class SidebarRowProgressView: NSView {
 /// One wrapping/truncating text line (or block) with measured height.
 @MainActor
 final class SidebarRowTextView: NSTextField {
+    /// Receives web-link clicks without making the field text-selectable.
     var onOpenLink: ((URL) -> Void)?
     private var pendingLinkURL: URL?
     private var cachedLinkHitLayout: LinkHitLayout?
@@ -380,15 +381,20 @@ final class SidebarRowTextView: NSTextField {
     }
 
     private static func linkURL(from value: Any?) -> URL? {
+        let resolvedURL: URL?
         switch value {
-        case let url as URL:
-            return url
-        case let url as NSURL:
-            return url as URL
+        case let candidate as URL:
+            resolvedURL = candidate
+        case let candidate as NSURL:
+            resolvedURL = candidate as URL
         case let string as String:
-            return URL(string: string)
+            resolvedURL = URL(string: string)
         default:
+            resolvedURL = nil
+        }
+        guard let resolvedURL, let scheme = resolvedURL.scheme?.lowercased() else {
             return nil
         }
+        return scheme == "http" || scheme == "https" ? resolvedURL : nil
     }
 }

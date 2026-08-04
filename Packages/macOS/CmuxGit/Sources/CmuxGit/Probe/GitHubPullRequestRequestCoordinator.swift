@@ -61,10 +61,7 @@ public actor GitHubPullRequestRequestCoordinator {
     /// tuning knobs stay internal (tests reach that initializer through
     /// `@testable import`), keeping the public surface to a plain default.
     public init() {
-        self.session = Self.makeDefaultSession()
-        self.maximumCachedResponseCount = 128
-        self.maximumCachedResponseBodyBytes = 4 * 1024 * 1024
-        self.now = { Date() }
+        self.init(session: nil)
     }
 
     init(
@@ -76,18 +73,14 @@ public actor GitHubPullRequestRequestCoordinator {
         if let session {
             self.session = session
         } else {
-            self.session = Self.makeDefaultSession()
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = max(PullRequestProbeService.probeTimeout, 8)
+            configuration.timeoutIntervalForResource = max(PullRequestProbeService.probeTimeout, 8)
+            self.session = URLSession(configuration: configuration)
         }
         self.maximumCachedResponseCount = max(0, maximumCachedResponseCount)
         self.maximumCachedResponseBodyBytes = max(0, maximumCachedResponseBodyBytes)
         self.now = now
-    }
-
-    private static func makeDefaultSession() -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = max(PullRequestProbeService.probeTimeout, 8)
-        configuration.timeoutIntervalForResource = max(PullRequestProbeService.probeTimeout, 8)
-        return URLSession(configuration: configuration)
     }
 
     func response(
