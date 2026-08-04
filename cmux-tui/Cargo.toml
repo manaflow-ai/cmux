@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "bindings/rust",
+    "bindings/rust-sidebar",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",

@@ -216,16 +216,19 @@ impl LayoutMessages {
             .replace("{ratio}", &ratio.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn unsupported_server_command(&self, command: &str) -> String {
         self.unsupported_server_command.replace("{command}", command)
     }
 
+    #[cfg(test)]
     pub(crate) fn layout_undo_applied(&self, screen: u64, revision: u64) -> String {
         self.layout_undo_applied
             .replace("{screen}", &screen.to_string())
             .replace("{revision}", &revision.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn layout_undo_confirmation_required(&self, revision: u64, panes: &str) -> String {
         self.layout_undo_confirmation_required
             .replace("{revision}", &revision.to_string())
@@ -284,10 +287,12 @@ impl AttachMessages {
         format!("{}{reference:?}{}", self.unknown_terminal_prefix, self.unknown_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn ambiguous_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.ambiguous_terminal_prefix, self.ambiguous_terminal_suffix)
     }
 
+    #[cfg(test)]
     pub fn browser_not_terminal(&self, reference: &str) -> String {
         format!("{}{reference:?}{}", self.browser_terminal_prefix, self.browser_terminal_suffix)
     }
@@ -534,7 +539,7 @@ OPTIONS:
 The agent opens one outbound connection. It never opens a public listener or
 edits shell files. Authenticate with the configured host before retrying.
 ",
-        usage: "cmux machine-agent           Share one local session through the configured host",
+        usage: "cmux machine-agent       Share one local session through the configured host",
         pairing_code: "Pairing code",
         registered: "Sharing local cmux session",
         retrying: "Cloud connection lost; retrying in {milliseconds} ms",
@@ -624,9 +629,9 @@ edits shell files. Authenticate with the configured host before retrying.
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
         unknown_terminal_prefix: "unknown terminal ",
-        unknown_terminal_suffix: "; use `cmux-tui ids` to list surfaces",
+        unknown_terminal_suffix: "; use `cmux terminal list` to list terminal IDs",
         ambiguous_terminal_prefix: "ambiguous terminal reference ",
-        ambiguous_terminal_suffix: "; use an unambiguous id from `cmux-tui ids`",
+        ambiguous_terminal_suffix: "; use an unambiguous ID from `cmux terminal list`",
         browser_terminal_prefix: "surface ",
         browser_terminal_suffix: " is a browser, not a terminal",
     },
@@ -774,7 +779,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
 エージェントは外向きの接続を 1 つ開きます。公開リスナーを開いたり、シェルファイル
 を編集したりしません。再試行する前に、設定したホストで認証してください。
 ",
-        usage: "cmux machine-agent           設定したホスト経由でローカルセッションを共有",
+        usage: "cmux machine-agent       設定したホスト経由でローカルセッションを共有",
         pairing_code: "ペアリングコード",
         registered: "ローカル cmux セッションを共有中",
         retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
@@ -864,9 +869,9 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
         unknown_terminal_prefix: "ターミナル ",
-        unknown_terminal_suffix: " が見つかりません。`cmux-tui ids` でサーフェス一覧を確認してください",
+        unknown_terminal_suffix: " が見つかりません。`cmux terminal list` でターミナル ID 一覧を確認してください",
         ambiguous_terminal_prefix: "ターミナル参照 ",
-        ambiguous_terminal_suffix: " は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください",
+        ambiguous_terminal_suffix: " は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください",
         browser_terminal_prefix: "サーフェス ",
         browser_terminal_suffix: " はブラウザであり、ターミナルではありません",
     },
@@ -1010,11 +1015,11 @@ mod tests {
         );
         assert_eq!(
             ENGLISH.attach.unknown_terminal("missing"),
-            "unknown terminal \"missing\"; use `cmux-tui ids` to list surfaces"
+            "unknown terminal \"missing\"; use `cmux terminal list` to list terminal IDs"
         );
         assert_eq!(
             JAPANESE.attach.ambiguous_terminal("000010"),
-            "ターミナル参照 \"000010\" は曖昧です。`cmux-tui ids` に表示される一意の ID を使用してください"
+            "ターミナル参照 \"000010\" は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください"
         );
         assert_eq!(
             JAPANESE.attach.browser_not_terminal("browser"),

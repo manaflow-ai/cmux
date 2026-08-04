@@ -120,7 +120,7 @@ import UIKit
         )
     }
 
-    @Test func previewTextChangeReconfiguresInPlaceWithoutSnapshotApply() {
+    @Test func previewTextChangeReconfiguresInPlaceWithoutTableReload() {
         var workspace = preview(id: "workspace-1", activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020))
         let coordinator = WorkspaceListTableCoordinator(
             configuration: configuration(workspaces: [workspace])
@@ -137,7 +137,7 @@ import UIKit
         )
     }
 
-    @Test func descriptionArrivalChangesRowHeightThroughSnapshotApply() {
+    @Test func descriptionArrivalChangesRowHeightThroughTableReload() {
         // A durable description adds a text line, changing the row's height
         // key: this payload change must keep riding the snapshot apply so
         // UITableView re-queries the row height.
@@ -151,7 +151,7 @@ import UIKit
         workspace.customDescription = "Durable workspace context"
         coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
 
-        #expect(coordinator.lastPayloadApplyRoute == .snapshotApply)
+        #expect(coordinator.lastPayloadApplyRoute == .tableReload)
     }
 
     @Test func workspaceRenderEquivalenceQuantizesOnlyTimestamps() {
@@ -303,8 +303,6 @@ import UIKit
             workspaceChangeChipsByWorkspaceID: [:],
             openWorkspaceChanges: nil,
             connectionRequiresReauth: false,
-            connectionRecoveryFailed: false,
-            isRecoveringConnection: false,
             connectionError: nil,
             host: "Test Mac",
             isInitialConnectionLoading: false,
@@ -312,6 +310,8 @@ import UIKit
             initialConnectionDescription: nil,
             enablesReorder: false,
             moveRows: nil,
+            canDropIntoGroup: nil,
+            dropIntoGroup: nil,
             selectWorkspace: { _ in },
             closeWorkspace: closeWorkspace,
             setUnread: setUnread,
@@ -325,7 +325,6 @@ import UIKit
             deleteWorkspaceGroup: nil,
             toggleGroupCollapsed: nil,
             showAll: {},
-            retryConnectionRecovery: nil,
             signOut: nil,
             retryInitialConnection: nil,
             showAddDevice: nil,
