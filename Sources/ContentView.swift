@@ -15161,33 +15161,38 @@ struct TabItemView: View, Equatable {
         explicitRailColor(for: workspaceSnapshot) != nil
     }
 
+    private var activeBorderStyle: SidebarWorkspaceRowBorderStyle {
+        sidebarWorkspaceRowBorderStyle(
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            isActive: isActive,
+            colorScheme: colorScheme,
+            sidebarSelectionColorHex: sidebarSelectionColorHex
+        )
+    }
+
     private var activeBorderLineWidth: CGFloat {
-        switch activeTabIndicatorStyle {
-        case .leftRail:
-            return 0
-        case .solidFill:
-            return isActive ? 1.5 : 0
-        }
+        activeBorderStyle.width
     }
 
     private var activeBorderColor: Color {
-        guard isActive else { return .clear }
-        switch activeTabIndicatorStyle {
-        case .leftRail:
-            return .clear
-        case .solidFill:
-            return Color.primary.opacity(0.5)
-        }
+        Color(nsColor: activeBorderStyle.color ?? .clear)
     }
 
     private var usesInvertedActiveForeground: Bool {
-        isActive
+        sidebarWorkspaceRowUsesInvertedForeground(
+            activeTabIndicatorStyle: activeTabIndicatorStyle,
+            isActive: isActive
+        )
+    }
+
+    private var activePrimaryTextNSColor: NSColor {
+        usesInvertedActiveForeground
+            ? selectedWorkspaceForegroundNSColor(opacity: 1.0)
+            : .labelColor
     }
 
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground
-            ? Color(nsColor: selectedWorkspaceForegroundNSColor(opacity: 1.0))
-            : .primary
+        Color(nsColor: activePrimaryTextNSColor)
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
@@ -15452,7 +15457,8 @@ struct TabItemView: View, Equatable {
                 if isEditing {
                     SidebarInlineRenameField(
                         initialText: renameDraft,
-                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(12.5), percent: globalFontMagnificationPercent), textColor: selectedWorkspaceForegroundNSColor(opacity: 1.0),
+                        fontSize: GlobalFontMagnification.scaledSize(scaledFontSize(12.5), percent: globalFontMagnificationPercent),
+                        textColor: activePrimaryTextNSColor,
                         accessibilityLabel: String(
                             localized: "sidebar.workspace.rename.field.accessibilityLabel",
                             defaultValue: "Rename workspace"

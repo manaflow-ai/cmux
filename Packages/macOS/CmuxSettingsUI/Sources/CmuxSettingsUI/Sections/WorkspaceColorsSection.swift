@@ -102,7 +102,7 @@ public struct WorkspaceColorsSection: View {
 
             colorRow(
                 title: String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"),
-                subtitle: String(localized: "settings.workspaceColors.selectionColor.subtitle", defaultValue: "Background color of the selected workspace in the sidebar."),
+                subtitle: String(localized: "settings.workspaceColors.selectionColor.subtitle", defaultValue: "Background or outline color of the selected workspace in the sidebar."),
                 json: "workspaceColors.selectionColor",
                 resetLabel: String(localized: "settings.workspaceColors.selectionColor.reset", defaultValue: "Reset"),
                 model: selectionHex
@@ -272,6 +272,7 @@ public struct WorkspaceColorsSection: View {
         switch style {
         case .leftRail: return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
         case .solidFill: return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
+        case .outline: return String(localized: "sidebar.activeTabIndicator.outline", defaultValue: "Outline")
         }
     }
 
