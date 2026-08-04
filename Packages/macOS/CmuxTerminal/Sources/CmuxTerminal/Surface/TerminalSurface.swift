@@ -328,10 +328,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // like the @MainActor teardownSurface/suspend paths already do; tests only
     // set and clear it on the main actor.
     public nonisolated(unsafe) static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
-    /// Per-surface override for app-host tests that exercise teardown through
-    /// app-owned code. Unlike the legacy static seam, this travels with the
-    /// surface when the package is linked into both the host and test bundle.
-    var runtimeSurfaceFreeOverrideForInstanceTesting: (@Sendable (ghostty_surface_t) -> Void)?
 #endif
     var portalLifecycleState: PortalLifecycleState = .live
     var portalLifecycleGeneration: UInt64 = 1
@@ -701,9 +697,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // manualIOContext or teeLease here would leave a use-after-free window until
         // the coordinator's deferred free runs.
 #if DEBUG
-        if let freeSurface =
-                runtimeSurfaceFreeOverrideForInstanceTesting ??
-                Self.runtimeSurfaceFreeOverrideForTesting {
+        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,

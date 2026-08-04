@@ -269,9 +269,7 @@ extension TerminalSurface {
 #endif
 
 #if DEBUG
-        if let freeSurface =
-                runtimeSurfaceFreeOverrideForInstanceTesting ??
-                Self.runtimeSurfaceFreeOverrideForTesting {
+        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
             // Transport manualIOContext and teeLease through the request too:
             // the coordinator releases all callback userdata only after the
             // native free, which is what joins ghostty's IO threads.
@@ -359,9 +357,7 @@ extension TerminalSurface {
 #endif
 
 #if DEBUG
-        if let freeSurface =
-                runtimeSurfaceFreeOverrideForInstanceTesting ??
-                Self.runtimeSurfaceFreeOverrideForTesting {
+        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
             // Transport manualIOContext and teeLease through the request too:
             // the coordinator releases all callback userdata only after the
             // native free, which is what joins ghostty's IO threads.

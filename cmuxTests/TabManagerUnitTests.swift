@@ -1601,22 +1601,23 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         // native TTY/font initialization, while the isolated coordinator keeps
         // earlier real-surface frees from delaying this assertion.
         terminalPanel.surface.surface = fakeSurface
-        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
 
         let nativeFreeStarted = expectation(description: "native free started")
         let fakeSurfaceToken = UInt(bitPattern: fakeSurface)
-        terminalPanel.surface.runtimeSurfaceFreeOverrideForInstanceTesting = { surface in
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
             guard UInt(bitPattern: surface) == fakeSurfaceToken else { return }
             XCTAssertFalse(Thread.isMainThread, "Native surface free must not run on the main thread")
             nativeFreeStarted.fulfill()
         }
         defer {
-            terminalPanel.surface.runtimeSurfaceFreeOverrideForInstanceTesting = nil
+            TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil
         }
 
-        manager.confirmCloseHandler = { _, _, _ in true }
-
-        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
+        // Session history snapshots intentionally inspect a terminal's native
+        // runtime before close. This synthetic token is not a Ghostty surface,
+        // so skip history capture and enter the shared close/teardown action
+        // after the confirmation/history decision.
+        manager.closeWorkspace(workspace, recordHistory: false)
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
         XCTAssertNil(terminalPanel.surface.surface)
