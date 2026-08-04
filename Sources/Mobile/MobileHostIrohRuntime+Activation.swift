@@ -7,6 +7,7 @@ import Foundation
 @MainActor
 extension MobileHostIrohRuntime {
     func activate(accountID: String, revision: UInt64) async throws {
+        beginIrohRouteActivation(revision: revision)
         guard let auth else { throw CmxIrohHostRuntimeError.inactive }
         // Pin the runtime's broker to the session identity that owns
         // `accountID` — a cheap local check now, and every broker request
@@ -316,6 +317,9 @@ extension MobileHostIrohRuntime {
                             authorization: .irohAdmission(session.peer),
                             artifactTransfers: artifactTransfers,
                             independentEventWriter: eventWriter,
+                            promoteUsableSession: {
+                                await session.markUsable()
+                            },
                             isCurrent: isCurrent
                         )
                     },
@@ -429,7 +433,6 @@ extension MobileHostIrohRuntime {
                         // therefore closes every Iroh-authorized connection and
                         // leaves Tailscale/other private-network sessions intact.
                         MobileHostService.shared.closeAllIrohConnections()
-                        MobileHostService.shared.updateIrohRoute(identity: nil)
                     }
                 )
             },
@@ -478,6 +481,7 @@ extension MobileHostIrohRuntime {
                 throw CancellationError()
             }
             await hostRuntime.stop()
+            clearIrohRoutePublication(revision: revision)
             throw error
         }
         guard revision == lifecycleRevision,
@@ -496,6 +500,7 @@ extension MobileHostIrohRuntime {
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
+        _ = publishIrohRouteIfActive(revision: revision)
         diagnosticLog.record(DiagnosticEvent(
             .endpointActive,
             a: DiagnosticTransportKind.iroh.rawValue
@@ -560,10 +565,58 @@ extension MobileHostIrohRuntime {
         if preparedSignOut?.pendingRevocation?.accountID == accountID {
             preparedSignOut = nil
         }
-        MobileHostService.shared.updateIrohRoute(
-            identity: binding.endpointID,
+        stageIrohRoute(binding, pathHints: pathHints, revision: revision)
+        if runtime != nil, activeAccountID == accountID {
+            _ = publishIrohRouteIfActive(revision: revision)
+        }
+    }
+
+    /// Starts a new availability generation. Persisted broker identity is not
+    /// a dialable route until the matching endpoint reports active.
+    func beginIrohRouteActivation(revision: UInt64) {
+        guard revision == lifecycleRevision else { return }
+        pendingIrohRouteBinding = nil
+        routePublicationPhase = .starting(revision: revision)
+        MobileHostService.shared.updateIrohRoute(identity: nil)
+    }
+
+    func stageIrohRoute(
+        _ binding: CmxIrohBrokerBindingMetadata,
+        pathHints: [CmxIrohPathHint],
+        revision: UInt64
+    ) {
+        guard revision == lifecycleRevision else { return }
+        pendingIrohRouteBinding = (
+            revision: revision,
+            binding: binding,
             pathHints: pathHints
         )
+    }
+
+    /// Publishes only the binding staged by the activation generation whose
+    /// endpoint has completed `start()`.
+    @discardableResult
+    func publishIrohRouteIfActive(revision: UInt64) -> Bool {
+        guard revision == lifecycleRevision,
+              let pendingIrohRouteBinding,
+              pendingIrohRouteBinding.revision == revision else { return false }
+        self.pendingIrohRouteBinding = nil
+        routePublicationPhase = .active(
+            revision: revision,
+            binding: pendingIrohRouteBinding.binding
+        )
+        MobileHostService.shared.updateIrohRoute(
+            identity: pendingIrohRouteBinding.binding.endpointID,
+            pathHints: pendingIrohRouteBinding.pathHints
+        )
+        return true
+    }
+
+    func clearIrohRoutePublication(revision: UInt64? = nil) {
+        if let revision, revision != lifecycleRevision { return }
+        pendingIrohRouteBinding = nil
+        routePublicationPhase = .unavailable
+        MobileHostService.shared.updateIrohRoute(identity: nil)
     }
 
     private func allowsPersistence(

@@ -28,6 +28,7 @@
     "db:url": "bash scripts/db-local.sh url",
     "start": "next start",
     "test": "bash scripts/run-tests.sh",
+    "test:social-images": "bash scripts/test-social-image-delivery.sh",
     "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
     "typecheck": "tsgo --noEmit",
     "lint": "eslint"

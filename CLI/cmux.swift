@@ -7151,6 +7151,17 @@ struct CMUXCLI {
         if shellCommand != nil, let unexpected = (remaining + (splitArgs.argv ?? [])).first {
             throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
         }
+        if let unknownFlag = remaining.first(where: { $0.hasPrefix("-") && $0 != "-" }) {
+            let knownFlags = Self.surfaceResumeSetValueOptions.sorted().joined(separator: ", ")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.surfaceResume.set.error.unknownFlag",
+                    defaultValue: "surface resume set: unknown flag '%1$@'. Known flags: %2$@. Use -- <argv...> for command arguments."
+                ),
+                unknownFlag,
+                knownFlags
+            ))
+        }
         if splitArgs.argv != nil, let unexpected = remaining.first {
             throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
         }
@@ -22539,7 +22550,12 @@ struct CMUXCLI {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
-            if FileManager.default.isExecutableFile(atPath: candidate) {
+            // `isExecutableFile(atPath:)` is true for directories, so a directory named
+            // like the binary would otherwise shadow the real executable (#8743).
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
+               FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }
         }
