@@ -6,6 +6,7 @@ import SwiftUI
 final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
     private unowned let coordinator: GlobalSearchCoordinator
     private let popover = NSPopover()
+    private let presentation: GlobalSearchPopoverPresentation
 
     var isShown: Bool {
         popover.isShown
@@ -13,13 +14,17 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
 
     init(coordinator: GlobalSearchCoordinator) {
         self.coordinator = coordinator
+        presentation = GlobalSearchPopoverPresentation(coordinator: coordinator)
         super.init()
         popover.behavior = .transient
         popover.animates = true
         popover.contentSize = NSSize(width: 720, height: 460)
         popover.delegate = self
         popover.contentViewController = NSHostingController(
-            rootView: GlobalSearchPaletteView(coordinator: coordinator)
+            rootView: GlobalSearchPaletteView(
+                coordinator: coordinator,
+                presentation: presentation
+            )
         )
     }
 
@@ -45,7 +50,12 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
         popover.performClose(nil)
     }
 
+    func popoverWillShow(_ notification: Notification) {
+        presentation.popoverWillShow()
+    }
+
     func popoverDidClose(_ notification: Notification) {
+        presentation.popoverDidClose()
         let handler = dismissalHandler
         dismissalHandler = nil
         handler?()
@@ -54,6 +64,7 @@ final class MenubarSearchPopover: NSObject, NSPopoverDelegate {
 
 private struct GlobalSearchPaletteView: View {
     let coordinator: GlobalSearchCoordinator
+    @Bindable var presentation: GlobalSearchPopoverPresentation
 
     @State private var query = ""
     @State private var results: [GlobalSearchResultRow] = []
@@ -63,7 +74,6 @@ private struct GlobalSearchPaletteView: View {
     @State private var searchDebounceTimer: DispatchSourceTimer?
     @State private var searchTask: Task<Void, Never>?
     @State private var refreshTask: Task<Void, Never>?
-    @State private var keyMonitor: Any?
     @FocusState private var searchFieldFocused: Bool
 
     private let searchDebounceMilliseconds = 80
@@ -123,26 +133,45 @@ private struct GlobalSearchPaletteView: View {
         }
         .frame(width: 720, height: 460)
         .background(.regularMaterial)
-        .onAppear {
-            searchFieldFocused = true
-            installKeyMonitorIfNeeded()
-            resetResultsForPopoverOpen()
-            refreshTask?.cancel()
-            refreshTask = Task { @MainActor in
-                await coordinator.refreshLiveIndex()
-                guard !Task.isCancelled else { return }
-                scheduleSearch(query)
+        .onChange(of: presentation.presentationGeneration, initial: true) { _, generation in
+            if generation == nil {
+                finishPopoverPresentation()
+            } else {
+                prepareForPopoverPresentation()
             }
         }
         .onDisappear {
-            removeKeyMonitor()
-            refreshTask?.cancel()
-            refreshTask = nil
-            cancelSearchWork()
+            finishPopoverPresentation()
         }
         .onChange(of: query) { _, newValue in
             scheduleSearch(newValue)
         }
+    }
+
+    private func prepareForPopoverPresentation() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        cancelSearchWork()
+
+        query = ""
+        resetResultsForPopoverOpen()
+        searchFieldFocused = true
+        presentation.handleKeyEvents { event in
+            handleKeyEvent(event)
+        }
+
+        refreshTask = Task { @MainActor in
+            await coordinator.refreshLiveIndex()
+            guard !Task.isCancelled else { return }
+            scheduleSearch(query)
+        }
+    }
+
+    private func finishPopoverPresentation() {
+        searchFieldFocused = false
+        refreshTask?.cancel()
+        refreshTask = nil
+        cancelSearchWork()
     }
 
     private func scheduleSearch(_ nextQuery: String) {
@@ -215,36 +244,6 @@ private struct GlobalSearchPaletteView: View {
         selectedIndex = 0
     }
 
-    private func installKeyMonitorIfNeeded() {
-        guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let keyEvent = GlobalSearchKeyEvent(event)
-            let route = MainActor.assumeIsolated {
-                AppDelegate.shared?
-                    .routeVisibleGlobalSearchShortcutFromLocalMonitor(event)
-                    ?? .notApplicable
-            }
-            switch route {
-            case .handled:
-                return nil
-            case .queryOwnsEvent:
-                return event
-            case .notApplicable:
-                let consumed = MainActor.assumeIsolated {
-                    handleKeyEvent(keyEvent)
-                }
-                return consumed ? nil : event
-            }
-        }
-    }
-
-    private func removeKeyMonitor() {
-        if let keyMonitor {
-            NSEvent.removeMonitor(keyMonitor)
-            self.keyMonitor = nil
-        }
-    }
-
     private func handleKeyEvent(_ event: GlobalSearchKeyEvent) -> Bool {
         guard coordinator.isPaletteVisible() else { return false }
 
@@ -260,9 +259,6 @@ private struct GlobalSearchPaletteView: View {
         }
 
         switch event.keyCode {
-        case 53:
-            coordinator.dismissPalette()
-            return true
         case 126 where flags.isDisjoint(with: [.command, .shift, .option, .control]):
             selectedIndex = max(0, selectedIndex - 1)
             return true
@@ -273,18 +269,8 @@ private struct GlobalSearchPaletteView: View {
             openSelectedResult()
             return true
         default:
-            if flags.contains(.command),
-               !flags.contains(.option),
-               !flags.contains(.control) {
-                return !event.queryOwnsEditingShortcut && !isSystemCommand(event)
-            }
             return false
         }
-    }
-
-    private func isSystemCommand(_ event: GlobalSearchKeyEvent) -> Bool {
-        guard let characters = event.charactersIgnoringModifiers?.lowercased() else { return false }
-        return ["h", "m", "q", "w", ","].contains(characters)
     }
 
     private func openSelectedResult() {
