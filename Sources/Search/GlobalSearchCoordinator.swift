@@ -95,7 +95,7 @@ final class GlobalSearchCoordinator {
 
         for context in contexts {
             guard !Task.isCancelled else { return }
-            captureManager.refreshPanelContent(for: context)
+            await captureManager.refreshPanelContent(for: context)
         }
     }
 
