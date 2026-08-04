@@ -1557,15 +1557,36 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
         let workspace = manager.addWorkspace()
         manager.selectWorkspace(workspace)
 
-        guard let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected focused terminal panel")
-            return
-        }
+        let liveDependencies = GhosttyApp.terminalSurfaceRuntimeDependencies
+        let isolatedDependencies = TerminalSurfaceRuntimeDependencies(
+            registry: liveDependencies.registry,
+            engine: liveDependencies.engine,
+            viewProvider: liveDependencies.viewProvider,
+            spawnPolicy: liveDependencies.spawnPolicy,
+            byteTee: liveDependencies.byteTee,
+            rendererRealization: liveDependencies.rendererRealization,
+            hibernationRecorder: liveDependencies.hibernationRecorder,
+            runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
+            restoreSpawnScheduler: liveDependencies.restoreSpawnScheduler,
+            runtimeFilesystem: liveDependencies.runtimeFilesystem,
+            sessionPortBase: liveDependencies.sessionPortBase,
+            sessionPortRangeSize: liveDependencies.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey: liveDependencies.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: liveDependencies.globalFontMagnificationPercent
+        )
+        let surface = TerminalSurface(
+            tabId: workspace.id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            dependencies: isolatedDependencies
+        )
+        let terminalPanel = TerminalPanel(workspaceId: workspace.id, surface: surface)
+        workspace.panels[terminalPanel.id] = terminalPanel
 
         let fakeSurface: ghostty_surface_t = UnsafeMutableRawPointer(bitPattern: 0x5282)!
-        // This test only needs a non-nil teardown token. The runtime-install
-        // helper initializes native TTY/font state and requires a real surface.
+        // The test needs only a non-nil teardown token. Direct assignment avoids
+        // native TTY/font initialization, while the isolated coordinator keeps
+        // earlier real-surface frees from delaying this assertion.
         terminalPanel.surface.surface = fakeSurface
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
 
