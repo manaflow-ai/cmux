@@ -360,7 +360,7 @@ struct ApplicationSurfaceTests {
         #expect(await second.next() == nil)
     }
 
-    @Test func captureOwnershipIgnoresOcclusionButInputDoesNot() {
+    @Test func captureOwnershipSurvivesTransientHostDetachButInputDoesNot() {
         let visible = ApplicationCaptureActivity(
             paneWantsCapture: true,
             hostAttached: true,
@@ -382,7 +382,7 @@ struct ApplicationSurfaceTests {
             hostAttached: false,
             hostVisible: false
         )
-        #expect(!detached.ownsSession)
+        #expect(detached.ownsSession)
         #expect(!detached.acceptsInput)
     }
 
