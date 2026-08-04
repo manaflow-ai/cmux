@@ -307,6 +307,9 @@ extension PortScanner {
     }
 
     func runPS(ttyList: String) async -> (values: [Int: String], completeness: PortScanCompleteness) {
+        guard portScanningEnabledProvider() else {
+            return ([:], .incomplete)
+        }
         let result = await commandRunner.run(
             directory: "/",
             executable: "/bin/ps",
@@ -329,6 +332,9 @@ extension PortScanner {
     }
 
     func runAllProcesses() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
+        guard portScanningEnabledProvider() else {
+            return ([:], .incomplete)
+        }
         let result = await commandRunner.run(
             directory: "/",
             executable: "/bin/ps",
@@ -355,10 +361,17 @@ extension PortScanner {
     }
 
     func runLsof(pidsCsv: String) async -> PortLsofScanResult {
+        guard portScanningEnabledProvider() else {
+            return PortLsofScanResult(
+                values: [:],
+                globallyComplete: false,
+                incompletePIDs: []
+            )
+        }
         let result = await commandRunner.run(
             directory: "/",
             executable: "/usr/sbin/lsof",
-            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"],
+            arguments: ["-nP", "-b", "-w", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"],
             timeout: Self.processScanTimeout
         )
 
