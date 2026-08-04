@@ -325,11 +325,13 @@ import Testing
         #expect(harness.manager.tabs.filter(\.isRemoteTmuxMirror).count == 1)
         #expect(secondManager.tabs.filter(\.isRemoteTmuxMirror).count == 1)
 
-        let outcome = try await harness.controller.attachHost(
-            host: host,
-            windowTarget: .dedicatedNewWindow,
-            activate: false
-        )
+        let outcome = try await HeadlessMainWindowInterceptor.replacingNewWindowContent {
+            try await harness.controller.attachHost(
+                host: host,
+                windowTarget: .dedicatedNewWindow,
+                activate: false
+            )
+        }
         guard case let .mirrored(targetWindowID, workspaceIDs) = outcome else {
             Issue.record("Expected dedicated-window attach to mirror the host")
             return
@@ -393,10 +395,12 @@ import Testing
         let surfaceIDBefore = try #require(focusedBefore["surface_id"] as? String)
 
         let responseText = await Task.detached {
-            TerminalController.shared.v2RemoteTmuxWindow(
-                id: 1,
-                params: ["host": host.destination]
-            )
+            HeadlessMainWindowInterceptor.replacingNewWindowContent {
+                TerminalController.shared.v2RemoteTmuxWindow(
+                    id: 1,
+                    params: ["host": host.destination]
+                )
+            }
         }.value
         let responseData = try #require(responseText.data(using: .utf8))
         let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
@@ -454,7 +458,7 @@ import Testing
         let manager: TabManager
         let workspace: Workspace
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
-        private let previousMainWindowContentViewFactory: (() -> NSView)?
+        private let headlessWindowInterceptor: HeadlessMainWindowInterceptor
         private var ownedWindowIDs: [UUID] = []
         private var ownedManagers: [ObjectIdentifier: TabManager] = [:]
         private var cachedConnections: [RemoteTmuxControlConnection] = []
@@ -462,25 +466,22 @@ import Testing
 
         init() throws {
             let resolvedAppDelegate = try #require(AppDelegate.shared)
-            let previousContentViewFactory =
-                resolvedAppDelegate.debugMainWindowContentViewFactoryForTesting
-            resolvedAppDelegate.debugMainWindowContentViewFactoryForTesting = {
-                NSView(frame: .zero)
-            }
+            let interceptor = HeadlessMainWindowInterceptor(appDelegate: resolvedAppDelegate)
             do {
-                let createdWindowID = resolvedAppDelegate.createMainWindow(shouldActivate: false)
+                let createdWindowID = HeadlessMainWindowInterceptor.replacingNewWindowContent {
+                    resolvedAppDelegate.createMainWindow(shouldActivate: false)
+                }
                 let createdManager = try #require(
                     resolvedAppDelegate.tabManagerFor(windowId: createdWindowID)
                 )
                 let createdWorkspace = try #require(createdManager.selectedWorkspace)
                 appDelegate = resolvedAppDelegate
-                previousMainWindowContentViewFactory = previousContentViewFactory
+                headlessWindowInterceptor = interceptor
                 windowId = createdWindowID
                 manager = createdManager
                 workspace = createdWorkspace
             } catch {
-                resolvedAppDelegate.debugMainWindowContentViewFactoryForTesting =
-                    previousContentViewFactory
+                interceptor.invalidate()
                 throw error
             }
             ownedWindowIDs.append(windowId)
@@ -494,10 +495,10 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
 
-            // Every fixture window uses placeholder AppKit content, including
-            // dedicated windows created inside socket/controller entrypoints.
-            // The tests exercise real window routing and workspace ownership
-            // without ever realizing a native Ghostty renderer.
+            // Every fixture window receives placeholder AppKit content before
+            // it is ordered on screen, including dedicated windows created
+            // inside socket/controller entrypoints. The tests exercise real
+            // window routing without realizing a native Ghostty renderer.
             let workspaces = ownedManagers.values.flatMap(\.tabs)
             ownedWindowIDs.reversed().forEach(closeWindow)
             workspaces.forEach { $0.teardownAllPanels() }
@@ -508,8 +509,7 @@ import Testing
             for connection in cachedConnections {
                 controller.detach(host: connection.host, sessionName: connection.sessionName)
             }
-            appDelegate.debugMainWindowContentViewFactoryForTesting =
-                previousMainWindowContentViewFactory
+            headlessWindowInterceptor.invalidate()
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
@@ -522,7 +522,9 @@ import Testing
         }
 
         func createWindow() throws -> UUID {
-            let id = appDelegate.createMainWindow()
+            let id = HeadlessMainWindowInterceptor.replacingNewWindowContent {
+                appDelegate.createMainWindow()
+            }
             try ownWindow(id)
             return id
         }

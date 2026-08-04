@@ -50,6 +50,75 @@ actor AppContextSerialGate {
     }
 }
 
+// `@TaskLocal` storage is necessarily type-scoped. The interceptor below uses
+// it to distinguish the exact window-creation task from unrelated app-host
+// tests that may create windows concurrently in another suite.
+private struct HeadlessMainWindowTaskContext {
+    @TaskLocal static var isEnabled = false
+}
+
+/// Replaces newly registered main-window content before the window is ordered
+/// on screen. This keeps routing tests on the production registration path
+/// without realizing SwiftUI or native Ghostty renderer views.
+@MainActor
+final class HeadlessMainWindowInterceptor: NSObject {
+    private weak var appDelegate: AppDelegate?
+    private var knownWindowKeys: Set<ObjectIdentifier>
+    private var isInvalidated = false
+
+    init(appDelegate: AppDelegate) {
+        self.appDelegate = appDelegate
+        knownWindowKeys = Set(
+            appDelegate.mainWindowContexts.values.compactMap(\.window).map(ObjectIdentifier.init)
+        )
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(mainWindowContextsDidChange(_:)),
+            name: .mainWindowContextsDidChange,
+            object: appDelegate
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    nonisolated static func replacingNewWindowContent<T>(
+        _ operation: () throws -> T
+    ) rethrows -> T {
+        try HeadlessMainWindowTaskContext.$isEnabled.withValue(true, operation: operation)
+    }
+
+    nonisolated static func replacingNewWindowContent<T>(
+        _ operation: () async throws -> T
+    ) async rethrows -> T {
+        try await HeadlessMainWindowTaskContext.$isEnabled.withValue(true, operation: operation)
+    }
+
+    func invalidate() {
+        guard !isInvalidated else { return }
+        isInvalidated = true
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func mainWindowContextsDidChange(_ notification: Notification) {
+        guard !isInvalidated, let appDelegate else { return }
+        let windows = appDelegate.mainWindowContexts.values.compactMap(\.window)
+        let currentWindowKeys = Set(windows.map(ObjectIdentifier.init))
+        let newWindowKeys = currentWindowKeys.subtracting(knownWindowKeys)
+        knownWindowKeys = currentWindowKeys
+
+        guard HeadlessMainWindowTaskContext.isEnabled else { return }
+        for window in windows where newWindowKeys.contains(ObjectIdentifier(window)) {
+            window.contentViewController = nil
+            let placeholder = NSView(frame: window.contentLayoutRect)
+            placeholder.autoresizingMask = [.width, .height]
+            window.contentView = placeholder
+        }
+    }
+}
+
 /// Test-only main-window context seams, kept in the test target per the
 /// debug-seam policy and reaching internal AppDelegate state via
 /// `@testable import`. Tests register a windowless context and tear it down

@@ -545,10 +545,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
-#if DEBUG
-    /// App-host test seam for windows that need real routing state without mounting SwiftUI.
-    var debugMainWindowContentViewFactoryForTesting: (() -> NSView)?
-#endif
     /// Composition-root lifetime owner shared by every window's font-size
     /// queue. Window coordinators receive this dependency explicitly; no
     /// coordinator reaches back through `AppDelegate.shared`.
@@ -9108,15 +9104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 lastCascadePoint = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
             }
         }
-#if DEBUG
-        if let debugMainWindowContentViewFactoryForTesting {
-            window.contentView = debugMainWindowContentViewFactoryForTesting()
-        } else {
-            window.contentView = MainWindowHostingView(rootView: root)
-        }
-#else
         window.contentView = MainWindowHostingView(rootView: root)
-#endif
 
         // Apply shared window styling.
         attachUpdateAccessory(to: window)
