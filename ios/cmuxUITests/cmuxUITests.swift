@@ -2633,9 +2633,9 @@ final class cmuxUITests: XCTestCase {
     /// foreground (no watchdog hang), the terminal still renders its known
     /// content (not a blank/frozen grid), the dock is coherent, and once the
     /// keyboard is down the grid has returned to (near) full height, which also
-    /// guards the "terminal not full height when keyboard closed" fix
-    /// (`scheduleKeyboardHideHeightResync` + the host-tested
-    /// `TerminalLetterboxGeometry.terminalContainerSize`).
+    /// guards the "terminal not full height when keyboard closed" fix through the
+    /// system keyboard guide plus the host-tested
+    /// `TerminalLetterboxGeometry.terminalContainerSize`.
     @MainActor
     func testKeyboardLayoutFuzzDoesNotFreeze() async throws {
         let server = try MobileSyncMockHostServer()
@@ -6535,6 +6535,56 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// Verify the built app's two-part keyboard contract at steady state:
+    /// UIKit's keyboard guide resolves to the real software-keyboard edge, and the
+    /// visible composer/toolbar stack resolves to that same guide edge.
+    @MainActor
+    private func assertTerminalDockPinnedToSoftwareKeyboard(
+        _ dock: [String: String],
+        surface: XCUIElement,
+        keyboard: SoftwareKeyboardSnapshot,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init),
+              let composerMinY = dock["composerMinY"].flatMap(Double.init),
+              let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
+              let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
+            XCTFail(
+                "Missing keyboard-guide dock geometry for \(context). dock=\(dock)",
+                file: file,
+                line: line
+            )
+            return
+        }
+
+        let dockEdge = composerMaxY - composerMinY > 0.5 ? composerMaxY : toolbarMaxY
+        XCTAssertEqual(
+            dockEdge,
+            guideTop,
+            accuracy: 1,
+            "Dock must terminate at UIKeyboardLayoutGuide.topAnchor for \(context). dock=\(dock)",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            Double(surface.frame.minY) + guideTop,
+            Double(keyboard.frame.minY),
+            accuracy: 2,
+            "UIKeyboardLayoutGuide must resolve to the visible keyboard edge for "
+                + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+            file: file,
+            line: line
+        )
+        assertTerminalRenderBottomAttachedToViewport(
+            dock,
+            context: context,
+            file: file,
+            line: line
+        )
+    }
+
     /// Repeatedly open and close the composer via the toolbar compose button and assert
     /// the dock stays coherent each cycle. This is the primary "composer jank" repro:
     /// the round-9 reducer reads `fieldFocused` synchronously, but the field's focus is
@@ -6736,15 +6786,22 @@ final class cmuxUITests: XCTestCase {
         // The composer is open by default but unfocused. Focus the terminal's hidden
         // input proxy so this covers the reported keyboard-up → attach path.
         surface.tap()
-        waitForDock(in: app, describe: "terminal proxy owns the visible keyboard before photo picker") {
+        _ = waitForDock(in: app, describe: "terminal proxy owns the visible keyboard before photo picker") {
             $0["proxyFirstResponder"] == "1"
                 && $0["keyboardUp"] == "1"
                 && $0["inputRequested"] == "terminal"
                 && $0["inputActual"] == "terminal"
         }
-        XCTAssertTrue(
-            app.keyboards.firstMatch.waitForExistence(timeout: 4),
-            "Tapping the terminal should show the keyboard before opening attachments"
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "terminal before photo picker"
         )
 
         let attachButton = app.buttons[Composer.attachButton]
@@ -6768,15 +6825,22 @@ final class cmuxUITests: XCTestCase {
         // A terminal tap must create a real responder transition and re-open the
         // keyboard, rather than no-op against a stale first-responder proxy.
         surface.tap()
-        waitForDock(in: app, describe: "terminal tap restores keyboard after photo picker cancellation") {
+        _ = waitForDock(in: app, describe: "terminal tap restores keyboard after photo picker cancellation") {
             $0["proxyFirstResponder"] == "1"
                 && $0["keyboardUp"] == "1"
                 && $0["inputRequested"] == "terminal"
                 && $0["inputActual"] == "terminal"
         }
-        XCTAssertTrue(
-            app.keyboards.firstMatch.waitForExistence(timeout: 4),
-            "Tapping the terminal after cancelling the photo picker should restore the keyboard"
+        guard let restoredKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: restoredKeyboard,
+            context: "first terminal tap after photo picker cancellation"
         )
     }
 
@@ -6790,17 +6854,29 @@ final class cmuxUITests: XCTestCase {
         defer { server.stop() }
 
         let app = try launchConnectedApp(port: port)
-        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
         let field = app.descendants(matching: .any)[Composer.field]
         XCTAssertTrue(waitForHittable(field, timeout: 4))
 
         field.tap()
-        waitForDock(in: app, describe: "composer owns the visible keyboard before photo picker") {
+        _ = waitForDock(in: app, describe: "composer owns the visible keyboard before photo picker") {
             $0["fieldFocused"] == "1"
                 && $0["keyboardUp"] == "1"
                 && $0["inputRequested"] == "composer"
                 && $0["inputActual"] == "composer"
         }
+        guard let initialKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: initialKeyboard,
+            context: "composer before photo picker"
+        )
 
         let attachButton = app.buttons[Composer.attachButton]
         XCTAssertTrue(attachButton.waitForExistence(timeout: 4))
@@ -6814,12 +6890,23 @@ final class cmuxUITests: XCTestCase {
         }
 
         field.tap()
-        waitForDock(in: app, describe: "first composer tap restores keyboard after picker") {
+        _ = waitForDock(in: app, describe: "first composer tap restores keyboard after picker") {
             $0["fieldFocused"] == "1"
                 && $0["keyboardUp"] == "1"
                 && $0["inputRequested"] == "composer"
                 && $0["inputActual"] == "composer"
         }
+        guard let restoredKeyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            surfaceDock(in: app),
+            surface: surface,
+            keyboard: restoredKeyboard,
+            context: "first composer tap after photo picker cancellation"
+        )
         field.typeText("x")
         _ = waitForDock(in: app, describe: "composer remains editable after restored focus") { _ in
             (self.storeComposer(in: app)["draftLength"].flatMap(Int.init) ?? 0) == 1

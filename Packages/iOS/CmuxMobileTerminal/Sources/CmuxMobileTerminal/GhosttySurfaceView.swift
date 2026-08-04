@@ -364,10 +364,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let toolbarFrame = dockedToolbar?.frame
         let toolbarMinY = toolbarFrame.map { pointValue($0.minY) } ?? "none"
         let toolbarMaxY = toolbarFrame.map { pointValue($0.maxY) } ?? "none"
-        let keyboardTransitionID = keyboardHeightAnimation?.id ?? -1
-        let keyboardTransitionTarget = keyboardHeightAnimation.map {
-            pointValue($0.targetOverlap)
-        } ?? "none"
+        let keyboardTransitionID = bottomDockTransitionInFlight ? 1 : -1
+        let keyboardTransitionTarget = pointValue(keyboardHeight)
+        let keyboardGuideTop = pointValue(keyboardLayoutGuide.layoutFrame.minY)
         return [
             "chromeHidden=\(chromeHidden ? 1 : 0)",
             "composerActive=\(composerActive ? 1 : 0)",
@@ -384,6 +383,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "toolbarMinY=\(toolbarMinY)",
             "toolbarMaxY=\(toolbarMaxY)",
             "bottomSafeArea=\(pointValue(safeAreaInsetsBottom))",
+            "keyboardGuideTop=\(keyboardGuideTop)",
             "keyboardTransitionID=\(keyboardTransitionID)",
             "keyboardTransitionTarget=\(keyboardTransitionTarget)",
             "bandMounted=\(composerContainer.subviews.isEmpty ? 0 : 1)",
@@ -515,10 +515,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastAppliedContainerSize = .zero
     }
     private var viewportCoordinator = TerminalViewportCoordinator()
-    private let keyboardTransitionPlanner = TerminalDockKeyboardTransitionPlanner()
-    private var keyboardHeightAnimation: TerminalKeyboardHeightAnimation?
-    private var keyboardHeightAnimationID = 0
-    private var lastKeyboardTransitionDuration: TimeInterval = 0.25
+    /// The toolbar/composer use Auto Layout; the Ghostty renderer does not. This bit
+    /// keeps its display-link viewport updates alive until the guide-constrained
+    /// toolbar's presentation frame reaches its model frame.
+    private var bottomDockTransitionObserved = false
+    private var composerBottomToKeyboardConstraint: NSLayoutConstraint?
+    private var composerHeightConstraint: NSLayoutConstraint?
+    private var toolbarHeightConstraint: NSLayoutConstraint?
+    #if DEBUG
+    private var keyboardHeightOverrideForTesting: CGFloat?
+    private var composerBottomForTestingConstraint: NSLayoutConstraint?
+    #endif
 
     #if DEBUG
     struct DebugGeometrySnapshot {
@@ -574,10 +581,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func setKeyboardHeightForTesting(_ height: CGFloat) {
-        stopKeyboardHeightAnimation()
-        keyboardHeight = max(0, height)
+        setKeyboardHeightOverrideForTesting(height)
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
+        layoutIfNeeded()
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
 
@@ -766,8 +773,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         addSubview(debugAccessibilityProxy)
         addSubview(composerDockProbe)
         #endif
+        configureKeyboardLayoutGuide()
         installPersistentToolbar()
         installComposerContainer()
+        installBottomDockConstraints()
         installArtifactChipContainer()
         initializeSurface()
 
@@ -828,6 +837,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc private func handleAppDidBecomeActive() {
         resumeRendering()
         inputSession.send(.sceneDidBecomeActive)
+        // The guide reflects the current keyboard even if this surface missed a
+        // notification while inactive; force a layout read before the next render.
+        setNeedsLayout()
     }
 
     @objc private func handleAppWillEnterForeground() {
@@ -880,11 +892,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var keyboardHeight: CGFloat = 0
     private var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
-    /// toolbar is docked above the keyboard (when up) or the home indicator
-    /// (when down) through the surface's frame-positioned dock math, so the grid
-    /// must shrink by this much to keep the bottom TUI rows visible above it. 0
-    /// until the toolbar is installed (`installPersistentToolbar`), so the
-    /// home-indicator reservation still lands even if the toolbar UI is absent.
+    /// toolbar is constrained to ``UIView/keyboardLayoutGuide`` and the viewport
+    /// coordinator consumes that same guide-derived overlap, so the grid must shrink
+    /// by this much to keep the bottom TUI rows visible above it. Zero until the
+    /// toolbar is installed (`installPersistentToolbar`).
     private var reservedToolbarHeight: CGFloat = 0
     /// Height of the docked accessory bar reserved in the grid geometry so the
     /// bottom TUI rows stay visible above it. Locked to the bar's actual button-row
@@ -895,10 +906,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// toolbar's live top edge equal to the viewport edge; any whole-cell render
     /// remainder stays inside the terminal viewport instead of becoming toolbar fill.
     private static let persistentToolbarHeight: CGFloat = TerminalInputTextView.dockedButtonRowHeight
-    /// The docked accessory bar. Positioned by ``bottomDockFrames()`` with the
-    /// SAME bottom-occupancy math as the grid reservation, so its top is always
-    /// flush with the grid bottom (no gap) and its bottom rests on the keyboard
-    /// edge (up) or above the home indicator (down).
+    /// The docked accessory bar. Auto Layout pins it above the composer, whose bottom
+    /// is attached to ``UIView/keyboardLayoutGuide``. The viewport coordinator uses
+    /// the guide's same top edge for the terminal reservation.
     private weak var dockedToolbar: UIView?
     /// Whether the iMessage-style composer is currently open. The surface owns the
     /// whole bottom dock (terminal grid / toolbar / composer band / keyboard) in ONE
@@ -912,14 +922,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The composer band: a surface-owned container the host installs the SwiftUI
     /// compose field into (via a `UIHostingController` in
     /// `GhosttySurfaceRepresentable`, which can see both layers; the terminal package
-    /// cannot import the UI package). The surface positions it itself — pinned
-    /// directly above the keyboard (iMessage's field-nearest-keyboard layout), with
-    /// the docked toolbar riding its top edge and the terminal grid above that — and
-    /// reserves its height in the grid, so the compose field, the toolbar, and the
-    /// keyboard all live in the surface's single coordinate system (see
-    /// ``bottomDockFrames()`` for the `terminal / toolbar / composer / keyboard`
-    /// stack). Replaces the round-5/6 `safeAreaInset`-plus-toolbar-handoff that
-    /// fought the surface's frame math.
+    /// cannot import the UI package). Auto Layout pins it directly to
+    /// ``UIView/keyboardLayoutGuide`` (iMessage's field-nearest-keyboard layout), with
+    /// the docked toolbar riding its top edge and the terminal grid above that. The
+    /// viewport coordinator consumes the same guide overlap for the
+    /// `terminal / toolbar / composer / keyboard` stack.
     private let composerContainer = UIView()
     /// Height (points) the open composer band reserves above the keyboard edge. Fed
     /// by the host from the hosted compose field's intrinsic content size
@@ -952,7 +959,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc private func handleKeyboardWillChangeFrame(_ notification: Notification) {
         guard let transition = MobileKeyboardTransition(notification: notification) else { return }
-        let targetOverlap = transition.overlap(in: self)
         let willBeVisible = transition.isVisible(in: self)
         let wasVisible = keyboardVisible
         #if DEBUG
@@ -980,167 +986,130 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // and its text stays; tapping it refocuses and re-raises the keyboard. The
         // composer is dismissed only by its chevron or the toolbar composer button.
         //
-        // The toolbar stays visible while the keyboard is down (it now rides the bottom
-        // safe area), so visibility does not change here. Re-seat the dock and re-sync
-        // the grid: `keyboardOccupancyInBounds` flips from the keyboard height to the
-        // safe-area inset, so the dock drops to ride the home indicator and the grid
-        // reclaims the keyboard's space (minus the now-reserved safe area + toolbar +
-        // composer band).
+        // This notification owns responder-facing VISIBILITY only. UIKit's
+        // `keyboardLayoutGuide` owns all dock and viewport geometry, including safe-area
+        // fallback and interrupted keyboard motion. Keeping those responsibilities
+        // separate prevents a stale notification frame from becoming a second layout
+        // authority while preserving hardware/floating keyboard visibility semantics.
         updateDockedToolbarVisibility()
-        let visibleOccupancy = currentVisibleDockOccupancy()
-        let targetOccupancy = TerminalLetterboxGeometry.keyboardOccupancy(
-            keyboardHeight: targetOverlap,
-            bottomSafeAreaInset: safeAreaInsetsBottom
-        )
-        let activeAnimation = keyboardHeightAnimation
-        if transition.duration > 0 {
-            lastKeyboardTransitionDuration = transition.duration
-        }
-        let plan = keyboardTransitionPlanner.plan(for: TerminalDockKeyboardTransitionInput(
-            targetOverlap: targetOverlap,
-            notificationDuration: transition.duration,
-            visibleOccupancy: visibleOccupancy,
-            targetOccupancy: targetOccupancy,
-            isAnimating: activeAnimation != nil,
-            activeTargetOverlap: activeAnimation?.targetOverlap ?? 0,
-            lastTransitionDuration: lastKeyboardTransitionDuration
-        ))
-        switch plan {
-        case .ignore:
-            return
-        case .apply:
-            applyKeyboardTransitionImmediately(to: targetOverlap)
-        case let .animate(duration):
-            startKeyboardHeightAnimation(
-                to: targetOverlap,
-                visibleOccupancy: visibleOccupancy,
-                transition: transition,
-                duration: duration
-            )
-        }
+        setNeedsLayout()
     }
 
-    private func startKeyboardHeightAnimation(
-        to targetHeight: CGFloat,
-        visibleOccupancy: CGFloat,
-        transition: MobileKeyboardTransition,
-        duration: TimeInterval
-    ) {
-        let clampedTarget = max(0, targetHeight)
-        let pinnedOverlap = keyboardTransitionPlanner.pinnedOverlap(
-            forVisibleOccupancy: visibleOccupancy,
-            bottomSafeAreaInset: safeAreaInsetsBottom
-        )
-        pinKeyboardDock(toOverlap: pinnedOverlap)
-        guard duration > 0,
-              abs(
-                TerminalLetterboxGeometry.keyboardOccupancy(
-                    keyboardHeight: clampedTarget,
-                    bottomSafeAreaInset: safeAreaInsetsBottom
-                ) - visibleOccupancy
-              ) > 0.5 else {
-            applyKeyboardTransitionImmediately(to: clampedTarget)
-            return
-        }
-
-        keyboardHeightAnimationID &+= 1
-        let animationID = keyboardHeightAnimationID
-        keyboardHeightAnimation = TerminalKeyboardHeightAnimation(
-            id: animationID,
-            targetOverlap: clampedTarget,
-            animationOptions: transition.animationOptions,
-            endTimestamp: CACurrentMediaTime() + duration
-        )
-        startDisplayLink()
-        transition.animate(durationOverride: duration) {
-            self.applyKeyboardHeight(clampedTarget)
-            self.layoutIfNeeded()
-        } completion: { _ in
-            guard self.keyboardHeightAnimationID == animationID else { return }
-            self.finishKeyboardHeightAnimation(targetHeight: clampedTarget)
-        }
-    }
-
-    private func stopKeyboardHeightAnimation() {
-        keyboardHeightAnimationID &+= 1
-        keyboardHeightAnimation = nil
-    }
-
-    private func finishKeyboardHeightAnimation(targetHeight: CGFloat) {
-        stopKeyboardHeightAnimation()
-        settleKeyboardHeight(targetHeight)
-    }
-
-    private func advanceKeyboardHeightAnimation() {
-        guard keyboardHeightAnimation != nil else { return }
+    /// Keep the renderer clipped to UIKit's live keyboard guide during animation.
+    ///
+    /// The constrained toolbar/composer already follow the guide automatically. The
+    /// terminal renderer is not Auto Layout-backed, so its display-link pass reads the
+    /// constrained toolbar's presentation frame until it reaches the model target.
+    private func advanceBottomDockTransition() {
+        let isTransitioning = bottomDockTransitionInFlight
+        guard isTransitioning || bottomDockTransitionObserved else { return }
+        bottomDockTransitionObserved = isTransitioning
         layoutRenderedTerminalForCurrentViewport()
         layoutZoomOverlay()
-    }
-
-    private func applyKeyboardHeight(_ height: CGFloat) {
-        let clamped = max(0, height)
-        if abs(keyboardHeight - clamped) > 0.25 {
+        if !isTransitioning {
             setNeedsGeometrySync()
         }
-        keyboardHeight = clamped
+    }
+
+    /// Installs the system keyboard guide as the only production keyboard geometry source.
+    private func configureKeyboardLayoutGuide() {
+        keyboardLayoutGuide.followsUndockedKeyboard = false
+        keyboardLayoutGuide.usesBottomSafeArea = true
+    }
+
+    /// Pins the whole dock stack to Apple's keyboard guide.
+    private func installBottomDockConstraints() {
+        guard let dockedToolbar else { return }
+        dockedToolbar.translatesAutoresizingMaskIntoConstraints = false
+        composerContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        let composerBottom = composerContainer.bottomAnchor.constraint(
+            equalTo: keyboardLayoutGuide.topAnchor
+        )
+        let composerHeight = composerContainer.heightAnchor.constraint(equalToConstant: 0)
+        let toolbarHeight = dockedToolbar.heightAnchor.constraint(equalToConstant: 0)
+        composerBottomToKeyboardConstraint = composerBottom
+        composerHeightConstraint = composerHeight
+        self.toolbarHeightConstraint = toolbarHeight
+
+        NSLayoutConstraint.activate([
+            composerContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            composerContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            composerBottom,
+            composerHeight,
+            dockedToolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            dockedToolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            dockedToolbar.bottomAnchor.constraint(equalTo: composerContainer.topAnchor),
+            toolbarHeight,
+        ])
         layoutBottomDock()
-        layoutRenderedTerminalForCurrentViewport()
-        layoutZoomOverlay()
     }
 
-    private func applyKeyboardTransitionImmediately(to targetHeight: CGFloat) {
-        pinKeyboardDock(toOverlap: targetHeight)
-        settleKeyboardHeight(targetHeight)
-    }
-
-    private func pinKeyboardDock(toOverlap overlap: CGFloat) {
-        stopKeyboardHeightAnimation()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        UIView.performWithoutAnimation {
-            applyKeyboardHeight(overlap)
-            layoutIfNeeded()
-            removeDockAnimations()
-        }
-        CATransaction.commit()
-    }
-
-    private func settleKeyboardHeight(_ targetHeight: CGFloat) {
-        keyboardHeight = max(0, targetHeight)
-        layoutBottomDock()
-        layoutRenderedTerminalForCurrentViewport()
-        layoutZoomOverlay()
+    /// Updates the renderer's overlap model from the guide's target top edge.
+    @discardableResult
+    private func synchronizeKeyboardGeometryFromLayoutGuide() -> Bool {
+        let nextHeight = keyboardOverlapFromLayoutGuide
+        guard abs(nextHeight - keyboardHeight) > 0.25 else { return false }
+        keyboardHeight = nextHeight
+        bottomDockTransitionObserved = bottomDockTransitionInFlight
         setNeedsGeometrySync()
+        return true
     }
 
-    private func removeDockAnimations() {
-        composerContainer.layer.removeAllAnimations()
-        dockedToolbar?.layer.removeAllAnimations()
+    /// Keyboard overlap represented by the system guide, excluding its safe-area fallback.
+    private var keyboardOverlapFromLayoutGuide: CGFloat {
+        #if DEBUG
+        if let keyboardHeightOverrideForTesting {
+            return max(0, keyboardHeightOverrideForTesting)
+        }
+        #endif
+        guard window != nil, bounds.height > 0 else { return 0 }
+        let guideFrame = keyboardLayoutGuide.layoutFrame
+        // A guide frame is usable only after UIKit has seated it against this view's
+        // bottom edge. During first attachment or rotation, keep the prior overlap for
+        // that transient pass instead of interpreting CGRect.zero as a full-screen
+        // keyboard.
+        guard abs(guideFrame.maxY - bounds.maxY) <= 1 else { return keyboardHeight }
+        let guideTop = min(max(0, guideFrame.minY), bounds.maxY)
+        let occupancy = max(0, bounds.maxY - guideTop)
+        return occupancy > safeAreaInsetsBottom + 0.5 ? occupancy : 0
     }
 
-    private func currentVisibleDockOccupancy() -> CGFloat {
-        let presentationFrame: CGRect?
-        if !composerContainer.isHidden, composerBandHeight > 0.5 {
-            presentationFrame = presentationFrameInOwnViewCoordinates(for: composerContainer)
-        } else if let dockedToolbar {
-            presentationFrame = presentationFrameInOwnViewCoordinates(for: dockedToolbar)
-        } else {
-            presentationFrame = nil
+    /// Whether UIKit is still animating the guide-constrained dock toward its target.
+    private var bottomDockTransitionInFlight: Bool {
+        #if DEBUG
+        if keyboardHeightOverrideForTesting != nil { return false }
+        #endif
+        guard dockedToolbarShouldBeVisible,
+              let dockedToolbar,
+              !dockedToolbar.isHidden,
+              let presentationFrame = dockedToolbar.layer.presentation()?.frame else {
+            return false
         }
-        if let presentationFrame {
-            return min(max(0, bounds.maxY - presentationFrame.maxY), max(0, bounds.height))
+        return abs(presentationFrame.minY - dockedToolbar.frame.minY) > 0.5
+    }
+
+    #if DEBUG
+    /// Switches the dock to a synthetic bottom anchor for host tests and previews.
+    private func setKeyboardHeightOverrideForTesting(_ height: CGFloat) {
+        let clamped = max(0, height)
+        keyboardHeightOverrideForTesting = clamped
+        keyboardHeight = clamped
+        bottomDockTransitionObserved = false
+
+        composerBottomToKeyboardConstraint?.isActive = false
+        if composerBottomForTestingConstraint == nil {
+            composerBottomForTestingConstraint = composerContainer.bottomAnchor.constraint(
+                equalTo: bottomAnchor
+            )
         }
-        return TerminalLetterboxGeometry.keyboardOccupancy(
-            keyboardHeight: keyboardHeight,
+        composerBottomForTestingConstraint?.constant = -TerminalLetterboxGeometry.keyboardOccupancy(
+            keyboardHeight: clamped,
             bottomSafeAreaInset: safeAreaInsetsBottom
         )
+        composerBottomForTestingConstraint?.isActive = true
     }
-
-    private func presentationFrameInOwnViewCoordinates(for targetView: UIView) -> CGRect? {
-        guard let sourceLayer = targetView.layer.presentation() else { return nil }
-        let targetLayer = layer.presentation() ?? layer
-        return sourceLayer.convert(targetView.bounds, to: targetLayer)
-    }
+    #endif
 
     #if DEBUG
     /// Test seam: force a synthetic keyboard height so the keyboard-up layout
@@ -1149,15 +1118,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the software keyboard. Drives the exact same geometry path as a real
     /// keyboard. Used only by the terminal-layout preview harness.
     public func debugSetKeyboardHeightForLayoutPreview(_ height: CGFloat) {
-        stopKeyboardHeightAnimation()
+        setKeyboardHeightOverrideForTesting(height)
         keyboardVisible = height > 0
         inputProxy.setKeyboardShown(keyboardVisible)
-        keyboardHeight = max(0, height)
         // Mirror the live keyboard-tied visibility so the preview shows the bar
         // only when the synthetic keyboard is "up".
         updateDockedToolbarVisibility()
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
+        layoutIfNeeded()
         setNeedsGeometrySync()
         setNeedsLayout()
     }
@@ -1171,11 +1140,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
     #endif
 
-    /// Dock the accessory bar as a persistent bottom toolbar. Frame-positioned
-    /// (not `keyboardLayoutGuide`-pinned) so it uses the exact same bottom
-    /// occupancy as the grid reservation and the two never disagree. The grid
-    /// reserves its height (see `reservedToolbarHeight`) so the bottom TUI rows
-    /// stay visible above it.
+    /// Dock the accessory bar as a persistent bottom toolbar. Auto Layout pins it
+    /// through the composer container to ``UIView/keyboardLayoutGuide``; the viewport
+    /// coordinator consumes the same guide-derived overlap for the terminal grid.
     private func installPersistentToolbar() {
         let toolbar = inputProxy.toolbarView
         addSubview(toolbar)
@@ -1190,7 +1157,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         toolbar.layer.zPosition = Self.bottomChromeZPosition
         toolbar.clipsToBounds = false
         updateDockedToolbarVisibility()
-        layoutBottomDock()
     }
 
     /// Layer `zPosition` for the bottom chrome (toolbar + composer band), placing it
@@ -1210,9 +1176,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// Round 8 makes the toolbar ALWAYS visible — terminal mode, composer mode,
     /// keyboard up AND down — so the only thing that hides it is the explicit HIDE
-    /// button (``chromeHidden``). The toolbar is no longer keyboard-tied. When the
+    /// button (``chromeHidden``). When the
     /// keyboard is down the toolbar (and any open composer) ride above the bottom
-    /// safe area instead of disappearing; see ``bottomChromeInset``.
+    /// safe area through the keyboard guide's default fallback.
     private var dockedToolbarShouldBeVisible: Bool {
         !chromeHidden
     }
@@ -1231,7 +1197,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// (Round 8), so it must clear the bottom safe area (home indicator) rather than
     /// sit flush on the screen edge — this returns ``safeAreaInsetsBottom`` then. The
     /// composer band and toolbar stack ABOVE this inset; the grid reserves it too.
-    /// Used by ``bottomDockFrames()`` and the grid reservation.
+    /// Used by the viewport coordinator and grid reservation.
     private var keyboardOccupancyInBounds: CGFloat {
         TerminalLetterboxGeometry.keyboardOccupancy(
             keyboardHeight: keyboardHeight,
@@ -1271,7 +1237,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             chromeVisible: dockedToolbarShouldBeVisible && dockedToolbar?.isHidden == false,
             toolbarFrame: dockedToolbar?.frame,
             toolbarPresentationFrame: dockedToolbar?.layer.presentation()?.frame,
-            viewportNegotiationUnsettled: keyboardHeightAnimation != nil
+            viewportNegotiationUnsettled: bottomDockTransitionInFlight
                 || pendingViewportReport != nil
                 || awaitingViewportEcho
         ))
@@ -1350,8 +1316,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         dockedToolbar?.isHidden = !shouldShow
         // The composer band rides with the toolbar: hide it when the chrome is
         // suppressed, show it again when the chrome returns and a field is mounted.
-        // Its frame already collapses to `.zero` while hidden (see
-        // ``bottomDockFrames()``); toggling `isHidden` also stops it intercepting taps.
+        // Its height constraint already collapses to zero while hidden; toggling
+        // `isHidden` also stops it intercepting taps.
         composerContainer.isHidden = !shouldShow || composerContainer.subviews.isEmpty
         reservedToolbarHeight = reserved
         layoutRenderedTerminalForCurrentViewport()
@@ -1367,13 +1333,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// only makes sense as "clear all chrome to see the full terminal", which requires
     /// resigning the keyboard too. `isComposerPresented` is left untouched, so the
     /// composer (and its draft) reappear intact on the next terminal tap
-    /// (``handleTap``). Animated on the keyboard curve via ``animateBottomDock``.
+    /// (``handleTap``). UIKit animates keyboard movement through its layout guide;
+    /// ``animateBottomDock`` handles only the chrome-height change.
     private func setChromeHidden(_ hidden: Bool) {
         guard chromeHidden != hidden else { return }
         chromeHidden = hidden
         if hidden, keyboardVisible {
-            // Drop the keyboard first; its hide notification re-seats the dock, then
-            // the visibility update below removes the toolbar/composer. Resign
+            // Drop the keyboard first; its layout guide re-seats the dock while the
+            // visibility update below removes the toolbar/composer. Resign
             // whichever responder actually owns the keyboard — the band can be
             // presented while the terminal's hidden input proxy (a sibling of
             // `composerContainer`) holds first responder, so gating on
@@ -1553,9 +1520,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Install the composer band container into the surface's view hierarchy, above
     /// the docked toolbar. Hidden and zero-height until the host mounts a compose
     /// field into it (``mountComposerView(_:)``); the surface positions it in
-    /// ``layoutBottomDock()`` and reserves its height in the grid. Frame-positioned
-    /// (`translatesAutoresizingMaskIntoConstraints = true`) like the docked toolbar so
-    /// the whole bottom dock shares one coordinate system.
+    /// ``layoutBottomDock()`` and reserves its height in the grid. Auto Layout pins its
+    /// bottom to ``UIView/keyboardLayoutGuide`` and pins the toolbar above it, so UIKit
+    /// and the viewport coordinator share one keyboard edge.
     private func installComposerContainer() {
         composerContainer.backgroundColor = .clear
         composerContainer.isHidden = true
@@ -1566,7 +1533,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         composerContainer.clipsToBounds = false
         composerContainer.layer.zPosition = Self.bottomChromeZPosition
         addSubview(composerContainer)
-        layoutBottomDock()
     }
 
     /// Mounts the host-built artifact chip inside the terminal's bottom-dock
@@ -1710,13 +1676,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// composer band. The terminal package cannot import the SwiftUI composer (that
     /// would invert the package DAG), so `GhosttySurfaceRepresentable` builds it in a
     /// `UIHostingController` and hands the controller's view here. The surface owns the
-    /// band's position and the grid reservation; the host owns the field's content and
+    /// band's height and grid reservation; the host owns the field's content and
     /// reports its measured height via ``setComposerBandHeight(_:animated:)``.
     ///
     /// The mounted view is pinned edge-to-edge inside the band with Auto Layout, so it
-    /// fills whatever height the surface frames the band to — there is no second layout
-    /// system fighting the surface for the band's frame (the band's own frame is set by
-    /// `layoutBottomDock()`).
+    /// fills the guide-pinned band — there is no second keyboard layout system fighting
+    /// the surface for the band's frame.
     public func mountComposerView(_ view: UIView?) {
         composerContainer.subviews.forEach { $0.removeFromSuperview() }
         guard let view else {
@@ -1739,9 +1704,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Set the height (points) the open composer band reserves below the docked
     /// toolbar, from the hosted compose field's intrinsic content size. Drives the
     /// grid reservation (so a field-grow pushes only the terminal up) and the dock
-    /// layout. When `animated`, the reservation + reflow run inside a `UIView.animate`
-    /// using the keyboard curve so the height change reads as one smooth motion with
-    /// the rest of the dock (item 3/4). Idempotent: a no-op when the height is
+    /// layout. When `animated`, the reservation + reflow run inside a `UIView.animate`;
+    /// keyboard movement itself remains owned by ``UIView/keyboardLayoutGuide``.
+    /// Idempotent: a no-op when the height is
     /// unchanged (then `completion` runs immediately so an unmount-on-close never
     /// strands the mounted field).
     ///
@@ -1780,133 +1745,42 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Duration (seconds) used for dock reflows when no keyboard transition is active.
     private static let composerReflowDuration: TimeInterval = 0.25
 
-    /// Position the composer band and docked toolbar from one viewport snapshot.
+    /// Apply dock heights from the same snapshot the terminal viewport consumes.
     private func layoutBottomDock() {
         layoutBottomDock(using: viewportSnapshot())
     }
 
     private func layoutBottomDock(using snapshot: TerminalViewportSnapshot) {
-        composerContainer.frame = snapshot.composerFrame
-        dockedToolbar?.frame = snapshot.toolbarFrame
+        composerHeightConstraint?.constant = snapshot.composerFrame.height
+        toolbarHeightConstraint?.constant = min(
+            reservedToolbarHeight,
+            snapshot.toolbarFrame.height
+        )
         layoutArtifactChip(using: snapshot)
     }
 
     /// Animate the whole bottom dock to its current target frames.
     private func animateBottomDock() {
-        let snapshot = viewportSnapshot()
-        let frames = (composer: snapshot.composerFrame, toolbar: snapshot.toolbarFrame)
         animateDockReflow { [weak self] in
-            self?.composerContainer.frame = frames.composer
-            self?.dockedToolbar?.frame = frames.toolbar
-            self?.layoutArtifactChip(using: snapshot)
+            guard let self else { return }
+            self.layoutBottomDock()
+            self.layoutIfNeeded()
+            self.layoutRenderedTerminalForCurrentViewport()
         }
     }
 
-    /// Reflow dock chrome on the keyboard's active clock, or the default dock clock.
+    /// Reflow composer-height changes without replacing UIKit's keyboard-guide motion.
     private func animateDockReflow(
         animations: @escaping () -> Void,
         completion: (() -> Void)? = nil
     ) {
-        if let keyboardHeightAnimation {
-            let duration = max(
-                0,
-                keyboardHeightAnimation.endTimestamp - CACurrentMediaTime()
-            )
-            keyboardHeightAnimationID &+= 1
-            let animationID = keyboardHeightAnimationID
-            self.keyboardHeightAnimation = TerminalKeyboardHeightAnimation(
-                id: animationID,
-                targetOverlap: keyboardHeightAnimation.targetOverlap,
-                animationOptions: keyboardHeightAnimation.animationOptions,
-                endTimestamp: keyboardHeightAnimation.endTimestamp
-            )
-            UIView.animate(
-                withDuration: duration,
-                delay: 0,
-                options: keyboardHeightAnimation.animationOptions.union([
-                    .beginFromCurrentState,
-                    .allowUserInteraction,
-                ]),
-                animations: animations
-            ) { _ in
-                if self.keyboardHeightAnimationID == animationID {
-                    self.finishKeyboardHeightAnimation(
-                        targetHeight: keyboardHeightAnimation.targetOverlap
-                    )
-                }
-                completion?()
-            }
-            return
-        }
         UIView.animate(
             withDuration: Self.composerReflowDuration,
             delay: 0,
-            options: [.curveEaseInOut, .beginFromCurrentState],
+            options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction],
             animations: animations,
             completion: { _ in completion?() }
         )
-    }
-
-    private func retargetActiveKeyboardDockIfNeeded(
-        using targetSnapshot: TerminalViewportSnapshot
-    ) -> Bool {
-        guard let activeAnimation = keyboardHeightAnimation,
-              dockTargetFramesDiffer(from: targetSnapshot) else {
-            return false
-        }
-        let visibleOccupancy = currentVisibleDockOccupancy()
-        let remainingDuration = max(
-            1.0 / 60.0,
-            activeAnimation.endTimestamp - CACurrentMediaTime()
-        )
-        let pinnedOverlap = keyboardTransitionPlanner.pinnedOverlap(
-            forVisibleOccupancy: visibleOccupancy,
-            bottomSafeAreaInset: safeAreaInsetsBottom
-        )
-        pinKeyboardDock(toOverlap: pinnedOverlap)
-
-        keyboardHeightAnimationID &+= 1
-        let animationID = keyboardHeightAnimationID
-        keyboardHeightAnimation = TerminalKeyboardHeightAnimation(
-            id: animationID,
-            targetOverlap: activeAnimation.targetOverlap,
-            animationOptions: activeAnimation.animationOptions,
-            endTimestamp: CACurrentMediaTime() + remainingDuration
-        )
-        startDisplayLink()
-        UIView.animate(
-            withDuration: remainingDuration,
-            delay: 0,
-            options: activeAnimation.animationOptions.union([
-                .beginFromCurrentState,
-                .allowUserInteraction,
-            ])
-        ) {
-            self.applyKeyboardHeight(activeAnimation.targetOverlap)
-            self.layoutIfNeeded()
-        } completion: { _ in
-            guard self.keyboardHeightAnimationID == animationID else { return }
-            self.finishKeyboardHeightAnimation(targetHeight: activeAnimation.targetOverlap)
-        }
-        return true
-    }
-
-    private func dockTargetFramesDiffer(from snapshot: TerminalViewportSnapshot) -> Bool {
-        if frame(composerContainer.frame, differsFrom: snapshot.composerFrame) {
-            return true
-        }
-        if let toolbarFrame = dockedToolbar?.frame,
-           frame(toolbarFrame, differsFrom: snapshot.toolbarFrame) {
-            return true
-        }
-        return false
-    }
-
-    private func frame(_ lhs: CGRect, differsFrom rhs: CGRect) -> Bool {
-        abs(lhs.minX - rhs.minX) > 0.5
-            || abs(lhs.minY - rhs.minY) > 0.5
-            || abs(lhs.width - rhs.width) > 0.5
-            || abs(lhs.height - rhs.height) > 0.5
     }
 
     private var pinchAccumulatedScale: CGFloat = 1.0
@@ -2285,7 +2159,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     deinit {
-        stopKeyboardHeightAnimation()
         disposeSurface()
     }
 
@@ -2295,11 +2168,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
+        synchronizeKeyboardGeometryFromLayoutGuide()
         let snapshot = viewportSnapshot()
-        let retargetedKeyboardDock = retargetActiveKeyboardDockIfNeeded(using: snapshot)
-        if !retargetedKeyboardDock {
-            layoutRenderedTerminalForCurrentViewport(using: snapshot)
-        }
+        layoutBottomDock(using: snapshot)
+        layoutRenderedTerminalForCurrentViewport(using: snapshot)
         layoutScrollMechanicsView()
         #if DEBUG
         debugAccessibilityProxy.frame = bounds
@@ -2310,9 +2182,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         inputProxy.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 1)
         inputProxy.updateAccessoryLayoutInsets()
-        if !retargetedKeyboardDock {
-            layoutBottomDock(using: snapshot)
-        }
         layoutZoomOverlay()
         MobileDebugLog.anchormux("surface.layout bounds=\(Int(bounds.width))x\(Int(bounds.height)) window=\(window != nil)")
         setNeedsGeometrySync()
@@ -2329,11 +2198,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// next unrelated relayout.
     public override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
-        let snapshot = viewportSnapshot()
-        if !retargetActiveKeyboardDockIfNeeded(using: snapshot) {
-            layoutRenderedTerminalForCurrentViewport(using: snapshot)
-            layoutBottomDock(using: snapshot)
+        #if DEBUG
+        if let keyboardHeightOverrideForTesting {
+            setKeyboardHeightOverrideForTesting(keyboardHeightOverrideForTesting)
         }
+        #endif
+        synchronizeKeyboardGeometryFromLayoutGuide()
+        let snapshot = viewportSnapshot()
+        layoutBottomDock(using: snapshot)
+        layoutRenderedTerminalForCurrentViewport(using: snapshot)
         setNeedsGeometrySync()
     }
 
@@ -2343,6 +2216,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSurfaceVisibility()
         if window != nil {
             isDismantled = false
+            setNeedsLayout()
             if UIApplication.shared.applicationState == .active {
                 inputSession.send(.sceneDidBecomeActive)
             } else {
@@ -2819,14 +2693,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputSession.send(.releaseFocus)
     }
 
-    /// Resigns this surface's hidden text input and clears keyboard geometry.
+    /// Resigns this surface's hidden text input.
     public func resignInput() {
         resignCurrentInput()
-        // Don't zero `keyboardHeight` here. `resignFirstResponder()` triggers
-        // `keyboardWillHide`, which owns the full hide cleanup (proxy state,
-        // docked-toolbar animation, geometry). Pre-zeroing would make that
-        // handler's `keyboardHeight != 0` guard short-circuit, leaving the
-        // toolbar at the old keyboard edge with a stale glyph.
+        // Geometry follows `keyboardLayoutGuide`; responder release only decides
+        // whether UIKit should dismiss the software keyboard.
     }
 
     /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
@@ -2868,7 +2739,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = nil
         needsAnotherRender = false
         inputSession.send(.surfaceDetached)
-        stopKeyboardHeightAnimation()
+        bottomDockTransitionObserved = false
         stopDisplayLink()
         setFocus(false)
         #if DEBUG
@@ -3233,7 +3104,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 zoomSettleFrames = frames
             }
         }
-        advanceKeyboardHeightAnimation()
+        advanceBottomDockTransition()
         // Apply geometry at most once per frame. Every trigger (resize, zoom,
         // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
         // fast pinch can no longer drive a synchronous per-event storm of
@@ -3780,22 +3651,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // clears the home indicator), the open composer band, and the persistent
         // toolbar: the surface owns the whole bottom dock in one coordinate system,
         // so the grid shrinks by all three. The order is immaterial to the reserved
-        // total; only the frame positions in `bottomDockFrames()` encode the
+        // total; the guide-pinned constraints encode the
         // `terminal / toolbar / composer / keyboard` stack. While the HIDE button
         // has suppressed the chrome (`chromeHidden`) the toolbar is off screen and
         // reserves nothing and the composer band is hidden, so the grid reclaims the
-        // whole height including the bottom safe area, matching `bottomDockFrames()`
-        // pinning the dock to `bounds.height`; only an actual keyboard is reserved
-        // then if one is somehow still up.
+        // whole height including the bottom safe area; only an actual keyboard is
+        // reserved then if one is somehow still up.
         //
         // The reservation + container math is the host-tested
         // `TerminalLetterboxGeometry.terminalContainerSize` (the same arithmetic
         // that was inlined here), so the keyboard open/closed full-height contract
         // is locked by a unit test and the surface cannot drift from it. Passing
-        // the CURRENT `keyboardHeight` means a keyboard-down sync never inherits a
-        // stale keyboard value (the "terminal not full height when keyboard closed"
-        // bug); the safe-area inset is resolved from the window when the view inset
-        // is a stale 0 right after the keyboard hides (see `safeAreaInsetsBottom`).
+        // the CURRENT guide-derived `keyboardHeight` means a keyboard-down sync never
+        // inherits a stale keyboard value (the "terminal not full height when keyboard
+        // closed" bug); the safe-area inset is resolved from the window when the view
+        // inset is a stale 0 right after the keyboard hides (see `safeAreaInsetsBottom`).
         let snapshot = viewportSnapshot()
         let container = snapshot.containerSize
         let containerW = container.width
@@ -4009,7 +3879,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The settle paths (keyboard animation completion, report echo) each
         // schedule another geometry sync, so exactly one fit runs on the
         // settled grant.
-        if keyboardHeightAnimation == nil,
+        if !bottomDockTransitionInFlight,
            pendingViewportReport == nil,
            !awaitingViewportEcho,
            reportGrid == lastReportedSize {
@@ -4023,7 +3893,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
         } else {
             MobileDebugLog.anchormux(
-                "zoom.autofit.deferred kbAnim=\(keyboardHeightAnimation != nil ? 1 : 0) "
+                "zoom.autofit.deferred kbAnim=\(bottomDockTransitionInFlight ? 1 : 0) "
                 + "pendingReport=\(pendingViewportReport != nil ? 1 : 0) "
                 + "awaitingEcho=\(awaitingViewportEcho ? 1 : 0) "
                 + "reportGrid=\(reportGrid.columns)x\(reportGrid.rows) "
