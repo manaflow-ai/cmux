@@ -815,78 +815,6 @@ private struct TextBoxAttachmentPreviewMetrics {
     }
 }
 
-private struct TextBoxAttachmentPreviewPopoverView: View {
-    let attachment: TextBoxAttachment
-    let imageSize: CGSize
-
-    @State private var isPresented = false
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            previewContent
-                .frame(width: imageSize.width, height: imageSize.height)
-                .padding(TextBoxAttachmentPreviewLayout.previewPadding)
-
-            if attachment.localURL != nil {
-                Button(action: openInPreview) {
-                    Text(String(localized: "textbox.openWithPreview.button", defaultValue: "Open with Preview"))
-                        .cmuxFont(size: 12, weight: .semibold)
-                        .lineLimit(1)
-                }
-                .buttonStyle(TextBoxAttachmentPreviewOpenButtonStyle())
-                .help(String(localized: "textbox.openInPreview.tooltip", defaultValue: "Open in Preview"))
-                .accessibilityLabel(String(localized: "textbox.openInPreview.tooltip", defaultValue: "Open in Preview"))
-                .padding(.top, TextBoxAttachmentPreviewLayout.topButtonPadding)
-                .padding(.trailing, TextBoxAttachmentPreviewLayout.buttonTrailingPadding)
-            }
-        }
-        .frame(
-            width: imageSize.width + TextBoxAttachmentPreviewLayout.previewPadding * 2,
-            height: imageSize.height + TextBoxAttachmentPreviewLayout.previewPadding * 2
-        )
-        .clipShape(RoundedRectangle(cornerRadius: TextBoxAttachmentPreviewLayout.cornerRadius, style: .continuous))
-        .background(Color.black.clipShape(RoundedRectangle(cornerRadius: TextBoxAttachmentPreviewLayout.cornerRadius, style: .continuous)))
-        .overlay {
-            RoundedRectangle(cornerRadius: TextBoxAttachmentPreviewLayout.cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.16), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.24), radius: 20, y: 8)
-        .scaleEffect(isPresented ? 1 : 0.96, anchor: .bottom)
-        .opacity(isPresented ? 1 : 0)
-        .onAppear {
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
-                isPresented = true
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var previewContent: some View {
-        if let thumbnail = attachment.thumbnail {
-            Image(nsImage: thumbnail)
-                .resizable()
-                .scaledToFit()
-                .frame(width: imageSize.width, height: imageSize.height)
-                .background(Color.black.opacity(0.82))
-        } else {
-            VStack(spacing: 10) {
-                CmuxSystemSymbolImage(magnified: "doc", pointSize: 42, weight: .regular)
-                Text(attachment.displayName)
-                    .cmuxFont(size: 13, weight: .medium)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .truncationMode(.middle)
-            }
-            .foregroundStyle(.primary.opacity(0.86))
-            .frame(width: imageSize.width, height: imageSize.height)
-        }
-    }
-
-    private func openInPreview() {
-        TextBoxAttachmentPreviewOpening.openInPreview(attachment)
-    }
-}
-
 @MainActor
 enum TextBoxAttachmentPreviewOpening {
     static func openInPreview(_ attachment: TextBoxAttachment) {
@@ -900,37 +828,116 @@ enum TextBoxAttachmentPreviewOpening {
     }
 }
 
-private struct TextBoxAttachmentPreviewOpenButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(Color.white.opacity(configuration.isPressed ? 0.78 : 0.94))
-            .padding(.horizontal, 9)
-            .frame(height: 22)
-            .background {
-                Capsule(style: .continuous)
-                    .fill(Color.white.opacity(configuration.isPressed ? 0.28 : 0.22))
-            }
-            .contentShape(Capsule(style: .continuous))
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.10), value: configuration.isPressed)
-    }
-}
-
-private final class TextBoxAttachmentPreviewController: NSHostingController<TextBoxAttachmentPreviewPopoverView> {
+@MainActor
+private final class TextBoxAttachmentPreviewController: NSViewController {
+    private let attachment: TextBoxAttachment
 
     init(attachment: TextBoxAttachment) {
         let metrics = TextBoxAttachmentPreviewMetrics.metrics(for: attachment)
-        super.init(rootView: TextBoxAttachmentPreviewPopoverView(
-            attachment: attachment,
-            imageSize: metrics.imageSize
-        ))
+        self.attachment = attachment
+        super.init(nibName: nil, bundle: nil)
         preferredContentSize = metrics.contentSize
+        view = Self.makeContentView(
+            attachment: attachment,
+            imageSize: metrics.imageSize,
+            openTarget: self,
+            openAction: #selector(openInPreview)
+        )
     }
 
     @available(*, unavailable)
     @MainActor
     dynamic required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func openInPreview() {
+        TextBoxAttachmentPreviewOpening.openInPreview(attachment)
+    }
+
+    private static func makeContentView(
+        attachment: TextBoxAttachment,
+        imageSize: CGSize,
+        openTarget: AnyObject,
+        openAction: Selector
+    ) -> NSView {
+        let root = NSView(frame: NSRect(
+            origin: .zero,
+            size: NSSize(
+                width: imageSize.width + TextBoxAttachmentPreviewLayout.previewPadding * 2,
+                height: imageSize.height + TextBoxAttachmentPreviewLayout.previewPadding * 2
+            )
+        ))
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor.black.cgColor
+        root.layer?.cornerRadius = TextBoxAttachmentPreviewLayout.cornerRadius
+        root.layer?.cornerCurve = .continuous
+        root.layer?.borderWidth = 1
+        root.layer?.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
+        root.layer?.masksToBounds = true
+
+        let preview: NSView
+        if let thumbnail = attachment.thumbnail {
+            let imageView = NSImageView(image: thumbnail)
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.wantsLayer = true
+            imageView.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.82).cgColor
+            preview = imageView
+        } else {
+            let placeholder = NSView()
+            let imageView = NSImageView()
+            imageView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 42, weight: .regular))
+            imageView.contentTintColor = NSColor.labelColor.withAlphaComponent(0.86)
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            let label = NSTextField(wrappingLabelWithString: attachment.displayName)
+            label.font = GlobalFontMagnification.systemFont(ofSize: 13, weight: .medium)
+            label.textColor = NSColor.labelColor.withAlphaComponent(0.86)
+            label.alignment = .center
+            label.lineBreakMode = .byTruncatingMiddle
+            label.maximumNumberOfLines = 2
+            label.translatesAutoresizingMaskIntoConstraints = false
+            let stack = NSStackView(views: [imageView, label])
+            stack.orientation = .vertical
+            stack.spacing = 10
+            stack.alignment = .centerX
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            placeholder.addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.centerXAnchor.constraint(equalTo: placeholder.centerXAnchor),
+                stack.centerYAnchor.constraint(equalTo: placeholder.centerYAnchor),
+                stack.leadingAnchor.constraint(greaterThanOrEqualTo: placeholder.leadingAnchor, constant: 8),
+                stack.trailingAnchor.constraint(lessThanOrEqualTo: placeholder.trailingAnchor, constant: -8),
+            ])
+            preview = placeholder
+        }
+        preview.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(preview)
+        NSLayoutConstraint.activate([
+            preview.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: TextBoxAttachmentPreviewLayout.previewPadding),
+            preview.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -TextBoxAttachmentPreviewLayout.previewPadding),
+            preview.topAnchor.constraint(equalTo: root.topAnchor, constant: TextBoxAttachmentPreviewLayout.previewPadding),
+            preview.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -TextBoxAttachmentPreviewLayout.previewPadding),
+        ])
+
+        if attachment.localURL != nil {
+            let title = String(localized: "textbox.openWithPreview.button", defaultValue: "Open with Preview")
+            let tooltip = String(localized: "textbox.openInPreview.tooltip", defaultValue: "Open in Preview")
+            let button = NSButton(title: title, target: openTarget, action: openAction)
+            button.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .semibold)
+            button.bezelStyle = .roundRect
+            button.controlSize = .small
+            button.toolTip = tooltip
+            button.setAccessibilityLabel(tooltip)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            root.addSubview(button)
+            NSLayoutConstraint.activate([
+                button.topAnchor.constraint(equalTo: root.topAnchor, constant: TextBoxAttachmentPreviewLayout.topButtonPadding),
+                button.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -TextBoxAttachmentPreviewLayout.buttonTrailingPadding),
+                button.heightAnchor.constraint(equalToConstant: 22),
+            ])
+        }
+        return root
     }
 }
 
@@ -1027,73 +1034,150 @@ func textBoxCommandShortcutKey(
     return normalizedCharacters(event).lowercased()
 }
 
-private struct TextBoxMentionCompletionPopoverView: View {
-    let suggestions: [TextBoxMentionSuggestion]
-    let selectionIndex: Int
-    let searchTerm: String
-    let isLoading: Bool
-    let onSelect: (TextBoxMentionSuggestion) -> Void
+@MainActor
+private final class TextBoxMentionCompletionContentView: NSVisualEffectView {
+    private let scrollView = NSScrollView()
+    private let documentView = NSView()
+    private let stackView = NSStackView()
+    private var selectionButton: NSButton?
+    private var suggestions: [TextBoxMentionSuggestion] = []
+    private var onSelect: (TextBoxMentionSuggestion) -> Void = { _ in }
 
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: true) {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    if suggestions.isEmpty, isLoading {
-                        HStack {
-                            Spacer(minLength: 0)
-                            ProgressView()
-                                .controlSize(.small)
-                            Spacer(minLength: 0)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .center)
-                    } else {
-                        ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
-                            Button {
-                                onSelect(suggestion)
-                            } label: {
-                                Text(Self.highlightedTitle(suggestion.title, query: searchTerm))
-                                    .cmuxFont(size: 12, weight: .semibold)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .padding(.horizontal, 8)
-                                    .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
-                                    .background {
-                                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                            .fill(index == selectionIndex ? Color.accentColor.opacity(0.24) : Color.clear)
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                            .id(index)
-                        }
-                    }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        material = .popover
+        blendingMode = .behindWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.cornerCurve = .continuous
+        layer?.masksToBounds = true
+
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scrollView)
+
+        documentView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = documentView
+
+        stackView.orientation = .vertical
+        stackView.alignment = .leading
+        stackView.spacing = 1
+        stackView.edgeInsets = NSEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        documentView.addSubview(stackView)
+
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            documentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            documentView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            stackView.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
+            stackView.topAnchor.constraint(equalTo: documentView.topAnchor),
+            stackView.bottomAnchor.constraint(equalTo: documentView.bottomAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(
+        suggestions: [TextBoxMentionSuggestion],
+        selectionIndex: Int,
+        searchTerm: String,
+        isLoading: Bool,
+        onSelect: @escaping (TextBoxMentionSuggestion) -> Void
+    ) {
+        self.suggestions = suggestions
+        self.onSelect = onSelect
+        selectionButton = nil
+        stackView.arrangedSubviews.forEach { view in
+            stackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        if suggestions.isEmpty, isLoading {
+            let progress = NSProgressIndicator()
+            progress.style = .spinning
+            progress.controlSize = .small
+            progress.startAnimation(nil)
+            let row = NSView()
+            progress.translatesAutoresizingMaskIntoConstraints = false
+            row.addSubview(progress)
+            NSLayoutConstraint.activate([
+                row.heightAnchor.constraint(equalToConstant: 28),
+                row.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -8),
+                progress.centerXAnchor.constraint(equalTo: row.centerXAnchor),
+                progress.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            ])
+            stackView.addArrangedSubview(row)
+        } else {
+            for (index, suggestion) in suggestions.enumerated() {
+                let button = NSButton(title: "", target: self, action: #selector(selectSuggestion(_:)))
+                button.tag = index
+                button.isBordered = false
+                button.alignment = .left
+                button.lineBreakMode = .byTruncatingMiddle
+                button.attributedTitle = Self.highlightedTitle(suggestion.title, query: searchTerm)
+                button.translatesAutoresizingMaskIntoConstraints = false
+                button.wantsLayer = true
+                button.layer?.cornerRadius = 5
+                button.layer?.cornerCurve = .continuous
+                button.layer?.backgroundColor = index == selectionIndex
+                    ? NSColor.controlAccentColor.withAlphaComponent(0.24).cgColor
+                    : NSColor.clear.cgColor
+                button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+                NSLayoutConstraint.activate([
+                    button.heightAnchor.constraint(equalToConstant: 24),
+                    button.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -8),
+                ])
+                stackView.addArrangedSubview(button)
+                if index == selectionIndex {
+                    selectionButton = button
                 }
-                .padding(4)
-            }
-            .onChange(of: selectionIndex) { _, newValue in
-                proxy.scrollTo(newValue, anchor: nil)
             }
         }
-        .frame(width: 360)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .transaction { transaction in
-            transaction.animation = nil
+        layoutSubtreeIfNeeded()
+        if let selectionButton {
+            documentView.scrollToVisible(selectionButton.frame.insetBy(dx: 0, dy: -1))
         }
     }
 
-    private static func highlightedTitle(_ title: String, query: String) -> AttributedString {
-        var attributed = AttributedString(title)
+    @objc private func selectSuggestion(_ sender: NSButton) {
+        guard suggestions.indices.contains(sender.tag) else { return }
+        onSelect(suggestions[sender.tag])
+    }
+
+    private static func highlightedTitle(_ title: String, query: String) -> NSAttributedString {
+        let font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .semibold)
+        let attributed = NSMutableAttributedString(
+            string: title,
+            attributes: [
+                .font: font,
+                .foregroundColor: NSColor.labelColor,
+            ]
+        )
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else { return attributed }
         let ranges = subsequenceMatchRanges(query: trimmedQuery, in: title)
-        guard !ranges.isEmpty else { return attributed }
         for range in ranges {
-            guard let attrLower = AttributedString.Index(range.lowerBound, within: attributed),
-                  let attrUpper = AttributedString.Index(range.upperBound, within: attributed) else {
-                continue
-            }
-            attributed[attrLower..<attrUpper].foregroundColor = .accentColor
-            attributed[attrLower..<attrUpper].inlinePresentationIntent = .stronglyEmphasized
+            attributed.addAttributes(
+                [
+                    .font: GlobalFontMagnification.systemFont(ofSize: 12, weight: .bold),
+                    .foregroundColor: NSColor.controlAccentColor,
+                ],
+                range: NSRange(range, in: title)
+            )
         }
         return attributed
     }
@@ -3616,7 +3700,7 @@ final class TextBoxInputTextView: NSTextView {
     private var preserveAttachmentFocusOnNextResign = false
     private var attachmentUploadInvalidationGeneration: UInt64 = 0
     private var mentionCompletionPanel: TextBoxMentionCompletionPanel?
-    private var mentionCompletionPanelHost: NSHostingView<TextBoxMentionCompletionPopoverView>?
+    private var mentionCompletionPanelHost: TextBoxMentionCompletionContentView?
     private var mentionCompletionControllerStorage: TextBoxMentionCompletionController?
     private var warmedMentionCompletionRootDirectory: String?
     private var mentionCompletionWarmupTask: Task<Void, Never>?
@@ -4775,16 +4859,25 @@ final class TextBoxInputTextView: NSTextView {
             width: 360,
             height: CGFloat(visibleRows) * rowHeight + 8
         )
-        let host: NSHostingView<TextBoxMentionCompletionPopoverView>
+        let host: TextBoxMentionCompletionContentView
         if let existingHost = mentionCompletionPanelHost {
-            existingHost.rootView = mentionCompletionPopoverView()
             host = existingHost
         } else {
-            host = NSHostingView(rootView: mentionCompletionPopoverView())
+            host = TextBoxMentionCompletionContentView()
             host.translatesAutoresizingMaskIntoConstraints = true
             host.autoresizingMask = []
             mentionCompletionPanelHost = host
         }
+        host.update(
+            suggestions: mentionCompletionController.suggestions,
+            selectionIndex: mentionCompletionController.selectionIndex,
+            searchTerm: mentionCompletionController.activeQuery?.query ?? "",
+            isLoading: mentionCompletionController.isLoadingSuggestions,
+            onSelect: { [weak self] suggestion in
+                self?.window?.makeFirstResponder(self)
+                self?.acceptMentionCompletion(suggestion)
+            }
+        )
         host.frame = NSRect(origin: .zero, size: contentSize)
 
         let panel = mentionCompletionPanel ?? makeMentionCompletionPanel(host: host)
@@ -4810,7 +4903,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func makeMentionCompletionPanel(
-        host: NSHostingView<TextBoxMentionCompletionPopoverView>
+        host: TextBoxMentionCompletionContentView
     ) -> TextBoxMentionCompletionPanel {
         let panel = TextBoxMentionCompletionPanel(
             contentRect: NSRect(origin: .zero, size: host.fittingSize),
@@ -4952,19 +5045,6 @@ final class TextBoxInputTextView: NSTextView {
         if x > maxX { x = max(screenFrame.minX + 8, maxX) }
         if x < screenFrame.minX + 8 { x = screenFrame.minX + 8 }
         return NSPoint(x: x, y: y)
-    }
-
-    private func mentionCompletionPopoverView() -> TextBoxMentionCompletionPopoverView {
-        TextBoxMentionCompletionPopoverView(
-            suggestions: mentionCompletionController.suggestions,
-            selectionIndex: mentionCompletionController.selectionIndex,
-            searchTerm: mentionCompletionController.activeQuery?.query ?? "",
-            isLoading: mentionCompletionController.isLoadingSuggestions,
-            onSelect: { [weak self] suggestion in
-                self?.window?.makeFirstResponder(self)
-                self?.acceptMentionCompletion(suggestion)
-            }
-        )
     }
 
     private func mentionCompletionAnchorRect() -> NSRect? {
