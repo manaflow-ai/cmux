@@ -35,6 +35,16 @@ fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     return result
 }
 
+@MainActor
+enum BrowserBackgroundPreloadHost {
+    @discardableResult
+    static func attach(_ presentationView: NSView, to window: NSWindow) -> NSView? {
+        guard let contentView = window.contentView else { return nil }
+        contentView.addSubview(presentationView)
+        return contentView
+    }
+}
+
 private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
     let type: NSEvent.EventType
     let timestamp: TimeInterval
@@ -4447,10 +4457,12 @@ final class BrowserPanel: Panel, ObservableObject {
             let presentationView = webView.cmuxBrowserViewportPresentationView
             guard webView.window == nil,
                   presentationView.superview == nil,
-                  let contentView = preloadWindow.contentView else {
+                  let contentView = BrowserBackgroundPreloadHost.attach(
+                    presentationView,
+                    to: preloadWindow
+                  ) else {
                 return false
             }
-            contentView.addSubview(presentationView)
             webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
             webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
             return true
@@ -4475,10 +4487,14 @@ final class BrowserPanel: Panel, ObservableObject {
         window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
         window.isExcludedFromWindowsMenu = true
 
-        let contentView = NSView(frame: frame)
-        contentView.addSubview(presentationView)
+        guard let contentView = BrowserBackgroundPreloadHost.attach(
+            presentationView,
+            to: window
+        ) else {
+            window.close()
+            return false
+        }
         webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
-        window.contentView = contentView
         backgroundPreloadWindow = window
         window.orderFrontRegardless()
         webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
