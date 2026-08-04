@@ -642,7 +642,7 @@ struct FileExplorerStoreTests {
             (outlineView.item(atRow: $0) as? FileExplorerNode)?.name
         }
         #expect(visibleNames == ["Sources", "Added.swift"])
-        _ = container
+        withExtendedLifetime(container) {}
     }
 
     @Test
@@ -685,8 +685,6 @@ struct FileExplorerStoreTests {
         let container = FileExplorerContainerView(coordinator: coordinator, presentation: .files)
         coordinator.reloadIfNeeded()
         let outlineView = try #require(coordinator.outlineView)
-        outlineView.expandItem(sourceNode)
-        coordinator.reloadIfNeeded()
 
         provider.listings[sourcePath] = .success([
             FileExplorerEntry(name: "Added.swift", path: "\(sourcePath)/Added.swift", isDirectory: false),
@@ -706,7 +704,7 @@ struct FileExplorerStoreTests {
         }
         #expect(visibleNames == ["App", "Sources", "Added.swift", "Keep.swift"])
         #expect(selectedNames == ["Keep.swift"])
-        _ = container
+        withExtendedLifetime(container) {}
     }
 
     // MARK: - Collapse/Expand
