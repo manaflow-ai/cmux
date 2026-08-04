@@ -30,7 +30,7 @@ export const IROH_PLATFORMS = ["mac", "ios", "linux"] as const;
 export type IrohPlatform = (typeof IROH_PLATFORMS)[number];
 
 export function isIrohPlatform(value: unknown): value is IrohPlatform {
-  return value === "mac" || value === "ios" || value === "linux";
+  return (IROH_PLATFORMS as readonly unknown[]).includes(value);
 }
 
 export type IrohPairGrantProfile = {

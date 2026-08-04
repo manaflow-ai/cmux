@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import postgres, { type Sql } from "postgres";
+import { closeCloudDbForTests } from "../db/client";
+import { accountDeletionUserHash } from "../services/account/deletionLock";
 import {
   IROH_ENROLLMENT_TOKEN_LIFETIME_MS,
+  drizzleIrohEnrollmentStore,
   handleIrohEnrollment,
   handleIrohEnrollmentTokenMint,
   type IrohEnrollmentDependencies,
@@ -9,6 +13,9 @@ import {
 import { IrohQuotaExceededError } from "../services/iroh/errors";
 import { sha256 } from "../services/iroh/model";
 import type { AuthedUser } from "../services/vms/auth";
+
+const runDbTests = process.env.CMUX_DB_TEST === "1";
+const dbTest = runDbTests ? test : test.skip;
 
 const NOW = new Date("2026-07-09T20:00:00.000Z");
 const USER = { id: "user-enroll-1" } as AuthedUser;
@@ -251,5 +258,87 @@ describe("Iroh enrollment exchange", () => {
     );
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "iroh_internal_error" });
+  });
+});
+
+describe("Iroh enrollment database behavior", () => {
+  let sql: Sql | null = null;
+
+  function requiredSql(): Sql {
+    if (!sql) throw new Error("test database not initialized");
+    return sql;
+  }
+
+  beforeEach(async () => {
+    if (!runDbTests) return;
+    if (!sql) {
+      const databaseURL = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
+      if (!databaseURL) throw new Error("DATABASE_URL is required when CMUX_DB_TEST=1");
+      sql = postgres(databaseURL, { max: 1 });
+    }
+    await sql`truncate iroh_enrollment_tokens, account_deletion_tombstones restart identity cascade`;
+  });
+
+  afterAll(async () => {
+    await closeCloudDbForTests();
+    await sql?.end();
+  });
+
+  dbTest("a token minted before account deletion cannot be redeemed once deletion is pending", async () => {
+    const userId = "user-enroll-fence";
+    const plaintext = "f".repeat(43);
+    const store = drizzleIrohEnrollmentStore();
+    await store.mintToken({
+      userId,
+      tokenHash: sha256(plaintext),
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + IROH_ENROLLMENT_TOKEN_LIFETIME_MS),
+    });
+
+    // Deletion becomes pending after the mint but before the container
+    // redeems its token.
+    await requiredSql()`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status)
+      values (${accountDeletionUserHash(userId)}, ${userId}, 'pending')
+    `;
+
+    const mintedSessions: string[] = [];
+    const dependencies: IrohEnrollmentDependencies = {
+      store,
+      rateLimit: async () => null,
+      mintSession: async (sessionUserId) => {
+        mintedSessions.push(sessionUserId);
+        return { accessToken: "stack-access", refreshToken: "stack-refresh" };
+      },
+      now: () => NOW,
+    };
+    const fenced = await handleIrohEnrollment(
+      enrollRequest(JSON.stringify({ token: plaintext })),
+      dependencies,
+    );
+    // Uniform unauthenticated failure: indistinguishable from an unknown or
+    // spent token, and no Stack session is ever minted.
+    expect(fenced.status).toBe(404);
+    expect(await fenced.json()).toEqual({ error: "invalid_enrollment_token" });
+    expect(mintedSessions).toHaveLength(0);
+
+    // The fence aborts the transaction, so the conditional consume rolled
+    // back and the token is still outstanding rather than silently burned.
+    const [row] = await requiredSql()<Array<{ consumedAt: Date | null }>>`
+      select consumed_at as "consumedAt" from iroh_enrollment_tokens
+      where token_hash = ${sha256(plaintext)}
+    `;
+    expect(row?.consumedAt).toBeNull();
+
+    // Once the deletion tombstone is gone (e.g. deletion failed and was
+    // cleared), the same token redeems normally, proving the fence and not
+    // token consumption produced the earlier refusal.
+    await requiredSql()`delete from account_deletion_tombstones where user_id_hash = ${accountDeletionUserHash(userId)}`;
+    const redeemed = await handleIrohEnrollment(
+      enrollRequest(JSON.stringify({ token: plaintext })),
+      dependencies,
+    );
+    expect(redeemed.status).toBe(201);
+    expect(mintedSessions).toEqual([userId]);
   });
 });

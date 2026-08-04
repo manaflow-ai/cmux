@@ -7,7 +7,7 @@ import { cloudDb } from "../../db/client";
 import { irohEnrollmentTokens } from "../../db/schema";
 import { unauthorized, verifyRequest } from "../vms/auth";
 import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelpers";
-import { IrohQuotaExceededError } from "./errors";
+import { IrohConflictError, IrohQuotaExceededError } from "./errors";
 import { sha256 } from "./model";
 import { assertIrohUserMutationAllowed } from "./repository";
 import { irohErrorResponse } from "./routeHandler";
@@ -193,16 +193,36 @@ export function drizzleIrohEnrollmentStore(): IrohEnrollmentStoreShape {
     },
 
     consumeToken: async (input) => {
-      const [consumed] = await cloudDb()
-        .update(irohEnrollmentTokens)
-        .set({ consumedAt: input.now })
-        .where(and(
-          eq(irohEnrollmentTokens.tokenHash, input.tokenHash),
-          isNull(irohEnrollmentTokens.consumedAt),
-          gt(irohEnrollmentTokens.expiresAt, input.now),
-        ))
-        .returning({ userId: irohEnrollmentTokens.userId });
-      return consumed ?? null;
+      try {
+        return await cloudDb().transaction(async (tx) => {
+          const [consumed] = await tx
+            .update(irohEnrollmentTokens)
+            .set({ consumedAt: input.now })
+            .where(and(
+              eq(irohEnrollmentTokens.tokenHash, input.tokenHash),
+              isNull(irohEnrollmentTokens.consumedAt),
+              gt(irohEnrollmentTokens.expiresAt, input.now),
+            ))
+            .returning({ userId: irohEnrollmentTokens.userId });
+          if (!consumed) return null;
+          // Account-deletion fence, same as mintToken: a token minted before
+          // deletion must not redeem a Stack session once deletion is
+          // pending. Throwing aborts the transaction, so the conditional
+          // consume above also rolls back.
+          await assertIrohUserMutationAllowed(tx, consumed.userId);
+          return consumed;
+        });
+      } catch (error) {
+        // The exchange route is unauthenticated: a fenced account must
+        // answer exactly like an unknown, spent, or expired token.
+        if (
+          error instanceof IrohConflictError &&
+          error.code === "account_deletion_in_progress"
+        ) {
+          return null;
+        }
+        throw error;
+      }
     },
   };
 }
