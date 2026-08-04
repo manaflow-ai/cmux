@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 import os
 import Testing
@@ -66,7 +67,7 @@ struct PortScannerProcessCaptureTests {
         let suiteName = "PortScannerProcessCaptureTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let sidebar = SettingCatalog().sidebar
+        let sidebar = SidebarCatalogSection()
         defaults.set(true, forKey: sidebar.showPorts.userDefaultsKey)
         defaults.set(true, forKey: sidebar.hideAllDetails.userDefaultsKey)
         let scanEnabled = SidebarWorkspaceDetailDefaults
