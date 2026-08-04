@@ -1811,6 +1811,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Test precondition: orphaned context should not have a live window"
         )
 
+        // The workspace route only guarantees eager pruning for the stale active
+        // context before it falls back to a live key/main window. Model that exact
+        // state; an unrelated orphan is intentionally not swept by every shortcut.
+        let previousTabManager = appDelegate.tabManager
+        appDelegate.tabManager = orphanManager
+        defer {
+            appDelegate.tabManager = previousTabManager
+        }
+
         let orphanCount = orphanManager.tabs.count
         let remappedCmdT = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
 
