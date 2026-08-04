@@ -301,6 +301,7 @@ extension MobileShellComposite {
 
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
+        foregroundRefreshIsActive = true
         foregroundResumeEpoch &+= 1
         startObservingNetworkPathChanges()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
@@ -319,17 +320,21 @@ extension MobileShellComposite {
         restartActiveMobileBrowserStreams()
         recoverForegroundConnectionIfNeeded(resyncAfterHealthy: shouldResync)
         recoverDisconnectedOnForegroundIfNeeded()
+        recoverPendingInactiveRecoveryIfNeeded()
         // The foreground Mac's workspace list updates live over the sync stream,
         // but the other Macs are a read-only snapshot. Re-aggregate them on
         // foreground so workspaces created on another Mac while backgrounded
         // appear without a manual pull-to-refresh.
-        if multiMacAggregationEnabled, connectionState == .connected {
+        if multiMacAggregationEnabled,
+           connectionState == .connected,
+           remoteClient != nil {
             self.scheduleSecondaryAggregation()
         }
     }
 
     /// Record that the app left the active scene phase.
     public func suspendForegroundRefresh() {
+        foregroundRefreshIsActive = false
         if connectionRecoveryOwner.cancelProbing() {
             applyConnectionRecoveryOwnerState()
         }
