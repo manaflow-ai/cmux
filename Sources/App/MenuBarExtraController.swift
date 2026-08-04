@@ -124,6 +124,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
         menu.addItem(MenuBarProfilingMenuItem.make())
         menu.addItem(notificationListSeparator)
+        for _ in 0..<NotificationMenuSnapshotBuilder.defaultInlineNotificationLimit {
+            let item = makeNotificationItem()
+            item.isHidden = true
+            menu.addItem(item)
+            notificationItems.append(item)
+        }
         notificationSectionSeparator.isHidden = true
         menu.addItem(notificationSectionSeparator)
 
@@ -170,7 +176,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
 #if DEBUG
     var notificationItemsForTesting: [NSMenuItem] {
-        notificationItems
+        notificationItems.filter { !$0.isHidden }
     }
 #endif
 
@@ -234,33 +240,41 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
     private func rebuildInlineNotificationItems(recentNotifications: [TerminalNotification]) {
-        for item in notificationItems {
-            menu.removeItem(item)
-        }
-        notificationItems.removeAll(keepingCapacity: true)
-
         notificationListSeparator.isHidden = recentNotifications.isEmpty
         notificationSectionSeparator.isHidden = recentNotifications.isEmpty
-        guard !recentNotifications.isEmpty else { return }
+        for (offset, item) in notificationItems.enumerated() {
+            guard offset < recentNotifications.count else {
+                item.isHidden = true
+                item.attributedTitle = NSAttributedString(string: "")
+                item.toolTip = nil
+                item.representedObject = nil
+                continue
+            }
 
-        let insertionIndex = menu.index(of: showNotificationsItem)
-        guard insertionIndex >= 0 else { return }
-
-        for (offset, notification) in recentNotifications.enumerated() {
-            let tabTitle = AppDelegate.shared?.tabTitle(for: notification.tabId)
-            let item = makeNotificationItem(notification: notification, tabTitle: tabTitle)
-            menu.insertItem(item, at: insertionIndex + offset)
-            notificationItems.append(item)
+            let notification = recentNotifications[offset]
+            configureNotificationItem(
+                item,
+                notification: notification,
+                tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId)
+            )
+            item.isHidden = false
         }
     }
 
-    private func makeNotificationItem(notification: TerminalNotification, tabTitle: String?) -> NSMenuItem {
+    private func makeNotificationItem() -> NSMenuItem {
         let item = NSMenuItem(title: "", action: #selector(openNotificationItemAction(_:)), keyEquivalent: "")
         item.target = self
+        return item
+    }
+
+    private func configureNotificationItem(
+        _ item: NSMenuItem,
+        notification: TerminalNotification,
+        tabTitle: String?
+    ) {
         item.attributedTitle = MenuBarNotificationLineFormatter.attributedTitle(notification: notification, tabTitle: tabTitle)
         item.toolTip = MenuBarNotificationLineFormatter.tooltip(notification: notification, tabTitle: tabTitle)
         item.representedObject = NotificationMenuItemPayload(notification: notification)
-        return item
     }
 
     @objc private func openNotificationItemAction(_ sender: NSMenuItem) {
