@@ -174,6 +174,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["signin.apple"].exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
+        let tailscaleMethod = app.buttons["MobileOnboardingConnectionMethodTailscale"]
+        let automaticMethod = app.buttons["MobileOnboardingConnectionMethodAutomatic"]
+        XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
+        XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
+        tap(tailscaleMethod, in: app)
+        XCTAssertTrue(tailscaleMethod.isSelected)
+        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].exists)
+        XCTAssertTrue(app.staticTexts[
+            "Connect only over your Tailscale network. Scan the pairing code shown on your Mac."
+        ].exists)
+        tap(automaticMethod, in: app)
+        XCTAssertTrue(automaticMethod.isSelected)
+        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         assertStableChrome(includeFooter: false)
         capture("onboarding-03-connect")
 
