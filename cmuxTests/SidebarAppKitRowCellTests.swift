@@ -58,6 +58,7 @@ struct SidebarAppKitRowCellTests {
         isPinned: Bool = false,
         canClose: Bool = true,
         settings: SidebarTabItemSettingsSnapshot? = nil,
+        isMetadataExpanded: Bool = false,
         metadataEntries: [SidebarStatusEntry] = [],
         shortcutHintText: String? = nil
     ) -> SidebarWorkspaceRowModel {
@@ -90,7 +91,7 @@ struct SidebarAppKitRowCellTests {
             isChecklistPopoverPresented: false,
             editingChecklistItemId: nil,
             todoControlsEnabled: false,
-            isMetadataExpanded: false,
+            isMetadataExpanded: isMetadataExpanded,
             isMarkdownExpanded: false
         )
     }
@@ -871,10 +872,10 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test(arguments: [3, 6, 0])
-    func storedMetadataCollapseLimitControlsCollapsedAppKitRows(_ configuredLimit: Int) {
+    func storedMetadataCollapseLimitControlsCollapsedAppKitRows(_ configuredLimit: Int) throws {
         let defaults = Self.makeDefaults()
         defaults.set(configuredLimit, forKey: "sidebarMetadataCollapseLimit")
-        let entries = (1...5).map {
+        let entries = (1...8).map {
             SidebarStatusEntry(key: "metadata-\($0)", value: "value-\($0)")
         }
         let cell = Self.configuredCell(
@@ -884,16 +885,167 @@ struct SidebarAppKitRowCellTests {
             )
         )
 
-        let visibleMetadataRows = Self.descendants(of: cell)
-            .compactMap { $0 as? SidebarRowIconTextLine }
-            .filter { !$0.isHidden }
-        let showsMoreToggle = Self.descendants(of: cell)
+        let metadataList = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarMetadataVirtualListView }
+                .first
+        )
+        let metadataExpansionToggles = Self.descendants(of: cell)
             .compactMap { $0 as? SidebarRowLinkButton }
-            .contains { !$0.isHidden && $0.attributedTitle.string == "Show more" }
-        let expectedVisibleCount = configuredLimit == 3 ? 3 : entries.count
+            .filter { !$0.isHidden && !$0.isDescendant(of: metadataList) }
+        let expectedVisibleCount = configuredLimit == 0 ? entries.count : configuredLimit
 
-        #expect(visibleMetadataRows.count == expectedVisibleCount)
-        #expect(showsMoreToggle == (configuredLimit == 3))
+        #expect(metadataList.entries.count == expectedVisibleCount)
+        #expect(metadataExpansionToggles.count == (configuredLimit > 0 ? 1 : 0))
+    }
+
+    @Test
+    func unlimitedMetadataRowsRemainCompleteWhileViewMaterializationStaysViewportBounded() throws {
+        let defaults = Self.makeDefaults()
+        defaults.set(0, forKey: "sidebarMetadataCollapseLimit")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let workspaceId = UUID()
+        var entries = (0..<400).map {
+            SidebarStatusEntry(key: "metadata-\($0)", value: "value-\($0)")
+        }
+        entries[1] = SidebarStatusEntry(
+            key: "linked",
+            value: "linked value",
+            url: URL(string: "https://example.com/linked")
+        )
+        entries[2] = SidebarStatusEntry(
+            key: "markdown",
+            value: "[linked value](https://example.com/markdown)",
+            format: .markdown
+        )
+        entries[3] = SidebarStatusEntry(
+            key: "emoji",
+            value: "emoji value",
+            icon: "emoji:🚀"
+        )
+        let collapsedModel = Self.makeModel(
+            workspaceId: workspaceId,
+            settings: settings,
+            metadataEntries: entries
+        )
+        let cell = Self.configuredCell(model: collapsedModel)
+        let metadataList = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarMetadataVirtualListView }
+                .first
+        )
+        let metadataExpansionToggles = Self.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowLinkButton }
+            .filter { !$0.isHidden && !$0.isDescendant(of: metadataList) }
+
+        #expect(collapsedModel.snapshot.metadataEntries.count == entries.count)
+        #expect(metadataList.entries.count == entries.count)
+        #expect(metadataList.rowsByEntryIndex.count <= 16)
+        #expect(metadataExpansionToggles.isEmpty)
+
+        let viewportList = SidebarMetadataVirtualListView()
+        viewportList.configure(entries: entries, model: collapsedModel, onOpenURL: { _ in })
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 100))
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        viewportList.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 240,
+            height: viewportList.measuredHeight(width: 240)
+        )
+        scrollView.documentView = viewportList
+        viewportList.layoutSubtreeIfNeeded()
+        let topRange = viewportList.materializedEntryRange
+
+        #expect(topRange.contains(0))
+        #expect(topRange.count <= 16)
+        let topRows = Self.descendants(of: viewportList)
+            .compactMap { $0 as? SidebarRowIconTextLine }
+        #expect(!topRows.isEmpty)
+        for row in topRows {
+            #expect(row.frame.height >= row.measuredHeight(width: row.bounds.width))
+        }
+
+        let orderedTopRows = topRows.sorted { $0.frame.minY < $1.frame.minY }
+        let firstRow = try #require(orderedTopRows.first)
+        let secondRow = try #require(orderedTopRows.dropFirst().first)
+        let rowHeight = firstRow.frame.height
+        let stride = secondRow.frame.minY - firstRow.frame.minY
+        let gapPrecedingIndex = 20
+        let gapStart = CGFloat(gapPrecedingIndex) * stride + rowHeight
+        let gapEnd = CGFloat(gapPrecedingIndex + 1) * stride
+        scrollView.contentView.scroll(
+            to: NSPoint(x: 0, y: gapStart + (gapEnd - gapStart) / 2)
+        )
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        viewportList.layoutSubtreeIfNeeded()
+
+        let gapViewport = viewportList.visibleRect.intersection(viewportList.bounds)
+        let intersectingIndexes = (0..<entries.count).filter { index in
+            NSRect(
+                x: 0,
+                y: CGFloat(index) * stride,
+                width: viewportList.bounds.width,
+                height: rowHeight
+            )
+            .intersects(gapViewport)
+        }
+        let firstIntersectingIndex = try #require(intersectingIndexes.first)
+        let lastIntersectingIndex = try #require(intersectingIndexes.last)
+        let expectedLowerBound = max(0, firstIntersectingIndex - 1)
+        let expectedUpperBound = min(entries.count, lastIntersectingIndex + 2)
+        let expectedMaterializedRange = expectedLowerBound..<expectedUpperBound
+
+        #expect(gapViewport.minY > gapStart)
+        #expect(gapViewport.minY < gapEnd)
+        #expect(viewportList.materializedEntryRange == expectedMaterializedRange)
+
+        scrollView.contentView.scroll(
+            to: NSPoint(x: 0, y: max(0, viewportList.frame.height - scrollView.contentView.bounds.height))
+        )
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        viewportList.layoutSubtreeIfNeeded()
+
+        #expect(viewportList.materializedEntryRange.contains(entries.count - 1))
+        #expect(viewportList.rowsByEntryIndex.count <= 16)
+        let finalDisplayText = try #require(entries.last?.sidebarDisplayText)
+        #expect(
+            Self.descendants(of: viewportList)
+                .compactMap { $0 as? NSTextField }
+                .contains { $0.stringValue == finalDisplayText }
+        )
+
+        let reducedModel = Self.makeModel(
+            workspaceId: workspaceId,
+            settings: settings,
+            metadataEntries: [SidebarStatusEntry(key: "only", value: "one")]
+        )
+        for _ in 0..<10 {
+            cell.configure(
+                model: collapsedModel,
+                actions: Self.makeActions(model: collapsedModel),
+                isPointerHovering: false,
+                contextMenuDidOpen: {},
+                contextMenuDidClose: {}
+            )
+            #expect(metadataList.entries.count == entries.count)
+            #expect(metadataList.rowsByEntryIndex.count <= 16)
+
+            cell.configure(
+                model: reducedModel,
+                actions: Self.makeActions(model: reducedModel),
+                isPointerHovering: false,
+                contextMenuDidOpen: {},
+                contextMenuDidClose: {}
+            )
+            #expect(metadataList.entries.count == 1)
+            #expect(metadataList.rowsByEntryIndex.count == 1)
+            #expect(
+                Self.descendants(of: metadataList)
+                    .compactMap { $0 as? SidebarRowIconTextLine }
+                    .count == 1
+            )
+        }
     }
 }
 

@@ -1207,6 +1207,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "metadataCollapseLimit": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "default": 3,
+          "description": "Number of custom metadata entries shown before collapsing. Set to 0 or null to always show all entries.",
+          "descriptionKey": "schemaDescriptions.sidebarAppearance.metadataCollapseLimit"
+        },
         "matchTerminalBackground": {
           "type": "boolean",
           "default": false,

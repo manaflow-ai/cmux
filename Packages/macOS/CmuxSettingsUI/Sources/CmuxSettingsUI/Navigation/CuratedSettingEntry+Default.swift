@@ -200,6 +200,20 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"
             ),
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+            .init(
+                section: .sidebarAppearance,
+                id: "metadata-collapse-limit",
+                title: String(localized: "settings.app.metadataCollapseLimit", defaultValue: "Metadata Collapse Limit"),
+                detailText: String(
+                    localized: "settings.app.metadataCollapseLimit.subtitle",
+                    defaultValue: "Number of custom metadata entries shown before Show more. Set to 0 to always show all entries."
+                ),
+                paths: ["sidebarAppearance.metadataCollapseLimit"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.sidebarAppearance.metadata-collapse-limit",
+                    defaultValue: "sidebarAppearance.metadataCollapseLimit metadata collapse limit show more unlimited all statuses entries"
+                )
+            ),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
             // Mobile

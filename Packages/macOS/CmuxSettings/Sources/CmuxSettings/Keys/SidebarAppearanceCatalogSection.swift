@@ -2,6 +2,15 @@ import Foundation
 
 /// Settings under the dotted-id prefix `sidebarAppearance.*`.
 public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
+    /// Number of custom metadata entries shown before the workspace row collapses them.
+    /// Zero requests unlimited display.
+    /// Defaults to the legacy limit of three.
+    public let metadataCollapseLimit = DefaultsKey<Int>(
+        id: "sidebarAppearance.metadataCollapseLimit",
+        defaultValue: 3,
+        userDefaultsKey: "sidebarMetadataCollapseLimit"
+    )
+
     public let matchTerminalBackground = DefaultsKey<Bool>(
         id: "sidebarAppearance.matchTerminalBackground",
         defaultValue: false,

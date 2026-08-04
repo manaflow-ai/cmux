@@ -15539,6 +15539,7 @@ struct TabItemView: View, Equatable {
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
+                        settings: settings,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -16292,6 +16293,7 @@ extension String {
 
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
+    let settings: SidebarTabItemSettingsSnapshot
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
@@ -16299,10 +16301,8 @@ private struct SidebarMetadataRows: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
-    private let collapsedEntryLimit = 3
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        LazyVStack(alignment: .leading, spacing: 2) {
             ForEach(visibleEntries, id: \.key) { entry in
                 SidebarMetadataEntryRow(
                     entry: entry,
@@ -16330,8 +16330,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
-        return Array(entries.prefix(collapsedEntryLimit))
+        settings.metadataCollapsePolicy.visibleEntries(entries, isExpanded: isExpanded)
     }
 
     private var helpText: String {
@@ -16340,7 +16339,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var shouldShowToggle: Bool {
-        entries.count > collapsedEntryLimit
+        settings.metadataCollapsePolicy.showsExpansionToggle(entryCount: entries.count)
     }
 }
 

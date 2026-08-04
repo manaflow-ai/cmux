@@ -28,6 +28,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+    let metadataCollapsePolicy: SidebarMetadataCollapsePolicy
     let iMessageModeEnabled: Bool
     let workspaceTodoChecklistStyle: WorkspaceTodoChecklistStyle
 
@@ -40,6 +41,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     ) {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let sidebar = SidebarCatalogSection()
+        let sidebarAppearance = SidebarAppearanceCatalogSection()
         let workspaceColors = WorkspaceColorsCatalogSection()
         let betaFeatures = BetaFeaturesCatalogSection()
         branchDirectory = SidebarWorkspaceBranchDirectorySettings(defaults: defaults)
@@ -82,6 +84,13 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
             showPullRequests: details.showPullRequests,
             showPorts: details.showPorts,
             hideAllDetails: hidesAllDetails
+        )
+        let storedMetadataCollapseLimit = settings.value(for: sidebarAppearance.metadataCollapseLimit)
+        let metadataCollapseLimit = storedMetadataCollapseLimit >= 0
+            ? storedMetadataCollapseLimit
+            : sidebarAppearance.metadataCollapseLimit.defaultValue
+        metadataCollapsePolicy = SidebarMetadataCollapsePolicy(
+            configuredLimit: metadataCollapseLimit
         )
 
         activeTabIndicatorStyle = settings.value(for: workspaceColors.indicatorStyle)

@@ -793,6 +793,16 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        if section.keys.contains("metadataCollapseLimit") {
+            let setting = SidebarAppearanceCatalogSection().metadataCollapseLimit
+            if section["metadataCollapseLimit"] is NSNull {
+                snapshot.managedUserDefaults[setting.userDefaultsKey] = .int(0)
+            } else if let value = jsonInt(section["metadataCollapseLimit"]), value >= 0 {
+                snapshot.managedUserDefaults[setting.userDefaultsKey] = .int(value)
+            } else {
+                logInvalid(setting.id, sourcePath: sourcePath)
+            }
+        }
         if let value = jsonBool(section["matchTerminalBackground"]) {
             snapshot.managedUserDefaults[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(value)
         }
