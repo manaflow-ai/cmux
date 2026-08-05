@@ -4169,6 +4169,8 @@ import Testing
         let secondDeferredSleeperCount = clock.sleeperCount(
             at: secondDeferredDeadline
         )
+        let generationBeforeResume =
+            subscription.workspaceRefreshGeneration
         await shell.resumeSecondarySubscriptionAfterAbortedPromotion(
             subscription
         )
@@ -4182,6 +4184,10 @@ import Testing
         #expect(try await pollUntil {
             clock.sleeperCount(at: secondDeferredDeadline)
                 > secondDeferredSleeperCount
+        })
+        #expect(try await pollUntil {
+            subscription.workspaceRefreshGeneration
+                == generationBeforeResume + 1
         })
         clock.advance(by: .milliseconds(500))
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 4))
