@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import XCTest
@@ -6,8 +7,11 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
     private var socketPath = ""
     private var launchTag = ""
     private var appLogPath = ""
-    private var appLogHandle: FileHandle?
     private var appProcess: Process?
+    private var appBundleURL: URL?
+    private var appBundleIdentifier = ""
+    private var runningApplication: NSRunningApplication?
+    private var preexistingApplicationPIDs = Set<pid_t>()
 
     override func setUp() {
         super.setUp()
@@ -26,8 +30,6 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
 
     override func tearDown() {
         terminateAppProcess()
-        try? appLogHandle?.close()
-        appLogHandle = nil
         removeTestArtifacts()
         super.tearDown()
     }
@@ -52,7 +54,15 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
             socketReady,
             "Expected a responsive control socket at \(socketPath). \(appProcessDiagnostics()) log=[\(tailOfAppLog())]"
         )
-        print("App process and control socket ready: pid=\(process.processIdentifier)")
+        let launchedApplication = waitForLaunchedApplication(timeout: 5.0)
+        XCTAssertNotNil(
+            launchedApplication,
+            "Expected to resolve the LaunchServices app process. \(appProcessDiagnostics()) log=[\(tailOfAppLog())]"
+        )
+        print(
+            "App process and control socket ready: launcherPid=\(process.processIdentifier) "
+                + "appPid=\(launchedApplication?.processIdentifier ?? -1)"
+        )
 
         let cliPath = try XCTUnwrap(
             bundledCLIPath(),
@@ -129,40 +139,54 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
     }
 
     private func launchAppProcess() throws -> Process {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: try resolveAppBinaryPath())
-        process.arguments = [
-            "-socketControlMode", "allowAll",
-            "-NSAppSleepDisabled", "YES",
-        ]
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_UI_TEST_PROCESS"] = "1"
-        environment["CMUX_UI_TEST_MODE"] = "1"
-        environment["CMUX_SOCKET_ENABLE"] = "1"
-        environment["CMUX_SOCKET_MODE"] = "allowAll"
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        environment["CMUX_TAG"] = launchTag
-        process.environment = environment
+        let bundleURL = try resolveAppBundleURL()
+        let bundleIdentifier = try XCTUnwrap(
+            Bundle(url: bundleURL)?.bundleIdentifier,
+            "Expected the built app bundle to have an identifier"
+        )
+        appBundleURL = bundleURL
+        appBundleIdentifier = bundleIdentifier
+        preexistingApplicationPIDs = Set(
+            NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+                .map(\.processIdentifier)
+        )
 
         _ = FileManager.default.createFile(atPath: appLogPath, contents: nil)
-        let logHandle = try FileHandle(forWritingTo: URL(fileURLWithPath: appLogPath))
-        process.standardOutput = logHandle
-        process.standardError = logHandle
 
-        do {
-            try process.run()
-        } catch {
-            try? logHandle.close()
-            throw error
+        var launchEnvironment = [
+            "CMUX_UI_TEST_PROCESS": "1",
+            "CMUX_UI_TEST_MODE": "1",
+            "CMUX_SOCKET_ENABLE": "1",
+            "CMUX_SOCKET_MODE": "allowAll",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            "CMUX_TAG": launchTag,
+        ]
+        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
+            launchEnvironment["PATH"] = path
         }
-        appLogHandle = logHandle
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = [
+            "-n", "-g", "-W",
+            "--stdout", appLogPath,
+            "--stderr", appLogPath,
+        ] + launchEnvironment.sorted(by: { $0.key < $1.key }).flatMap { key, value in
+            ["--env", "\(key)=\(value)"]
+        } + [
+            bundleURL.path,
+            "--args",
+            "-socketControlMode", "allowAll",
+            "-NSAppSleepDisabled", "YES",
+            "-cmuxUITestLaunchTag", launchTag,
+        ]
+        try process.run()
         appProcess = process
         return process
     }
 
-    private func resolveAppBinaryPath() throws -> String {
+    private func resolveAppBundleURL() throws -> URL {
         let testBundle = Bundle(for: Self.self)
         let productsDirectory = testBundle.bundleURL
             .deletingLastPathComponent()
@@ -174,42 +198,75 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
             ? ["cmux", "cmux DEV"]
             : ["cmux DEV", "cmux"]
         let candidates = productNames.map { productName in
-            productsDirectory
-                .appendingPathComponent("\(productName).app")
-                .appendingPathComponent("Contents/MacOS/\(productName)")
-                .path
+            productsDirectory.appendingPathComponent("\(productName).app")
         }
-        if let binaryPath = candidates.first(where: FileManager.default.isExecutableFile(atPath:)) {
-            return binaryPath
+        if let bundleURL = candidates.first(where: {
+            FileManager.default.fileExists(atPath: $0.path)
+        }) {
+            return bundleURL
         }
         throw NSError(
             domain: "PasteBufferLargePayloadUITests",
             code: 1,
             userInfo: [
-                NSLocalizedDescriptionKey: "App binary not found at \(candidates.joined(separator: " or ")). testBundle=\(testBundle.bundleURL.path)"
+                NSLocalizedDescriptionKey: "App bundle not found at \(candidates.map(\.path).joined(separator: " or ")). testBundle=\(testBundle.bundleURL.path)"
             ]
         )
     }
 
-    private func terminateAppProcess() {
-        guard let process = appProcess else { return }
-        defer { appProcess = nil }
-        guard process.isRunning else { return }
+    private func waitForLaunchedApplication(timeout: TimeInterval) -> NSRunningApplication? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let application = NSRunningApplication
+                .runningApplications(withBundleIdentifier: appBundleIdentifier)
+                .first(where: { !preexistingApplicationPIDs.contains($0.processIdentifier) }) {
+                runningApplication = application
+                return application
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        } while Date() < deadline
+        return nil
+    }
 
-        process.terminate()
-        let deadline = Date().addingTimeInterval(5.0)
-        while process.isRunning && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    private func terminateAppProcess() {
+        let application = runningApplication ?? waitForLaunchedApplication(timeout: 1.0)
+        if let application, !application.isTerminated {
+            application.terminate()
+            let deadline = Date().addingTimeInterval(5.0)
+            while !application.isTerminated && Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            }
+            if !application.isTerminated {
+                application.forceTerminate()
+            }
         }
-        if process.isRunning {
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        runningApplication = nil
+
+        if let process = appProcess, process.isRunning {
+            process.terminate()
+            let deadline = Date().addingTimeInterval(2.0)
+            while process.isRunning && Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            }
+            if process.isRunning {
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            }
         }
+        appProcess = nil
     }
 
     private func appProcessDiagnostics() -> String {
-        guard let process = appProcess else { return "app=not-launched" }
-        let status = process.isRunning ? "running" : String(process.terminationStatus)
-        return "appPid=\(process.processIdentifier) appRunning=\(process.isRunning) appStatus=\(status)"
+        let launcherDescription: String
+        if let process = appProcess {
+            let status = process.isRunning ? "running" : String(process.terminationStatus)
+            launcherDescription = "launcherPid=\(process.processIdentifier) launcherStatus=\(status)"
+        } else {
+            launcherDescription = "launcher=not-launched"
+        }
+        let applicationDescription = runningApplication.map {
+            "appPid=\($0.processIdentifier) appTerminated=\($0.isTerminated)"
+        } ?? "app=unresolved"
+        return "\(launcherDescription) \(applicationDescription) bundle=\(appBundleURL?.path ?? "nil")"
     }
 
     private func tailOfAppLog(maximumLength: Int = 4_000) -> String {
