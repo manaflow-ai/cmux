@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::cli::Error;
 use crate::process;
 
-const SUBROUTER_VERSION: &str = "0.1.60";
+const SUBROUTER_VERSION: &str = "0.1.62";
 const RELEASE_BASE: &str = "https://github.com/manaflow-ai/subrouter/releases/download";
 const DEFAULT_API_URL: &str = "https://coderouter.dev";
 
@@ -117,10 +117,31 @@ fn cloud_config_path() -> Result<PathBuf, Error> {
     Ok(data_directory()?.join("coderouter").join("cloud.json"))
 }
 
+fn state_directory() -> Result<PathBuf, Error> {
+    Ok(data_directory()?.join("coderouter").join("state"))
+}
+
+fn codex_home_directory() -> Result<PathBuf, Error> {
+    Ok(data_directory()?.join("coderouter").join("codex-home"))
+}
+
 fn child_environment() -> Result<Vec<(OsString, OsString)>, Error> {
+    Ok(vec![
+        (
+            OsString::from("SUBROUTER_CLOUD_CONFIG"),
+            cloud_config_path()?.into_os_string(),
+        ),
+        (
+            OsString::from("SUBROUTER_STATE_DIR"),
+            state_directory()?.into_os_string(),
+        ),
+    ])
+}
+
+fn management_environment() -> Result<Vec<(&'static str, String)>, Error> {
     Ok(vec![(
-        OsString::from("SUBROUTER_CLOUD_CONFIG"),
-        cloud_config_path()?.into_os_string(),
+        "CODEX_HOME",
+        codex_home_directory()?.to_string_lossy().into_owned(),
     )])
 }
 
@@ -177,7 +198,23 @@ pub fn login(binary: &Path, extra_args: &[OsString]) -> Result<i32, Error> {
         process::os(api_url()?),
     ];
     args.extend_from_slice(extra_args);
-    run_attached(binary, &args, &[])
+    let environment = management_environment()?;
+    let environment: Vec<_> = environment
+        .iter()
+        .map(|(key, value)| (*key, value.as_str()))
+        .collect();
+    run_attached(binary, &args, &environment)
+}
+
+pub fn logout(binary: &Path, extra_args: &[OsString]) -> Result<i32, Error> {
+    let mut args = vec![process::os("logout")];
+    args.extend_from_slice(extra_args);
+    let environment = management_environment()?;
+    let environment: Vec<_> = environment
+        .iter()
+        .map(|(key, value)| (*key, value.as_str()))
+        .collect();
+    run_attached(binary, &args, &environment)
 }
 
 pub fn login_device(binary: &Path, extra_args: &[OsString]) -> Result<i32, Error> {
@@ -197,6 +234,9 @@ pub fn login_device(binary: &Path, extra_args: &[OsString]) -> Result<i32, Error
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
     for (key, value) in child_environment()? {
+        command.env(key, value);
+    }
+    for (key, value) in management_environment()? {
         command.env(key, value);
     }
     let mut child = command.spawn().map_err(|source| Error::Spawn {
@@ -263,17 +303,17 @@ fn release_asset() -> Result<String, Error> {
 
 fn release_checksum(asset: &str) -> Option<&'static str> {
     match asset {
-        "subrouter_0.1.60_darwin_amd64" => {
-            Some("5bc8028cc070e59a564636bf45507a548470e41a2134bc0087a1607f9b448dd2")
+        "subrouter_0.1.62_darwin_amd64" => {
+            Some("9559d734963b1e2f752aed42d2ec4fad90b8bb774a4a6c3716f5a24e8c12977f")
         }
-        "subrouter_0.1.60_darwin_arm64" => {
-            Some("769e504b731ef8b43db67e7651dcfe9ae169516570c7d2d2d211a6f997be1a7c")
+        "subrouter_0.1.62_darwin_arm64" => {
+            Some("7d4d856c3b8a2b70211b949898c84da8b31deed8675cc00e431bb74b14c5345b")
         }
-        "subrouter_0.1.60_linux_amd64" => {
-            Some("6a8daa1361030311bdbe25a06cd4940e4dd07a45758c13c2dc8d687e70d87303")
+        "subrouter_0.1.62_linux_amd64" => {
+            Some("e0ef5f44d5d6f2da01545a4e5a11bd75d6f0b0f6f0494eb29d111df1c31b8034")
         }
-        "subrouter_0.1.60_windows_amd64.exe" => {
-            Some("aa4f6121afa73d2ab140f696e92bfdabaf290a7dccac4543b3c68262557e7ad6")
+        "subrouter_0.1.62_windows_amd64.exe" => {
+            Some("537a5dc50a51b9a343aec49e4002de5d85cea569f400d65e54ea2d6f00527ad3")
         }
         _ => None,
     }

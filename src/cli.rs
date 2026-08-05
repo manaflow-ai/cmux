@@ -61,7 +61,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
         Some("naked" | "direct") => run_naked(&remaining[1..]),
         Some("add") => run_add(&remaining[1..]),
         Some("login") => run_login(&remaining[1..]),
-        Some("logout") => run_backend(&["logout"], &remaining[1..]),
+        Some("logout") => run_logout(&remaining[1..]),
         Some("accounts" | "account") => run_backend(&["account", "list"], &remaining[1..]),
         Some("usage") => run_backend(&["status"], &remaining[1..]),
         Some("doctor") => run_backend(&["doctor"], &remaining[1..]),
@@ -104,6 +104,7 @@ fn run_naked(args: &[OsString]) -> Result<i32, Error> {
             "SUBROUTER_CODEX_SERVER",
             "SUBROUTER_CODEX_USER_EMAIL",
             "SUBROUTER_CLOUD_CONFIG",
+            "SUBROUTER_STATE_DIR",
         ],
     )
 }
@@ -185,6 +186,11 @@ fn run_login(rest: &[OsString]) -> Result<i32, Error> {
     } else {
         backend::login(&backend, rest)
     }
+}
+
+fn run_logout(rest: &[OsString]) -> Result<i32, Error> {
+    let backend = backend::resolve()?;
+    backend::logout(&backend, rest)
 }
 
 fn resolve_real_codex() -> Result<PathBuf, Error> {

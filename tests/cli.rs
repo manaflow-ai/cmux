@@ -66,7 +66,9 @@ fn codex_command_delegates_to_the_routing_engine() {
          if [ \"$1 $2\" = 'daemon status' ]; then exit 1; fi\n\
          if [ \"$1\" = setup ]; then printf '%s\\n' \"$*\"; exit 0; fi\n\
          printf '%s\\n' \"$*\"\n\
-         printf 'server=%s\\n' \"${SUBROUTER_CODEX_SERVER-unset}\"\n",
+         printf 'server=%s\\n' \"${SUBROUTER_CODEX_SERVER-unset}\"\n\
+         printf 'state=%s\\n' \"$SUBROUTER_STATE_DIR\"\n\
+         printf 'codex_home=%s\\n' \"$CODEX_HOME\"\n",
     )
     .unwrap();
     fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
@@ -76,12 +78,22 @@ fn codex_command_delegates_to_the_routing_engine() {
         .args(["codex", "exec", "hello"])
         .env("CODEROUTER_SUBROUTER_BIN", &backend)
         .env("CODEROUTER_DATA_DIR", root.path().join("data"))
+        .env("CODEX_HOME", root.path().join("normal-codex"))
         .assert()
         .success()
         .stdout(
             predicate::str::contains("setup --no-config")
                 .and(predicate::str::contains("codex exec hello"))
-                .and(predicate::str::contains("server=local")),
+                .and(predicate::str::contains("server=local"))
+                .and(predicate::str::contains(
+                    root.path()
+                        .join("data/coderouter/state")
+                        .to_string_lossy()
+                        .as_ref(),
+                ))
+                .and(predicate::str::contains(
+                    root.path().join("normal-codex").to_string_lossy().as_ref(),
+                )),
         );
 }
 
@@ -121,7 +133,11 @@ fn login_uses_the_production_control_plane_and_isolated_config() {
     let backend = root.path().join("subrouter");
     fs::write(
         &backend,
-        "#!/bin/sh\nprintf '%s\\n' \"$*\"\nprintf 'config=%s\\n' \"$SUBROUTER_CLOUD_CONFIG\"\n",
+        "#!/bin/sh\n\
+         printf '%s\\n' \"$*\"\n\
+         printf 'config=%s\\n' \"$SUBROUTER_CLOUD_CONFIG\"\n\
+         printf 'state=%s\\n' \"$SUBROUTER_STATE_DIR\"\n\
+         printf 'codex_home=%s\\n' \"$CODEX_HOME\"\n",
     )
     .unwrap();
     fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
@@ -140,8 +156,75 @@ fn login_uses_the_production_control_plane_and_isolated_config() {
                         .join("data/coderouter/cloud.json")
                         .to_string_lossy()
                         .as_ref(),
-                ),
+                )
+                .and(predicate::str::contains(
+                    root.path()
+                        .join("data/coderouter/state")
+                        .to_string_lossy()
+                        .as_ref(),
+                ))
+                .and(predicate::str::contains(
+                    root.path()
+                        .join("data/coderouter/codex-home")
+                        .to_string_lossy()
+                        .as_ref(),
+                )),
             ),
+        );
+}
+
+#[cfg(unix)]
+#[test]
+fn logout_uses_only_coderouter_state_and_config() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = TempDir::new().unwrap();
+    let backend = root.path().join("subrouter");
+    fs::write(
+        &backend,
+        "#!/bin/sh\n\
+         printf '%s\\n' \"$*\"\n\
+         printf 'config=%s\\n' \"$SUBROUTER_CLOUD_CONFIG\"\n\
+         printf 'state=%s\\n' \"$SUBROUTER_STATE_DIR\"\n\
+         printf 'codex_home=%s\\n' \"$CODEX_HOME\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
+
+    Command::cargo_bin("cr")
+        .unwrap()
+        .arg("logout")
+        .env("CODEROUTER_SUBROUTER_BIN", &backend)
+        .env("CODEROUTER_DATA_DIR", root.path().join("data"))
+        .env("CODEX_HOME", root.path().join("normal-codex"))
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("logout")
+                .and(predicate::str::contains(
+                    root.path()
+                        .join("data/coderouter/cloud.json")
+                        .to_string_lossy()
+                        .as_ref(),
+                ))
+                .and(predicate::str::contains(
+                    root.path()
+                        .join("data/coderouter/state")
+                        .to_string_lossy()
+                        .as_ref(),
+                ))
+                .and(predicate::str::contains(
+                    root.path()
+                        .join("data/coderouter/codex-home")
+                        .to_string_lossy()
+                        .as_ref(),
+                ))
+                .and(
+                    predicate::str::contains(
+                        root.path().join("normal-codex").to_string_lossy().as_ref(),
+                    )
+                    .not(),
+                ),
         );
 }
 
@@ -156,7 +239,9 @@ fn device_login_prints_a_copyable_code_without_opening_a_browser() {
         &backend,
         "#!/bin/sh\n\
          printf 'Approve Subrouter at:\\n'\n\
-         printf '  https://coderouter.dev/handler/cli-auth-confirm?login_code=copy-me-123\\n'\n",
+         printf '  https://coderouter.dev/handler/cli-auth-confirm?login_code=copy-me-123\\n'\n\
+         printf 'state=%s\\n' \"$SUBROUTER_STATE_DIR\"\n\
+         printf 'codex_home=%s\\n' \"$CODEX_HOME\"\n",
     )
     .unwrap();
     fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
@@ -171,6 +256,18 @@ fn device_login_prints_a_copyable_code_without_opening_a_browser() {
         .stdout(
             predicate::str::contains("Open https://coderouter.dev/authorize")
                 .and(predicate::str::contains("Authorization code: copy-me-123"))
-                .and(predicate::str::contains("handler/cli-auth-confirm").not()),
+                .and(predicate::str::contains("handler/cli-auth-confirm").not())
+                .and(predicate::str::contains(
+                    root.path()
+                        .join("data/coderouter/state")
+                        .to_string_lossy()
+                        .as_ref(),
+                ))
+                .and(predicate::str::contains(
+                    root.path()
+                        .join("data/coderouter/codex-home")
+                        .to_string_lossy()
+                        .as_ref(),
+                )),
         );
 }
