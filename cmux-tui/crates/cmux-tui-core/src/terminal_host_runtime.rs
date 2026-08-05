@@ -3147,6 +3147,7 @@ mod unix {
             request_id: u64,
             target: &HostTap,
         ) -> anyhow::Result<bool> {
+            let _source_order = self.source_order_lock.lock().unwrap();
             let next = (width_px.max(1), height_px.max(1));
             let size = self.size.lock().unwrap();
             let mut cell_pixels = self.cell_pixels.lock().unwrap();
@@ -3158,16 +3159,27 @@ mod unix {
                 None
             };
             let mut term = self.term.lock().unwrap();
+            let mut source_cursor = None;
             if let Some((previous_size, next_size)) = resize_sizes {
                 term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).context(
                     "could not preflight terminal-host cell-metric replay; geometry unchanged",
                 )?;
+                let mut payload = Vec::with_capacity(8);
+                payload.extend_from_slice(&size.0.to_le_bytes());
+                payload.extend_from_slice(&size.1.to_le_bytes());
+                payload.extend_from_slice(&next.0.to_le_bytes());
+                payload.extend_from_slice(&next.1.to_le_bytes());
+                source_cursor = Some(self.smart.publish(Frame::new(MessageKind::Resized, payload)));
                 let master = self.master.lock().unwrap();
-                master.resize(next_size)?;
+                if let Err(error) = master.resize(next_size) {
+                    self.smart.close_failed_transition(source_cursor);
+                    return Err(error.into());
+                }
                 if let Err(error) =
                     term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))
                 {
                     let rollback = master.resize(previous_size);
+                    self.smart.close_failed_transition(source_cursor);
                     return match rollback {
                         Ok(()) => Err(error.into()),
                         Err(rollback_error) => Err(anyhow::anyhow!(
@@ -3193,6 +3205,7 @@ mod unix {
                             tap.close();
                         }
                         taps.clear();
+                        self.smart.close_failed_transition(source_cursor);
                         target.close();
                         return Ok(false);
                     }
@@ -3229,13 +3242,17 @@ mod unix {
             // Keep the parser locked through canonical publication and the
             // targeted acknowledgement. Output parsed at the new metrics
             // cannot overtake the complete Resized+Colors transition.
-            Ok(publish_host_frames_and_targeted(
+            let acknowledgement_queued = publish_host_frames_and_targeted(
                 &self.broadcast_lock,
                 &self.sequence,
                 &self.taps,
                 transition.into_iter().flatten(),
                 Some((target, ack)),
-            ))
+            );
+            if let Some(source_cursor) = source_cursor {
+                self.smart.mark_applied(source_cursor);
+            }
+            Ok(acknowledgement_queued)
         }
 
         fn set_kitty_graphics_limits(

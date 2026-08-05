@@ -307,6 +307,7 @@ enum HostedTransition {
     Resized {
         cols: u16,
         rows: u16,
+        cell_pixels: Option<(u16, u16)>,
     },
     ResizedWithColors {
         cols: u16,
@@ -414,7 +415,7 @@ impl HostedFrameStager {
             },
             MessageKind::Resized => {
                 let valid_smart =
-                    self.smart_renderer && frame.flags == 0 && frame.payload.len() == 4;
+                    self.smart_renderer && frame.flags == 0 && matches!(frame.payload.len(), 4 | 8);
                 let valid_legacy = !self.smart_renderer
                     && frame.flags == FLAG_COLORS_FOLLOW
                     && frame.payload.len() >= 4
@@ -428,7 +429,13 @@ impl HostedFrameStager {
                     let (cols, rows) =
                         crate::terminal_host_runtime::normalize_terminal_geometry(cols, rows)
                             .map_err(|_| "invalid Resized geometry")?;
-                    return Ok(Some(HostedTransition::Resized { cols, rows }));
+                    let cell_pixels = (frame.payload.len() == 8).then(|| {
+                        (
+                            u16::from_le_bytes([frame.payload[4], frame.payload[5]]).max(1),
+                            u16::from_le_bytes([frame.payload[6], frame.payload[7]]).max(1),
+                        )
+                    });
+                    return Ok(Some(HostedTransition::Resized { cols, rows, cell_pixels }));
                 }
                 let crate::terminal_host_runtime::DecodedHostResize {
                     cols,
@@ -2445,10 +2452,19 @@ impl Surface {
                                     });
                                 }
                             }
-                            HostedTransition::Resized { cols, rows } => {
+                            HostedTransition::Resized { cols, rows, cell_pixels } => {
                                 let mut geometry = pty.geometry.lock().unwrap();
-                                let next_geometry = PtyGeometry { cols, rows, ..*geometry };
-                                let changed = match pty.commit_geometry(
+                                let next_geometry = PtyGeometry {
+                                    cols,
+                                    rows,
+                                    cell_width: cell_pixels
+                                        .map(|pixels| pixels.0)
+                                        .unwrap_or(geometry.cell_width),
+                                    cell_height: cell_pixels
+                                        .map(|pixels| pixels.1)
+                                        .unwrap_or(geometry.cell_height),
+                                };
+                                let changed = match pty.commit_hosted_geometry(
                                     &mut geometry,
                                     next_geometry,
                                     false,
@@ -5204,6 +5220,30 @@ impl PtySurface {
         next: PtyGeometry,
         refresh_attach_colors: bool,
     ) -> anyhow::Result<bool> {
+        self.commit_geometry_for_runtime(geometry, next, refresh_attach_colors, false)
+    }
+
+    #[cfg(unix)]
+    fn commit_hosted_geometry(
+        &self,
+        geometry: &mut PtyGeometry,
+        next: PtyGeometry,
+        refresh_attach_colors: bool,
+    ) -> anyhow::Result<bool> {
+        // The authoritative host has already resized its PTY. Avoid taking
+        // the attachment lock while applying its ordered mirror transition:
+        // a control caller can be holding that lock while it waits for the
+        // acknowledgement queued immediately after this frame.
+        self.commit_geometry_for_runtime(geometry, next, refresh_attach_colors, true)
+    }
+
+    fn commit_geometry_for_runtime(
+        &self,
+        geometry: &mut PtyGeometry,
+        next: PtyGeometry,
+        refresh_attach_colors: bool,
+        hosted_mirror: bool,
+    ) -> anyhow::Result<bool> {
         if *geometry == next {
             return Ok(false);
         }
@@ -5213,13 +5253,14 @@ impl PtySurface {
         // Hold the terminal lock while resizing and while sending the attach
         // marker, so mirrors observe bytes and geometry in server order.
         let mut term = self.term.lock().unwrap();
-        let runtime = self.runtime.lock().unwrap();
-        let master = match &*runtime {
-            PtyRuntime::Local { master, .. } => Some(master.as_ref()),
+        let runtime = (!hosted_mirror).then(|| self.runtime.lock().unwrap());
+        let master = match runtime.as_deref() {
+            Some(PtyRuntime::Local { master, .. }) => Some(master.as_ref()),
             #[cfg(unix)]
-            PtyRuntime::Hosted(_) => None,
+            Some(PtyRuntime::Hosted(_)) => None,
             #[cfg(unix)]
-            PtyRuntime::ExitedHosted => return Ok(false),
+            Some(PtyRuntime::ExitedHosted) => return Ok(false),
+            None => None,
         };
         let mut has_attach_taps = {
             let mut taps = self.taps.lock().unwrap();
@@ -6390,11 +6431,18 @@ mod tests {
         resized.sequence = 9;
         assert!(matches!(
             stager.push(resized).unwrap(),
-            Some(HostedTransition::Resized { cols: 100, rows: 30 })
+            Some(HostedTransition::Resized { cols: 100, rows: 30, cell_pixels: None })
+        ));
+
+        let mut metrics = Frame::new(MessageKind::Resized, vec![100, 0, 30, 0, 9, 0, 18, 0]);
+        metrics.sequence = 10;
+        assert!(matches!(
+            stager.push(metrics).unwrap(),
+            Some(HostedTransition::Resized { cols: 100, rows: 30, cell_pixels: Some((9, 18)) })
         ));
 
         let mut suffix = Frame::new(MessageKind::Output, vec![0xbb]);
-        suffix.sequence = 10;
+        suffix.sequence = 11;
         assert!(matches!(
             stager.push(suffix).unwrap(),
             Some(HostedTransition::Output(bytes)) if bytes == vec![0xbb]

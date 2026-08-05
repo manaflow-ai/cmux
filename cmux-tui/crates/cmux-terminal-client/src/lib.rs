@@ -293,22 +293,26 @@ impl ClientState {
                 self.render_dirty = true;
                 FrameEffect::Continue
             }
-            MessageKind::Resized if frame.payload.len() == 4 => {
+            MessageKind::Resized if matches!(frame.payload.len(), 4 | 8) => {
                 self.require_sequence(frame.sequence)?;
                 let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]).max(1);
                 let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]).max(1);
+                let cell_pixels = if frame.payload.len() == 8 {
+                    (
+                        u16::from_le_bytes([frame.payload[4], frame.payload[5]]).max(1),
+                        u16::from_le_bytes([frame.payload[6], frame.payload[7]]).max(1),
+                    )
+                } else {
+                    self.cell_pixels
+                };
                 self.terminal
                     .as_mut()
                     .ok_or_else(|| "resize arrived before snapshot".to_string())?
-                    .resize(
-                        cols,
-                        rows,
-                        u32::from(self.cell_pixels.0),
-                        u32::from(self.cell_pixels.1),
-                    )
+                    .resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
                     .map_err(|error| error.to_string())?;
                 self.cols = cols;
                 self.rows = rows;
+                self.cell_pixels = cell_pixels;
                 self.local_parser_cursor = frame.sequence;
                 self.render_dirty = true;
                 FrameEffect::Continue
