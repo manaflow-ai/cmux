@@ -260,7 +260,7 @@ struct OnboardingMacDiscoveryKeepAliveTests {
         ) {
             attemptCount += 1
             // Simulates the connect page taking over (or the Mac connecting)
-            // while no SwiftUI onChange push reaches update().
+            // while no Observation callback reaches update().
             eligible = false
             return false
         }

@@ -12,7 +12,7 @@ Report a failure when the diff introduces or materially expands:
 
 Allowed cases:
 
-- SwiftUI view types and UI coordinators that intentionally live on the main actor.
+- AppKit/UIKit view types and UI coordinators that intentionally live on the main actor.
 - Actors, which already provide their own isolation.
 - Small structs inside a MainActor-only UI type when they are never used from async or background contexts.
 - Existing isolation debt that the PR does not introduce or worsen.

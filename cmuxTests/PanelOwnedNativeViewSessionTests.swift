@@ -86,7 +86,7 @@ struct PanelOwnedNativeViewSessionTests {
 
         #expect(
             firstView !== remountedView,
-            "QuickLook views must be owned by the SwiftUI representable mount, because AppKit can deactivate a QLPreviewView when that mount is removed"
+            "QuickLook views must be owned by the native mount, because AppKit can deactivate a QLPreviewView when that mount is removed"
         )
 
         session.dismantle(firstView)

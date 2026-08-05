@@ -437,7 +437,7 @@ struct SidebarWorkspaceTableTests {
         #expect(!bystanderPaint.bottom)
 
         // A bottom-edge indicator canonicalizes to the top of the row after
-        // the gap, same as the SwiftUI sidebar's predicate.
+        // the gap, same as the native sidebar's predicate.
         let bottomEdge = SidebarWorkspaceTableReorderIndicatorPainter(
             indicator: SidebarDropIndicator(tabId: ids[2], edge: .bottom),
             scope: .raw,

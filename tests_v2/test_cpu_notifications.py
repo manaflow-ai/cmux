@@ -182,7 +182,7 @@ def test_cpu_after_popover_close(client: cmux, pid: int) -> tuple[bool, str]:
     """
     Test that CPU returns to normal after opening and closing the notifications popover.
 
-    This tests that the popover's SwiftUI view is properly cleaned up when closed.
+    This tests that the popover's native view is properly cleaned up when closed.
     """
     # Create some notifications first
     try:

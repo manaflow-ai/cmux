@@ -34,7 +34,7 @@ struct BrowserWindowPortalRegistryNotificationTests {
 
     private func hasOmnibarSuggestionsOverlay(in view: NSView) -> Bool {
         view.subviews.contains {
-            String(describing: type(of: $0)).contains("OmnibarSuggestionsHostingView")
+            String(describing: type(of: $0)).contains("OmnibarSuggestionsOverlayView")
         }
     }
 

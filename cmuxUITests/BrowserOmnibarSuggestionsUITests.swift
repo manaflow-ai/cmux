@@ -49,7 +49,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected omnibar suggestions to appear for 'exam'"
         )
 
-        // SwiftUI's accessibility typing for ScrollView can vary; match by identifier regardless of element type.
+        // Accessibility typing can vary by OS; match by identifier regardless of element type.
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
         XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
         let row0 = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions.Row.0").firstMatch
@@ -167,7 +167,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(window.waitForExistence(timeout: 6.0))
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).click()
 
-        // Give SwiftUI focus a moment to settle.
+        // Give AppKit focus a moment to settle.
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
         let afterClick = (omnibar.value as? String) ?? ""

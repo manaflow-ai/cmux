@@ -4,7 +4,7 @@ import Observation
 /// on-demand re-check: the UI-side port for the transport layer's system
 /// detector.
 ///
-/// Conformers publish ``status`` through Observation, so SwiftUI views that
+/// Conformers publish ``status`` through Observation, so UIKit controllers that
 /// read it re-render when the tailnet comes up or goes down. The app's
 /// composition root adapts the concrete detector (which owns `NWPathMonitor`
 /// and the interface walk) onto this protocol, keeping `CmuxMobileShellUI`

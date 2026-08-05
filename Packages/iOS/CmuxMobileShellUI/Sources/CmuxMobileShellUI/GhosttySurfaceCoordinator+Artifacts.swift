@@ -3,10 +3,9 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileTerminal
-import SwiftUI
 import UIKit
 
-extension GhosttySurfaceRepresentable.Coordinator {
+extension GhosttySurfaceController.Coordinator {
         // MARK: - Artifact chip hosting
 
         @discardableResult
@@ -235,7 +234,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             let frame = chipView.convert(chipView.bounds, to: surfaceView)
             let width = max(surfaceView.bounds.width, 1)
             let height = max(surfaceView.bounds.height, 1)
-            onArtifactFilesRequested(UnitPoint(
+            onArtifactFilesRequested(CGPoint(
                 x: min(max(frame.midX / width, 0), 1),
                 y: min(max(frame.midY / height, 0), 1)
             ))
@@ -456,7 +455,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             let anchorRect = sourceView.convert(sourceView.bounds, to: surfaceView)
             let width = max(surfaceView.bounds.width, 1)
             let height = max(surfaceView.bounds.height, 1)
-            onArtifactFilesRequested(UnitPoint(
+            onArtifactFilesRequested(CGPoint(
                 x: min(max(anchorRect.midX / width, 0), 1),
                 y: min(max(anchorRect.midY / height, 0), 1)
             ))

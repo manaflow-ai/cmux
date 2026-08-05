@@ -1,6 +1,6 @@
 public import CmuxMobileShellModel
 
-/// Static preview fixtures used for SwiftUI previews and disconnected fallback.
+/// Static preview fixtures used for UI previews and disconnected fallback.
 public struct PreviewMobileHost {
     private init() {}
 

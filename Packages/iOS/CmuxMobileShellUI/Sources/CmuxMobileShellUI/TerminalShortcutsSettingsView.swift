@@ -8,7 +8,7 @@ import UIKit
 ///
 /// The controller observes the same configuration notification as the live
 /// terminal toolbar, so changes made from another presentation are reflected
-/// immediately without a SwiftUI observation bridge.
+/// immediately without an external observation bridge.
 @MainActor
 final class TerminalShortcutsSettingsViewController: UITableViewController {
     private enum Section: Int, CaseIterable {

@@ -938,7 +938,7 @@ struct FileSearchControllerTests {
     @Test
     func testRedundantVisibilityAndPresentationPassesDoNotInvalidateLayout() {
         // Regression for #4931: redundant updateNSView passes must not invalidate layout,
-        // or the unconditional KVO/isHidden writes re-enter the SwiftUI graph and hang.
+        // or the unconditional KVO/isHidden writes re-enter AppKit layout and hang.
         let store = FileExplorerStore()
         let state = FileExplorerState()
         let searchController = SpyFileSearchController()
@@ -964,7 +964,7 @@ struct FileSearchControllerTests {
         container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
         #expect(
             !container.needsLayout,
-            "A redundant updateVisibility pass must not invalidate layout; otherwise updateNSView re-enters the SwiftUI graph and loops (#4931)."
+            "A redundant updateVisibility pass must not invalidate layout; otherwise the native update re-enters AppKit layout and loops (#4931)."
         )
 
         // The guard-else in updatePresentation(.find) re-runs updateSearchLayout on every

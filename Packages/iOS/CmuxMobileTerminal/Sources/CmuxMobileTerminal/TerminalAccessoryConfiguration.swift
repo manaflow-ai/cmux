@@ -13,7 +13,7 @@ import Observation
 /// scroll view and the customize control is a fixed affordance, not an action.)
 ///
 /// This is the single source of truth for that region. It persists to
-/// `UserDefaults`, is `@Observable` for the SwiftUI editor, and posts
+/// `UserDefaults`, is `@Observable` for the settings editor, and posts
 /// ``didChangeNotification`` so the UIKit toolbar can rebuild live.
 @MainActor
 @Observable
@@ -236,7 +236,7 @@ public final class TerminalAccessoryConfiguration {
     }
 
     /// Reorder the configurable items. `offsets`/`destination` are indices into
-    /// ``displayOrder`` (the SwiftUI `onMove` contract).
+    /// ``displayOrder`` (the pre-removal destination-index contract).
     public func moveItems(from offsets: IndexSet, to destination: Int) {
         apply(reducer.move(from: offsets, to: destination, in: currentLayout))
         persistAndNotify()

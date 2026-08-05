@@ -924,7 +924,7 @@
       "p091": "Push desktop notifications on idle or error alongside subagent viewer panes and browser tools; distinguishes itself by pairing notification events with visible subagent viewer panes in the same plugin",
       "p092": "Expose 81 MCP tools spanning agent spawning, sidebar metadata, notifications, browser automation, and session recovery - the largest MCP surface area of any plugin here, unlike EtanHey/cmuxlayer's focused 22-tool set",
       "p093": "Store per-repo setup commands in .cmux-workspace.json and spawn cmux workspaces from that config, so project bootstrap, worktree creation, and workspace launch remain one repeatable command",
-      "p094": "Control cmux from an iPhone over Tailscale with a SwiftUI client and Swift relay daemon, keeping terminal mirroring, key input, and workspace operations inside the user's private tailnet",
+      "p094": "Control cmux from an iPhone over Tailscale with a UIKit client and Swift relay daemon, keeping terminal mirroring, key input, and workspace operations inside the user's private tailnet",
       "p095": "Orchestrate 124 domain specialists via an 802-line skill file with 18 hooks, 28 scripts, and surface watcher detecting IDLE/ERROR/STALL states - the most granular Korean-language sidebar state machine for Claude Code",
       "p096": "Translate tmux commands to cmux equivalents, enabling --teammate-mode tmux (Agent Teams) inside cmux by mapping pane IDs to surface IDs - solves the tmux-compatibility gap for agent team mode",
       "p097": "Poll panes from any agent, extract structured context, persist snapshots to SQLite, and auto-inject compressed handoff briefs into new sessions - persistence layer differentiates it from in-memory restore tools",
@@ -4558,7 +4558,7 @@
               [
                 "Desktop stack",
                 "Native Swift/AppKit macOS app built on libghostty",
-                "Native SwiftUI macOS app with a shared Zig core and libghostty"
+                "Native AppKit macOS app with a shared Zig core and libghostty"
               ],
               [
                 "Rendering",

@@ -33,7 +33,7 @@ window level and their frames are intersected with ancestor bounds
 to its visible rect. On a scrolling canvas that would continuously resize and
 reflow Ghostty surfaces as panes cross the viewport edge.
 
-Canvas mode therefore does not mount the portal-anchored SwiftUI panel views
+Canvas mode therefore does not mount the portal-anchored panel views
 for terminals. The pane's `GhosttySurfaceScrollView` is detached from the
 portal (`TerminalWindowPortalRegistry.detach(hostedView:)`, the same path used
 when moving panels between workspaces) and parented directly into the canvas
@@ -41,8 +41,8 @@ pane view. Full size is preserved at all times; clipping at the viewport edge
 is the scroll view's clip view doing its normal job; scrolling is native
 (momentum, rubber-banding, interruptible) because it *is* `NSScrollView`.
 
-Non-terminal panel kinds keep their existing SwiftUI views inside an
-`NSHostingView` per pane in v1. Their embedded window-portal content (web
+Non-terminal panel kinds keep their existing native AppKit views inside a
+container per pane in v1. Their embedded window-portal content (web
 views) is kept in sync during scrolling via the clip-view bounds-change
 notification driving a portal geometry sync. Known v1 caveat: portal-hosted
 content clips by resizing at the viewport edge and always renders above

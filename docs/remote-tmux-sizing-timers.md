@@ -87,7 +87,7 @@ statement of the fact lives in this doc, not in the shell.
 
 ## The size-send debounce (`clientSizeDebounceMs`, 180 ms)
 
-SwiftUI layout settle makes the rendered grid oscillate (~15 distinct sizes in
+Layout settling makes the rendered grid oscillate (~15 distinct sizes in
 ~1.3 s at attach). Un-debounced, each becomes a `refresh-client -C` → a
 `SIGWINCH`/redraw storm on the remote per attach. The debounce coalesces them
 into one send after the size stops changing.

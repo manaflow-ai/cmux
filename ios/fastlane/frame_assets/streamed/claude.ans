@@ -1,48 +1,30 @@
-  [1mWhat it does [3mnot[0;1m do:[0m despite the filename [38;5;153mmain.swift[39m (which Swift treats
-  as a top-level entry point), there's no [38;5;153m@main[39m App, no scene, no window,
-  and nothing is ever instantiated or shown. As written it defines a type
-  but launches no application — it won't actually display anything on its
-  own.
+[38;5;174m╭─[39m [38;5;174mClaude[39m [38;5;174mCode[39m [38;5;174m────────────────────────────────────────╮
+│[39m                                                      [38;5;174m│
+│[39m                [1mWelcome[0m [1mback[0m [1mLawrence![0m                [38;5;174m│
+│[39m                                                      [38;5;174m│
+│[39m                        [38;5;174m▐[48;5;16m▛███▜[49m▌[39m                       [38;5;174m│
+│[39m                       [38;5;174m▝▜[48;5;16m█████[49m▛▘[39m                      [38;5;174m│
+│[39m                         [38;5;174m▘▘[39m [38;5;174m▝▝[39m                        [38;5;174m│
+│[39m                                                      [38;5;174m│
+│[39m            [38;5;246mOpus[39m [38;5;246m5[39m [38;5;246m(1M[39m [38;5;246mcontext)[39m [38;5;246mwith[39m [38;5;246mhigh…[39m            [38;5;174m│
+│[39m                      [38;5;246mClaude[39m [38;5;246mMax[39m                      [38;5;174m│
+│[39m               [38;5;246m/…/T/tmp.upEhbCxYox/app[39m                [38;5;174m│
+│[39m                                                      [38;5;174m│
+╰──────────────────────────────────────────────────────╯
 
-  ---
-  [1m3 concrete improvements[0m
 
-  [1m1. Add an app entry point so it actually runs.[0m Right now nothing hosts
-  [38;5;153mContentView[39m. A [38;5;153mmain.swift[39m named file can't use [38;5;153m@main[39m, so either rename the
-  file or add explicit top-level launch code:
+[38;5;239m[48;5;237m❯ [38;5;231min one short sentence, what does main.swift do? do [39m
+  [38;5;231mnot edit anything[39m
 
-  [34mimport[39m SwiftUI
+[49m  [38;5;246mRead [1m1[0m[38;5;246m file (ctrl+o to expand)[39m
 
-  [34m@main[39m
-  [34mstruct [39mMyApp: App {
-      [34mvar[39m body: [34msome[39m [2m[36mScene[0m {
-          [2m[36mWindowGroup[0m { [2m[36mContentView[0m() }
-      }
-  }
-  (Note: [38;5;153m@main[39m requires the file be named something [3mother[0m than [38;5;153mmain.swift[39m to
-  avoid the "top-level code" conflict.)
+[38;5;231m⏺[39m [38;5;153mmain.swift[39m just imports UIKit and declares an empty
+  [38;5;153mContentView[39m UIView subclass — it does nothing.
 
-  [1m2. Format for readability and put each declaration on its own lines.[0m The
-  one-liner is dense and hard to extend:
+[38;5;246m✻[39m [38;5;246mChurned for 5s[39m
 
-  [34mstruct [39mContentView: View {
-      [34mvar[39m body: [34msome[39m [2m[36mView[0m {
-          [2m[36mText[0m([31m"Hello"[39m)
-      }
-  }
-
-  [1m3. Add a [38;5;153m#Preview[39m for fast iteration in Xcode[0m without building/running the
-  whole app:
-
-  #[2m[36mPreview[0m {
-      [2m[36mContentView[0m()
-  }
-
-  If you'd like, I can apply any of these — just say which.
-
-[38;5;246m✻[39m [38;5;246mCooked for 18s[39m
-
-[38;5;244m────────────────────────────────────────────────────────────────────────────
-[39m❯ [2mapply all three improvements[0m
-[38;5;244m────────────────────────────────────────────────────────────────────────────
-[39m  [38;5;246m? for shortcuts · ← for agents[39m
+[38;5;244m────────────────────────────────────────────────────────
+[39m❯ [2mmake it render a hello world label[0m
+[38;5;244m────────────────────────────────────────────────────────
+[39m  [38;5;220m⏵⏵ auto mode on[38;5;246m (shift+tab to cycle) · ← 1[39m [38;5;246magent[39m
+  [38;5;246mtmux focus-events off · add 'set -g focus-events on…[39m

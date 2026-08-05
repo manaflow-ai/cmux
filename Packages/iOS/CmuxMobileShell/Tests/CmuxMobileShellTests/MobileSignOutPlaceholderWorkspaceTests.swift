@@ -7,7 +7,7 @@ import Testing
 /// `PreviewMobileHost` fixtures ("cmux", "Docs") into the live store: those
 /// fake rows rendered as real disconnected workspaces on first launch and
 /// stayed after sign-in until the Mac connected. The list must be empty
-/// instead; the fixtures are for SwiftUI previews and the UITest preview
+/// instead; the fixtures are for UI previews and the UITest preview
 /// harness only.
 @MainActor
 @Suite struct MobileSignOutPlaceholderWorkspaceTests {

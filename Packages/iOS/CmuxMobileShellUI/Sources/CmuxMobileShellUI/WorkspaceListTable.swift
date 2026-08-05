@@ -1,12 +1,11 @@
 #if os(iOS)
 import CmuxMobileShell
 import CmuxMobileShellModel
-import SwiftUI
-import UIKit
+import Foundation
 
-/// UIKit-owned workspace list with exact, non-estimated row heights.
+/// Immutable UIKit workspace-table input.
 @MainActor
-struct WorkspaceListTable: UIViewControllerRepresentable {
+struct WorkspaceListTable {
     let items: [WorkspaceListTableItem]
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
@@ -18,10 +17,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let previewLineLimit: Int
     let unreadIndicatorLeftShift: Double
     let connectionStatus: MobileMacConnectionStatus
-    /// Whether the connected Mac advertises `workspace.changes.v1`.
     let workspaceChangesCapable: Bool
-    /// Changes chips keyed by the workspace's RPC identifier
-    /// (`MobileWorkspacePreview.rpcWorkspaceID.rawValue`).
     let workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip]
     let openWorkspaceChanges: (@MainActor (MobileWorkspacePreview) -> Void)?
 
@@ -54,47 +50,5 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let showAddDevice: (() -> Void)?
     let reconnect: (() -> Void)?
     let refresh: (@Sendable () async -> Void)?
-
-    func makeCoordinator() -> WorkspaceListTableCoordinator {
-        WorkspaceListTableCoordinator(configuration: self)
-    }
-
-    func makeUIViewController(context: Context) -> WorkspaceListTableViewController {
-        let viewController = WorkspaceListTableViewController()
-        let tableView = viewController.tableView
-        tableView.separatorStyle = .none
-        tableView.backgroundColor = .clear
-        tableView.keyboardDismissMode = .interactive
-        tableView.estimatedRowHeight = 0
-        tableView.estimatedSectionHeaderHeight = 0
-        tableView.estimatedSectionFooterHeight = 0
-        tableView.sectionHeaderHeight = 0
-        tableView.sectionFooterHeight = 0
-        tableView.rowHeight = UITableView.automaticDimension
-        tableView.accessibilityIdentifier = "MobileWorkspaceList"
-        context.coordinator.attach(
-            to: tableView,
-            viewController: viewController
-        )
-        return viewController
-    }
-
-    func updateUIViewController(
-        _ uiViewController: WorkspaceListTableViewController,
-        context: Context
-    ) {
-        context.coordinator.update(
-            configuration: self,
-            in: uiViewController.tableView
-        )
-    }
-
-    static func dismantleUIViewController(
-        _ uiViewController: WorkspaceListTableViewController,
-        coordinator: WorkspaceListTableCoordinator
-    ) {
-        coordinator.detach()
-        uiViewController.detach()
-    }
 }
 #endif

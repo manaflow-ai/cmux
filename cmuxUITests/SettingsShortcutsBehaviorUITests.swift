@@ -244,7 +244,7 @@ final class SettingsShortcutsBehaviorUITests: SettingsUITestCase {
 
     /// Returns true when the recorder element's label or value contains
     /// `text`. The recorder is an AppKit `NSButton` hosted via
-    /// `NSViewRepresentable`; depending on the accessibility bridge its
+    /// a custom AppKit view; depending on the accessibility bridge its
     /// title surfaces as either the element label or its value, so we
     /// check both.
     private func recorderShows(_ recorder: XCUIElement, _ text: String) -> Bool {
@@ -329,7 +329,7 @@ final class SettingsShortcutsBehaviorUITests: SettingsUITestCase {
 //   the host action itself can be unit-tested against a fake SettingsHostActions.
 
 // TIER 3 (not e2e): SettingsKeyboardShortcutsChordDocsLink ("Chord docs") —
-//   A SwiftUI Link to https://cmux.com/docs/keyboard-shortcuts#shortcut-chords.
+//   A native link to https://cmux.com/docs/keyboard-shortcuts#shortcut-chords.
 //   Clicking it opens the default web browser to an external URL; there is no
 //   in-app observable effect, so it is not e2e-testable. The destination URL
 //   correctness is better covered by a unit assertion on the section, not a UI test.

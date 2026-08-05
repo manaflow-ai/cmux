@@ -16,8 +16,8 @@ import Testing
 /// (`attemptCommandPaletteFocusRestoreIfNeeded` -> `TabManager.focusTab` ->
 /// `Workspace.focusPanel` -> `applyTabSelectionNow` -> post again). The only guard
 /// (`Workspace.isApplyingTabSelection`) is per-instance, so a cycle that bounced
-/// through SwiftUI body re-evaluation and across workspace instances was unbounded,
-/// matching the hours-long SwiftUI/AppKit layout loop in issue #8843.
+/// through body re-evaluation and across workspace instances was unbounded,
+/// matching the hours-long AppKit layout loop in issue #8843.
 ///
 /// ``FocusSurfaceBroadcaster`` is the fix seam: emitting a focus broadcast is now
 /// deferred + coalesced, same-transaction feedback is bounded across scheduler turns,

@@ -18,7 +18,7 @@ Before adding `@EnvironmentObject`, `@ObservedObject`, `@Binding`, a store read 
 
 ## Terminal find layering
 
-Portal-hosted terminal views can sit above SwiftUI during split/workspace churn, so mounting `SurfaceSearchOverlay` from a SwiftUI panel container such as `Sources/Panels/TerminalPanelView.swift` produces intermittently hidden or detached search controls. It belongs in `GhosttySurfaceScrollView` (the AppKit portal layer) in `Sources/GhosttyTerminalView.swift`.
+Portal-hosted terminal views can move between native containers during split or workspace churn, so mounting `SurfaceSearchOverlay` from a panel controller produces intermittently hidden or detached search controls. It belongs in `GhosttySurfaceScrollView` (the AppKit portal layer) in `Sources/GhosttyTerminalView.swift`.
 
 ## Snapshot boundary for list subtrees
 
@@ -32,6 +32,6 @@ A function called from `body`, directly or through a helper, must not write obse
 
 ## OS-version repros
 
-Foundation, SwiftUI, AttributeGraph, and WebKit behavior changes silently between macOS majors. From https://github.com/manaflow-ai/cmux/issues/4529: `URL(fileURLWithPath: "/").deletingLastPathComponent().path` returns `"/.."` on macOS 14 and 15 but `"/"` on macOS 26, because Apple fixed CFURL normalization. The repo's `macos-26` CI and every maintainer's machine were on the fixed side; every reporter was on the broken side.
+Foundation, AppKit, AttributeGraph, and WebKit behavior changes silently between macOS majors. From https://github.com/manaflow-ai/cmux/issues/4529: `URL(fileURLWithPath: "/").deletingLastPathComponent().path` returns `"/.."` on macOS 14 and 15 but `"/"` on macOS 26, because Apple fixed CFURL normalization. The repo's `macos-26` CI and every maintainer's machine were on the fixed side; every reporter was on the broken side.
 
 Test on the reporter's macOS before declaring a repro disproven. AWS M4 Pro builders (`cmux-aws-mac`, `cmux-aws-m4pro`, `aws-m4pro-1..6`) are pre-provisioned on macOS 15.7.4 and are the preferred empirical repro path.

@@ -1,43 +1,30 @@
 #if os(iOS) && DEBUG
 import CMUXMobileCore
 import CmuxIrohTransport
-import SwiftUI
+import CmuxMobileShell
 public import cmuxFeature
 
-/// Debug-only wrapper that substitutes the isolated Iroh release gate while
-/// preserving the production root scene and environment for ordinary launches.
+/// Installs the debug Iroh release probe on the native mobile root when its
+/// launch environment requests a release-gate scenario.
 @MainActor
-public struct MobileIrohReleaseGateScene: View {
-    private let root: CMUXMobileRootScene
-    private let iroh: MobileIrohRuntimeComposition
-
-    public init(
-        root: CMUXMobileRootScene,
+public enum MobileIrohReleaseGateController {
+    public static func configure(
+        root: CMUXMobileRootViewController,
         iroh: MobileIrohRuntimeComposition
-    ) {
-        self.root = root
-        self.iroh = iroh
-    }
-
-    @ViewBuilder
-    public var body: some View {
-        if let configuration = MobileIrohReleaseGateRunner.Configuration.current() {
-            root.applyingRootEnvironment(
-                to: MobileIrohReleaseGateHostView(
-                    store: root.makeStore(),
-                    configuration: configuration,
-                    onboardingStore: root.onboardingStore,
-                    signOutHook: root.signOutHook,
-                    settingsController: iroh,
-                    endpointIdentity: { await iroh.releaseGateEndpointIdentity() },
-                    relayCredentialExpiry: {
-                        await iroh.releaseGateRelayCredentialExpiry()
-                    }
-                )
-            )
-        } else {
-            root
+    ) -> CMUXMobileRootViewController {
+        guard let configuration = MobileIrohReleaseGateRunner.Configuration.current() else {
+            return root
         }
+        let runner = MobileIrohReleaseGateRunner(
+            configuration: configuration,
+            settingsController: iroh,
+            endpointIdentity: { await iroh.releaseGateEndpointIdentity() },
+            relayCredentialExpiry: { await iroh.releaseGateRelayCredentialExpiry() }
+        )
+        root.setStoreCreationHandler { store in
+            Task { await runner.run(store: store) }
+        }
+        return root
     }
 }
 #endif

@@ -63,7 +63,7 @@ transition, so a mid-drag wrap is not a failure and a persistent wrap at rest is
 ## Fresh-connect wedge: a pre-window reading must not stick
 
 At fresh connect the mirror's container can get a geometry callback before its
-window is laid out — SwiftUI proposes a size (historically the full display
+window is laid out — the view hierarchy proposes a size (historically the full display
 width) while the window is still ordering in. This is not content pressure
 (invariant #2 rules that out); it is a startup-ordering transient. The danger is
 banking that pre-window size as the claim input when no later callback fires, so
@@ -219,7 +219,7 @@ tmux list-panes -t @1 -F '#{pane_width}x#{pane_height} @ #{pane_left},#{pane_top
 
 The transform ends at "impose the extents; bonsplit lays out and paints," but
 the render side is not one passive step. Four layout authorities write pane
-geometry: SwiftUI proposals, AppKit split view layout, bonsplit's own model —
+geometry: view proposals, AppKit split view layout, bonsplit's own model —
 which re-asserts its stored geometry when it observes a resize it did not
 initiate, synchronously, inside the very layout pass that moved the frames —
 and the portal's forced window layout. Left unarbitrated they fight: bonsplit
@@ -346,7 +346,7 @@ painted, so the panes never quite fit however cleanly the rest settled.
 
 ## Alternatives considered
 
-- **Claim from the measured SwiftUI container (`proxy.size`).** This is what the
+- **Claim from the measured view container.** This is what the
   code does today and it is the bug: the input depends on the output, so the
   container can grow ~19pt per pass and never settle. Rejected — it is a feedback
   controller, not a transform.

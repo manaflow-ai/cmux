@@ -356,7 +356,7 @@
       "p091": "Send skrivebordsnotifikationer ved inaktivitet eller fejl sammen med subagent viewer-ruder og browserværktøjer; adskiller sig ved at parre notifikationshændelser med synlige subagent viewer-ruder i samme plugin",
       "p092": "Eksponer 81 MCP-værktøjer til agentstart, sidebar-metadata, notifikationer, browserautomatisering og sessionsgendannelse - den største MCP-flade blandt plugins her, i modsætning til EtanHey/cmuxlayer's fokuserede sæt med 22 værktøjer",
       "p093": "Gem opsætningskommandoer pr. repo i .cmux-workspace.json og start cmux-workspaces fra den konfiguration, så projektbootstrap, worktree-oprettelse og workspace-start forbliver én gentagelig kommando",
-      "p094": "Styr cmux fra en iPhone over Tailscale med en SwiftUI-klient og Swift-relay-daemon, så terminalspegling, tastinput og workspace-operationer bliver inden for brugerens private tailnet",
+      "p094": "Styr cmux fra en iPhone over Tailscale med en UIKit-klient og Swift-relay-daemon, så terminalspegling, tastinput og workspace-operationer bliver inden for brugerens private tailnet",
       "p095": "Orkestrer 124 domænespecialister via en 802-linjers skill-fil med 18 hooks, 28 scripts og surface watcher, der registrerer IDLE/ERROR/STALL-tilstande - den mest granulære koreansksprogede sidebar-state machine til Claude Code",
       "p096": "Oversæt tmux-kommandoer til cmux-ækvivalenter, så --teammate-mode tmux (Agent Teams) kan bruges inde i cmux ved at mappe pane IDs til surface IDs - løser tmux-kompatibilitetsgabet for agent team mode",
       "p097": "Poll ruder fra enhver agent, udtræk struktureret kontekst, gem snapshots i SQLite, og autoindsæt komprimerede handoff-briefs i nye sessioner - persistenslaget adskiller det fra in-memory-gendannelsesværktøjer",
@@ -2374,7 +2374,7 @@
               [
                 "Desktop-stack",
                 "Native Swift/AppKit-macOS-app bygget på libghostty",
-                "Native SwiftUI macOS-app med delt Zig-kerne og libghostty"
+                "Native AppKit macOS-app med delt Zig-kerne og libghostty"
               ],
               [
                 "Rendering",

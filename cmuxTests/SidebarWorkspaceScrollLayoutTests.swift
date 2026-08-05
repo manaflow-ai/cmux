@@ -28,7 +28,7 @@ struct SidebarWorkspaceScrollLayoutTests {
 
     @Test func contentHeightStaysWithinViewportAfterPixelRounding() {
         // Real sidebar viewport heights are frequently fractional on
-        // Retina/scaled displays and with fractional window heights. SwiftUI
+        // Retina/scaled displays and with fractional window heights. AppKit
         // lays the scroll content out to `contentMinHeight`, but AppKit aligns
         // the document view's frame to the backing store (rounding up). If
         // `contentMinHeight` is fractional, that round-up pushes

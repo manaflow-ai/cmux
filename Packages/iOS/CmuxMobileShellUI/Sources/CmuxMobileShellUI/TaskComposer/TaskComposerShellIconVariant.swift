@@ -1,5 +1,5 @@
 #if os(iOS)
-import SwiftUI
+import UIKit
 
 /// Variants used by the debug-only Shell icon lab.
 ///
@@ -78,7 +78,7 @@ enum TaskComposerShellIconVariant: String, CaseIterable, Identifiable, Sendable 
         }
     }
 
-    var glyphWeight: Font.Weight {
+    var glyphWeight: UIFont.Weight {
         switch renderedVariant {
         case .current, .semibold92, .semibold86:
             .semibold

@@ -356,7 +356,7 @@
       "p091": "Invia notifiche desktop in idle o errore insieme a pannelli viewer di sottoagenti e strumenti browser; si distingue abbinando eventi di notifica a pannelli viewer sottoagente visibili nello stesso plugin",
       "p092": "Espone 81 strumenti MCP per spawn agenti, metadati barra laterale, notifiche, automazione browser e recupero sessione; la superficie MCP più grande di qualsiasi plugin qui, a differenza del set focalizzato da 22 strumenti di EtanHey/cmuxlayer",
       "p093": "Memorizza comandi setup per repo in .cmux-workspace.json e crea workspace cmux da quella config, così bootstrap progetto, creazione worktree e lancio workspace restano un unico comando ripetibile",
-      "p094": "Controlla cmux da un iPhone via Tailscale con un client SwiftUI e un daemon relay Swift, mantenendo mirroring terminale, input tasti e operazioni workspace nella tailnet privata dell’utente",
+      "p094": "Controlla cmux da un iPhone via Tailscale con un client UIKit e un daemon relay Swift, mantenendo mirroring terminale, input tasti e operazioni workspace nella tailnet privata dell’utente",
       "p095": "Orchestra 124 specialisti di dominio tramite un file skill di 802 righe con 18 hook, 28 script e watcher superfici che rileva stati IDLE/ERROR/STALL; la macchina a stati della barra laterale in coreano più granulare per Claude Code",
       "p096": "Traduce comandi tmux in equivalenti cmux, abilitando --teammate-mode tmux (Agent Teams) dentro cmux mappando ID pannello a ID superficie; risolve il gap di compatibilità tmux per la modalità team agenti",
       "p097": "Sonda pannelli da qualsiasi agente, estrae contesto strutturato, persiste snapshot in SQLite e auto-inietta brief handoff compressi in nuove sessioni; livello di persistenza che lo differenzia dagli strumenti restore in memoria",
@@ -2377,7 +2377,7 @@
               [
                 "Stack desktop",
                 "App macOS nativa Swift/AppKit costruita su libghostty",
-                "App macOS nativa SwiftUI con core Zig condiviso e libghostty"
+                "App macOS nativa AppKit con core Zig condiviso e libghostty"
               ],
               [
                 "Rendering",

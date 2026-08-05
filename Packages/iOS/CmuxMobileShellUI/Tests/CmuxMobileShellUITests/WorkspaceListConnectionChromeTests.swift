@@ -1,5 +1,4 @@
 import CmuxMobileShellModel
-import SwiftUI
 import Testing
 @testable import CmuxMobileShellUI
 
@@ -111,41 +110,6 @@ import Testing
         ) == .statusLine(.reconnecting))
     }
 
-    @Test func viewChromeUsesStatusLineWithoutStore() {
-        let view = WorkspaceListView(
-            workspaces: [],
-            selectedWorkspaceID: nil,
-            host: "Test Mac",
-            connectionStatus: .reconnecting,
-            navigationStyle: .push,
-            wrapWorkspaceTitles: false,
-            selectWorkspace: { _ in },
-            createWorkspace: {},
-            macSelection: binding(initialValue: .all),
-            filterState: WorkspaceListFilterState()
-        )
-
-        #expect(view.connectionChrome == .statusLine(.reconnecting))
-    }
-
-    @Test func viewChromeUsesMacStatusRowDuringInitialRestore() {
-        let view = WorkspaceListView(
-            workspaces: [],
-            selectedWorkspaceID: nil,
-            host: "Test Mac",
-            connectionStatus: .reconnecting,
-            navigationStyle: .push,
-            wrapWorkspaceTitles: false,
-            selectWorkspace: { _ in },
-            createWorkspace: {},
-            macSelection: binding(initialValue: .all),
-            isInitialConnectionLoading: true,
-            filterState: WorkspaceListFilterState()
-        )
-
-        #expect(view.connectionChrome == .macStatusRow)
-    }
-
     @Test
     func macUpdateHintIndicatorShowsOnlyWithoutConnectionChrome() {
         #expect(chrome(connectionStatus: .connected).showsMacUpdateHintIndicator)
@@ -190,11 +154,4 @@ import Testing
         )
     }
 
-    private func binding(initialValue: WorkspaceMacSelection) -> Binding<WorkspaceMacSelection> {
-        var value = initialValue
-        return Binding(
-            get: { value },
-            set: { value = $0 }
-        )
-    }
 }

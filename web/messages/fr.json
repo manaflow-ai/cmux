@@ -356,7 +356,7 @@
       "p091": "Pousse des notifications de bureau en cas d’inactivité ou d’erreur avec volets de visualisation de sous-agents et outils de navigateur; se distingue en associant les événements de notification à des volets visibles de sous-agents dans le même plugin",
       "p092": "Expose 81 outils MCP couvrant création d’agents, métadonnées de barre latérale, notifications, automatisation du navigateur et récupération de session; la plus grande surface MCP de tous les plugins ici, contrairement au jeu ciblé de 22 outils de EtanHey/cmuxlayer",
       "p093": "Stocke les commandes de setup par repo dans .cmux-workspace.json et crée des workspaces cmux depuis cette config, afin que bootstrap de projet, création de worktree et lancement de workspace restent une seule commande répétable",
-      "p094": "Contrôle cmux depuis un iPhone via Tailscale avec un client SwiftUI et un daemon relay Swift, gardant mirroring terminal, saisie clavier et opérations de workspace dans la tailnet privée de l’utilisateur",
+      "p094": "Contrôle cmux depuis un iPhone via Tailscale avec un client UIKit et un daemon relay Swift, gardant mirroring terminal, saisie clavier et opérations de workspace dans la tailnet privée de l’utilisateur",
       "p095": "Orchestre 124 spécialistes de domaine via un fichier skill de 802 lignes avec 18 hooks, 28 scripts et un watcher de surfaces détectant les états IDLE/ERROR/STALL; la machine d’état de barre latérale coréenne la plus granulaire pour Claude Code",
       "p096": "Traduit les commandes tmux en équivalents cmux, activant --teammate-mode tmux (Agent Teams) dans cmux en mappant IDs de volet vers IDs de surface; résout le manque de compatibilité tmux pour le mode équipe d’agents",
       "p097": "Sonde les volets depuis n’importe quel agent, extrait un contexte structuré, persiste les snapshots dans SQLite et injecte automatiquement des briefs de handoff compressés dans les nouvelles sessions; couche de persistance qui le distingue des outils de restauration en mémoire",
@@ -2379,7 +2379,7 @@
               [
                 "Pile desktop",
                 "App macOS native Swift/AppKit construite sur libghostty",
-                "App macOS native SwiftUI avec un cœur Zig partagé et libghostty"
+                "App macOS native AppKit avec un cœur Zig partagé et libghostty"
               ],
               [
                 "Rendu",

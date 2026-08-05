@@ -159,14 +159,14 @@ extension TerminalWindowPortalLifecycleTests {
     }
 
     /// Regression: switching a pane's tab from a terminal to a browser hides
-    /// the terminal only through its registry entry — the SwiftUI update that
+    /// the terminal only through its registry entry. The view update that
     /// carries visible=false is dropped by the portal-host ownership gate
     /// (`isCurrentPaneOwner()` is already false for a deselected tab, logged
     /// as `ws.hostState.deferApply reason=hostOwnershipRejected`), and a
     /// selection-only switch produces no window geometry churn that would run
     /// a sync pass later. If flipping the entry to invisible does not schedule
     /// its own sync pass, the stale terminal layer keeps rendering above
-    /// SwiftUI chrome: the previous terminal's content fills the browser's
+    /// native chrome: the previous terminal's content fills the browser's
     /// omnibar band until unrelated churn (sidebar toggle, resize) heals it.
     @MainActor
     func testEntryVisibilityFlipToHiddenHidesHostedViewWithoutExternalChurn() throws {

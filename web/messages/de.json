@@ -356,7 +356,7 @@
       "p091": "Sendet Desktop-Benachrichtigungen bei Idle oder Fehler zusammen mit Subagent-Viewer-Panes und Browsertools; unterscheidet sich durch Kopplung von Benachrichtigungsereignissen mit sichtbaren Subagent-Viewer-Panes im selben Plugin",
       "p092": "Stellt 81 MCP-Tools bereit für Agenten-Spawn, Sidebar-Metadaten, Benachrichtigungen, Browserautomatisierung und Sitzungswiederherstellung; die größte MCP-Fläche aller Plugins hier, anders als EtanHey/cmuxlayers fokussiertes 22-Tool-Set",
       "p093": "Speichert pro Repo Setup-Befehle in .cmux-workspace.json und startet cmux-Workspaces aus dieser Konfiguration, damit Projekt-Bootstrap, Worktree-Erstellung und Workspace-Start ein wiederholbarer Befehl bleiben",
-      "p094": "Steuert cmux von einem iPhone über Tailscale mit SwiftUI-Client und Swift-Relay-Daemon, wobei Terminalspiegelung, Tasteneingabe und Workspace-Operationen in der privaten Tailnet des Nutzers bleiben",
+      "p094": "Steuert cmux von einem iPhone über Tailscale mit UIKit-Client und Swift-Relay-Daemon, wobei Terminalspiegelung, Tasteneingabe und Workspace-Operationen in der privaten Tailnet des Nutzers bleiben",
       "p095": "Orchestriert 124 Domänenspezialisten über eine 802-zeilige Skill-Datei mit 18 Hooks, 28 Skripten und Surface-Watcher für IDLE/ERROR/STALL-Zustände; die granularste koreanischsprachige Sidebar-Zustandsmaschine für Claude Code",
       "p096": "Übersetzt tmux-Befehle in cmux-Äquivalente und aktiviert --teammate-mode tmux (Agent Teams) innerhalb von cmux durch Mapping von Pane-IDs auf Surface-IDs; schließt die tmux-Kompatibilitätslücke für Agent-Team-Modus",
       "p097": "Pollt Panes von beliebigen Agenten, extrahiert strukturierten Kontext, persistiert Snapshots in SQLite und injiziert automatisch komprimierte Handoff-Briefs in neue Sitzungen; Persistenzschicht, die es von In-Memory-Restore-Tools unterscheidet",
@@ -3329,7 +3329,7 @@
               [
                 "Desktop-Stack",
                 "Native Swift/AppKit-macOS-App auf libghostty",
-                "Native SwiftUI-macOS-App mit gemeinsamem Zig-Kern und libghostty"
+                "Native AppKit-macOS-App mit gemeinsamem Zig-Kern und libghostty"
               ],
               [
                 "Rendering",

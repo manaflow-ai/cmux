@@ -118,14 +118,14 @@ extension CMUXCLI {
         DocsReference(
             topic: "sidebars",
             aliases: ["sidebar", "custom-sidebar", "custom-sidebars", "vibe-sidebar"],
-            summary: "Vibe-code a custom sidebar: a runtime-interpreted SwiftUI-style file in ~/.config/cmux/sidebars/ (beta).",
+            summary: "Vibe-code a custom sidebar: a runtime-interpreted cmux view file in ~/.config/cmux/sidebars/ (beta).",
             webURL: "https://cmux.com/docs/custom-sidebars",
             rawResources: [
                 DocsResource(label: "custom sidebar authoring guide", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/custom-sidebars.md"),
             ],
             commands: [
                 "mkdir -p ~/.config/cmux/sidebars",
-                "cat > ~/.config/cmux/sidebars/mine.swift   # write a SwiftUI-style view, then right-click the sidebar button to pick it",
+                "cat > ~/.config/cmux/sidebars/mine.swift   # write a cmux sidebar view, then right-click the sidebar button to pick it",
                 "cmux docs api   # discover cmux() action methods/params",
             ]
         ),

@@ -37,7 +37,7 @@ public struct MacWorkspaceState: Identifiable, Equatable, Sendable {
     /// Workspace actions supported by this Mac.
     public var actionCapabilities: MobileWorkspaceActionCapabilities
 
-    /// Stable identity for SwiftUI lists and dictionaries. Sibling builds of
+    /// Stable identity for UI lists and dictionaries. Sibling builds of
     /// one physical Mac are distinct entries, so identity carries the tag; the
     /// separator is the same U+001F unit separator `MobilePairedMac.pairingID`
     /// uses (this package deliberately does not depend on that module).

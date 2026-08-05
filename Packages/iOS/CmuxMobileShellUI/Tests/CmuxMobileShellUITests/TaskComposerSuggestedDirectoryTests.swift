@@ -14,7 +14,7 @@ import Testing
         let store = UserDefaultsMobileTaskTemplateStore(defaults: defaults)
         store.setLastDirectory("/Users/ui/previous-task", macDeviceID: "mac-a")
 
-        let suggestion = TaskComposerSheet.suggestedDirectory(
+        let suggestion = MobileTaskComposerPolicy.suggestedDirectory(
             template: nil,
             macDeviceID: "mac-a",
             templateStore: store,
@@ -37,7 +37,7 @@ import Testing
             defaultDirectory: "/Users/ui/template-project"
         )
 
-        let suggestion = TaskComposerSheet.suggestedDirectory(
+        let suggestion = MobileTaskComposerPolicy.suggestedDirectory(
             template: template,
             macDeviceID: "mac-a",
             templateStore: store,

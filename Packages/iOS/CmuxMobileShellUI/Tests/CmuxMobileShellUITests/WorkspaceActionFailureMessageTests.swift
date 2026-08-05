@@ -8,8 +8,8 @@ import Testing
     @Test func invalidWorkingDirectoryExplainsRecovery() {
         // Failures render as a toast: bold "Couldn't <action>" title plus the
         // reason as a standalone sentence.
-        let title = WorkspaceShellView.workspaceActionFailureTitle(action: .createWorkspace)
-        let reason = WorkspaceShellView.workspaceActionFailureReasonText(
+        let title = WorkspaceActionFailurePolicy.title(action: .createWorkspace)
+        let reason = WorkspaceActionFailurePolicy.reason(
             .invalidWorkingDirectory(hostDisplayName: "Test Mac")
         )
 

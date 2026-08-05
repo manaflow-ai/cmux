@@ -8,7 +8,7 @@ unstaged, untracked, rename, and binary semantics match Git itself.
 It is a Layer-2 service package: `Sendable` value facades over filesystem and
 process boundaries, with actor isolation only for bounded caches. Its reads are
 plain `nonisolated async` methods, which run on the global concurrent executor
-(SE-0338) — off the caller's actor and in parallel. It has zero AppKit/SwiftUI
+(SE-0338) — off the caller's actor and in parallel. It has zero UI-framework
 dependencies and is fully testable through injected seams and temp directories.
 
 ## What it does

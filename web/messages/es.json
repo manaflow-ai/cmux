@@ -356,7 +356,7 @@
       "p091": "Envía notificaciones de escritorio en inactividad o error junto a paneles de visor de subagentes y herramientas de navegador; se distingue por emparejar eventos de notificación con paneles visibles de visor de subagentes en el mismo plugin",
       "p092": "Expone 81 herramientas MCP que abarcan creación de agentes, metadatos de barra lateral, notificaciones, automatización del navegador y recuperación de sesión; la mayor superficie MCP de cualquier plugin aquí, a diferencia del conjunto enfocado de 22 herramientas de EtanHey/cmuxlayer",
       "p093": "Guarda comandos de setup por repo en .cmux-workspace.json y crea workspaces de cmux desde esa configuración, para que bootstrap de proyecto, creación de worktree y apertura de workspace sigan siendo un solo comando repetible",
-      "p094": "Controla cmux desde un iPhone por Tailscale con un cliente SwiftUI y un daemon relay Swift, manteniendo mirroring de terminal, entrada de teclas y operaciones de workspace dentro de la tailnet privada del usuario",
+      "p094": "Controla cmux desde un iPhone por Tailscale con un cliente UIKit y un daemon relay Swift, manteniendo mirroring de terminal, entrada de teclas y operaciones de workspace dentro de la tailnet privada del usuario",
       "p095": "Orquesta 124 especialistas de dominio mediante un archivo de skill de 802 líneas con 18 hooks, 28 scripts y un watcher de superficies que detecta estados IDLE/ERROR/STALL; la máquina de estados de barra lateral en coreano más granular para Claude Code",
       "p096": "Traduce comandos tmux a equivalentes de cmux, habilitando --teammate-mode tmux (Agent Teams) dentro de cmux al mapear IDs de panel a IDs de superficie; resuelve la brecha de compatibilidad tmux para modo de equipo de agentes",
       "p097": "Sondea paneles desde cualquier agente, extrae contexto estructurado, persiste snapshots en SQLite e inyecta automáticamente briefs de handoff comprimidos en nuevas sesiones; una capa de persistencia que lo diferencia de herramientas de restauración en memoria",
@@ -2376,7 +2376,7 @@
               [
                 "Stack de escritorio",
                 "App nativa de macOS en Swift/AppKit, construida sobre libghostty",
-                "App nativa macOS en SwiftUI con un núcleo Zig compartido y libghostty"
+                "App nativa macOS en AppKit con un núcleo Zig compartido y libghostty"
               ],
               [
                 "Renderizado",

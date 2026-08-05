@@ -356,7 +356,7 @@
       "p091": "在 idle 或 error 时 push desktop notification，同时提供 subagent viewer pane 和 browser tool。它的特点是在同一个 plugin 中把 notification event 与可见 subagent viewer pane 配对",
       "p092": "公开 81 个 MCP tool，涵盖 agent spawning、sidebar metadata、notification、browser automation 和 session recovery。它是这里所有 plugin 中最大的 MCP surface area，不同于 EtanHey/cmuxlayer 的 focused 22-tool set",
       "p093": "把每个 repo 的 setup command 存入 .cmux-workspace.json，并从该 config 生成 cmux workspace，使 project bootstrap、worktree creation 和 workspace launch 保持为一个 repeatable command",
-      "p094": "通过 Tailscale 用 iPhone 上的 SwiftUI client 和 Swift relay daemon 控制 cmux，把 terminal mirroring、key input 和 workspace operation 保持在用户的 private tailnet 中",
+      "p094": "通过 Tailscale 用 iPhone 上的 UIKit client 和 Swift relay daemon 控制 cmux，把 terminal mirroring、key input 和 workspace operation 保持在用户的 private tailnet 中",
       "p095": "通过一个 802-line skill file 编排 124 个 domain specialist，包含 18 个 hook、28 个 script 和检测 IDLE/ERROR/STALL state 的 surface watcher。它是 Claude Code 中最细粒度的 Korean-language sidebar state machine",
       "p096": "将 tmux command translate 为 cmux equivalent，并把 pane ID mapping 到 surface ID，从而在 cmux 中启用 --teammate-mode tmux(Agent Teams)。它解决 agent team mode 的 tmux-compatibility gap",
       "p097": "从任意 agent poll pane，提取 structured context，把 snapshot persist 到 SQLite，并把 compressed handoff brief 自动注入新 session。persistence layer 让它区别于 in-memory restore tool",
@@ -3329,7 +3329,7 @@
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "带有共享 Zig 核心和 libghostty 的原生 SwiftUI macOS 应用"
+                "带有共享 Zig 核心和 libghostty 的原生 AppKit macOS 应用"
               ],
               [
                 "渲染",

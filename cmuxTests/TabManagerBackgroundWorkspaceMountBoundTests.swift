@@ -12,7 +12,7 @@ import Testing
 struct TabManagerBackgroundWorkspaceMountBoundTests {
     // Regression coverage for issue #7136: a burst of eagerly-loaded background
     // workspaces (e.g. dozens of scripted or auto-resumed agent workspaces) must
-    // NOT all force-mount into the single main-window SwiftUI GraphHost. When they
+    // NOT all force-mount into the single main-window view hierarchy. When they
     // do, `GraphHost.flushTransactions()` performs O(number-of-hosted-panes) work
     // every runloop tick and pins the main thread at 100%+ CPU. The mounted
     // background-load set that inflates `reconcileMountedWorkspaceIds`' mount cap
@@ -70,7 +70,7 @@ struct TabManagerBackgroundWorkspaceMountBoundTests {
     }
 
     // A `cmux ssh --no-focus` burst can add many pending terminal startups while
-    // the first background prime is running. The SwiftUI task identity must stay
+    // the first background prime is running. The task identity must stay
     // stable until the entire pending set drains; changing it for every inserted
     // or completed workspace cancels the active prime and strands later SSH workspaces.
     @Test func backgroundPrimeTaskIdentityStaysStableWhileBurstDrains() {

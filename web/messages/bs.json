@@ -356,7 +356,7 @@
       "p091": "Push desktop notifikacije o neaktivnosti ili grešci zajedno sa prozorima za pregled subagenta i alatima pretraživača; razlikuje se tako što uparuje događaje obavještenja s vidljivim oknima preglednika subagenta u istom dodatku",
       "p092": "Izložite 81 MCP alate koji obuhvataju pokretanje agenata, metapodatke na bočnoj traci, obaveštenja, automatizaciju pretraživača i oporavak sesije - najveća MCP površina bilo kojeg dodatka ovde, za razliku od EtanHey/cmuxlayer-ovog fokusiranog skupa od 22 alata",
       "p093": "Čuvajte komande za podešavanje po repo u .cmux-workspace.json i stvarajte cmux radne prostore iz te konfiguracije, tako da pokretanje projekta, kreiranje radnog stabla i pokretanje radnog prostora ostaju jedna ponovljiva komanda",
-      "p094": "Kontrolišite cmux iz iPhone nad Tailscale sa SwiftUI klijentom i Swift relejnim demonom, zadržavajući zrcaljenje terminala, unos ključeva i operacije radnog prostora unutar korisničkog privatnog tailnet-a",
+      "p094": "Kontrolišite cmux iz iPhone nad Tailscale sa UIKit klijentom i Swift relejnim demonom, zadržavajući zrcaljenje terminala, unos ključeva i operacije radnog prostora unutar korisničkog privatnog tailnet-a",
       "p095": "Orkestrirajte 124 specijalista za domene putem datoteke vještina od 802 reda sa 18 kukica, 28 skripti i nadzornikom površine koji detektuje stanja IDLE/ERROR/STALL - najprecizniji stroj stanja bočne trake Korean za Claude Code",
       "p096": "Prevedite tmux komande u cmux ekvivalente, omogućavajući --teammate-mode tmux (Agent Teams) unutar cmux mapiranjem ID-ova okna u ID-ove površine - rješava jaz u tmux-kompatibilnosti za način rada tima agenta",
       "p097": "Okna za anketiranje iz bilo kojeg agenta, izdvajanje strukturiranog konteksta, zadržavanje snimaka na SQLite i automatsko ubacivanje komprimiranih sažetaka primopredaje u nove sesije - sloj postojanosti ga razlikuje od alata za vraćanje u memoriju",
@@ -3470,7 +3470,7 @@
               [
                 "Desktop stack",
                 "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
-                "Izvorna SwiftUI macOS aplikacija sa zajedničkim Zig coreom i libghosttyjem"
+                "Izvorna AppKit macOS aplikacija sa zajedničkim Zig coreom i libghosttyjem"
               ],
               [
                 "Rendering",

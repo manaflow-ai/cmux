@@ -109,7 +109,7 @@ degrade cleanly.
 A new `CmuxMobileBrowserStream` package following the terminal surface
 pattern: an `@Observable` per-panel state object beside the shell store (kept
 out of `MobileShellComposite` so workspace re-syncs cannot clobber it), a
-`UIViewRepresentable` whose coordinator consumes an `AsyncStream` of decoded
+native `UIView` whose coordinator consumes an `AsyncStream` of decoded
 frames, and a delegate sink that forwards gestures to store RPCs.
 
 The view is a `UIView` whose layer displays the latest decoded frame

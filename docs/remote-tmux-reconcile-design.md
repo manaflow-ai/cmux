@@ -42,7 +42,7 @@ itself, not by time.
 ## The model
 
 Every mirror (`RemoteTmuxWindowMirror`, one per tmux window) carries a dirty
-generation. Events — the SwiftUI geometry callback, `%layout-change`,
+generation. Events — the view geometry callback, `%layout-change`,
 calibration samples, visibility flips, drag begin and end, portal
 notifications, command replies dequeuing — do exactly two things: update the
 durable fact they own (the connection stores the new layout tree, the
@@ -92,7 +92,7 @@ observation callback, in four phases, all synchronous within the one drain.
 First it snapshots the world in one instant. The snapshot holds the probe
 view's frame (`MirrorHostProbeView` already backs the whole mirror region,
 so its frame *is* the container — the pass reads it directly instead of
-trusting a callback-carried SwiftUI proposal), and the hosting window's
+trusting a callback-carried size proposal), and the hosting window's
 content bound through that same probe. It also holds the tmux base and
 visible layout trees, the calibration constants, the drag-session state,
 the visibility state, the pending user intent (a drag-end waiting to be
@@ -119,7 +119,7 @@ re-marking, and the first sample at the new scale is a guaranteed event
 because every surface re-renders on a scale change.
 
 Sampling the frame and the bound in the same instant stops readings from
-being torn across two moments. It does not stop poisoned readings. A SwiftUI ancestor adopting a content ideal
+being torn across two moments. It does not stop poisoned readings. An ancestor adopting a content ideal
 inflates real NSView frames, and it does so persistently, not transiently —
 clamping such a reading banks the window bound plus whatever chrome sits
 between window and mirror, which the live fuzz measured running 30-40pt wide
@@ -625,7 +625,7 @@ impossible rather than merely fixed.
    model makes the fix a rule: actual is defined as view frames, and engine
    solutions are not an input the diff is allowed to read. There is no code
    position left for the bug to occupy.
-8. Hidden tabs alive at SwiftUI opacity 0 intercepting hit tests and
+8. Hidden tabs alive at alpha 0 intercepting hit tests and
    painting dividers (fixed at head by `12a5a2bc67`;
    `bonsplitController.isInteractive` in
    `RemoteTmuxWindowMirrorSplitView.swift` follows the visibility edge). The
@@ -695,7 +695,7 @@ Each scenario states what the pass does and why the sequence terminates.
   applies the commands in order, so the last-sent span is the one the final
   layout assigns. Terminates when that layout's publication pass finds the
   assignment matching the user's position.
-- A hidden tree revealed: SwiftUI may have recreated every view while the
+- A hidden tree revealed: the UI may have recreated every view while the
   tab was hidden, so nothing holds the old plan. Reveal marks dirty; the
   pass samples the fresh views (all far from desired) and commits the full
   plan in one write set. No `IgnoringInputs` escape hatch is needed because
@@ -815,7 +815,7 @@ spots. It can regress the loop; it cannot discover where the model is
 wrong.
 
 Layer 3 is where the weight goes, for that reason. The real components —
-AppKit, SwiftUI, bonsplit, ghostty — stay in play, we drive them with the
+AppKit, bonsplit, and ghostty stay in play, we drive them with the
 same instructions the commit phase emits, and we assert they handled them
 the way the model says: the exported clamp equals what bonsplit's
 coordinator actually applies to a real NSSplitView; a synchronous
@@ -946,7 +946,7 @@ hierarchy syncs in the thousands per settle window against a healthy ~17.
 Three fix attempts failed before live forensics named the writer, so the
 mechanism is worth pinning here.
 
-Hosted terminal views reach the portal from SwiftUI hosting with
+Hosted terminal views reach the portal from native AppKit containers with
 `autoresizingMask = [.width, .height]`. In an Auto Layout window that
 mask does not stay a mask: AppKit translates it into constraints, and a
 flexible mask translates into EDGE pins — a minX constant plus a trailing

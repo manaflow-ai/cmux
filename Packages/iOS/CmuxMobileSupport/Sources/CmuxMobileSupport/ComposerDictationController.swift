@@ -8,7 +8,7 @@ import Speech
 ///
 /// Wraps `SFSpeechRecognizer` + `SFSpeechAudioBufferRecognitionRequest` driven by
 /// an `AVAudioEngine` tap, exposing a thin start/stop surface and a published
-/// state machine (see ``ComposerDictationState``) so the SwiftUI view stays
+/// state machine (see ``ComposerDictationState``) so the owning view stays
 /// declarative. On-device recognition is preferred when supported
 /// (`requiresOnDeviceRecognition = true`) for privacy and offline use, falling
 /// back to server recognition only when the device cannot recognize locally.

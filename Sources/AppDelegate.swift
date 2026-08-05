@@ -776,7 +776,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let agentChatTranscriptService = AgentChatTranscriptService()
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
-    /// main window's `NSHostingView` itself, so it injects this into the
+    /// main window content view itself, so it injects this into the
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?

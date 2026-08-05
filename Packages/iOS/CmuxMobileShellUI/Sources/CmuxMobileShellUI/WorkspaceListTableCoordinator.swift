@@ -459,14 +459,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return
         }
 
-        let swiftUIDestination = destination > source
+        let preRemovalDestination = destination > source
             ? min(destination + 1, movableItemCount)
             : destination
 
-        let swiftUIDestinationFull = swiftUIDestination + chromePrefixCount
-        let insertionRow = swiftUIDestinationFull > sourceIndexPath.row
-            ? swiftUIDestinationFull - 1
-            : swiftUIDestinationFull
+        let fullDestination = preRemovalDestination + chromePrefixCount
+        let insertionRow = fullDestination > sourceIndexPath.row
+            ? fullDestination - 1
+            : fullDestination
         let landingIndexPath = IndexPath(
             row: min(insertionRow, configuration.items.count - 1),
             section: destinationIndexPath.section
@@ -478,7 +478,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         )
         appliedItems = dataSource?.items ?? appliedItems
         coordinator.drop(dropItem.dragItem, toRowAt: landingIndexPath)
-        moveRows(IndexSet(integer: source), swiftUIDestination)
+        moveRows(IndexSet(integer: source), preRemovalDestination)
     }
 
     private func workspacePreviewParameters(

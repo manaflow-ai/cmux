@@ -1,6 +1,4 @@
 import CmuxAuthRuntime
-import CmuxMobileSupport
-import SwiftUI
 
 enum OAuthSignInProvider: CaseIterable, Hashable {
     case apple
@@ -20,40 +18,6 @@ enum OAuthSignInProvider: CaseIterable, Hashable {
         case .apple: return "signin.apple"
         case .google: return "signin.google"
         case .github: return "signin.github"
-        }
-    }
-
-    @ViewBuilder
-    @MainActor
-    func label(isLoading: Bool) -> some View {
-        switch self {
-        case .apple:
-            Label(L10n.string("mobile.signIn.apple", defaultValue: "Sign in with Apple"), systemImage: "apple.logo")
-                .fontWeight(.semibold)
-                .mobileButtonLoading(isLoading)
-        case .google:
-            HStack(spacing: 6) {
-                Image("GoogleLogo")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 16, height: 16)
-                    .accessibilityHidden(true)
-                Text(L10n.string("mobile.signIn.google", defaultValue: "Sign in with Google"))
-                    .fontWeight(.semibold)
-            }
-            .mobileButtonLoading(isLoading)
-        case .github:
-            HStack(spacing: 6) {
-                Image("GitHubLogo")
-                    .resizable()
-                    .renderingMode(.template)
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 16, height: 16)
-                    .accessibilityHidden(true)
-                Text(L10n.string("mobile.signIn.github", defaultValue: "Sign in with GitHub"))
-                    .fontWeight(.semibold)
-            }
-            .mobileButtonLoading(isLoading)
         }
     }
 

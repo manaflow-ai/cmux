@@ -1,17 +1,15 @@
 import CMUXMobileCore
-import SwiftUI
+import CmuxMobileTerminal
 import Testing
+import UIKit
 @testable import CmuxMobileShellUI
 
 @MainActor
-@Test func terminalPaletteChoosesHigherContrastForeground() {
+@Test func terminalPaletteProducesOpaqueUIKitColors() {
     var theme = TerminalTheme.monokai
     theme.background = "#999999"
+    theme.foreground = "#111111"
 
-    #expect(theme.terminalChromeForegroundColor == Color.black)
-    #expect(theme.terminalColorScheme == .light)
-
-    theme.background = "#333333"
-    #expect(theme.terminalChromeForegroundColor == Color.white)
-    #expect(theme.terminalColorScheme == .dark)
+    #expect(theme.terminalBackgroundUIColor.cgColor.alpha == 1)
+    #expect(theme.terminalForegroundUIColor.cgColor.alpha == 1)
 }

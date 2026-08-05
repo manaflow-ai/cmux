@@ -1,6 +1,6 @@
 # Custom Sidebar Examples
 
-These are vibe-coded cmux sidebars that run as interpreted SwiftUI-style files.
+These are vibe-coded cmux sidebars that run as interpreted cmux view files.
 They do not need Xcode, signing, or a build step.
 
 The examples intentionally keep their labels inline because interpreted

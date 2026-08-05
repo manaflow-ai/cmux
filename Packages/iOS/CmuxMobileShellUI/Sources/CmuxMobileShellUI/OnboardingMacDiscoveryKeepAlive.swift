@@ -29,7 +29,7 @@ final class OnboardingMacDiscoveryKeepAlive {
     private var coordinator: MobileStartupConnectionCoordinator?
     private var runAttempt: (@MainActor () async -> Bool)?
     /// Live pull-check consulted by the loop before every attempt and re-arm.
-    /// SwiftUI `onChange` pushes are only wakeups; a dropped or coalesced push
+    /// Observation callbacks are only wakeups; a dropped or coalesced callback
     /// must never leave the loop searching after the connect page took over,
     /// the app connected, or onboarding finished.
     private var isStillEligible: (@MainActor () -> Bool)?

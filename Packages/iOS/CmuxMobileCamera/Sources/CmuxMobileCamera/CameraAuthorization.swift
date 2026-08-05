@@ -3,7 +3,7 @@
 /// Async seam over `AVCaptureDevice` video-capture authorization.
 ///
 /// Wraps the callback-based `AVCaptureDevice.requestAccess(for:)` in an
-/// `async` API so SwiftUI view code can `await` the result instead of bridging
+/// `async` API so UI controller code can `await` the result instead of bridging
 /// a completion handler at the call site. Reads of the current status stay
 /// synchronous because `AVCaptureDevice.authorizationStatus(for:)` is itself
 /// synchronous and side-effect-free.

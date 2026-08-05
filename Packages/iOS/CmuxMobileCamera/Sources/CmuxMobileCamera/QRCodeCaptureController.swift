@@ -10,7 +10,7 @@ public import UIKit
 /// appear/disappear lifecycle. When no camera input can be configured it shows
 /// the injected `unavailableText` label instead.
 ///
-/// Construct via ``init(stream:accepts:unavailableText:)``; the host SwiftUI
+/// Construct via ``init(stream:accepts:unavailableText:)``; the host UIKit
 /// wrapper passes the localized "Camera Unavailable" copy so this leaf service
 /// stays free of a localization dependency.
 public final class QRCodeCaptureController: UIViewController {

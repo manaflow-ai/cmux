@@ -63,7 +63,7 @@ struct SidebarScrollViewConfiguratorTests {
     }
 
     @Test func reapplyToConfiguredScrollViewWritesNothing() {
-        // The resolver re-applies on every SwiftUI update of the sidebar. A
+        // The resolver re-applies on every native sidebar update. A
         // re-apply must be a pure no-op: any property write (same-value
         // included) re-tiles the overlay scrollers and can cancel an
         // in-flight knob fade without rescheduling it, leaving the knob
@@ -83,7 +83,7 @@ struct SidebarScrollViewConfiguratorTests {
         // mouse is connected/disconnected, or System Settings → Appearance →
         // "Show scroll bars" changes. That clobbers the sidebar's forced
         // overlay configuration with a legacy, space-reserving scrollbar
-        // until some unrelated SwiftUI re-render happens to re-run the
+        // until some unrelated sidebar update happens to re-run the
         // resolver (#3241, sidebar scope of the reopen). The resolver must
         // re-apply the configuration when the style-change notification
         // fires, without waiting for a re-render.

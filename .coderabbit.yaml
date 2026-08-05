@@ -54,7 +54,7 @@ reviews:
         Apply `.github/review-bot-rules/algorithmic-complexity.md` during review. For production code over scalable user data, flag nested full-collection scans, per-target rescans for batch actions, repeated sort/filter/map work in hot paths, in-memory joins that belong in the data store, and unbenchmarked algorithm choices for paths expected to handle roughly 1000 workspaces or similar records. Pass for tiny fixed-size collections, tests and benchmark harnesses, existing inefficient code not worsened, and documented bounds with measurements.
     - path: "**/*.swift"
       instructions: |
-        Apply `.github/review-bot-rules/swift-expensive-sync-load.md` during review. Flag heavy synchronous agent-history loads added to or moved onto the main actor or interactive paths (workspace/panel/tab/window close, SwiftUI body, didSet, menu/command-palette/shortcut evaluation, socket handlers). This includes `RestorableAgentSessionIndex.load()`, agent hook/session stores, `agent-turn-diff-baselines.json`, transcripts, trajectory files, workstream/event JSONL logs, broad directory scans, per-record syscalls, and large JSON/JSONL parsing. Require routing through `SharedLiveAgentIndex.shared`, a `Task.detached`/background actor/repository parser, or another off-main cached path. Pass for the cache/background loader itself and explicit cold-cache fallbacks guarded by a nil check.
+        Apply `.github/review-bot-rules/swift-expensive-sync-load.md` during review. Flag heavy synchronous agent-history loads added to or moved onto the main actor or interactive paths (workspace/panel/tab/window close, native UI layout, didSet, menu/command-palette/shortcut evaluation, socket handlers). This includes `RestorableAgentSessionIndex.load()`, agent hook/session stores, `agent-turn-diff-baselines.json`, transcripts, trajectory files, workstream/event JSONL logs, broad directory scans, per-record syscalls, and large JSON/JSONL parsing. Require routing through `SharedLiveAgentIndex.shared`, a `Task.detached`/background actor/repository parser, or another off-main cached path. Pass for the cache/background loader itself and explicit cold-cache fallbacks guarded by a nil check.
     - path: "Sources/TerminalController.swift"
       instructions: |
         Apply `.github/review-bot-rules/browser-automation-webkit-waits-off-main.md` during review. Browser socket automation commands that wait on page JavaScript, WebKit callbacks, cookie-store callbacks, screenshots, or injected page hooks must run their blocking wait from the socket worker and use explicit main hops only for WebKit/AppKit access and state mutation. Pass for direct focus/show commands that do not wait.
@@ -109,7 +109,7 @@ reviews:
       - name: "cmux Swift actor isolation"
         mode: error
         instructions: |
-          For production Swift changes, fail when the diff introduces or materially worsens Swift 6 actor isolation mistakes from `.github/review-bot-rules/swift-actor-isolation.md`: implicit MainActor value models or service protocols, shared mutable Sendable reference types without isolation, or UI-bound stores accessed from background contexts. Pass for tests, actors, SwiftUI UI types intentionally on MainActor, or existing debt not worsened.
+          For production Swift changes, fail when the diff introduces or materially worsens Swift 6 actor isolation mistakes from `.github/review-bot-rules/swift-actor-isolation.md`: implicit MainActor value models or service protocols, shared mutable Sendable reference types without isolation, or UI-bound stores accessed from background contexts. Pass for tests, actors, AppKit/UIKit types intentionally on MainActor, or existing debt not worsened.
       - name: "cmux Swift blocking runtime"
         mode: error
         instructions: |
@@ -121,7 +121,7 @@ reviews:
       - name: "cmux expensive synchronous load"
         mode: error
         instructions: |
-          For production Swift changes, fail when the diff adds or moves an expensive synchronous agent-history load onto the main actor or an interactive path per `.github/review-bot-rules/swift-expensive-sync-load.md`: `RestorableAgentSessionIndex.load()`, agent hook/session stores, `agent-turn-diff-baselines.json`, transcripts, trajectory files, workstream/event JSONL logs, broad directory scans, per-record syscalls, or large JSON/JSONL parsing in workspace/panel/tab/window close, SwiftUI body/didSet, menu/command-palette/shortcut evaluation, or socket handlers. Require `SharedLiveAgentIndex.shared`, a `Task.detached`/background actor/repository parser, or another off-main cached path that returns to MainActor only for UI/process launch work. Pass for the cache/background loader itself, explicit cold-cache fallbacks guarded by a nil check, and existing call sites not worsened.
+          For production Swift changes, fail when the diff adds or moves an expensive synchronous agent-history load onto the main actor or an interactive path per `.github/review-bot-rules/swift-expensive-sync-load.md`: `RestorableAgentSessionIndex.load()`, agent hook/session stores, `agent-turn-diff-baselines.json`, transcripts, trajectory files, workstream/event JSONL logs, broad directory scans, per-record syscalls, or large JSON/JSONL parsing in workspace/panel/tab/window close, native UI layout/didSet, menu/command-palette/shortcut evaluation, or socket handlers. Require `SharedLiveAgentIndex.shared`, a `Task.detached`/background actor/repository parser, or another off-main cached path that returns to MainActor only for UI/process launch work. Pass for the cache/background loader itself, explicit cold-cache fallbacks guarded by a nil check, and existing call sites not worsened.
       - name: "cmux cache substitution correctness"
         mode: error
         instructions: |
@@ -137,7 +137,7 @@ reviews:
       - name: "cmux Swift concurrency"
         mode: error
         instructions: |
-          For cmux-owned Swift code, fail when the diff introduces or materially expands legacy async patterns from `.github/review-bot-rules/swift-concurrency-modernization.md`: background Dispatch queues for ordinary async work, new Combine app state, completion-handler APIs where async throws is under our control, or fire-and-forget Tasks with real lifecycle. Pass for required AppKit, SwiftUI, XCTest, OS, or third-party callback boundaries.
+          For cmux-owned Swift code, fail when the diff introduces or materially expands legacy async patterns from `.github/review-bot-rules/swift-concurrency-modernization.md`: background Dispatch queues for ordinary async work, new Combine app state, completion-handler APIs where async throws is under our control, or fire-and-forget Tasks with real lifecycle. Pass for required AppKit, UIKit, XCTest, OS, or third-party callback boundaries.
       - name: "cmux Swift @concurrent"
         mode: error
         instructions: |
@@ -162,10 +162,10 @@ reviews:
         mode: error
         instructions: |
           For production changes, fail when the diff violates `.github/review-bot-rules/full-internationalization.md`: user-facing Swift text must use `String(localized:defaultValue:)` or an equivalent localized API with a matching translated string-catalog entry, app string catalog or Info.plist additions and edits must include translated entries for every locale already supported by the touched catalog, and web UI, metadata, API response, rendered markdown, changelog, or user-facing data changes must read from `next-intl` or another locale-specific source and update every locale listed in `web/i18n/routing.ts` with matching `web/messages/` entries. Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, literal protocol/config tokens, and existing untranslated strings not worsened by the PR.
-      - name: "cmux SwiftUI state layout"
+      - name: "cmux native UI state layout"
         mode: error
         instructions: |
-          For SwiftUI changes, fail when the diff violates `.github/review-bot-rules/swiftui-state-layout.md`: new ObservableObject or @Published state where @Observable is the modern shape, GeometryReader measurement that changes layout, lazy/list row subtrees holding store references, or render-time state mutation. Pass for existing legacy state only touched incidentally and contained AppKit bridge views.
+          For AppKit/UIKit changes, fail when the diff violates `.github/review-bot-rules/appkit-state-layout.md`: mutable model ownership in cells, constraint creation during repeated layout, broad reloads where bounded snapshots fit, render-time model mutation, or split view-controller lifecycle ownership. Pass for existing legacy state touched incidentally and bounded manual layout with explicit invalidation.
       - name: "cmux architecture rethink"
         mode: error
         instructions: |
@@ -173,7 +173,7 @@ reviews:
       - name: "cmux Swift auxiliary window close shortcuts"
         mode: error
         instructions: |
-          For Swift changes that add or materially change standalone cmux-owned windows, fail when the diff violates `.github/review-bot-rules/swift-auxiliary-window-close-shortcuts.md`: user-visible NSWindow, NSPanel, NSWindowController, SwiftUI Window, or WindowGroup code without a stable cmux.* identifier and shared close-shortcut ownership through cmuxAuxiliaryWindowIdentifiers. Pass for main workspace windows, terminal panes, tabs, sheets, popovers, menus, test-only fixtures, and existing unregistered windows not worsened by the PR. If the deterministic CI script already catches the literal assignment, mention scripts/lint_auxiliary_window_close_shortcuts.py; otherwise explain the broader review-only pattern.
+          For Swift changes that add or materially change standalone cmux-owned windows, fail when the diff violates `.github/review-bot-rules/swift-auxiliary-window-close-shortcuts.md`: user-visible NSWindow, NSPanel, or NSWindowController code without a stable cmux.* identifier and shared close-shortcut ownership through cmuxAuxiliaryWindowIdentifiers. Pass for main workspace windows, terminal panes, tabs, sheets, popovers, menus, test-only fixtures, and existing unregistered windows not worsened by the PR. If the deterministic CI script already catches the literal assignment, mention scripts/lint_auxiliary_window_close_shortcuts.py; otherwise explain the broader review-only pattern.
       - name: "cmux source artifacts"
         mode: error
         instructions: |

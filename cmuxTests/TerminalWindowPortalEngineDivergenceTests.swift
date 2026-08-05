@@ -199,7 +199,7 @@ extension TerminalWindowPortalLifecycleTests {
         withExtendedLifetime(hosted) {}
     }
 
-    /// The unit-test window carries no NSHostingView, so nothing activates
+    /// The unit-test window carries no production container view, so nothing activates
     /// the window's layout engine on its own and translated-autoresizing
     /// views never acquire an engine solution. The live windows are the
     /// opposite (hosting views everywhere), and the engine's solution for
@@ -477,7 +477,7 @@ extension TerminalWindowPortalLifecycleTests {
     }
 
     /// The root of the frame ping-pong, pinned by live forensics: hosted
-    /// views arrive from SwiftUI hosting with a flexible autoresizing mask
+    /// views arrive from the owning container with a flexible autoresizing mask
     /// ([.width, .height]), which the layout engine translates into EDGE
     /// pins — a minX constant plus a trailing margin to the host, no width
     /// at all. Those margins freeze at translation time, so whenever the
@@ -510,7 +510,7 @@ extension TerminalWindowPortalLifecycleTests {
         let hosted = GhosttySurfaceScrollView(
             surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
         )
-        // How production views reach the portal: SwiftUI hosting has already
+        // How production views reach the portal: the container has already
         // given them the flexible mask.
         hosted.autoresizingMask = [.width, .height]
         portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)

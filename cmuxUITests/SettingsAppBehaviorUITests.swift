@@ -273,7 +273,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         )
 
         // Count enabled toggle controls before turning Menu Bar Only on.
-        // SwiftUI `Toggle(.switch)` surfaces as either a switch or a
+        // The native toggle surfaces as either a switch or a
         // checkbox in XCUITest depending on host config, so count both
         // kinds (matching the harness `toggle()` resolution). The gated
         // Show-in-Menu-Bar row contributes one enabled control at default.

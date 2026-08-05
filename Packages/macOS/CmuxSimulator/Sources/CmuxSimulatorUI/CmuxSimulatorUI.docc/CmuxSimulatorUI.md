@@ -1,6 +1,6 @@
 # ``CmuxSimulatorUI`` ownership
 
-This target owns the in-process SwiftUI and AppKit host for Simulator panes.
+This target owns the in-process AppKit host for Simulator panes.
 
 - `Coordinator` owns pane lifecycle, device selection, public Simulator controls, and worker recovery.
 - `Input` converts AppKit events into ordered, normalized HID messages.

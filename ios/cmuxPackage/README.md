@@ -16,7 +16,7 @@ DI bundle, the auth graph, and the root scene; inject everything down.*
 | `MobileAuthBuildPolicy` | value | Build-flag policy (the DEBUG `42` dev-auth shortcut) as a value, not a static namespace. |
 | `DeferredSignInHook` | composition | Breaks the coordinator ↔ push construction cycle. |
 | `AuthCoordinatorIdentityProvider` | seam adapter | `MobileIdentityProviding` over the injected `AuthCoordinator`. |
-| `CMUXMobileRootScene` | ui (root) | The top-level SwiftUI scene: assembles `CMUXMobileShellStore`, injects the coordinator + push coordinator into the environment, mounts `CmuxMobileShellUI`. |
+| `CMUXMobileRootViewController` | ui (root) | The top-level UIKit controller: assembles `CMUXMobileShellStore`, injects the root and push coordinators, and mounts `CmuxMobileShellUI`. |
 
 Everything else that used to be fused in here was lifted out into focused
 packages over waves 1-3:

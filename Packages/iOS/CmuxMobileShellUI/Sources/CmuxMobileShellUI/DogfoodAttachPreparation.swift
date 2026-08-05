@@ -1,4 +1,4 @@
-import SwiftUI
+import Foundation
 
 /// An event-driven readiness barrier for DEBUG attach-URL launches.
 ///
@@ -20,16 +20,5 @@ public struct DogfoodAttachPreparation: Sendable {
     ) async {
         await prepare()
         await operation()
-    }
-}
-
-private struct DogfoodAttachPreparationKey: EnvironmentKey {
-    static let defaultValue = DogfoodAttachPreparation()
-}
-
-public extension EnvironmentValues {
-    var dogfoodAttachPreparation: DogfoodAttachPreparation {
-        get { self[DogfoodAttachPreparationKey.self] }
-        set { self[DogfoodAttachPreparationKey.self] = newValue }
     }
 }

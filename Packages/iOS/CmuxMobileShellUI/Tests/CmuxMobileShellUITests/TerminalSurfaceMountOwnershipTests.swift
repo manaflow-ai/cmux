@@ -14,7 +14,7 @@ struct TerminalSurfaceMountOwnershipTests {
     func offWindowTerminalDoesNotClaimOutputStream() async throws {
         let store = MobileShellComposite.preview()
         let surfaceID = "off-window-terminal"
-        let coordinator = GhosttySurfaceRepresentable.Coordinator(
+        let coordinator = GhosttySurfaceController.Coordinator(
             workspaceID: "workspace",
             surfaceID: surfaceID,
             store: store,
@@ -53,7 +53,7 @@ struct TerminalSurfaceMountOwnershipTests {
         let workspace = try #require(store.workspaces.first { !$0.terminals.isEmpty })
         let terminal = try #require(workspace.terminals.first)
         let surfaceID = terminal.id.rawValue
-        let coordinator = GhosttySurfaceRepresentable.Coordinator(
+        let coordinator = GhosttySurfaceController.Coordinator(
             workspaceID: workspace.id.rawValue,
             surfaceID: surfaceID,
             store: store,

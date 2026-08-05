@@ -526,7 +526,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var composerDismissedTerminalIDs: Set<String> = []
     /// Monotonic focus-request token for the iMessage-style composer field.
     ///
-    /// The composer's text field owns its first responder via SwiftUI `@FocusState`,
+    /// The composer's text field owns its first responder through UIKit,
     /// which neither the terminal surface nor the representable coordinator can set
     /// directly. When the surface needs the field re-focused without re-presenting the
     /// composer — the reveal-after-hide case, where the chrome and draft are already

@@ -5,7 +5,7 @@ import Foundation
 /// The mobile list mirrors the Mac sidebar's group semantics: a group is shown as
 /// a header (representing its anchor workspace) followed by its non-anchor members;
 /// collapsing a group hides its members but keeps the header; ungrouped workspaces
-/// interleave inline by their position. This is a pure value type so the SwiftUI
+/// interleave inline by their position. This is a pure value type so the UIKit
 /// `List` can consume an immutable snapshot with no store reference below the list
 /// boundary.
 public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
@@ -30,7 +30,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// resolves), which keeps header stacks free of thin flapping targets.
     case groupFooter(MobileWorkspaceGroupPreview.ID)
 
-    /// A stable, list-unique identity for SwiftUI diffing. Namespaced by item
+    /// A stable, list-unique identity for diffable-data-source updates. Namespaced by item
     /// kind (`group.` / `workspace.`) so a group header and a workspace row can
     /// never collide even though both wrap UUID-backed ids.
     public var id: String {

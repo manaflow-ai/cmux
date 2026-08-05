@@ -268,7 +268,7 @@ The launch path never waits on this. Sequence:
 3. The DO replies with a `sync.snapshot` if the cursor is `0`/stale, otherwise a
    `sync.delta` carrying only `rev > cursor` records (often empty).
 4. The client applies records into SQLite and the `@Observable` store recomputes
-   an immutable value-type snapshot array of devices, which it publishes; SwiftUI
+   an immutable value-type snapshot array of devices, which it publishes; the UI
    re-renders. Rows hold only value snapshots, never the store (§10a). The UI was
    never blank.
 5. Steady state: `sync.delta` frames stream as the DO's collection changes.
@@ -739,7 +739,7 @@ outbox row; on reconnect it replays unconfirmed outbox rows (idempotency key
 dedupes server-side). This is the offline-write story, designed now, built when
 the first writable collection lands.
 
-## 10a. UI rendering discipline (the repo's SwiftUI hard rules)
+## 10a. UI rendering discipline
 
 The worktree CLAUDE.md has two load-bearing rules this design must honor, because
 violating them reintroduces the issue-2586 100%-CPU spin:

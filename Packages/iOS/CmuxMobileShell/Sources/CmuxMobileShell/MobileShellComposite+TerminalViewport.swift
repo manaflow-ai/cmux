@@ -62,7 +62,7 @@ extension MobileShellComposite {
         // Track the natural size locally right away — even while the Mac
         // connection is still coming up — so cold-attach replays and
         // input/replay piggybacks size against the latest phone grid and the
-        // SwiftUI letterbox follows the reported grid instead of a stale
+        // The terminal letterbox follows the reported grid instead of a stale
         // viewport echo. Only the RPC below is gated on the client.
         reportTerminalViewport(
             workspaceID: workspaceID,

@@ -14,7 +14,7 @@ Extracting the package with no internal dependencies first keeps the migration i
 
 ## Composition root
 
-The executable app target names concrete services and repositories and injects them. No global containers, no runtime-state singletons, no `static let shared`, no service lookups from package internals. SwiftUI `Environment` carries already-constructed observable models down a view tree, never service wiring.
+The executable app target names concrete services and repositories and injects them. No global containers, no runtime-state singletons, no `static let shared`, no service lookups from package internals. AppKit and UIKit controllers receive already-constructed observable models through initializers, never service wiring.
 
 ## Executable target boundary
 

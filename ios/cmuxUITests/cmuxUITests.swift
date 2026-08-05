@@ -578,7 +578,7 @@ final class cmuxUITests: XCTestCase {
         forgetSwipeAction.tap()
 
         // The Forget tap is confirm-first: it must only present the dialog. A
-        // destructive-role swipe button here makes SwiftUI batch-delete the row
+        // destructive-role swipe button here can batch-delete the row
         // while the model still contains it, which aborts in UIKit's
         // item-count assertion (TestFlight crash on build 20260731052644) or
         // ghosts the row out of the list on runtimes that tolerate it.
@@ -1928,8 +1928,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(permissionCopy.waitForExistence(timeout: 3))
     }
 
-    /// Regression: scrolling a full directory page must not trap SwiftUI's
-    /// lazy layout on the main thread or make the picker impossible to dismiss.
+    /// Regression: scrolling a full directory page must not trap layout work
+    /// on the main thread or make the picker impossible to dismiss.
     @MainActor
     func testTaskComposerDirectoryBrowserScrollsAndRemainsResponsive() throws {
         let app = launchApp(mockData: false, environment: [
@@ -4142,7 +4142,7 @@ final class cmuxUITests: XCTestCase {
     /// Tapping a text field opens the system keyboard; the floating Pair
     /// button (via `.safeAreaInset(edge: .bottom)` with a gradient backdrop)
     /// must remain in the hierarchy and not jump below the keyboard. We can't
-    /// reliably XCUI-test the swipe-to-dismiss path against SwiftUI's Form
+    /// reliably XCUI-test the swipe-to-dismiss path against the system form
     /// (the keyboard return key labels differ between iOS versions and
     /// XCUI's keyboard button lookup is fragile), so we cover the visible
     /// invariant instead and rely on manual dogfood for the dismiss gesture.
@@ -4535,7 +4535,7 @@ final class cmuxUITests: XCTestCase {
         let overflowButton = app.buttons["More"]
         XCTAssertFalse(
             overflowButton.exists && overflowButton.frame.minY < 140,
-            "Workspace detail toolbar must not collapse into SwiftUI's overflow button.",
+            "Workspace detail toolbar must not collapse into the system overflow button.",
             file: file,
             line: line
         )

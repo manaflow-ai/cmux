@@ -171,7 +171,7 @@ final class SettingsAccountJSONResetBehaviorUITests: SettingsUITestCase {
 
     // MARK: - Helpers
 
-    /// Reads a SwiftUI `Toggle`'s on/off state across the control kinds it
+    /// Reads a native toggle's on/off state across the control kinds it
     /// can surface as in XCUITest. Switches report `"1"` / `"0"` in
     /// `.value`; checkboxes report `isSelected`.
     private func isToggleOn(_ element: XCUIElement) -> Bool {
@@ -205,7 +205,7 @@ final class SettingsAccountJSONResetBehaviorUITests: SettingsUITestCase {
     //   for presence above; the click effect is out of scope for e2e.
 
     // TIER 3 (not e2e): cmux.json "Open Docs" link (SettingsJSONDocsLink)
-    //   — a SwiftUI `Link` to https://cmux.com/docs/configuration#cmux-json that
+    //   — a native link to https://cmux.com/docs/configuration#cmux-json that
     //   opens in the system browser. Cross-app navigation with no cmux-side
     //   observable effect. Presence asserted above; the navigation itself is
     //   out of scope for e2e.

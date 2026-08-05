@@ -376,7 +376,7 @@ final class MarkdownPanelTests: XCTestCase {
 
         XCTAssertTrue(
             firstCoordinator === recreatedCoordinator,
-            "Markdown renderer should keep its coordinator across SwiftUI view recreation so existing previews do not reload and blink during drops."
+            "Markdown renderer should keep its coordinator across view recreation so existing previews do not reload and blink during drops."
         )
     }
 
@@ -396,7 +396,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(
             reusedPointerDownCount,
             1,
-            "SwiftUI teardown for an old renderer wrapper must not clear the pointer handler on the reused markdown web view."
+            "Teardown for an old renderer wrapper must not clear the pointer handler on the reused markdown web view."
         )
 
         let discardedWebView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())

@@ -356,7 +356,7 @@
       "p091": "Send skrivebordsvarsler ved inaktivitet eller feil sammen med subagent viewer-ruter og browserverktøy; skiller seg ut ved å pare varselhendelser med synlige subagent viewer-ruter i samme plugin",
       "p092": "Eksponer 81 MCP-verktøy for agentstart, sidebar-metadata, varsler, browserautomatisering og sesjonsgjenoppretting - den største MCP-flaten blant pluginene her, i motsetning til EtanHey/cmuxlayer's fokuserte sett med 22 verktøy",
       "p093": "Lagre oppsettskommandoer per repo i .cmux-workspace.json og start cmux-workspaces fra den konfigurasjonen, slik at prosjektbootstrap, worktree-oppretting og workspace-start forblir én gjentakbar kommando",
-      "p094": "Styr cmux fra en iPhone over Tailscale med en SwiftUI-klient og Swift-relay-daemon, slik at terminalspegling, tastinput og workspace-operasjoner holdes inne i brukerens private tailnet",
+      "p094": "Styr cmux fra en iPhone over Tailscale med en UIKit-klient og Swift-relay-daemon, slik at terminalspegling, tastinput og workspace-operasjoner holdes inne i brukerens private tailnet",
       "p095": "Orkestrer 124 domenespesialister via en 802-linjers skill-fil med 18 hooks, 28 scripts og surface watcher som oppdager IDLE/ERROR/STALL-tilstander - den mest granulære koreanskspråklige sidebar-state machine for Claude Code",
       "p096": "Oversett tmux-kommandoer til cmux-ekvivalenter, slik at --teammate-mode tmux (Agent Teams) kan brukes inne i cmux ved å mappe pane IDs til surface IDs - løser tmux-kompatibilitetsgapet for agent team mode",
       "p097": "Poll ruter fra enhver agent, trekk ut strukturert kontekst, lagre snapshots i SQLite og autoinjiser komprimerte handoff-briefer i nye sesjoner - persistenslaget skiller det fra in-memory-gjenopprettingsverktøy",
@@ -3467,7 +3467,7 @@
               [
                 "Skrivebordsstack",
                 "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
-                "Innebygd SwiftUI macOS-app med en delt Zig-kjerne og libghostty"
+                "Innebygd AppKit macOS-app med en delt Zig-kjerne og libghostty"
               ],
               [
                 "Rendering",

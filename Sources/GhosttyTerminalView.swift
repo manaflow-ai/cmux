@@ -10259,7 +10259,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// Handle file/URL drops, forwarding to the terminal as shell-escaped paths.
     func handleDroppedURLs(_ urls: [URL]) -> Bool {
         #if DEBUG
-        cmuxDebugLog("terminal.swiftUIDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
+        cmuxDebugLog("terminal.fileDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
         #endif
         return surfaceView.handleDroppedFileURLs(urls)
     }

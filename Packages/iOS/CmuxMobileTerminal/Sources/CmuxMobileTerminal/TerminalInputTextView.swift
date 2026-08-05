@@ -45,7 +45,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     var onPasteImage: ((Data, String) -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
     var onHideKeyboard: (() -> Void)?
-    /// Fired by the trailing "customize" button so the SwiftUI host can present
+    /// Fired by the trailing "customize" button so the owning controller can present
     /// the toolbar shortcuts editor.
     var onOpenToolbarSettings: (() -> Void)?
     /// Fired by the Files accessory button when terminal artifacts are supported.

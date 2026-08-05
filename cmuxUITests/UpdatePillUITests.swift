@@ -285,7 +285,7 @@ final class UpdatePillUITests: XCTestCase {
     }
 
     private func pillButton(app: XCUIApplication, expectedLabel: String) -> XCUIElement {
-        // On macOS, SwiftUI accessibility identifiers are not always reliably surfaced for titlebar-style
+        // On macOS, accessibility identifiers are not always reliably surfaced for titlebar-style
         // UI across OS/Xcode versions. Prefer the pill's accessibility label, but keep an identifier
         // fallback for local runs.
         return app.buttons[expectedLabel]

@@ -10,7 +10,7 @@ public import Observation
 /// the foreground. There are no polling timers.
 ///
 /// Construct one at the composition root and hand it to views (cmux injects it
-/// through the `\.tailscaleStatusMonitor` SwiftUI environment key in
+/// through constructor injection in
 /// `CmuxMobileShellUI`). Inject a custom provider to drive tests.
 @MainActor
 @Observable
@@ -74,7 +74,7 @@ public final class TailscaleStatusMonitor {
 
     /// Publishes a newly evaluated status. Drops evaluations older than the
     /// last published one (a stale path-queue walk racing a foreground
-    /// `refresh()`) and no-op updates, so SwiftUI observation is not
+    /// `refresh()`) and no-op updates, so UI observation is not
     /// invalidated by unrelated path churn. Internal (not private) so tests
     /// can stage out-of-order publishes.
     func apply(_ next: TailscaleStatus, evaluatedAt: ContinuousClock.Instant) {

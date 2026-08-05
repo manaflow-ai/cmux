@@ -356,7 +356,7 @@
       "p091": "Powiadomienia push na pulpicie w przypadku bezczynności lub błędu obok okien przeglądarki podagentów i narzędzi przeglądarki; wyróżnia się parowaniem zdarzeń powiadomień z widocznymi okienkami przeglądarki subagentów w tej samej wtyczce",
       "p092": "Ujawnij 81 narzędzi MCP obejmujących odradzanie się agentów, metadane paska bocznego, powiadomienia, automatyzację przeglądarki i odzyskiwanie sesji - największa powierzchnia MCP ze wszystkich wtyczek, w przeciwieństwie do skoncentrowanego zestawu 22 narzędzi EtanHey/cmuxlayer",
       "p093": "Przechowuj polecenia konfiguracji dla poszczególnych repozytoriów w .cmux-workspace.json i twórz obszary robocze cmux z tej konfiguracji, więc ładowanie projektu, tworzenie drzewa roboczego i uruchamianie obszaru roboczego pozostają jednym powtarzalnym poleceniem",
-      "p094": "Kontroluj cmux z iPhone nad Tailscale za pomocą klienta SwiftUI i demona przekaźnika Swift, utrzymując dublowanie terminala, wprowadzanie klawiszy i operacje w obszarze roboczym w prywatnej sieci użytkownika",
+      "p094": "Kontroluj cmux z iPhone nad Tailscale za pomocą klienta UIKit i demona przekaźnika Swift, utrzymując dublowanie terminala, wprowadzanie klawiszy i operacje w obszarze roboczym w prywatnej sieci użytkownika",
       "p095": "Organizuj 124 specjalistów domenowych za pomocą 802-liniowego pliku umiejętności z 18 hakami, 28 skryptami i funkcją obserwatora powierzchniowego wykrywającą stany IDLE/ERROR/STALL - najbardziej szczegółową maszynę stanu paska bocznego w języku Korean dla Claude Code",
       "p096": "Przetłumacz polecenia tmux na odpowiedniki cmux, włączając --teammate-mode tmux (Agent Teams) wewnątrz cmux, mapując identyfikatory okienek na identyfikatory powierzchni - rozwiązuje lukę w kompatybilności z tmux w trybie zespołu agentów",
       "p097": "Odpytuj panele dowolnego agenta, wyodrębnij ustrukturyzowany kontekst, utrwalaj migawki do SQLite i automatycznie wstawiaj skompresowane informacje o przekazaniu do nowych sesji - warstwa trwałości odróżnia ją od narzędzi przywracania w pamięci",
@@ -2377,7 +2377,7 @@
               [
                 "Stos desktopowy",
                 "Natywna aplikacja macOS Swift/AppKit zbudowana na libghostty",
-                "Natywna aplikacja macOS SwiftUI ze współdzielonym rdzeniem Zig i libghostty"
+                "Natywna aplikacja macOS AppKit ze współdzielonym rdzeniem Zig i libghostty"
               ],
               [
                 "Renderowanie",

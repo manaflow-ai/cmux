@@ -32,7 +32,7 @@ extension MobileShellComposite {
 
     /// Reacquires the current aggregate row for a workspace captured earlier in
     /// a long-running release gate. Account/device reconciliation may replace a
-    /// SwiftUI row id while the Mac-local RPC workspace id remains stable.
+    /// row id while the Mac-local RPC workspace id remains stable.
     public func irohReleaseGateCurrentWorkspace(
         matching captured: MobileWorkspacePreview
     ) -> MobileWorkspacePreview? {

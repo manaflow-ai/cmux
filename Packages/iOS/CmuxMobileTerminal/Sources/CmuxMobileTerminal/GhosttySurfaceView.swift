@@ -15,7 +15,7 @@ private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.s
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The surface whose hidden text input is currently first responder, if any.
     ///
-    /// Tracked statically so chrome (SwiftUI overlays presented over the
+    /// Tracked statically so modal UIKit chrome presented over the
     /// terminal) can dismiss the live keyboard via ``resignActiveInput()``
     /// without holding a reference to the specific surface.
     private static weak var activeInputSurface: GhosttySurfaceView?
@@ -847,9 +847,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// SEPARATELY (``composerBandHeight``) above the keyboard edge, never by
     /// reparenting the toolbar into a second layout system.
     private var composerActive = false
-    /// The composer band: a surface-owned container the host installs the SwiftUI
-    /// compose field into (via a `UIHostingController` in
-    /// `GhosttySurfaceRepresentable`, which can see both layers; the terminal package
+    /// The composer band: a surface-owned container where the host installs the
+    /// native compose field (through `GhosttySurfaceController`, which can see both layers; the terminal package
     /// cannot import the UI package). The surface positions it itself — pinned
     /// directly above the keyboard (iMessage's field-nearest-keyboard layout), with
     /// the docked toolbar riding its top edge and the terminal grid above that — and
@@ -866,13 +865,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
     private var composerBandHeight: CGFloat = 0
-    /// Surface-owned host for the SwiftUI artifact chip. Keeping it beside the
+    /// Surface-owned host for the native artifact chip. Keeping it beside the
     /// toolbar/composer containers makes keyboard and composer movement use one
-    /// coordinate system instead of a competing SwiftUI safe-area offset.
+    /// coordinate system instead of a competing safe-area offset.
     private let artifactChipHost = GhosttySurfaceArtifactChipHost()
-    /// True once SwiftUI has dismantled the hosting representable for this
+    /// True once the owning controller has dismantled this
     /// surface. A dismantled surface performs no render, output, or
-    /// accessibility work so a view SwiftUI has removed cannot keep driving the
+    /// accessibility work so a removed view cannot keep driving the
     /// renderer or the accessibility tree.
     /// Internal for `GhosttySurfaceView+RenderRecovery.swift` recovery guards.
     var isDismantled = false
@@ -1425,8 +1424,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Whether the composer's hosted field currently holds first responder.
     ///
-    /// The composer field is a SwiftUI `TextField` deep inside a `UIHostingController`
-    /// mounted under ``composerContainer``, so `composerContainer.isFirstResponder` is
+    /// The composer field is a native text input mounted under
+    /// ``composerContainer``, so `composerContainer.isFirstResponder` is
     /// always false (the container is not the responder, the nested field is). A
     /// recursive subtree walk (``UIView/firstResponderInSubtree()``) finds the actual
     /// first responder; it is the composer field iff that responder lives under the
@@ -1467,8 +1466,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         case .openComposer, .closeComposer:
             // Optimistically flip the local mirror to the intent's outcome BEFORE
             // the store round-trip. `composerActive` is otherwise synced back via
-            // SwiftUI's `updateUIView`, which runs a render pass after the store
-            // mutation — a second tap landing inside that window would read the
+            // the owning controller's state update, which follows the store
+            // mutation. A second tap landing inside that window would read the
             // stale flag, resolve `.openComposer` again, and the toggle would
             // dismiss the composer the first tap just presented. The authoritative
             // sync still arrives via `setComposerActive` (idempotent when the
@@ -1486,14 +1485,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Deterministic UIKit focus for an already-mounted composer band.
     ///
-    /// The store handshake (`composerFocusRequest`) drives the SwiftUI field's
-    /// `@FocusState`, but a programmatic `@FocusState` set inside a hosting
-    /// controller whose view is frame-mounted into the band can be dropped
+    /// The store handshake (`composerFocusRequest`) drives the native field,
+    /// but a programmatic focus request during mounting can be dropped
     /// (observed as a device-dependent flake: the request is consumed yet the
     /// field never becomes first responder). After asking the host to focus,
     /// drive the band's backing text input to first responder directly on the
-    /// next runloop hop; SwiftUI mirrors UIKit first responder back into
-    /// `@FocusState`, so the store's focus mirror stays consistent. A no-op
+    /// next runloop hop, then the controller mirrors UIKit first responder into
+    /// the store so its focus state stays consistent. A no-op
     /// when the band is unmounted (the fresh-mount path focuses via the
     /// consumed request in `onAppear`) or the field already holds focus.
     private func focusMountedComposerField() {
@@ -1663,9 +1661,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// Mount (or unmount, with `nil`) the host-built compose field into the surface's
-    /// composer band. The terminal package cannot import the SwiftUI composer (that
-    /// would invert the package DAG), so `GhosttySurfaceRepresentable` builds it in a
-    /// `UIHostingController` and hands the controller's view here. The surface owns the
+    /// composer band. The terminal package cannot import the composer UI package
+    /// without inverting the package DAG, so `GhosttySurfaceController` builds the
+    /// native field and hands its view here. The surface owns the
     /// band's position and the grid reservation; the host owns the field's content and
     /// reports its measured height via ``setComposerBandHeight(_:animated:)``.
     ///
@@ -2069,7 +2067,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // An absolute `set_font_size:<target>` keeps libghostty in lockstep
         // with `liveFontSize`, which we keep inside [minimumSize, maximumSize].
         let action = "set_font_size:\(target)"
+        let surfaceAddress = GhosttySurfaceAddress(surface)
         outputQueue.async {
+            let surface = surfaceAddress.value
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
             }
@@ -2218,7 +2218,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         fatalError("init(coder:) is not supported")
     }
 
-    deinit {
+    isolated deinit {
         stopKeyboardHeightAnimation()
         disposeSurface()
     }
@@ -2487,7 +2487,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
+        let surfaceAddress = GhosttySurfaceAddress(surface)
         workQueue.async { [weak self] in
+            let surface = surfaceAddress.value
             if let preparedConfigBits,
                let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
                 ghostty_surface_update_theme_config(surface, preparedConfig)
@@ -2515,7 +2517,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 accessibilityText = Self.accessibilitySurfaceText(surface)
             }
             #endif
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard let self, !self.isDismantled else {
                     completion?(true)
                     return
@@ -2579,7 +2581,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let generation = surfaceGeneration
         let action = "scroll_to_bottom"
         let gate = viewportRestoreGate
+        let surfaceAddress = GhosttySurfaceAddress(surface)
         outputQueue.async { [weak self] in
+            let surface = surfaceAddress.value
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
             }
@@ -2589,7 +2593,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     interactionGeneration
                 )
             }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 // Generation-guarded like the `processOutput` completion: a
                 // stale pre-recovery completion must not clear the flag a
                 // new-generation snap has since set.
@@ -2632,7 +2636,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Resigns the currently focused terminal input proxy, if any.
     ///
-    /// Use before presenting SwiftUI chrome over the terminal so UIKit releases
+    /// Use before presenting modal UIKit chrome over the terminal so UIKit releases
     /// the hidden text input and the terminal can recalculate full-height
     /// geometry after the keyboard leaves.
     public static func resignActiveInput() {
@@ -2671,7 +2675,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // toolbar at the old keyboard edge with a stale glyph.
     }
 
-    /// Stops user-visible and accessibility output from a surface SwiftUI has removed.
+    /// Stops user-visible and accessibility output from a surface its owner removed.
     public func prepareForDismantle() {
         isDismantled = true
         // Block-based observers stay registered (and their closures retained
@@ -2908,7 +2912,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
+        let surfaceAddress = GhosttySurfaceAddress(surface)
         queue.async { [weak self] in
+            let surface = surfaceAddress.value
             let userdata = ghostty_surface_userdata(surface)
             ghostty_surface_free(surface)
             GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
@@ -3199,13 +3205,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = CACurrentMediaTime()
         let generation = surfaceGeneration
         let enqueuedAt = CACurrentMediaTime()
+        let surfaceAddress = GhosttySurfaceAddress(surface)
         outputQueue.async { [weak self] in
+            let surface = surfaceAddress.value
             // Queue LAG = how long this render waited behind other ops. If this
             // climbs into hundreds of ms the queue is backlogged (the freeze).
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             ghostty_surface_render_now(surface)
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard let self else { return }
                 guard self.surfaceGeneration == generation else { return }
                 #if DEBUG
@@ -3672,7 +3680,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
         }
 
+        let surfaceAddress = GhosttySurfaceAddress(surface)
         outputQueue.async { [weak self] in
+            let surface = surfaceAddress.value
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
@@ -4390,7 +4400,23 @@ nonisolated private final class SurfaceOperationCancellationToken: Sendable {
     }
 }
 
-private class DisplayLinkProxy {
+/// A C surface pointer expressed as a sendable bit pattern while work crosses
+/// onto its owning serial queue. Queue ordering keeps the pointee alive until
+/// every earlier operation drains, and only that queue dereferences the value.
+nonisolated private struct GhosttySurfaceAddress: Sendable {
+    let bitPattern: UInt
+
+    init(_ surface: ghostty_surface_t) {
+        bitPattern = UInt(bitPattern: surface)
+    }
+
+    var value: ghostty_surface_t {
+        UnsafeMutableRawPointer(bitPattern: bitPattern)!
+    }
+}
+
+@MainActor
+private final class DisplayLinkProxy {
     private weak var target: GhosttySurfaceView?
 
     init(target: GhosttySurfaceView) {

@@ -166,8 +166,8 @@ struct ClosedMainWindowRoutingTests {
 @MainActor
 @Suite("Window zombie regressions", .serialized)
 struct WindowZombieRegressionTests {
-    @Test("SwiftUI window state does not own its native window")
-    func swiftUIWindowStateDoesNotOwnItsNativeWindow() {
+    @Test("Application window state does not own its native window")
+    func applicationWindowStateDoesNotOwnItsNativeWindow() {
         weak var releasedWindow: NSWindow?
         var reference: WeakWindowReference?
 

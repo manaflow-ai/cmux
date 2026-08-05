@@ -1,95 +1,246 @@
+#if os(iOS)
+import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
-import SwiftUI
-#if os(iOS)
 import CmuxMobileShellModel
-@preconcurrency import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
+import CmuxMobileToast
+import Foundation
+import Observation
+import UIKit
 
-public struct CMUXMobileAppView: View {
-    @State private var store: CMUXMobileShellStore
-    /// Phone-local browser surfaces, owned for the app's lifetime and injected
-    /// into the environment so the workspace detail view can present a browser
-    /// pane without threading the store through every intermediate view. Browser
-    /// state lives here (not in the shell store) because, unlike terminals, it
-    /// has no Mac-side counterpart and must survive `workspace.updated` re-syncs.
-    @State private var browserStore: BrowserSurfaceStore
-    /// Mac browser stream state kept beside the shell store for the app lifetime.
-    @State private var browserStreamStore: BrowserStreamStore
-    /// App-lifetime owner for the initial explicit-attach versus saved-Mac
-    /// reconnect decision. Root view lifecycle callbacks share this instance.
-    @State private var startupConnectionCoordinator = MobileStartupConnectionCoordinator()
-    private let signOutHook: MobileSignOutHook
-    #if os(iOS)
-    private let onboardingStore: MobileOnboardingStore
-    #endif
+/// UIKit composition root for the mobile app surface.
+///
+/// This controller owns every app-lifetime UI dependency explicitly. Child
+/// controllers receive concrete stores and actions, and no presentation state
+/// is resolved through a declarative environment.
+@MainActor
+public final class CMUXMobileAppViewController: UIViewController {
+    private let coordinator: MobileRootCoordinator
+    private let analytics: any AnalyticsEmitting
+    private let browserStore: BrowserSurfaceStore
+    private let browserStreamStore: BrowserStreamStore
+    private let toastMount: ToastWindowMountView
 
-    #if os(iOS)
-    /// Creates the app view.
-    /// - Parameters:
-    ///   - store: The shell store backing the workspace UI.
-    ///   - browserStore: The phone-local browser surface store injected into the
-    ///     environment for workspace detail browser panes.
-    ///   - browserStreamStore: The Mac browser stream store injected beside the shell store.
-    ///   - onboardingStore: The first-run onboarding progress store. Defaults to
-    ///     a `.standard`-backed store forced complete, so SwiftUI previews and
-    ///     ad-hoc construction never present onboarding.
-    ///   - signOutHook: The action invoked when the mobile shell signs out.
+    private var contentController: UIViewController?
+    private var pairingController: UIViewController?
+    private var observationGeneration: UInt64 = 0
+    private var hasStarted = false
+
     public init(
-        store: CMUXMobileShellStore = .preview(),
+        store: CMUXMobileShellStore,
+        auth: AuthCoordinator,
+        analytics: any AnalyticsEmitting,
+        pushCoordinator: MobilePushCoordinator,
+        displaySettings: MobileDisplaySettings,
+        connectionMethodStore: MobileConnectionMethodStore,
+        onboardingStore: MobileOnboardingStore,
+        tailscaleStatusMonitor: (any TailscaleStatusObserving)?,
+        irohSettingsController: (any CmxIrohSettingsControlling)? = nil,
+        signOutHook: MobileSignOutHook,
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
         browserStreamStore: BrowserStreamStore = BrowserStreamStore(),
-        onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceComplete: true),
-        signOutHook: MobileSignOutHook = MobileSignOutHook()
+        toastCenter: ToastCenter = ToastCenter(),
+        prepareForDogfoodAttach: @escaping @MainActor @Sendable () async -> Void
     ) {
-        _store = State(initialValue: store)
-        _browserStore = State(initialValue: browserStore)
-        _browserStreamStore = State(initialValue: browserStreamStore)
-        self.onboardingStore = onboardingStore
-        self.signOutHook = signOutHook
-    }
-    #else
-    /// Creates the app view on non-iOS platforms.
-    /// - Parameters:
-    ///   - store: The shell store backing the workspace UI.
-    ///   - browserStore: The phone-local browser surface store.
-    ///   - browserStreamStore: The Mac browser stream store.
-    ///   - signOutHook: The action invoked when the mobile shell signs out.
-    public init(
-        store: CMUXMobileShellStore = .preview(),
-        browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
-        browserStreamStore: BrowserStreamStore = BrowserStreamStore(),
-        signOutHook: MobileSignOutHook = MobileSignOutHook()
-    ) {
-        _store = State(initialValue: store)
-        _browserStore = State(initialValue: browserStore)
-        _browserStreamStore = State(initialValue: browserStreamStore)
-        self.signOutHook = signOutHook
-    }
-    #endif
-
-    /// Renders the platform root view with app-lifetime browser stores injected.
-    public var body: some View {
-        #if os(iOS)
-        CMUXMobileRootView(
+        self.analytics = analytics
+        self.browserStore = browserStore
+        self.browserStreamStore = browserStreamStore
+        self.toastMount = ToastWindowMountView(
+            center: toastCenter,
+            haptics: displaySettings.haptics
+        )
+        self.coordinator = MobileRootCoordinator(
             store: store,
+            auth: auth,
             onboardingStore: onboardingStore,
+            connectionMethodStore: connectionMethodStore,
+            pushCoordinator: pushCoordinator,
+            displaySettings: displaySettings,
+            toastCenter: toastCenter,
+            tailscaleStatusMonitor: tailscaleStatusMonitor,
+            irohSettingsController: irohSettingsController,
             signOutHook: signOutHook,
-            startupConnectionCoordinator: startupConnectionCoordinator
+            prepareForDogfoodAttach: prepareForDogfoodAttach
         )
-            .environment(browserStore)
-            .environment(browserStreamStore)
-        #else
-        CMUXMobileRootView(
-            store: store,
-            signOutHook: signOutHook,
-            startupConnectionCoordinator: startupConnectionCoordinator
-        )
-            .environment(browserStore)
-            .environment(browserStreamStore)
-        #endif
+        super.init(nibName: nil, bundle: nil)
+        coordinator.stateDidChange = { [weak self] in
+            self?.render()
+        }
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    isolated deinit {
+        toastMount.teardown()
+    }
+
+    public override func loadView() {
+        let root = UIView()
+        root.backgroundColor = .systemBackground
+        toastMount.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(toastMount)
+        NSLayoutConstraint.activate([
+            toastMount.widthAnchor.constraint(equalToConstant: 0),
+            toastMount.heightAnchor.constraint(equalToConstant: 0),
+            toastMount.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            toastMount.topAnchor.constraint(equalTo: root.topAnchor),
+        ])
+        view = root
+    }
+
+    public override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !hasStarted else { return }
+        hasStarted = true
+        coordinator.start()
+        observeState()
+        render()
+    }
+
+    public func sceneDidBecomeActive() {
+        coordinator.sceneDidBecomeActive()
+    }
+
+    public func sceneWillResignActive() {
+        coordinator.sceneWillResignActive()
+    }
+
+    public func open(_ url: URL) {
+        coordinator.open(url)
+    }
+
+    private func observeState() {
+        observationGeneration &+= 1
+        let generation = observationGeneration
+        withObservationTracking {
+            _ = coordinator.auth.isAuthenticated
+            _ = coordinator.auth.isRestoringSession
+            _ = coordinator.auth.currentUser?.id
+            _ = coordinator.auth.resolvedTeamID
+            _ = coordinator.onboardingStore.progress
+            _ = coordinator.store.connectionState
+            _ = coordinator.store.connectionError
+            _ = coordinator.store.pairingVersionWarning
+            _ = coordinator.store.hasActiveUnexpiredAttachTicket
+            _ = coordinator.store.hasKnownPairedMac
+            _ = coordinator.store.hasHiddenComputers
+            _ = coordinator.store.isReconnectingStoredMac
+            _ = coordinator.store.didFinishStoredMacReconnectAttempt
+            _ = coordinator.store.workspaceListConnectionStatus
+            _ = coordinator.store.workspaceTopologyVersion
+            _ = coordinator.store.selectedWorkspaceID
+            _ = coordinator.store.selectedTerminalID
+            _ = coordinator.store.isComposerPresented
+            _ = coordinator.store.activeTerminalTheme
+            _ = coordinator.store.terminalConfigThemeGeneration
+            _ = coordinator.store.notificationFeedItems
+            _ = coordinator.store.notificationFeedStatus
+            _ = coordinator.store.notificationFeedUnreadCount
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.observationGeneration == generation else { return }
+                self.coordinator.observedStateDidChange()
+                self.observeState()
+            }
+        }
+    }
+
+    private func render() {
+        guard isViewLoaded else { return }
+        renderContent()
+        renderPairing()
+    }
+
+    private func renderContent() {
+        let next: UIViewController
+        switch coordinator.presentation {
+        case .onboarding:
+            if let current = contentController as? MobileOnboardingViewController {
+                current.update()
+                return
+            }
+            next = MobileOnboardingViewController(
+                coordinator: coordinator,
+                analytics: analytics
+            )
+        case .signIn:
+            if contentController is MobileSignInViewController { return }
+            next = MobileSignInViewController(auth: coordinator.auth, analytics: analytics)
+        case .disconnected:
+            if let current = contentController as? MobileDisconnectedViewController {
+                current.update()
+                return
+            }
+            next = MobileDisconnectedViewController(coordinator: coordinator)
+        case .workspaces(let isRestoringStoredMac):
+            if let current = contentController as? MobileWorkspaceShellViewController {
+                current.update(isRestoringStoredMac: isRestoringStoredMac)
+                return
+            }
+            next = MobileWorkspaceShellViewController(
+                store: coordinator.store,
+                coordinator: coordinator,
+                browserStore: browserStore,
+                browserStreamStore: browserStreamStore,
+                isRestoringStoredMac: isRestoringStoredMac
+            )
+        }
+        installContentController(next)
+    }
+
+    private func installContentController(_ next: UIViewController) {
+        let previous = contentController
+        previous?.willMove(toParent: nil)
+        addChild(next)
+        next.view.translatesAutoresizingMaskIntoConstraints = false
+        view.insertSubview(next.view, belowSubview: toastMount)
+        NSLayoutConstraint.activate([
+            next.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            next.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            next.view.topAnchor.constraint(equalTo: view.topAnchor),
+            next.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        next.didMove(toParent: self)
+        previous?.view.removeFromSuperview()
+        previous?.removeFromParent()
+        contentController = next
+    }
+
+    private func renderPairing() {
+        if coordinator.isPairingPresented {
+            let wantsScanner = coordinator.pairingPresentation.showsScanner
+            if let pairingController,
+               wantsScanner == (pairingController is MobilePairingScannerViewController) {
+                (pairingController as? MobilePairingViewController)?.update()
+                return
+            }
+            let controller: UIViewController = wantsScanner
+                ? MobilePairingScannerViewController(coordinator: coordinator)
+                : MobilePairingViewController(coordinator: coordinator, analytics: analytics)
+            if let navigation = pairingController?.navigationController {
+                pairingController = controller
+                navigation.setViewControllers([controller], animated: true)
+                return
+            }
+            guard presentedViewController == nil else { return }
+            let navigation = UINavigationController(rootViewController: controller)
+            navigation.modalPresentationStyle = .pageSheet
+            if let sheet = navigation.sheetPresentationController {
+                sheet.detents = [.medium(), .large()]
+                sheet.prefersGrabberVisible = true
+                sheet.selectedDetentIdentifier = .large
+            }
+            pairingController = controller
+            present(navigation, animated: true)
+        } else if let pairingController {
+            self.pairingController = nil
+            pairingController.navigationController?.dismiss(animated: true)
+        }
     }
 }
+#endif

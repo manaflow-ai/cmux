@@ -1,6 +1,6 @@
 import CmuxMobileShellModel
 import CmuxMobileSupport
-import SwiftUI
+import UIKit
 
 /// Display-only derivations of ``MobileMacConnectionStatus`` used by the
 /// workspace list status row and the terminal status pill.
@@ -40,14 +40,14 @@ extension MobileMacConnectionStatus {
         }
     }
 
-    var tintColor: Color {
+    var tintColor: UIColor {
         switch self {
         case .connected:
-            return .green
+            return .systemGreen
         case .reconnecting:
-            return .orange
+            return .systemOrange
         case .unavailable:
-            return .red
+            return .systemRed
         }
     }
 }

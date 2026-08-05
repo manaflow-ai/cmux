@@ -17,7 +17,7 @@ Pending-message path (why it's specifically "on send"): `store.send` appends a `
 
 Supply the container width before first layout so the cap is correct on the bubble's first render, instead of defaulting to `.infinity`.
 
-- Compute `bubbleMaxWidth` from `tableView.bounds.width` at cell-configuration time and inject it into the `UIHostingConfiguration` environment, rather than relying on a later geometry callback. `ChatTranscriptTableView.swift` around the cell config (≈165-169 / 414, 489-495).
+- Compute `bubbleMaxWidth` from `tableView.bounds.width` at native cell-configuration time, rather than relying on a later geometry callback. `ChatTranscriptTableView.swift` around the cell config (≈165-169 / 414, 489-495).
 - Guard: when bounds width is still 0 (very first pass before the table has any size), prefer the window/screen width as a provisional cap instead of `.infinity`, so the bubble never measures uncapped.
 
 This keeps the current design (78% cap, trailing alignment) and removes the wide-then-narrow snap. If a clean rebuild lands later (see `docs/agent-gui-component-map.md`, Layer 3), size the bubble to intrinsic content with one hard cap and no spacer-driven distribution; this fix is the targeted version for the current view.

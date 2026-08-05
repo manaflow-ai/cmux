@@ -1,11 +1,11 @@
 # CmuxMobileShellUI
 
-The SwiftUI half of the cmux iOS shell.
+The UIKit presentation layer of the cmux iOS shell.
 
 This is the leaf UI layer extracted out of the `cmuxFeature` catch-all target. It
 owns the workspace shell, sign-in, pairing, terminal detail, and root routing
 views, plus the iOS push coordinator that the root view injects into the
-SwiftUI environment.
+UIKit coordinator tree.
 
 It depends only downward: the decomposed domain facade
 (`CmuxMobileShell.CMUXMobileShellStore`), the core/value packages

@@ -3109,7 +3109,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             ),
             -28,
             accuracy: 0.5,
-            "SwiftUI WindowGroup windows still need their native titlebar safe area cancelled"
+            "Application windows still need their native titlebar safe area cancelled"
         )
     }
 
@@ -5435,7 +5435,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             preferredWindow: window,
             source: "test.menuCommandPalette"
         )
-        // Simulate delayed/stale visibility sync from SwiftUI overlay state.
+        // Simulate delayed or stale visibility sync from overlay state.
         appDelegate.setCommandPaletteVisible(false, for: window)
 #if DEBUG
         XCTAssertTrue(
@@ -10241,7 +10241,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             objectWillChangeCount,
             0,
-            "TextBox unmount preservation runs from NSViewRepresentable.dismantleNSView and must not publish during SwiftUI teardown"
+            "TextBox unmount preservation must not publish during native view teardown"
         )
         withExtendedLifetime(cancellable) {}
     }

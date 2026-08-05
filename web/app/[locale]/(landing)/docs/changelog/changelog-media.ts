@@ -207,7 +207,7 @@ export const changelogMedia: Record<string, VersionMedia> = {
       {
         title: "Out-of-Process Custom Sidebars",
         description:
-          "Custom sidebar extensions now run in their own process with an isolated interpreter, so a broken sidebar can't hang or crash cmux, and the interpreter covers a broader set of SwiftUI primitives.",
+          "Custom sidebar extensions now run in their own process with an isolated interpreter, so a broken sidebar can't hang or crash cmux, and the interpreter covers a broader set of sidebar DSL primitives.",
       },
       {
         title: "Browser Polish",

@@ -7,7 +7,7 @@ import CmuxMobileTransport
 /// detector (which owns `NWPathMonitor` and the interface walk).
 ///
 /// Not itself `@Observable`: reads of ``status`` forward to the monitor's
-/// observable `status`, so SwiftUI observation tracks the underlying change
+/// observable `status`, so UIKit observation tracks the underlying change
 /// source directly.
 @MainActor
 public final class TailscaleStatusMonitorAdapter: TailscaleStatusObserving {

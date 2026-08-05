@@ -8,7 +8,7 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
-/// Stand-in for HostContainerView's geometry-change callback: SwiftUI delivers
+/// Stand-in for the host container's geometry-change callback: AppKit delivers
 /// that callback while AppKit is still inside the window's layout pass, so this
 /// anchor re-enters the portal sync from layout().
 private final class LayoutSyncingAnchorView: NSView {
@@ -86,7 +86,7 @@ extension TerminalWindowPortalLifecycleTests {
     /// reconcile over every visible hosted view. That reconcile must obey the
     /// same rule as the primary sync: no synchronous surface redraw while the
     /// callback runs inside a layout pass — divider and sidebar drags relayout
-    /// host containers inside the SwiftUI update, and the dragged panes'
+    /// host containers inside the view update, and the dragged panes'
     /// surfaces hold transaction-coupled presents at exactly that moment.
     @MainActor
     func testDragPathFailsafeReconcileDefersSurfaceRefreshInsideLayout() throws {
@@ -157,7 +157,7 @@ extension TerminalWindowPortalLifecycleTests {
 
     /// setVisibleInUI(true) nudges the surface with the portal refresh path so
     /// plain visibility restores repaint immediately. Three of its callers run
-    /// inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
+    /// inside AppKit update/layout (layout, viewDidMoveToWindow, the
     /// geometry-callback rebind), so the nudge must not synchronously display
     /// from inside the pass.
     @MainActor

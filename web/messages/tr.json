@@ -356,7 +356,7 @@
       "p091": "Alt aracı görüntüleyici bölmeleri ve tarayıcı araçlarının yanı sıra boşta veya hata durumunda masaüstü bildirimlerini iletin; bildirim olaylarını aynı eklentideki görünür alt aracı görüntüleyici bölmeleriyle eşleştirerek kendisini diğerlerinden ayırır",
       "p092": "Aracı oluşturmayı, kenar çubuğu meta verilerini, bildirimleri, tarayıcı otomasyonunu ve oturum kurtarmayı kapsayan 81 MCP aracı açığa çıkarın; EtanHey/cmuxlayer'ın odaklanmış 22 araç setinin aksine, buradaki tüm eklentiler arasında en büyük MCP yüzey alanı",
       "p093": "Repo başına kurulum komutlarını.cmux-workspace.json'da saklayın ve bu yapılandırmadan cmux çalışma alanları oluşturun, böylece proje önyüklemesi, çalışma ağacı oluşturma ve çalışma alanı başlatma, tekrarlanabilir bir komut olarak kalır",
-      "p094": "SwiftUI istemcisi ve Swift aktarma arka plan programıyla Tailscale üzerinden bir iPhone'dan cmux'yi kontrol ederek terminal yansıtmayı, anahtar girişini ve çalışma alanı işlemlerini kullanıcının özel kuyruk ağında tutun",
+      "p094": "UIKit istemcisi ve Swift aktarma arka plan programıyla Tailscale üzerinden bir iPhone'dan cmux'yi kontrol ederek terminal yansıtmayı, anahtar girişini ve çalışma alanı işlemlerini kullanıcının özel kuyruk ağında tutun",
       "p095": "18 kanca, 28 komut dosyası ve IDLE/ERROR/STALL durumlarını tespit eden yüzey gözlemcisi içeren 802 satırlık bir beceri dosyası aracılığıyla 124 alan uzmanını yönetin - Claude Code için en ayrıntılı Kore dili kenar çubuğu durum makinesi",
       "p096": "tmux komutlarını cmux eşdeğerlerine çevirin, bölme kimliklerini yüzey kimlikleriyle eşleyerek cmux içinde --teammate-mode tmux (Agent Teams) özelliğini etkinleştirin - ajan ekibi modu için tmux uyumluluk açığını çözer",
       "p097": "Herhangi bir aracıdan anket bölmeleri yapın, yapılandırılmış bağlamı çıkarın, anlık görüntüleri SQLite'ye kalıcı hale getirin ve sıkıştırılmış aktarım özetlerini yeni oturumlara otomatik olarak enjekte edin - kalıcılık katmanı onu bellek içi geri yükleme araçlarından farklı kılar",
@@ -3327,7 +3327,7 @@
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "Paylaşılan Zig çekirdeği ve libghostty ile yerel SwiftUI macOS uygulaması"
+                "Paylaşılan Zig çekirdeği ve libghostty ile yerel AppKit macOS uygulaması"
               ],
               [
                 "İşleme",

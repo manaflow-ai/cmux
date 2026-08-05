@@ -15,7 +15,7 @@ Review production Swift and runtime changes for:
 - Missing SwiftPM package boundaries for independently testable feature logic.
 - Production logging that bypasses unified logging or leaks sensitive data.
 - User-facing text that is not fully internationalized across every supported app or web locale.
-- SwiftUI state and layout patterns that cause stale state, broad invalidation, or render-time mutation.
+- AppKit/UIKit state and layout patterns that cause stale state, duplicate ownership, or render-time mutation.
 - Architectural fixes that patch symptoms while leaving bad state representable.
 - User-facing errors, alerts, command output, API error bodies, and recovery copy that expose implementation details.
 - Algorithmic complexity regressions on scalable user-owned collections.
@@ -71,7 +71,7 @@ Pass for tiny fixed-size collections, tests, benchmark harnesses, existing ineff
 
 For production Swift, flag any unbounded agent-history read, decode, parse, directory scan, or per-record syscall that can run on MainActor or from user-input paths.
 
-Fail synchronous `Data(contentsOf:)`, `String(contentsOf:)`, `JSONSerialization.jsonObject`, `JSONDecoder.decode`, JSONL line scans, transcript/trajectory parsing, `agent-turn-diff-baselines.json` scans, hook/session-store reads, workstream/event log scans, or per-record `fileExists`/stat/sysctl loops when they run in workspace/panel/tab/window close, SwiftUI body/didSet, menu/command-palette/shortcut evaluation, socket handlers, or any immediate UI interaction. These files can grow with all agent history and have caused UI hangs on real machines.
+Fail synchronous `Data(contentsOf:)`, `String(contentsOf:)`, `JSONSerialization.jsonObject`, `JSONDecoder.decode`, JSONL line scans, transcript/trajectory parsing, `agent-turn-diff-baselines.json` scans, hook/session-store reads, workstream/event log scans, or per-record `fileExists`/stat/sysctl loops when they run in workspace/panel/tab/window close, native UI layout/didSet, menu/command-palette/shortcut evaluation, socket handlers, or any immediate UI interaction. These files can grow with all agent history and have caused UI hangs on real machines.
 
 Require `SharedLiveAgentIndex.shared`, a `Task.detached` parser, a background actor/repository, or another off-main cached path that returns to MainActor only for UI/process launch work. Bound scans by focused workspace/surface/session as early as practical. Pass for the cache/background loader itself, explicit nil-cache fallbacks with a justification, and existing call sites the PR does not worsen.
 

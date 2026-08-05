@@ -5,7 +5,7 @@ import UIKit
 /// navigation and tab bar controllers so UIKit renders the scroll edge effect
 /// at the navigation and tab bar boundaries.
 ///
-/// SwiftUI only drives bar scroll edge effects for its own scroll views. The
+/// System navigation only drives bar scroll edge effects for directly owned scroll views. The
 /// workspace list is a represented `UITableView`, invisible to that machinery.
 /// Registration identifies the bar's effect source. The table underlaps the
 /// bars visually while its controller forwards their safe-area occlusion to
@@ -24,7 +24,7 @@ final class WorkspaceListScrollEdgeCoordinator {
     ///
     /// Ownership arbitration: an edge is claimed only when its current
     /// registration is nil or held by a detached scroll view. A different
-    /// LIVE table keeps its registration, so coexisting tables (SwiftUI
+    /// LIVE table keeps its registration, so coexisting tables (transition
     /// transition overlap) never steal from each other; when the owner
     /// departs it clears the edge and the survivor reclaims on its next
     /// layout pass. When nothing changed this is a no-op costing a short

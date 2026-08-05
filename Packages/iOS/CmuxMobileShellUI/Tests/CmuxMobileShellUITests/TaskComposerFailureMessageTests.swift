@@ -8,7 +8,7 @@ import Testing
 @MainActor
 @Suite struct TaskComposerFailureMessageTests {
     @Test func invalidWorkingDirectoryUsesActionableLocalizedDefault() {
-        let message = TaskComposerSheet.failureMessage(
+        let message = MobileTaskComposerPolicy.failureMessage(
             .invalidWorkingDirectory(hostDisplayName: "Test Mac")
         )
 
@@ -16,7 +16,7 @@ import Testing
     }
 
     @Test func persistenceFailureExplainsSafeReservationFailure() {
-        let message = TaskComposerSheet.failureMessage(
+        let message = MobileTaskComposerPolicy.failureMessage(
             .persistenceUnavailable(hostDisplayName: "Test Mac")
         )
 
@@ -25,13 +25,13 @@ import Testing
 
     @Test func localDraftPersistenceFailureExplainsHowToRecover() {
         #expect(
-            TaskComposerSheet.draftPersistenceFailureMessage
+            MobileTaskComposerPolicy.draftPersistenceFailureMessage
                 == "cmux couldn’t save this draft safely. Reopen the composer and try again."
         )
     }
 
     @Test func completedOperationExplainsHowToRecover() {
-        let message = TaskComposerSheet.failureMessage(
+        let message = MobileTaskComposerPolicy.failureMessage(
             .alreadyCompleted(hostDisplayName: "Test Mac")
         )
 

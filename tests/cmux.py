@@ -1123,7 +1123,7 @@ class cmux:
         return response.strip().lower() == "true"
 
     def portal_hit_gate(self, event_type: str) -> bool:
-        """Return whether terminal portal hit-testing should pass through to SwiftUI drag targets."""
+        """Return whether terminal portal hit-testing should pass through to sidebar drag targets."""
         response = self._send_command(f"portal_hit_gate {event_type}")
         if response.startswith("ERROR"):
             raise cmuxError(response)

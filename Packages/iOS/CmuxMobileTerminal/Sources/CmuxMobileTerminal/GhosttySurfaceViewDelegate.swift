@@ -12,7 +12,7 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The UIKit view entered or left a window.
     ///
     /// A host must use this boundary to start and stop any remote output or
-    /// viewport ownership. SwiftUI can retain a representable after removing
+    /// viewport ownership. A declarative host can retain a wrapper after removing
     /// its view from the window, so dismantle alone is not a mount boundary.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool)
     /// Bytes the phone wants to send TO the PTY (typing, paste, mouse

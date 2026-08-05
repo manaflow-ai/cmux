@@ -3,7 +3,7 @@ import Foundation
 /// Serializes the two automatic connection sources that can run during app
 /// startup: an explicitly injected attach URL and restoration of a saved Mac.
 ///
-/// The coordinator lives above ``CMUXMobileRootView`` so repeated SwiftUI
+/// The coordinator lives above the root controller so repeated presentation
 /// lifecycle callbacks and root-view reconstruction observe the same owner.
 /// Explicit launch routes remain consumed until authentication resets; stored
 /// reconnects release ownership when their attempt finishes so a user retry can

@@ -3,7 +3,7 @@ import Testing
 import UIKit
 @testable import CmuxMobileShellUI
 
-/// SwiftUI does not register a represented UIKit table with its enclosing
+/// The container does not register a nested UIKit table with its enclosing
 /// bars. These tests pin the controller contract that makes the soft scroll
 /// edge effect render without taking inset or offset ownership from UIKit.
 @MainActor
@@ -74,7 +74,7 @@ import UIKit
         #expect(navigation.contentScrollView(for: .bottom) === tableView)
     }
 
-    /// While two live tables coexist (SwiftUI transition overlap), the later
+    /// While two live tables coexist during a transition, the later
     /// one must not steal the registration: ownership would otherwise become
     /// layout-order dependent and thrash on every pass.
     @Test func coexistingTablesDoNotStealRegistrationFromEachOther() throws {
@@ -96,7 +96,7 @@ import UIKit
         #expect(fixture.navigation.contentScrollView(for: .bottom) === fixture.tableView)
     }
 
-    /// When SwiftUI dismantles the owning table controller, it clears the
+    /// When the owner dismantles the table controller, it clears the
     /// edges and wakes the waiting table. Reclaim may happen synchronously or
     /// on the next layout pass, but the departed table must never remain held.
     @Test func survivingTableReclaimsRegistrationAfterOwnerDeparts() throws {

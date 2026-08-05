@@ -29,7 +29,7 @@ Current rules:
 - `swift-expensive-sync-load.md`
 - `swift-package-boundaries.md`
 - `swift-logging.md`
-- `swiftui-state-layout.md`
+- `appkit-state-layout.md`
 - `user-facing-errors.md`
 - `readme-site-feature-parity.md`
 - `landing-page-registry-parity.md`

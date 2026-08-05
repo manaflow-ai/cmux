@@ -23,8 +23,8 @@ mkdir -p "$OUT"
 SANDBOX="$(mktemp -d)/app"
 mkdir -p "$SANDBOX"
 cat > "$SANDBOX/main.swift" <<'SWIFT'
-import SwiftUI
-struct ContentView: View { var body: some View { Text("Hello") } }
+import UIKit
+final class ContentView: UIView {}
 SWIFT
 printf '# Demo app\n' > "$SANDBOX/README.md"
 ( cd "$SANDBOX" && git init -q 2>/dev/null || true )
@@ -33,18 +33,23 @@ PROMPT='in one short sentence, what does main.swift do? do not edit anything'
 
 record() {
   local agent="$1"; local launch="$2"
-  echo "recording $agent…"
+  echo "recording ${agent}…"
   tmux kill-session -t cmuxrec 2>/dev/null || true
   tmux new-session -d -s cmuxrec -x "$COLS" -y "$ROWS"
   tmux send-keys -t cmuxrec "cd '$SANDBOX' && clear && $launch" Enter
   for _ in $(seq 1 20); do
     sleep 6
     local txt; txt="$(tmux capture-pane -t cmuxrec -p 2>/dev/null || true)"
-    grep -qiE "ContentView|SwiftUI|Hello|displays|renders" <<<"$txt" && break
-    grep -qiE "trust|Yes,|continue|theme|login" <<<"$txt" && tmux send-keys -t cmuxrec Enter || true
+    if [[ "$txt" =~ ContentView|UIKit|UIView|displays|renders ]]; then
+      break
+    fi
+    if [[ "$txt" =~ trust|Yes,|continue|theme|login ]]; then
+      tmux send-keys -t cmuxrec Enter
+    fi
   done
   sleep 3
   tmux capture-pane -t cmuxrec -e -p > "$OUT/$agent.ans"
+  perl -0pi -e 's/(?:[ \t]*\r?\n)+\z/\n/' "$OUT/$agent.ans"
   tmux kill-session -t cmuxrec 2>/dev/null || true
 }
 
@@ -53,5 +58,7 @@ record codex    "codex '$PROMPT'"
 record opencode "opencode '$PROMPT'"
 record pi       "pi '$PROMPT'"
 
+mkdir -p "$HERE/streamed"
+cp "$OUT"/*.ans "$HERE/streamed/"
 python3 "$HERE/embed_sessions.py" "$OUT"
 echo "done. Review the diff in TerminalPreviewTranscripts.swift."

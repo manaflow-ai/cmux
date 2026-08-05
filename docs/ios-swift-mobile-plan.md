@@ -35,7 +35,7 @@ Central workspace storage should keep durable records for workspace id, display 
 ## Milestones
 
 1. Land `CMUXMobileCore` with route selection, frame codec, snapshot schema, and tests.
-2. Copy the proven SwiftUI shell into `ios/` and wire it to `CmxByteTransport`.
+2. Build the UIKit shell in `ios/` and wire it to `CmxByteTransport`.
 3. Add a Mac Tailscale listener that emits attach tickets and streams framed terminal bytes.
 4. Replace the Mac `text_vt` terminal snapshot path with a Swift-owned styled-cell exporter from Ghostty so iOS receives foreground/background/bold/inverse/underline data instead of plain text.
 5. Add Iroh behind the same transport factory, using the Rust spike only for the endpoint/dialer until a Swift-native path exists.

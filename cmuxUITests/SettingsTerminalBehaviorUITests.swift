@@ -59,7 +59,7 @@ import XCTest
 ///   `TerminalPanelView` via
 ///   `TerminalTextBoxInputSettings.resolvedMaxLines(...)` to cap the rich
 ///   input's growth height. The effect is pure layout geometry of the
-///   SwiftUI input editor (no accessibility identifier, height clamps
+///   native input editor (no accessibility identifier, height clamps
 ///   only after enough wrapped lines are typed into a live terminal
 ///   surface). Not observable without a geometry-reporting seam.
 ///   Behaviorally tested here only at the Settings-row level (stepper

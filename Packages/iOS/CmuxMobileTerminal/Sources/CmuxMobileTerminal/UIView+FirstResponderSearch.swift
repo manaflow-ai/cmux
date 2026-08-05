@@ -16,7 +16,7 @@ extension UIView {
     ///
     /// The walk is depth-first and short-circuits on the first match. It runs on the
     /// main actor (UIKit), at the instant of a user tap, so it sees the live responder
-    /// state with no SwiftUI-cycle lag.
+    /// state with no deferred-render lag.
     @MainActor
     func firstResponderInSubtree() -> UIView? {
         if isFirstResponder { return self }
@@ -31,11 +31,11 @@ extension UIView {
     /// Returns the first focusable text input (`UITextField` / `UITextView`)
     /// within this view's subtree (including `self`), or `nil` when none exists.
     ///
-    /// Used as the deterministic UIKit focus path for the composer band: SwiftUI's
+    /// Used as the deterministic UIKit focus path for the composer band: the old
     /// programmatic `@FocusState` set can be dropped for a field hosted inside a
-    /// `UIHostingController`'s view that is frame-mounted into a UIKit container,
+    /// declarative controller's view was frame-mounted into a UIKit container,
     /// so the surface drives the backing text input to first responder directly
-    /// (which SwiftUI then mirrors back into `@FocusState`). Depth-first,
+    /// (which the old state layer then mirrored back). Depth-first,
     /// short-circuits on the first match, main-actor (UIKit).
     @MainActor
     func firstFocusableTextInputInSubtree() -> UIView? {

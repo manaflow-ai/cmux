@@ -37,8 +37,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 
 # agent -> (workspace title, shell launch command, screenshot order index)
-PROMPT = ("Explain what main.swift does, then give 3 concrete improvements with "
-          "code blocks (app entry point, readability, and a #Preview). Do not edit any files.")
+PROMPT = ("Explain how main.swift declares a UIKit view, then give 3 concrete improvements with "
+          "code blocks (app lifecycle, layout, and accessibility). Do not edit any files.")
 # Agent terminals REPLAY real sessions recorded locally (with funded accounts)
 # and seeded into each agent's on-disk session store at the matching project cwd
 # (/private/tmp/cmux-stream-<agent>), then resumed read-only. This gives genuine
@@ -53,7 +53,7 @@ AGENTS = {
 }
 # response is considered "settled" when the screen shows code + a cost/footer and
 # is no longer actively generating.
-DONE_MARKERS = ["#Preview", "WindowGroup", "improvements", "struct "]
+DONE_MARKERS = ["UIApplicationDelegate", "NSLayoutConstraint", "accessibilityLabel", "UIView"]
 BUSY_MARKERS = ["esc interrupt", "Thinking", "Working", "Esc to interrupt"]
 
 
@@ -127,7 +127,7 @@ def setup_agent(tag, key, sandbox):
     # fresh sandbox so every agent answers the same simple project
     os.makedirs(sandbox, exist_ok=True)
     open(os.path.join(sandbox, "main.swift"), "w").write(
-        'import SwiftUI\nstruct ContentView: View { var body: some View { Text("Hello") } }\n')
+        'import UIKit\nfinal class ContentView: UIView {}\n')
     open(os.path.join(sandbox, "README.md"), "w").write("# Demo app\n")
     run(["git", "init", "-q"], cwd=sandbox)
     r = cli(tag, "new-workspace", "--name", info["title"], "--cwd", sandbox, "--command", info["launch"])

@@ -18,7 +18,7 @@ extension SettingsWindowSharedStateSuites {
     ///
     /// These tests intentionally drive the real presenter entry point with no
     /// injected opener: a request that is merely "accepted" (the pre-#7777
-    /// behavior of handing the request to SwiftUI's `openWindow(id:)` and hoping
+    /// behavior of handing the request to an indirect window action and hoping
     /// the scene materializes a window) fails them.
     @MainActor
     @Suite(.serialized)

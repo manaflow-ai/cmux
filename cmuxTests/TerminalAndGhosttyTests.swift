@@ -4914,7 +4914,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     override func setUp() {
         super.setUp()
         // Leaked cross-test state in this suite has produced livelocks (a
-        // SwiftUI reentrant-layout loop inside one CA commit) that hang the
+        // reentrant AppKit layout loop inside one CA commit) that hangs the
         // app host until CI's job timeout. Bound each test so a wedge fails
         // in minutes with a report instead. XCTest rounds the allowance up
         // to the nearest minute.
@@ -5172,7 +5172,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
 
         // Contract: an entry that is still visibleInUI is NOT pruned when its
-        // anchor detaches — SwiftUI/AppKit briefly detach/rehome anchor hosts
+        // anchor detaches because AppKit briefly detaches and rehomes anchor views
         // during tab drag/reorder churn, and pruning there caused permanent
         // terminal render loss (the entry is kept so a follow-up bind/sync can
         // reattach it). The queued sync pass must still hide the anchorless
@@ -6102,7 +6102,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     /// the suite returned the process to its pre-suite state. Every test here
     /// shares one app host with the tests after it, so state that outlives a
     /// test participates in later tests' layout and teardown passes. The
-    /// full-suite failure signatures — a SwiftUI reentrant-layout livelock
+    /// full-suite failure signatures, including a reentrant-layout livelock
     /// under realizeWindowLayout, a teardown hang inside removePortal, and an
     /// io-reader crash in the PTY output tee — all trace back to state left
     /// behind: dropped TerminalSurfaces whose native frees and io threads

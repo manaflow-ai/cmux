@@ -117,11 +117,6 @@ if [[ "$dry_run" != *'--template "Time Profiler" --attach "303" --time-limit 7s'
   echo "$dry_run" >&2
   exit 1
 fi
-if [[ "$dry_run" != *'--template "SwiftUI" --attach "303" --time-limit 7s'* ]]; then
-  echo "FAIL: dry run did not include SwiftUI for the selected process" >&2
-  echo "$dry_run" >&2
-  exit 1
-fi
 if [[ "$dry_run" != *'--template "Allocations" --attach "303" --time-limit 7s'* ]]; then
   echo "FAIL: dry run did not include Allocations for the selected process" >&2
   echo "$dry_run" >&2

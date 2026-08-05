@@ -9,7 +9,7 @@ NSView to leave the window for a frame.
 We attempt to catch this by polling `surface_health` at high frequency right after the
 nested split.
 
-In practice, AppKit/SwiftUI can briefly report `window == nil` during atomic reparenting
+In practice, AppKit can briefly report `window == nil` during atomic reparenting
 within the same frame/runloop tick. This can produce extremely short-lived false readings
 that don't correspond to a user-visible "pane disappeared" flash.
 

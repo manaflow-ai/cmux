@@ -1,7 +1,7 @@
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
-import SwiftUI
+import UIKit
 
 /// Display-only derivations of ``MobileWorkspacePreview`` used by the workspace
 /// list rows (preview line, status color, avatar, timestamp/detail summaries).
@@ -14,8 +14,8 @@ extension MobileWorkspacePreview {
     }
 
     /// Workspace-specific accent, kept separate from the owning Mac's avatar color.
-    var workspaceAccentColor: Color? {
-        customColorHex.flatMap { Color(hexString: $0) }
+    var workspaceAccentColor: UIColor? {
+        customColorHex.flatMap(UIColor.init(cmuxHexString:))
     }
 
     var previewLine: String {
@@ -28,14 +28,14 @@ extension MobileWorkspacePreview {
         return terminals.first?.name ?? name
     }
 
-    func statusColor(connectionStatus: MobileMacConnectionStatus) -> Color {
+    func statusColor(connectionStatus: MobileMacConnectionStatus) -> UIColor {
         switch connectionStatus {
         case .connected:
-            return terminals.isEmpty ? .orange : .green
+            return terminals.isEmpty ? .systemOrange : .systemGreen
         case .reconnecting:
-            return .orange
+            return .systemOrange
         case .unavailable:
-            return .red
+            return .systemRed
         }
     }
 
@@ -95,4 +95,17 @@ extension MobileWorkspacePreview {
     /// `.distantPast` (which buckets to `.none`, an empty trailing slot).
     private var latestActivityDate: Date { lastActivityAt ?? previewAt ?? .distantPast }
 
+}
+
+private extension UIColor {
+    convenience init?(cmuxHexString value: String) {
+        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        guard trimmed.count == 6, let rgb = UInt64(trimmed, radix: 16) else { return nil }
+        self.init(
+            red: CGFloat((rgb >> 16) & 0xff) / 255,
+            green: CGFloat((rgb >> 8) & 0xff) / 255,
+            blue: CGFloat(rgb & 0xff) / 255,
+            alpha: 1
+        )
+    }
 }

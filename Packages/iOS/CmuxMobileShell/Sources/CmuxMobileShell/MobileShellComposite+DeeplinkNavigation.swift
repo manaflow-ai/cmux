@@ -46,7 +46,7 @@ extension CMUXMobileShellStore {
 
     /// The current UI row id for a Mac-local workspace id, if that workspace is
     /// loaded. Push payloads carry Mac-local ids; the aggregated list may scope
-    /// row ids by Mac for SwiftUI identity.
+    /// row ids by Mac for stable UI identity.
     public func workspaceID(matchingRemoteWorkspaceID remoteWorkspaceID: String) -> MobileWorkspacePreview.ID? {
         workspaceID(matchingRemoteWorkspaceID: remoteWorkspaceID, macDeviceID: nil)
     }

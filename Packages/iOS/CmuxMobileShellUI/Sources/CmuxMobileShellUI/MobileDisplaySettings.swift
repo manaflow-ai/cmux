@@ -5,7 +5,7 @@ import Observation
 /// User-tunable display preferences for the mobile workspace UI, persisted to an
 /// injected ``UserDefaults``.
 ///
-/// Constructed once at the app composition root and injected into the SwiftUI
+/// Constructed once at the app composition root and injected into the UIKit
 /// environment (no singleton). Views read it through `@Environment` and bind to
 /// it with `@Bindable`; the `@Observable` conformance drives re-renders when a
 /// preference changes. The backing store is injected so tests pass a scoped

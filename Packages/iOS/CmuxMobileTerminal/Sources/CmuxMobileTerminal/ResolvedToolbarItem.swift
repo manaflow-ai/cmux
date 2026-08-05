@@ -4,7 +4,7 @@ import CmuxMobileTerminalKit
 /// shortcut or a user-defined ``CustomToolbarAction``.
 ///
 /// ``TerminalAccessoryConfiguration`` projects its ``ToolbarItemID`` order into
-/// these so the UIKit bar builder and the SwiftUI settings editor render
+/// these so the UIKit bar builder and settings editor render
 /// built-ins and custom actions through one list without re-deriving identity.
 public enum ResolvedToolbarItem: Identifiable, Sendable {
     /// A shipped built-in shortcut.

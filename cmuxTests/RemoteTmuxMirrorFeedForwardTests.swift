@@ -121,7 +121,7 @@ import Testing
         #expect(mirror.containerSizePt == CGSize(width: 1100, height: 700))
     }
 
-    /// During an AppKit window resize, SwiftUI can deliver the CORRECT
+    /// During an AppKit window resize, the layout callback can deliver the correct
     /// post-resize slot reading while the window's transient frame still
     /// holds the old bound — the reading is truth, the bound is noise.
     /// Dropping it permanently freezes the mirror at the pre-resize size:

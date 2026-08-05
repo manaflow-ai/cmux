@@ -142,7 +142,7 @@ public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable 
 
     /// Returns `layout` with the configurable actions reordered.
     ///
-    /// `offsets`/`destination` follow the SwiftUI `onMove` contract: indices into
+    /// `offsets`/`destination` follow the pre-removal move contract: indices into
     /// ``Layout/order``.
     ///
     /// - Parameters:
@@ -152,7 +152,7 @@ public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable 
     /// - Returns: The updated layout.
     public func move(from offsets: IndexSet, to destination: Int, in layout: Layout) -> Layout {
         var order = layout.order
-        // Foundation-only equivalent of SwiftUI's `Array.move(fromOffsets:toOffset:)`
+        // Foundation-only implementation of pre-removal indexed moves.
         // (the `onMove` contract): pull the moved elements out preserving their
         // relative order, then reinsert at `destination` adjusted for any removed
         // elements that sat before it.

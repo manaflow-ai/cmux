@@ -33,15 +33,11 @@ final class WorkspaceListUITableView: UITableView {
         }
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if previousTraitCollection?.preferredContentSizeCategory
-            != traitCollection.preferredContentSizeCategory {
-            layoutMetricsDidChange?()
-        }
-    }
-
     private func configureScrollEdgeEffects() {
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) {
+            (tableView: WorkspaceListUITableView, _: UITraitCollection) in
+            tableView.layoutMetricsDidChange?()
+        }
         contentInsetAdjustmentBehavior = .automatic
         if #available(iOS 26.0, *) {
             topEdgeEffect.style = .soft

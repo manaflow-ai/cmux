@@ -367,7 +367,7 @@ All notable changes to cmux are documented here.
 - Fix settings search for auto-naming and broaden fuzzy settings-search matching ([#6201](https://github.com/manaflow-ai/cmux/pull/6201), [#6196](https://github.com/manaflow-ai/cmux/pull/6196))
 - Fix terminal focus retry after a tiny responder handoff ([#6359](https://github.com/manaflow-ai/cmux/pull/6359))
 - Avoid DevTools teardown during redock ([#6559](https://github.com/manaflow-ai/cmux/pull/6559))
-- Fix hidden popover relayout and reduce hit-test CPU during SwiftUI updates and pointer movement ([#6589](https://github.com/manaflow-ai/cmux/pull/6589), [#6592](https://github.com/manaflow-ai/cmux/pull/6592))
+- Fix hidden popover relayout and reduce hit-test CPU during declarative UI updates and pointer movement ([#6589](https://github.com/manaflow-ai/cmux/pull/6589), [#6592](https://github.com/manaflow-ai/cmux/pull/6592))
 - Cache the settings search index per runtime ([#6591](https://github.com/manaflow-ai/cmux/pull/6591))
 - Move the open-diff baseline lookup off the main thread ([#6497](https://github.com/manaflow-ai/cmux/pull/6497))
 - Fix the macOS notification fallback identity ([#6000](https://github.com/manaflow-ai/cmux/pull/6000))
@@ -523,7 +523,7 @@ All notable changes to cmux are documented here.
 - Webview assets are split per surface so panes load less JavaScript ([#5613](https://github.com/manaflow-ai/cmux/pull/5613))
 
 ### Fixed
-- Fix the app hanging at 100% CPU on launch on macOS 26 from a FileExplorer SwiftUI update loop ([#5786](https://github.com/manaflow-ai/cmux/pull/5786), [#4937](https://github.com/manaflow-ai/cmux/pull/4937)) -- thanks @kevinsslin, and @haoranaaa for the report!
+- Fix the app hanging at 100% CPU on launch on macOS 26 from a FileExplorer update loop ([#5786](https://github.com/manaflow-ai/cmux/pull/5786), [#4937](https://github.com/manaflow-ai/cmux/pull/4937)) -- thanks @kevinsslin, and @haoranaaa for the report!
 - Fix a launch crash on the macOS 27 beta and unblock Xcode 27 builds ([#5670](https://github.com/manaflow-ai/cmux/pull/5670)) -- thanks @matheustimbo!
 - Fix SSH typing lag with async PTY writes ([#5594](https://github.com/manaflow-ai/cmux/pull/5594)) -- thanks @lleewwiiss!
 - Fix light themes rendering white-on-white terminals ([#5826](https://github.com/manaflow-ai/cmux/pull/5826)) -- thanks @abdullahnauman2 for the report!
@@ -582,7 +582,7 @@ All notable changes to cmux are documented here.
 
 ### Changed
 - Custom sidebar extensions now run out-of-process with an isolated interpreter, so a broken sidebar can't hang or crash the app ([#5294](https://github.com/manaflow-ai/cmux/pull/5294), [#5382](https://github.com/manaflow-ai/cmux/pull/5382)) -- thanks @azooz2003-bit!
-- Broader SwiftUI primitive coverage in the custom sidebar interpreter ([#5275](https://github.com/manaflow-ai/cmux/pull/5275)) -- thanks @azooz2003-bit!
+- Broader primitive coverage in the custom sidebar interpreter ([#5275](https://github.com/manaflow-ai/cmux/pull/5275)) -- thanks @azooz2003-bit!
 - Browser omnibar: the first click that focuses the address bar selects the whole URL, later clicks place the caret (Chrome parity) ([#5462](https://github.com/manaflow-ai/cmux/pull/5462), [#5352](https://github.com/manaflow-ai/cmux/pull/5352))
 - Browser chrome (omnibar font and toolbar icons) scales with the tab bar font size ([#5464](https://github.com/manaflow-ai/cmux/pull/5464))
 - Sidebar workspace group headers scale with the sidebar font size ([#5401](https://github.com/manaflow-ai/cmux/pull/5401))
@@ -1395,7 +1395,7 @@ All notable changes to cmux are documented here.
 
 ### Fixed
 - Fix crash on startup after upgrading from older versions due to stale window geometry data ([#2306](https://github.com/manaflow-ai/cmux/pull/2306))
-- Fix re-entrant `displayIfNeeded` crash during layout follow-up from SwiftUI geometry changes ([#2305](https://github.com/manaflow-ai/cmux/pull/2305)) — thanks @KyleJamesWalker!
+- Fix re-entrant `displayIfNeeded` crash during layout follow-up from geometry changes ([#2305](https://github.com/manaflow-ai/cmux/pull/2305)) — thanks @KyleJamesWalker!
 - Fix macOS compatibility with versioned geometry persistence to prevent future upgrade crashes ([#2308](https://github.com/manaflow-ai/cmux/pull/2308))
 
 ### Thanks to 2 contributors!

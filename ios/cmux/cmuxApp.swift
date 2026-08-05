@@ -3,7 +3,6 @@ import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
 import OSLog
-import SwiftUI
 import cmuxFeature
 #if DEBUG
 import CmuxIrohReleaseGateSupport
@@ -14,14 +13,10 @@ nonisolated private let cmuxAppConnectivityLog = Logger(
     category: "connectivity"
 )
 
-@main
-struct cmuxApp: App {
-    @UIApplicationDelegateAdaptor(CmuxAppDelegate.self) private var appDelegate
-    @Environment(\.scenePhase) private var scenePhase
-
-    /// The de-singletonized composition root: built once, injected down.
-    @MainActor
-    private static let root: AppCompositionRoot = {
+/// Process-lifetime dependency graph used by the UIKit application and scene delegates.
+@MainActor
+enum CmuxApplication {
+    static let root: AppCompositionRoot = {
         let reachability = ReachabilityService()
         let auth = MobileAuthComposition(reachability: reachability)
         auth.start()
@@ -38,12 +33,11 @@ struct cmuxApp: App {
             discoveryCompatibilityPolicy: buildCompatibilityPolicy,
             diagnosticLog: diagnosticLog
         )
-        let connectivityInvalidationServiceURL = PresenceClient
-            .resolvedServiceBaseURL(
-                isDevelopmentAuthChannel: auth.authEnvironment == .development
-            )
+        let connectivityInvalidationServiceURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        )
         let connectivityInvalidationBaseURL = connectivityInvalidationServiceURL
-            .flatMap { URL(string: $0) }
+            .flatMap(URL.init(string:))
         if connectivityInvalidationBaseURL == nil {
             cmuxAppConnectivityLog.error(
                 "Connectivity invalidation disabled: presence service URL unavailable"
@@ -54,10 +48,6 @@ struct cmuxApp: App {
             connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
         )
 
-        // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
-        // the simulator and on DEBUG device builds so on-device XCUITests can
-        // attach to an in-runner mock host; release device builds keep only
-        // real transports.
         #if targetEnvironment(simulator) || DEBUG
         let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
         #else
@@ -116,63 +106,31 @@ struct cmuxApp: App {
         )
     }()
 
-    init() {
-        Self.root.pushCoordinator.configure(delegate: appDelegate)
-        appDelegate.pushCoordinator = Self.root.pushCoordinator
-        appDelegate.analytics = Self.root.analytics.emitter
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            rootScene
-                // `initial: true` so the cold-launch `.active` value (which
-                // `onChange` otherwise skips) drives the first
-                // `ios_session_started` + `ios_app_foregrounded`. Without it the
-                // whole session funnel stays empty until the first
-                // background-and-return.
-                .onChange(of: scenePhase, initial: true) { _, newPhase in
-                    Self.root.handleScenePhase(newPhase)
-                }
-        }
-    }
-
-    @ViewBuilder
-    private var rootScene: some View {
-        Group {
-            #if DEBUG
-            MobileIrohReleaseGateScene(
-                root: mobileRootScene,
-                iroh: Self.root.iroh
-            )
-            #else
-            mobileRootScene
-            #endif
-        }
-        .environment(\.irohSettingsController, Self.root.iroh)
-        .environment(
-            \.dogfoodAttachPreparation,
-            DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
+    static func makeRootViewController() -> CMUXMobileRootViewController {
+        let controller = CMUXMobileRootViewController(
+            runtime: root.runtime,
+            auth: root.auth,
+            reachability: root.reachability,
+            analytics: root.analytics.emitter,
+            pushCoordinator: root.pushCoordinator,
+            displaySettings: root.displaySettings,
+            connectionMethodStore: root.connectionMethodStore,
+            onboardingStore: root.onboardingStore,
+            tailscaleStatusMonitor: root.tailscaleStatusMonitor,
+            irohSettingsController: root.iroh,
+            personalIrohRouteCatalog: root.iroh.routeCatalog,
+            personalIrohDiscovery: root.iroh,
+            personalIrohForget: root.iroh,
+            signOutHook: root.signOutHook,
+            diagnosticLog: root.diagnosticLog,
+            prepareForDogfoodAttach: { [iroh = root.iroh] in
+                await iroh.prepareForConnection()
             }
         )
-    }
-
-    private var mobileRootScene: CMUXMobileRootScene {
-        CMUXMobileRootScene(
-            runtime: Self.root.runtime,
-            auth: Self.root.auth,
-            reachability: Self.root.reachability,
-            analytics: Self.root.analytics.emitter,
-            pushCoordinator: Self.root.pushCoordinator,
-            displaySettings: Self.root.displaySettings,
-            connectionMethodStore: Self.root.connectionMethodStore,
-            onboardingStore: Self.root.onboardingStore,
-            tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
-            personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
-            personalIrohDiscovery: Self.root.iroh,
-            personalIrohForget: Self.root.iroh,
-            signOutHook: Self.root.signOutHook,
-            diagnosticLog: Self.root.diagnosticLog
-        )
+        #if DEBUG
+        return MobileIrohReleaseGateController.configure(root: controller, iroh: root.iroh)
+        #else
+        return controller
+        #endif
     }
 }

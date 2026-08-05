@@ -7,25 +7,45 @@ import cmuxFeature
 /// registered device tokens to the injected push coordinator, and routes
 /// foreground presentation + taps. All push policy lives in
 /// ``MobilePushCoordinator``, constructed at the app composition root and
-/// injected here by `cmuxApp`.
-final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    /// The app-root push coordinator, injected by `cmuxApp` at launch.
+/// injected here by ``CmuxApplication`` at launch.
+@main
+final class CmuxAppDelegate: UIResponder, @preconcurrency UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    /// The app-root push coordinator, injected from the process graph at launch.
     @MainActor var pushCoordinator: MobilePushCoordinator?
-    /// The app-root analytics emitter, injected by `cmuxApp` at launch.
+    /// The app-root analytics emitter, injected from the process graph at launch.
     @MainActor var analytics: (any AnalyticsEmitting)?
+
+    override init() {
+        super.init()
+        let root = CmuxApplication.root
+        root.pushCoordinator.configure(delegate: self)
+        pushCoordinator = root.pushCoordinator
+        analytics = root.analytics.emitter
+    }
 
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         let launchedFromPush = launchOptions?[.remoteNotification] != nil
-        // `analytics` is assigned in `cmuxApp.init()` which runs before
-        // `didFinishLaunchingWithOptions`, so the emitter is available here.
         analytics?.capture("ios_app_launched", [
             "launch_type": .string("cold"),
             "launched_from": .string(launchedFromPush ? "push" : "normal"),
         ])
         return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(
+            name: "Default Configuration",
+            sessionRole: connectingSceneSession.role
+        )
+        configuration.delegateClass = CmuxSceneDelegate.self
+        return configuration
     }
 
     func application(

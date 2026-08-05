@@ -1,7 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobileSupport
-import SwiftUI
+import UIKit
 
 /// Display derivations for a ``CmxRoutePingResult`` shown on the Computers
 /// detail screen. The phrasing mirrors the pairing failure copy so a refused
@@ -55,18 +55,18 @@ extension CmxRoutePingResult {
         }
     }
 
-    var pingColor: Color {
+    var pingColor: UIColor {
         switch self {
         case .reachable:
-            return .green
+            return .systemGreen
         case .refused, .permissionDenied:
             // The address answered; the listener/permission is the problem, not
             // reachability. Amber, not red.
-            return .orange
+            return .systemOrange
         case .unreachable, .timedOut, .dnsFailed, .failed:
-            return .red
+            return .systemRed
         case .unsupportedRoute:
-            return .secondary
+            return .secondaryLabel
         }
     }
 

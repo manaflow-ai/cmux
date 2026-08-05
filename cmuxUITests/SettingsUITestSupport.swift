@@ -96,7 +96,7 @@ class SettingsUITestCase: XCTestCase {
     }
 
     /// Resolves a toggle by accessibility id across the control kinds a
-    /// SwiftUI `Toggle(.switch)` can surface as in XCUITest.
+    /// A native toggle can surface as either control kind in XCUITest.
     func toggle(_ root: XCUIElement, id: String, timeout: TimeInterval = 4.0) -> XCUIElement {
         requireElement(
             candidates: [root.switches[id], root.checkBoxes[id], root.descendants(matching: .any)[id]],

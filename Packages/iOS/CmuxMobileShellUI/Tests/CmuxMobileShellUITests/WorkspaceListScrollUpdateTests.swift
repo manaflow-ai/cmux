@@ -63,7 +63,7 @@ import UIKit
         #expect(cell.contentConfiguration == nil)
         #expect(
             cell.contentView.descendants.contains { $0 is WorkspaceNativeRowView },
-            "The native table must not wrap workspace rows in UIHostingConfiguration."
+            "The native table must own workspace rows directly."
         )
     }
 

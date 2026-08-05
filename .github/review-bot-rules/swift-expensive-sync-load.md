@@ -4,14 +4,14 @@ Flag heavy synchronous agent-history disk, JSON, transcript, trajectory, or sysc
 
 Report a failure when the diff adds or moves a call to an expensive whole-corpus loader onto a latency-sensitive path in non-test Swift. The canonical case is `RestorableAgentSessionIndex.load()`, which reads every agent kind's hook-store file from disk, resolves transcripts, and runs `sysctl(KERN_PROCARGS2)` per recorded session (measured 350ms-1.8s on machines with large agent history, and it scales with agent history, not tab count).
 
-Also fail synchronous parsing or decoding of unbounded agent-owned files on the main actor or from user-input paths. This includes agent hook/session stores, `agent-turn-diff-baselines.json`, transcript files, trajectory files, workstream/event logs, or any large JSON/JSONL file whose size grows with agent history. A single `Data(contentsOf:)`, `String(contentsOf:)`, `JSONSerialization.jsonObject`, `JSONDecoder.decode`, line scan, directory walk, or per-record `fileExists`/stat loop is enough to flag when it can run on `@MainActor`, in menu/command-palette handling, shortcut handling, socket handlers, SwiftUI render paths, close/history paths, or other immediate UI interactions.
+Also fail synchronous parsing or decoding of unbounded agent-owned files on the main actor or from user-input paths. This includes agent hook/session stores, `agent-turn-diff-baselines.json`, transcript files, trajectory files, workstream/event logs, or any large JSON/JSONL file whose size grows with agent history. A single `Data(contentsOf:)`, `String(contentsOf:)`, `JSONSerialization.jsonObject`, `JSONDecoder.decode`, line scan, directory walk, or per-record `fileExists`/stat loop is enough to flag when it can run on `@MainActor`, in menu/command-palette handling, shortcut handling, socket handlers, native UI rendering paths, close/history paths, or other immediate UI interactions.
 
 Treat any similarly heavy synchronous loader the same way: full-directory scans, per-record syscalls, broad JSON decode of unbounded files, or parsing that scales with all agent history instead of the focused workspace/surface/session.
 
 Interactive / main-actor paths where this must not appear:
 
 - workspace / panel / tab / window close and other close-history or session snapshotting
-- SwiftUI `body`, `didSet`, menu or command-palette evaluation, row rendering
+- AppKit/UIKit layout, `didSet`, menu or command-palette evaluation, row rendering
 - socket / telemetry command handlers
 - any `@MainActor` function reachable from user input
 

@@ -62,7 +62,7 @@ Spec for phase 2:
   bundled into the app at build time as a small JSON/plist (a build step parses
   the changelog so the app has no markdown parser). Key by marketing version. If
   there is no entry for the running version, do not show the sheet.
-- **UI**: a SwiftUI sheet, title `What's new in <version>`, the External bullets as
+- **UI**: a UIKit sheet, title `What's new in <version>`, the External bullets as
   a simple list, one "Got it" dismiss. No network. Localized via
   `Resources/Localizable.xcstrings` (en + ja), matching the repo's localization
   rule. A "What's New" entry in Settings re-opens the latest sheet on demand.
@@ -75,7 +75,7 @@ Spec for phase 2:
 
 Follow-up issue should track: the build-time changelog→bundle parse step, the
 UserDefaults gate behind a small tested helper (no raw `useEffect`-style launch
-side effects scattered in views), the SwiftUI sheet, the Settings re-open entry,
+side effects scattered in views), the UIKit sheet, the Settings re-open entry,
 and the localization audit.
 
 ## How to cut a release with notes (summary)

@@ -356,7 +356,7 @@
       "p091": "Envia notificações desktop em idle ou erro junto com painéis de visualização de subagentes e ferramentas de navegador; distingue-se por combinar eventos de notificação com painéis visíveis de visualização de subagentes no mesmo plugin",
       "p092": "Expõe 81 ferramentas MCP abrangendo criação de agentes, metadados de barra lateral, notificações, automação de navegador e recuperação de sessão; a maior superfície MCP de qualquer plugin aqui, diferente do conjunto focado de 22 ferramentas de EtanHey/cmuxlayer",
       "p093": "Armazena comandos de setup por repo em .cmux-workspace.json e cria workspaces cmux a partir dessa configuração, para que bootstrap de projeto, criação de worktree e lançamento de workspace permaneçam um comando repetível",
-      "p094": "Controla cmux de um iPhone por Tailscale com cliente SwiftUI e daemon relay Swift, mantendo espelhamento de terminal, entrada de teclas e operações de workspace dentro da tailnet privada do usuário",
+      "p094": "Controla cmux de um iPhone por Tailscale com cliente UIKit e daemon relay Swift, mantendo espelhamento de terminal, entrada de teclas e operações de workspace dentro da tailnet privada do usuário",
       "p095": "Orquestra 124 especialistas de domínio por um arquivo de skill de 802 linhas com 18 hooks, 28 scripts e watcher de superfície detectando estados IDLE/ERROR/STALL; a máquina de estados de barra lateral em coreano mais granular para Claude Code",
       "p096": "Traduz comandos tmux para equivalentes cmux, habilitando --teammate-mode tmux (Agent Teams) dentro do cmux ao mapear IDs de painel para IDs de superfície; resolve a lacuna de compatibilidade tmux para modo de equipe de agentes",
       "p097": "Faz polling de painéis a partir de qualquer agente, extrai contexto estruturado, persiste snapshots no SQLite e auto-injeta briefs de handoff comprimidos em novas sessões; camada de persistência que o diferencia de ferramentas de restore em memória",
@@ -3470,7 +3470,7 @@
               [
                 "Stack de desktop",
                 "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
-                "Aplicativo SwiftUI macOS nativo com um núcleo Zig compartilhado e libghostty"
+                "Aplicativo AppKit macOS nativo com um núcleo Zig compartilhado e libghostty"
               ],
               [
                 "Renderização",

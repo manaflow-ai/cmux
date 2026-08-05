@@ -1734,7 +1734,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         let appMenu = NSMenu(title: "cmux")
         let originalReloadItem = NSMenuItem(
             title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"),
-            action: NSSelectorFromString("swiftuiPrivateReloadAction:"),
+            action: NSSelectorFromString("legacyPrivateReloadAction:"),
             keyEquivalent: ""
         )
         appMenu.addItem(originalReloadItem)
@@ -1757,7 +1757,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         let rebuiltReloadItem = NSMenuItem(
             title: originalReloadItem.title,
-            action: NSSelectorFromString("swiftuiPrivateReloadAction:"),
+            action: NSSelectorFromString("legacyPrivateReloadAction:"),
             keyEquivalent: ""
         )
         appMenu.removeItem(originalReloadItem)
@@ -1779,7 +1779,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         let unrelatedReloadItem = NSMenuItem(
             title: rebuiltReloadItem.title,
-            action: NSSelectorFromString("swiftuiPrivateReloadAction:"),
+            action: NSSelectorFromString("legacyPrivateReloadAction:"),
             keyEquivalent: ""
         )
         let unrelatedMenu = NSMenu(title: "Unrelated")

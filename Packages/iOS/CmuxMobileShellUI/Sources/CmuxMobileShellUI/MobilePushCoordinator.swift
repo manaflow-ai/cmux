@@ -17,7 +17,7 @@ import UserNotifications
 /// The coordinator is the seam between the `UIApplicationDelegate` (which must
 /// own `UNUserNotificationCenterDelegate`) and the per-scene store. Constructed
 /// once at the composition root with an injected push-registration service and
-/// injected into the SwiftUI environment + the app delegate; no singleton.
+/// injected into the root controller and the app delegate; no singleton.
 @MainActor
 @Observable
 public final class MobilePushCoordinator {

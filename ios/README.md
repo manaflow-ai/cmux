@@ -1,6 +1,6 @@
 # cmux iOS
 
-SwiftUI iOS/iPadOS shell for the CMUXMobileCore production path.
+UIKit iOS/iPadOS shell for the CMUXMobileCore production path.
 
 Current phase:
 

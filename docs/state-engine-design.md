@@ -45,13 +45,13 @@ state. There is no `$binding` value, no mutable bag, no re-walk-on-change.
 
 4. **Re-walk on change + input control kinds.**
    - When the bag changes (control edit or action assignment), the host
-     re-invokes `evaluate` with the same bag → new `RenderNode` tree → SwiftUI
+     re-invokes `evaluate` with the same bag → new `RenderNode` tree → AppKit
      diffs it. This is the existing TimelineView path, now also triggered by
      state changes (an `@Observable` bag the host view observes).
    - New kinds: `textField` (binding + placeholder), `toggle` (binding + label),
      `slider` (binding + range), `picker` (binding + options), `stepper`. Each
      stores its binding key; `RenderNodeView` renders the real control with a
-     SwiftUI `Binding` whose get/set go through the host bag + re-walk.
+     typed binding whose get/set go through the host bag + re-walk.
 
 ## Suggested staging
 

@@ -112,7 +112,7 @@ import Testing
     }
 
     /// Split views that are visible at the APPKIT level: not hidden
-    /// themselves and under no hidden ancestor. SwiftUI opacity does not
+    /// themselves and under no hidden ancestor. Alpha alone does not
     /// register here — that is the point of the census.
     private func effectivelyVisibleSplitViews(
         in root: NSView, ancestorHidden: Bool = false
@@ -239,7 +239,7 @@ import Testing
     }
 
     /// The live fuzz found panes rendering at a fraction of their planned
-    /// extents, and the ancestor tripwire traced it to SwiftUI content laid
+    /// extents, and the ancestor tripwire traced it to content laid
     /// out thousands of points wider than its correctly-pinned hosting view
     /// in the workspace pane chain — growing as the fuzz opened more tabs.
     /// This pins the suspected mechanism at the desk: a pane with MANY tabs
@@ -1383,12 +1383,12 @@ import Testing
         withExtendedLifetime(connection) {}
     }
 
-    /// A tab re-show races two host probes: SwiftUI mounts the NEW probe
+    /// A tab re-show races two host probes: the UI mounts the new probe
     /// (which registers the mirror's window handle) before AppKit finishes
     /// tearing the OLD one out of its window, so the dying probe's final
     /// viewDidMoveToWindow fires with window == nil AFTER the replacement
     /// registered. It used to claim unconditionally, shadowing the live
-    /// handle with a windowless view until the next SwiftUI update — and the
+    /// handle with a windowless view until the next UI update, and the
     /// sizing pass, probing for a window, went blind exactly when the
     /// re-shown tab needed it. A windowless probe must never claim, and only
     /// the registered probe may clear the slot.
@@ -1436,7 +1436,7 @@ import Testing
     /// A deselected mirror tab's split tree must be hidden at the APPKIT
     /// level, not just faded out. The workspace bonsplit keeps every tab's
     /// content alive (`contentViewLifecycle: .keepAllAlive`) and hides
-    /// deselected tabs with SwiftUI opacity 0, which never sets `isHidden`
+    /// deselected tabs with alpha 0, which never sets `isHidden`
     /// on the AppKit split trees the embedded mirrors render — a live lldb
     /// census found 21 split-view instances stacked in one window whose
     /// visible layout has two dividers. The unhidden foreign trees painted

@@ -7,8 +7,13 @@ import CmuxMobileSupport
 import CmuxMobileTransport
 import CmuxSentryReporting
 import Foundation
-import SwiftUI
 import cmuxFeature
+
+enum CmuxScenePhase: Sendable {
+    case active
+    case inactive
+    case background
+}
 
 /// Holds the de-singletonized graph the `cmuxApp` builds once at launch.
 ///
@@ -184,7 +189,7 @@ final class AppCompositionRoot {
     /// On `.background`: records the timestamp for the next gap calculation,
     /// emits `ios_app_backgrounded`, and force-flushes queued events before
     /// suspension.
-    func handleScenePhase(_ phase: ScenePhase) {
+    func handleScenePhase(_ phase: CmuxScenePhase) {
         let emitter = analytics.emitter
         switch phase {
         case .active:
@@ -232,8 +237,6 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             Task { await emitter.flush() }
-        @unknown default:
-            break
         }
     }
 }

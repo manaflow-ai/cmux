@@ -27,10 +27,10 @@ Wiring a new package into `cmux.xcodeproj` needs explicit pbxproj entries in **b
 
 Five layers, dependencies point only downward:
 
-1. **Core** (`CmuxCore`): pure `Sendable` values, IDs, DTOs, errors, shared protocol seams. No AppKit/SwiftUI/I/O. The lift target when two domains need the same type.
+1. **Core** (`CmuxCore`): pure `Sendable` values, IDs, DTOs, errors, shared protocol seams. No AppKit/UIKit/I/O. The lift target when two domains need the same type.
 2. **Services / infrastructure**: `actor`s implementing core protocols against the outside world (process/PTY, filesystem, sockets, web API, notifications, auth). One package per cohesive capability.
 3. **Domain / state**: `@MainActor @Observable` models plus Coordinators, one package per feature domain, owning that domain's mutable state. Exemplar `CmuxSettings`.
-4. **UI**: SwiftUI/AppKit views, one UI package per domain package, depending only on its domain package plus Core, never a Service directly. Exemplar `CmuxSettingsUI`.
+4. **UI**: AppKit or UIKit views and controllers, one UI package per domain package, depending only on its domain package plus Core, never a Service directly. Exemplar `CmuxSettingsUI`.
 5. **Executable** (`cmuxApp` / `AppDelegate`): thin composition shim, no business logic.
 
 Classify every extracted entity by intent:
@@ -39,9 +39,9 @@ Classify every extracted entity by intent:
 - **Service**: `actor` (or `@MainActor` only when an AppKit main-thread API forces it) performing one outside-world capability; exposes `async`/`await` plus `AsyncStream`; holds only its own resource handles and no UI state.
 - **Repository**: `actor` mediating one persistence source of truth (file, defaults, web API) behind CRUD-shaped async methods returning value types. Precedents: `JSONConfigStore`, `UserDefaultsSettingsStore`.
 
-**Dependency inversion.** Lower packages publish protocols; concrete Services/Repositories conform; higher layers depend on `any Protocol`, never the concrete type, and never a stored property reaching across modules. Constructor (`init`) injection only: no global container, no singleton, no `static let shared`. The executable app target is the single composition root, the one place concretes are named and the object graph is assembled. SwiftUI `Environment` may carry already-constructed `@Observable` models down a view tree (as `SettingsRuntime` does), never service wiring.
+**Dependency inversion.** Lower packages publish protocols; concrete Services/Repositories conform; higher layers depend on `any Protocol`, never the concrete type, and never a stored property reaching across modules. Constructor (`init`) injection only: no global container, no singleton, no `static let shared`. The executable app target is the single composition root, the one place concretes are named and the object graph is assembled. Controllers receive already-constructed observable models through initializers, never service lookup.
 
-**State and SwiftUI.** Domain state lives in `@MainActor @Observable` models, never `ObservableObject`/`@Published`. A god model decomposes into cohesive child `@Observable` sub-models owned by their domain packages and composed by held reference; cross-domain reads go behind read-only protocols. In views use `@State` (owned), `@Bindable` or plain `let` (passed in), or `@Environment(M.self)` plus `.environment(...)` (injected). Never `@StateObject` / `@ObservedObject` / `@EnvironmentObject` / `.environmentObject(_:)`.
+**State and native UI.** Domain state lives in isolated actors or `@MainActor @Observable` presentation models, never `ObservableObject`/`@Published`. A god model decomposes into cohesive child models owned by their domain packages and composed by held reference; cross-domain reads go behind read-only protocols. Views receive immutable render values and action closures. Controllers own observation lifetimes and cancel tasks when their view or window closes.
 
 **Executable-target boundary (invert, never work around):**
 
@@ -107,7 +107,7 @@ New code in `Packages/`, new app-target files, and meaningful rewrites use `acto
 - **Sleeping as a synchronization substitute**: any sleep used to poll for a condition, let state settle before reading, or race a callback/animation. `DispatchQueue.asyncAfter` is banned outright (not cancellable by structure, not testable).
 - **A single-method `actor` used as a mutex.** `actor Guard { func claim() -> Bool }` forces synchronous callers (a `Process` termination handler, a `DispatchSource` event handler, a `withCheckedContinuation` resume race) through `Task { await guard.claim() }`, adding suspension points, ordering hops, and reentrancy surface to a fundamentally synchronous compare-and-set. Use the lock carve-out instead.
 
-**Required shape**: mutable shared state to an `actor` with `async` accessors and an `AsyncStream` for observers; SwiftUI-render-friendly state to an `@Observable @MainActor` view model subscribing to that stream and projecting snapshots (never read actor state synchronously from view code); cross-process and cross-thread invariants expressed through actor isolation; new public observable surfaces as `AsyncStream`/`AsyncSequence`.
+**Required shape**: mutable shared state to an `actor` with `async` accessors and an `AsyncStream` for observers; UI-render-friendly state to an `@Observable @MainActor` presentation model subscribing to that stream and projecting snapshots (never read actor state synchronously from view code); cross-process and cross-thread invariants expressed through actor isolation; new public observable surfaces as `AsyncStream`/`AsyncSequence`.
 
 **Carve-outs**, each with a one-line justification comment on the declaration and hidden behind an `AsyncStream` or `actor` surface so callers never see them:
 

@@ -4,6 +4,7 @@ import CmuxMobileTerminalKit
 import Foundation
 import UIKit
 
+@MainActor
 struct TerminalHardwareKeyResolver {
     private init() {}
 

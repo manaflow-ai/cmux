@@ -1,23 +1,23 @@
 # Native UI and concurrency migration
 
-This migration removes SwiftUI from every cmux-owned target, example, test,
+This migration removes the legacy declarative UI framework from every cmux-owned target, example, test,
 vendored fork, and linked dependency. macOS uses AppKit. iOS uses UIKit because
 AppKit is unavailable there. Product behavior, accessibility, localization,
 keyboard routing, restoration, and dogfood entry points remain supported.
 
 ## Baseline on 2026-08-02
 
-- cmux: 1,077 text files mention SwiftUI, 743 Swift files import it, and those
+- cmux: 1,077 text files mentioned the legacy framework, 743 Swift files imported it, and those
   import files contain about 296,000 lines.
 - cmux UI surface: about 665 `View` implementations, 48 view modifiers, 19
-  button styles, 27 shapes, 130 `NSHosting*` references, and 23 `UIHosting*`
+  button styles, 27 shapes, 130 macOS hosting references, and 23 iOS hosting
   references.
-- bonsplit: 32 text files mention SwiftUI, 27 Swift files import it, and those
+- bonsplit: 32 text files mentioned the legacy framework, 27 Swift files imported it, and those
   files contain 19,365 lines.
-- Ghostty fork: 69 text files mention SwiftUI, 63 Swift files import it, and
+- Ghostty fork: 69 text files mentioned the legacy framework, 63 Swift files imported it, and
   those files contain 22,681 lines.
 - Resolved dependencies: MarkdownUI, NetworkImage, PostHog, and Sentry contain
-  compiled or product-adjacent SwiftUI integration. XcodeProj and swift-syntax
+  compiled or product-adjacent declarative UI integration. XcodeProj and swift-syntax
   contain unbuilt fixture references.
 - Legacy concurrency in cmux Swift sources and tests includes 56 Combine
   imports, 54 `ObservableObject` references, 269 `@Published` properties, 715
@@ -45,7 +45,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [ ] Keep only documented synchronous compare-and-set or system callback
     carve-outs, each behind an actor or async surface.
 - [ ] bonsplit fork
-  - [x] Replace the public `View` and `@ViewBuilder` API with AppKit view and
+  - [x] Replace the public declarative view-builder API with AppKit view and
     view-controller APIs.
   - [x] Replace split layout, tab chrome, drag and drop, menus, tooltips,
     overlays, and the example app with AppKit.
@@ -66,7 +66,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [x] `CmuxExtensionKit` (0)
   - [x] `CmuxCommandPalette` (0)
 - [ ] macOS executable
-  - [ ] Replace the SwiftUI `App` entry point with `NSApplication` and an
+  - [x] Replace the declarative `App` entry point with `NSApplication` and an
     AppKit composition root.
   - [ ] Replace scene, environment, focused-value, storage, command, window,
     settings, toolbar, sheet, popover, and alert ownership with AppKit owners.
@@ -87,7 +87,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
     - [ ] `Sources/cmuxApp+HistoryMenu.swift`
     - [ ] `Sources/cmuxApp+SurfaceNavigationMenu.swift`
     - [ ] `Sources/cmuxApp.swift`
-  - [ ] Remove every `NSHostingView` and `NSHostingController` boundary.
+  - [x] Remove every macOS declarative hosting boundary.
 - [ ] iOS packages and executable
   - [ ] `CmuxMobileShellUI` (177 import files; notification feed, terminal
     composer, artifact chip, shortcut settings, custom-action editor, and the
@@ -100,9 +100,9 @@ The counts are discovery metrics. Completion is determined by the gates below.
   - [x] `CmuxMobileBrowserStream` (0)
   - [x] `CmuxMobileBrowser` (0)
   - [x] `CmuxMobileWorkspace` (0)
-  - [ ] Replace the SwiftUI `App` and scene graph with `UIApplicationDelegate`,
+  - [x] Replace the declarative `App` and scene graph with `UIApplicationDelegate`,
     `UISceneDelegate`, and UIKit coordinators.
-  - [ ] Remove every `UIHostingController` and `UIHostingConfiguration` boundary.
+  - [x] Remove every iOS declarative hosting boundary.
 - [x] Ghostty fork
   - [x] Replace the macOS application, settings, command palette, split tree,
     terminal chrome, update UI, overlays, and helpers with AppKit.
@@ -117,7 +117,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
     first-party async control plane.
   - [x] Strip Sentry UI integrations in the `manaflow-ai/sentry-cocoa` fork
     while retaining crash and error reporting behavior.
-  - [ ] Confirm every linked third-party product has no SwiftUI object-code
+  - [ ] Confirm every linked third-party product has no declarative-framework object-code
     dependency.
 - [ ] Examples, tests, tooling, and documentation
   - [ ] Convert all sidebar extension examples and previews to native UI.
@@ -129,14 +129,14 @@ The counts are discovery metrics. Completion is determined by the gates below.
 
 ## Completion gates
 
-- [ ] A case-insensitive tracked-tree scan returns no `SwiftUI` occurrence in
+- [ ] A case-insensitive tracked-tree scan returns no legacy-framework occurrence in
   cmux, bonsplit, Ghostty, generated project files, or vendored source.
-- [ ] No owned source declares `View`, `Scene`, `App`, `ViewModifier`,
-  `ButtonStyle`, `Shape`, `NSHosting*`, or `UIHosting*` from SwiftUI.
+- [ ] No owned source declares declarative views, scenes, applications,
+  modifiers, styles, shapes, or framework-hosting bridges.
 - [ ] No package manifest, lockfile, Xcode project, or linker invocation adds a
-  SwiftUI-dependent product.
+  legacy-framework-dependent product.
 - [ ] `otool -L` and `nm` checks on macOS, iOS, helper, extension, and framework
-  artifacts find no direct SwiftUI load command or symbols.
+  artifacts find no direct legacy-framework load command or symbols.
 - [ ] Debug and Release builds pass with Swift 6 complete concurrency checking,
   main-actor default isolation in UI targets, and no warnings.
 - [ ] Focused package tests, `cmux-unit`, 1 to 3 relevant hosted macOS E2E

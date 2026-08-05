@@ -3,13 +3,13 @@
 Regression test: multi-workspace terminal and browser focus.
 
 Bug 1 (isHidden): When multiple workspaces exist in a ZStack, inactive workspaces'
-AppKit NSViews (NSSplitView, NSHostingController containers) remain in the window's
-view hierarchy and intercept events (drags, clicks) even when SwiftUI sets
+AppKit views remain in the window's view hierarchy and intercept events
+(drags, clicks) even when their owning controller sets
 .allowsHitTesting(false). Fix: set isHidden=true on NSView containers for inactive
 workspaces via bonsplit's isInteractive flag.
 
 Bug 2 (webview click focus): Clicking inside a WKWebView didn't focus the browser
-tab because AppKit delivers the click to WKWebView, not to the SwiftUI Color.clear
+tab because AppKit delivers the click to WKWebView, not to the transparent
 overlay used for focus tracking. Fix: CmuxWebView.mouseDown posts a notification
 that BrowserPanelView listens for to call onRequestPanelFocus().
 

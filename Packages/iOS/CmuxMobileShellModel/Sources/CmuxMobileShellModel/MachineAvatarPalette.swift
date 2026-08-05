@@ -3,7 +3,7 @@ import Foundation
 /// Maps a workspace to a stable avatar color slot keyed to its OWNING MACHINE,
 /// so every workspace on the same Mac shares one color in the aggregated
 /// multi-Mac list. The UI layer maps a returned slot in `0..<slotCount` to a
-/// concrete gradient; this stays free of SwiftUI so it is unit-testable.
+/// concrete gradient; this stays independent of UI frameworks so it is unit-testable.
 ///
 public struct MachineAvatarPalette: Sendable {
     /// Default number of distinct color slots. The UI passes its real palette

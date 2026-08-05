@@ -1,13 +1,13 @@
 ---
 name: cmux-custom-sidebar
-description: "Build a custom cmux sidebar from a plain-language request. Use when the user asks for a custom sidebar, a sidebar that shows their workspaces/tabs/PRs/clock, a vibe-coded sidebar, or anything involving files in ~/.config/cmux/sidebars/. Covers authoring the interpreted SwiftUI-style file, enabling the beta flag, selecting it, and iterating with hot reload."
+description: "Build a custom cmux sidebar from a plain-language request. Use when the user asks for a custom sidebar, a sidebar that shows their workspaces/tabs/PRs/clock, a vibe-coded sidebar, or anything involving files in ~/.config/cmux/sidebars/. Covers authoring the interpreted cmux view file, enabling the beta flag, selecting it, and iterating with hot reload."
 ---
 
 # cmux Custom Sidebar
 
-cmux renders custom sidebars from a small SwiftUI-style file at runtime: no Xcode, no build step, no signing. The file hot-reloads on save, binds to live cmux state (workspaces, tabs, git, PRs, clock), and runs real cmux commands on tap.
+cmux renders custom sidebars from a small cmux view file at runtime through AppKit: no Xcode, no build step, no signing. The file hot-reloads on save, binds to live cmux state (workspaces, tabs, git, PRs, clock), and runs real cmux commands on tap.
 
-The person asking is describing a result ("a sidebar that shows my workspaces and lets me jump between them"), not an implementation. Make the engineering decisions for them; do not ask them about SwiftUI, files, or syntax.
+The person asking is describing a result ("a sidebar that shows my workspaces and lets me jump between them"), not an implementation. Make the engineering decisions for them; do not ask them about frameworks, files, or syntax.
 
 This skill is the workflow summary. Read the complete authoring contract (every supported view, modifier, language feature, and data field) before writing a non-trivial sidebar:
 
@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/custom-s
 ## Workflow
 
 1. **Enable the beta** (once): Settings > Beta features > Custom sidebars (`customSidebars.beta.enabled`). If a written sidebar does not appear in the picker, check this first.
-2. **Write a named file** at `~/.config/cmux/sidebars/<name>.swift`. The name becomes the menu label; use short kebab-case. The file is a single SwiftUI-style view expression (no `struct`, no `var body`, no imports). A `.json` variant exists for static layouts; prefer `.swift` for anything dynamic.
+2. **Write a named file** at `~/.config/cmux/sidebars/<name>.swift`. The name becomes the menu label; use short kebab-case. The file is a single cmux view expression (no `struct`, no `var body`, no imports). A `.json` variant exists for static layouts; prefer `.swift` for anything dynamic.
 3. **Validate and select:**
    ```bash
    cmux sidebar validate <name>   # parse/interpret check with real data shapes

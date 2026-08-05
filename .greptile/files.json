@@ -131,8 +131,8 @@
       ]
     },
     {
-      "path": ".github/review-bot-rules/swiftui-state-layout.md",
-      "description": "Source-of-truth cmux lint rule for SwiftUI state and layout review.",
+      "path": ".github/review-bot-rules/appkit-state-layout.md",
+      "description": "Source-of-truth cmux lint rule for AppKit and UIKit state and layout review.",
       "scope": [
         "**/*.swift"
       ]
@@ -200,7 +200,7 @@
     },
     {
       "path": "CLAUDE.md",
-      "description": "Repo-local guidance for cmux Swift, SwiftUI, testing, shortcut, localization, and no-sleep policies.",
+      "description": "Repo-local guidance for cmux Swift, AppKit/UIKit, testing, shortcut, localization, and no-sleep policies.",
       "scope": [
         "**/*.swift",
         "**/Package.swift",

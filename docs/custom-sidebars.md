@@ -1,8 +1,8 @@
 # Custom sidebars: vibe-code your own cmux sidebar
 
-cmux lets you build your own sidebar UI by writing a small SwiftUI-style file.
+cmux lets you build your own sidebar UI by writing a small cmux view file.
 It is interpreted at runtime (no Xcode, no build step, no signing), renders as
-native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
+native AppKit in the real sidebar, hot-reloads on save, binds to live cmux
 state, and can run cmux commands on tap. This guide is the authoring contract
 for you or a coding agent.
 
@@ -15,7 +15,7 @@ Assume the person asking is not technical. They are describing a result ("a
 sidebar that shows my workspaces and lets me jump between them"), not an
 implementation. Your job is to turn that into a clean, native-looking, working
 sidebar and make the engineering decisions for them. Do not ask them about
-SwiftUI, files, or syntax. Concretely:
+framework choices, files, or syntax. Concretely:
 
 - Default to real, live data. If they mention workspaces/tabs, bind to the
   `workspaces` context (not hard-coded text) so it stays correct on its own.
@@ -48,13 +48,13 @@ for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
 edit the file and save and it hot-reloads. If both `<name>.swift` and
 `<name>.json` exist, `.swift` wins.
 
-A sidebar file is a single SwiftUI-style view expression (no `struct`, no
+A sidebar file is a single cmux view expression (no `struct`, no
 `var body` wrapper, just the view).
 
 ## Choosing the renderer (in-process vs remote)
 
 By default a custom sidebar renders in-process: the interpreted view mounts
-as real SwiftUI inside the cmux window, so hover styling, focus, keyboard,
+as real AppKit inside the cmux window, so hover styling, focus, keyboard,
 and same-frame resize all work natively. The tradeoff is that the
 interpreter shares the host process.
 

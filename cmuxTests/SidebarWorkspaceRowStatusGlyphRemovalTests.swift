@@ -17,7 +17,7 @@ import Testing
 /// Manual status is now restored intentionally, but automatic status must
 /// still stay out of old rows.
 ///
-/// The sidebar row is a SwiftUI shape subtree under a lazy list, so there is
+/// The sidebar row is a native view under a reusable list, so there is
 /// no NSView to walk for a mounted-hierarchy assertion; scanning the row's
 /// rendering sources is the repo's established guard pattern for "this must
 /// not silently return" (see the `#filePath` repo-root scans in

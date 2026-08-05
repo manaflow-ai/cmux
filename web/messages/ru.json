@@ -356,7 +356,7 @@
       "p091": "Отправляет desktop notifications при idle или error рядом с subagent viewer panes и browser tools; отличается тем, что связывает notification events с видимыми subagent viewer panes в одном plugin",
       "p092": "Открывает 81 MCP tools для agent spawning, sidebar metadata, notifications, browser automation и session recovery - largest MCP surface area среди всех плагинов здесь, в отличие от сфокусированного 22-tool set EtanHey/cmuxlayer",
       "p093": "Хранит per-repo setup commands в .cmux-workspace.json и создает рабочие пространства cmux из этой config, чтобы project bootstrap, worktree creation и workspace launch оставались одной repeatable command",
-      "p094": "Управляет cmux с iPhone через Tailscale с SwiftUI client и Swift relay daemon, сохраняя terminal mirroring, key input и workspace operations внутри private tailnet пользователя",
+      "p094": "Управляет cmux с iPhone через Tailscale с UIKit client и Swift relay daemon, сохраняя terminal mirroring, key input и workspace operations внутри private tailnet пользователя",
       "p095": "Оркестрирует 124 domain specialists через 802-line skill file с 18 hooks, 28 scripts и surface watcher, обнаруживающим states IDLE/ERROR/STALL - самая granular Korean-language sidebar state machine для Claude Code",
       "p096": "Переводит команды tmux в equivalents cmux, включая --teammate-mode tmux (Agent Teams) внутри cmux путем сопоставления pane IDs с surface IDs - решает tmux-compatibility gap для agent team mode",
       "p097": "Опросивает panes от любого agent, извлекает structured context, сохраняет snapshots в SQLite и auto-injects compressed handoff briefs в новые сессии - persistence layer отличает его от in-memory restore tools",
@@ -3470,7 +3470,7 @@
               [
                 "Стек настольного приложения",
                 "Нативное macOS-приложение на Swift/AppKit, построенное на libghostty",
-                "Нативное приложение SwiftUI macOS с общим ядром Zig и libghostty"
+                "Нативное приложение AppKit macOS с общим ядром Zig и libghostty"
               ],
               [
                 "Rendering",

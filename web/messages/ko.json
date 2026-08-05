@@ -356,7 +356,7 @@
       "p091": "idle 또는 error 시 desktop notification을 push하고 subagent viewer pane 및 browser tool도 제공한다. 같은 plugin에서 notification event와 보이는 subagent viewer pane을 결합하는 점이 특징이다",
       "p092": "agent spawning, sidebar metadata, notification, browser automation, session recovery에 걸친 81개의 MCP tool을 노출한다. 여기 있는 plugin 중 가장 큰 MCP surface area이며 EtanHey/cmuxlayer의 focused 22-tool set과 다르다",
       "p093": ".cmux-workspace.json에 repo별 setup command를 저장하고 그 config에서 cmux workspace를 생성해 project bootstrap, worktree creation, workspace launch를 하나의 repeatable command로 유지한다",
-      "p094": "Tailscale을 통해 iPhone에서 SwiftUI client와 Swift relay daemon으로 cmux를 제어하고 terminal mirroring, key input, workspace operation을 사용자의 private tailnet 안에 유지한다",
+      "p094": "Tailscale을 통해 iPhone에서 UIKit client와 Swift relay daemon으로 cmux를 제어하고 terminal mirroring, key input, workspace operation을 사용자의 private tailnet 안에 유지한다",
       "p095": "18개 hook, 28개 script, IDLE/ERROR/STALL state를 감지하는 surface watcher가 포함된 802-line skill file로 124개 domain specialist를 오케스트레이션한다. Claude Code용으로 가장 granular한 Korean-language sidebar state machine",
       "p096": "tmux command를 cmux equivalent로 translate하고 pane ID를 surface ID에 mapping해 cmux 안에서 --teammate-mode tmux(Agent Teams)를 활성화한다. agent team mode의 tmux-compatibility gap을 해결한다",
       "p097": "어떤 agent에서든 pane을 poll하고, structured context를 추출하고, snapshot을 SQLite에 persist하며 compressed handoff brief를 새 session에 auto-inject한다. persistence layer가 in-memory restore tool과 구분된다",
@@ -3326,7 +3326,7 @@
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "공유 Zig 코어와 libghostty를 갖춘 네이티브 SwiftUI macOS 앱"
+                "공유 Zig 코어와 libghostty를 갖춘 네이티브 AppKit macOS 앱"
               ],
               [
                 "렌더링",

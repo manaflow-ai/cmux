@@ -1,3 +1,4 @@
+#if os(iOS)
 import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
@@ -12,30 +13,20 @@ import CmuxMobileToast
 import CmuxMobileTransport
 import Foundation
 import OSLog
-import SwiftUI
-
-#if canImport(UIKit)
 import UIKit
-#endif
 
-#if canImport(UIKit) && DEBUG
+#if DEBUG
 import CmuxMobileTerminal
 #endif
 
 private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-root-scene")
 
-/// Top-level mobile scene root.
+/// Top-level UIKit mobile root.
 ///
-/// Renders the live cmux mobile UI: a ``CMUXMobileAppView`` backed by a fresh
-/// ``CMUXMobileShellStore`` and the injected ``AuthCoordinator``. In DEBUG
-/// builds, setting the environment variable `CMUX_ZOOM_STRESS=1` instead mounts
-/// the terminal zoom-stress repro harness (`MobileZoomStressView`).
-///
-/// The composition root (`cmuxApp`) builds the ``CMUXMobileRuntime`` and the
-/// ``MobileAuthComposition`` and hands them here. The scene injects the
-/// coordinator into the SwiftUI environment so views consume it through
-/// `@Environment` instead of `AuthManager.shared`.
-public struct CMUXMobileRootScene: View {
+/// Builds one shell store per window scene, then mounts the UIKit app controller
+/// with explicit dependencies from the process composition root.
+@MainActor
+public final class CMUXMobileRootViewController: UIViewController {
     private let runtime: CMUXMobileRuntime
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
@@ -44,7 +35,6 @@ public struct CMUXMobileRootScene: View {
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
     private let personalIrohForget: (any MobileIrohMacForgetting)?
-    #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
@@ -54,17 +44,13 @@ public struct CMUXMobileRootScene: View {
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
     package let onboardingStore: MobileOnboardingStore
-    #endif
     /// The app-root tailnet detector (behind the shell UI's read-only
     /// observing port), injected into the environment so pairing and
     /// disconnected surfaces can explain a Tailscale-off phone. `nil` on
     /// non-iOS roots, which simply shows no Tailscale guidance.
     private let tailscaleStatusMonitor: (any TailscaleStatusObserving)?
+    private let irohSettingsController: (any CmxIrohSettingsControlling)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
-    /// The app-wide toast presenter, hosted at this root so toasts float over
-    /// every screen (including sheets) and any descendant can present through
-    /// `@Environment(ToastCenter.self)`.
-    @State private var toastCenter = ToastCenter()
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
     /// a disk-backed ``TerminalDraftStoring`` (drafts surviving relaunch) lands
@@ -73,13 +59,13 @@ public struct CMUXMobileRootScene: View {
     private let draftStore: any TerminalDraftStoring
     /// The bounded privacy-safe diagnostic log shared by the production shell
     /// store and the in-app diagnostics exporter.
-    #if os(iOS)
-    private let diagnosticLog: DiagnosticLog
-    #else
-    private let diagnosticLog: DiagnosticLog?
-    #endif
+    private let prepareForDogfoodAttach: @MainActor @Sendable () async -> Void
+    private var appController: CMUXMobileAppViewController?
+    package private(set) var store: CMUXMobileShellStore?
+    private var storeCreationHandler: (@MainActor (CMUXMobileShellStore) -> Void)?
 
-    #if os(iOS)
+    private let diagnosticLog: DiagnosticLog
+
     /// Creates the root scene.
     /// - Parameters:
     ///   - runtime: The mobile runtime that backs the shell store.
@@ -113,11 +99,13 @@ public struct CMUXMobileRootScene: View {
         connectionMethodStore: MobileConnectionMethodStore,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
+        irohSettingsController: (any CmxIrohSettingsControlling)? = nil,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
         personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         signOutHook: MobileSignOutHook,
-        diagnosticLog: DiagnosticLog
+        diagnosticLog: DiagnosticLog,
+        prepareForDogfoodAttach: @escaping @MainActor @Sendable () async -> Void = {}
     ) {
         self.runtime = runtime
         self.auth = auth
@@ -128,6 +116,7 @@ public struct CMUXMobileRootScene: View {
         self.connectionMethodStore = connectionMethodStore
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
+        self.irohSettingsController = irohSettingsController
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
         self.personalIrohDiscovery = personalIrohDiscovery
         self.personalIrohForget = personalIrohForget
@@ -135,30 +124,14 @@ public struct CMUXMobileRootScene: View {
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
+        self.prepareForDogfoodAttach = prepareForDogfoodAttach
+        super.init(nibName: nil, bundle: nil)
     }
-    #else
-    /// Creates the root scene (non-iOS: no push).
-    public init(
-        runtime: CMUXMobileRuntime,
-        auth: MobileAuthComposition,
-        reachability: any ReachabilityProviding,
-        analytics: any AnalyticsEmitting,
-        signOutHook: MobileSignOutHook = MobileSignOutHook()
-    ) {
-        self.runtime = runtime
-        self.auth = auth
-        self.reachability = reachability
-        self.analytics = analytics
-        self.signOutHook = signOutHook
-        self.personalIrohRouteCatalog = nil
-        self.personalIrohDiscovery = nil
-        self.personalIrohForget = nil
-        self.tailscaleStatusMonitor = nil
-        self.pairedMacStore = Self.openPairedMacStore()
-        self.draftStore = InMemoryTerminalDraftStore()
-        self.diagnosticLog = nil
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
-    #endif
 
     private static func openPairedMacStore() -> (any MobilePairedMacStoring)? {
         do {
@@ -297,83 +270,89 @@ public struct CMUXMobileRootScene: View {
         )
     }
 
-    public var body: some View {
-        applyingRootEnvironment(to: content)
-    }
+    public override func loadView() {
+        let rootView = UIView()
+        rootView.backgroundColor = .systemBackground
+        view = rootView
 
-    /// Applies the production root environment to a package-owned alternate
-    /// Debug host without widening the app's public composition API.
-    @ViewBuilder
-    package func applyingRootEnvironment<Content: View>(
-        to rootContent: Content
-    ) -> some View {
-        rootContent
-            // App-wide toast layer: every root host gets the presentation
-            // window and the ToastCenter environment.
-            .background(ToastMountHost(center: toastCenter, haptics: displaySettings.haptics))
-            .environment(toastCenter)
-            .environment(auth.coordinator)
-            .analytics(analytics)
-            .tailscaleStatusMonitor(tailscaleStatusMonitor)
-            #if os(iOS)
-            .environment(pushCoordinator)
-            .environment(displaySettings)
-            .environment(connectionMethodStore)
-            #endif
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        #if os(iOS)
-        #if DEBUG
-        if UITestConfig.taskComposerPreviewEnabled {
-            TaskComposerAccessibilityPreviewView()
-        } else if UITestConfig.notificationFeedPreviewEnabled {
-            NotificationFeedPreviewView()
-        } else if UITestConfig.workspaceListLayoutPreviewEnabled {
-            WorkspaceListLayoutPreviewView()
-        } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
-            MobileTerminalStressHost {
-                MobileRecoveryStressView(configuration: recoveryStress)
-            }
-        } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
-            MobileTerminalStressHost {
-                MobileZoomStressView()
-            }
-        } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
-            MobileTerminalStressHost {
-                MobileBottomScrollStressView()
-            }
-        } else if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
-            ToastGalleryHost(center: toastCenter)
-        } else {
-            makeMobileAppView()
-        }
-        #else
-        makeMobileAppView()
-        #endif
-        #else
-        makeMobileAppView()
-        #endif
-    }
-
-    @MainActor
-    private func makeMobileAppView() -> CMUXMobileAppView {
         let browserStreamStore = BrowserStreamStore()
-        #if os(iOS)
-        return CMUXMobileAppView(
-            store: makeStore(browserStreamEvents: browserStreamStore),
-            browserStreamStore: browserStreamStore,
-            onboardingStore: onboardingStore,
-            signOutHook: signOutHook
+        let shellStore = makeStore(browserStreamEvents: browserStreamStore)
+        store = shellStore
+        storeCreationHandler?(shellStore)
+        let controller = makeLaunchController(
+            store: shellStore,
+            browserStreamStore: browserStreamStore
         )
-        #else
-        return CMUXMobileAppView(
-            store: makeStore(browserStreamEvents: browserStreamStore),
-            browserStreamStore: browserStreamStore,
-            signOutHook: signOutHook
-        )
+        addChild(controller)
+        controller.view.translatesAutoresizingMaskIntoConstraints = false
+        rootView.addSubview(controller.view)
+        NSLayoutConstraint.activate([
+            controller.view.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            controller.view.topAnchor.constraint(equalTo: rootView.topAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+        ])
+        controller.didMove(toParent: self)
+        appController = controller as? CMUXMobileAppViewController
+    }
+
+    public func sceneDidBecomeActive() {
+        appController?.sceneDidBecomeActive()
+    }
+
+    public func sceneWillResignActive() {
+        appController?.sceneWillResignActive()
+    }
+
+    public func open(_ url: URL) {
+        appController?.open(url)
+    }
+
+    package func setStoreCreationHandler(
+        _ handler: @escaping @MainActor (CMUXMobileShellStore) -> Void
+    ) {
+        storeCreationHandler = handler
+        if let store { handler(store) }
+    }
+
+    private func makeLaunchController(
+        store: CMUXMobileShellStore,
+        browserStreamStore: BrowserStreamStore
+    ) -> UIViewController {
+        #if DEBUG
+        if let recoveryStress = MobileRecoveryStressConfiguration.parse(
+            arguments: ProcessInfo.processInfo.arguments
+        ) {
+            return MobileNativeViewController(
+                content: MobileRecoveryStressView(configuration: recoveryStress)
+            )
+        }
+        if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
+            return MobileNativeViewController(content: MobileZoomStressView())
+        }
+        if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
+            return MobileNativeViewController(content: MobileBottomScrollStressView())
+        }
+        if ProcessInfo.processInfo.environment["CMUX_TOAST_GALLERY"] == "1" {
+            return UINavigationController(
+                rootViewController: ToastGalleryViewController(center: ToastCenter())
+            )
+        }
         #endif
+        return CMUXMobileAppViewController(
+            store: store,
+            auth: auth.coordinator,
+            analytics: analytics,
+            pushCoordinator: pushCoordinator,
+            displaySettings: displaySettings,
+            connectionMethodStore: connectionMethodStore,
+            onboardingStore: onboardingStore,
+            tailscaleStatusMonitor: tailscaleStatusMonitor,
+            irohSettingsController: irohSettingsController,
+            signOutHook: signOutHook,
+            browserStreamStore: browserStreamStore,
+            prepareForDogfoodAttach: prepareForDogfoodAttach
+        )
     }
 
     @MainActor
@@ -426,47 +405,34 @@ public struct CMUXMobileRootScene: View {
     }
 }
 
-#if canImport(UIKit)
-private struct ToastMountHost: UIViewRepresentable {
-    let center: ToastCenter
-    let haptics: MobileHapticFeedback
-
-    func makeUIView(context: Context) -> ToastWindowMountView {
-        ToastWindowMountView(center: center, haptics: haptics)
-    }
-
-    func updateUIView(_ view: ToastWindowMountView, context: Context) {}
-
-    static func dismantleUIView(_ view: ToastWindowMountView, coordinator: ()) {
-        view.teardown()
-    }
-}
-
 #if DEBUG
-private struct ToastGalleryHost: UIViewControllerRepresentable {
-    let center: ToastCenter
+@MainActor
+private final class MobileNativeViewController: UIViewController {
+    private let content: UIView
 
-    func makeUIViewController(context: Context) -> UINavigationController {
-        UINavigationController(rootViewController: ToastGalleryViewController(center: center))
+    init(content: UIView) {
+        self.content = content
+        super.init(nibName: nil, bundle: nil)
     }
 
-    func updateUIViewController(_ controller: UINavigationController, context: Context) {}
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        content.translatesAutoresizingMaskIntoConstraints = false
+        let root = UIView()
+        root.backgroundColor = .systemBackground
+        root.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            content.topAnchor.constraint(equalTo: root.topAnchor),
+            content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        view = root
+    }
 }
-
-#if DEBUG
-private struct MobileTerminalStressHost: UIViewRepresentable {
-    let makeContentView: @MainActor () -> UIView
-
-    init(makeContentView: @escaping @MainActor () -> UIView) {
-        self.makeContentView = makeContentView
-    }
-
-    func makeUIView(context: Context) -> UIView {
-        makeContentView()
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {}
-}
-#endif
 #endif
 #endif

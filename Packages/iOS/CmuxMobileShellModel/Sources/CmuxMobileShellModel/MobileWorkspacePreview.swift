@@ -4,7 +4,7 @@ public import Foundation
 ///
 /// This is a pure value model: it carries the workspace identity, display name, and
 /// the ordered list of its terminals. It is decoupled from any connection, RPC, or
-/// rendering concern so that both the domain coordinators and the SwiftUI layer can
+/// rendering concern so that both the domain coordinators and the UIKit layer can
 /// consume the same immutable shape.
 public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// A stable, string-backed identifier for a ``MobileWorkspacePreview``.
@@ -29,7 +29,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///
     /// In a single-Mac list this is the Mac-local workspace id. In the aggregated
     /// multi-Mac list it may be scoped by the owning Mac so two Macs can expose
-    /// the same local workspace id without colliding in SwiftUI navigation.
+    /// the same local workspace id without colliding in UIKit navigation.
     public var id: ID
     /// The Mac-local workspace identifier to send back over RPC.
     ///

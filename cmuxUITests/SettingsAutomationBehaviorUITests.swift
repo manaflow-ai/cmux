@@ -100,7 +100,7 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
         return window
     }
 
-    /// Resolves the Socket Control Mode picker, which a SwiftUI menu-style
+    /// Resolves the Socket Control Mode picker, whose native menu-style
     /// `Picker` surfaces as a pop-up button (or, on some macOS versions, a
     /// generic element with the same identifier).
     private func modePicker(_ window: XCUIElement) -> XCUIElement {

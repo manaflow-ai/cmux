@@ -4,7 +4,7 @@ Expands the rules in [../SKILL.md](../SKILL.md).
 
 ## What counts as user-facing
 
-SwiftUI views, AppKit menus and dialogs, alerts and confirmation sheets, tooltips and accessibility labels, Settings rows and descriptions, command palette entries, keyboard shortcut metadata, CLI help and command output, JSON schema descriptions shown in docs or editors, docs pages, web UI, and generated configuration examples shown to users.
+AppKit and UIKit views, menus and dialogs, alerts and confirmation sheets, tooltips and accessibility labels, Settings rows and descriptions, command palette entries, keyboard shortcut metadata, CLI help and command output, JSON schema descriptions shown in docs or editors, docs pages, web UI, and generated configuration examples shown to users.
 
 Debug-menu and debug-window labels are contributor-facing but still deserve localization when they are visible in the app.
 

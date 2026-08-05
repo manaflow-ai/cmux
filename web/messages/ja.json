@@ -924,7 +924,7 @@
       "p091": "idle または error 時に desktop notification を push し、subagent viewer pane と browser tool も提供する。同じ plugin 内で notification event と表示可能な subagent viewer pane を組み合わせる点が特徴",
       "p092": "agent spawning、sidebar metadata、notification、browser automation、session recovery にまたがる 81 個の MCP tool を公開する。ここにある plugin の中で最大の MCP surface area で、EtanHey/cmuxlayer の focused 22-tool set とは異なる",
       "p093": ".cmux-workspace.json に repo ごとの setup command を保存し、その config から cmux workspace を生成するため、project bootstrap、worktree creation、workspace launch を 1 つの再現可能な command に保つ",
-      "p094": "Tailscale 越しに iPhone から SwiftUI client と Swift relay daemon で cmux を制御し、terminal mirroring、key input、workspace operation をユーザーの private tailnet 内に保つ",
+      "p094": "Tailscale 越しに iPhone から UIKit client と Swift relay daemon で cmux を制御し、terminal mirroring、key input、workspace operation をユーザーの private tailnet 内に保つ",
       "p095": "18 個の hook、28 個の script、IDLE/ERROR/STALL 状態を検出する surface watcher を備えた 802 行の skill file で、124 の domain specialist をオーケストレーションする。Claude Code 向けで最も細かな韓国語 sidebar state machine",
       "p096": "tmux command を cmux equivalent に変換し、pane ID を surface ID に mapping することで cmux 内の --teammate-mode tmux (Agent Teams) を有効にする。agent team mode の tmux-compatibility gap を解決する",
       "p097": "任意の agent から pane を poll し、structured context を抽出し、snapshot を SQLite に永続化し、圧縮した handoff brief を新しい session に自動注入する。persistence layer が in-memory restore tool と差別化する",
@@ -4468,7 +4468,7 @@
               [
                 "デスクトップ構成",
                 "libghostty上に構築されたネイティブSwift/AppKit macOSアプリ",
-                "共有Zigコアとlibghosttyを備えたネイティブSwiftUI macOSアプリ"
+                "共有Zigコアとlibghosttyを備えたネイティブAppKit macOSアプリ"
               ],
               [
                 "レンダリング",
