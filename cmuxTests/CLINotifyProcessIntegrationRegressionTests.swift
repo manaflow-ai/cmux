@@ -107,10 +107,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             releasePiSummarizer()
             Darwin.close(piReleaseFD)
         }
+        // The isolated paths avoid relying on credentials-safe summarizer environment variables.
         try """
         #!/bin/sh
-        : > "$CMUX_TEST_PI_STARTED"
-        IFS= read -r _ < "$CMUX_TEST_PI_RELEASE_FIFO"
+        : > "\(piStartedURL.path)"
+        IFS= read -r _ < "\(piReleaseURL.path)"
         printf 'Java Workspace\\n'
         """.write(
             to: piURL,
@@ -134,15 +135,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             standardInput: #"{"session_id":"pi-first-prompt","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"Fix the Java build"}"#,
             extraEnvironment: [
                 "PATH": "\(context.root.path):/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_TEST_PI_STARTED": piStartedURL.path,
-                "CMUX_TEST_PI_RELEASE_FIFO": piReleaseURL.path,
             ]
         )
 
         XCTAssertFalse(result.timedOut, "The prompt hook must return before Pi completes: \(result.stderr)")
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(
-            waitForCondition(timeout: 5) { FileManager.default.fileExists(atPath: piStartedURL.path) },
+            waitForConditionBlocking(timeout: 5) { FileManager.default.fileExists(atPath: piStartedURL.path) },
             "The Pi summarizer must reach the controlled release point."
         )
         XCTAssertFalse(
@@ -157,7 +156,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
 
         releasePiSummarizer()
-        XCTAssertTrue(waitForCondition(timeout: 5) {
+        XCTAssertTrue(waitForConditionBlocking(timeout: 5) {
             context.state.snapshot().compactMap(self.jsonObject).contains { payload in
                 guard payload["method"] as? String == "workspace.set_auto_title",
                       let params = payload["params"] as? [String: Any] else {
