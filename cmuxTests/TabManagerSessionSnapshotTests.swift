@@ -62,6 +62,27 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testSessionSnapshotDoesNotRestoreExternalTerminalsAsLocalPTYs() throws {
+        let manager = TabManager()
+        let localWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let externalWorkspace = manager.addWorkspace(
+            title: "Broker-owned",
+            initialSurface: .deferred,
+            select: true,
+            autoWelcomeIfNeeded: false
+        )
+        let externalPanel = try XCTUnwrap(externalWorkspace.addManualMirrorTerminalPanel(
+            title: "Broker terminal",
+            onInput: { _ in }
+        ))
+
+        XCTAssertEqual(externalPanel.surface.ioMode, .manualMirror)
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(snapshot.workspaces.compactMap(\.workspaceId), [localWorkspace.id])
+        XCTAssertNil(snapshot.selectedWorkspaceIndex)
+    }
+
     func testRestoreSessionSnapshotPreservesPersistedWorkspaceIdsAndOrder() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
