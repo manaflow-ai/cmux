@@ -90,13 +90,13 @@ export async function PlatformDownloadPage({
             </span>
           </PlatformDownloadLink>
           <PlatformDownloadLink
-            href={downloads.portable.url}
+            href={downloads.secondary.url}
             platform={platform}
-            artifact={downloads.portable.artifact}
+            artifact={downloads.secondary.artifact}
             location="hero-secondary"
             className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-[15px] font-medium text-foreground transition-colors hover:bg-code-bg"
           >
-            {t("portableCta")}
+            {t(`${platform}.secondaryCta`)}
           </PlatformDownloadLink>
         </div>
         <p className="text-xs text-muted">
@@ -133,7 +133,10 @@ export async function PlatformDownloadPage({
           </p>
           {!isWindows && (
             <pre className="mt-4 overflow-x-auto rounded-xl border border-border bg-code-bg px-4 py-3 text-sm text-foreground">
-              <code>sudo apt install ./cmux-linux-x64.deb</code>
+              <code>
+                {"chmod +x cmux-linux-x64-installer.run\n" +
+                  "./cmux-linux-x64-installer.run"}
+              </code>
             </pre>
           )}
         </section>

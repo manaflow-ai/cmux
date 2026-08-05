@@ -32,14 +32,14 @@ describe("Windows and Linux downloads", () => {
     expect(PLATFORM_DOWNLOADS.windows.primary.url).toBe(
       "/api/download/browser-nightly/windows-x64/installer",
     );
-    expect(PLATFORM_DOWNLOADS.windows.portable.url).toBe(
+    expect(PLATFORM_DOWNLOADS.windows.secondary.url).toBe(
       "/api/download/browser-nightly/windows-x64/zip",
     );
     expect(PLATFORM_DOWNLOADS.linux.primary.url).toBe(
-      "/api/download/browser-nightly/linux-x64/deb",
+      "/api/download/browser-nightly/linux-x64/run",
     );
-    expect(PLATFORM_DOWNLOADS.linux.portable.url).toBe(
-      "/api/download/browser-nightly/linux-x64/zip",
+    expect(PLATFORM_DOWNLOADS.linux.secondary.url).toBe(
+      "/api/download/browser-nightly/linux-x64/deb",
     );
     expect(BROWSER_RELEASE_REPOSITORY_URL).toBe(
       "https://github.com/manaflow-ai/cmux-v2",
@@ -141,6 +141,12 @@ describe("Windows and Linux downloads", () => {
       "min-w-0 text-balance whitespace-normal text-center",
     );
     expect(source).toContain('className="shrink-0"');
+  });
+
+  test("makes the auto-updating Linux installer the first-install path", async () => {
+    const source = await readFile(PLATFORM_PAGE_SOURCE, "utf8");
+    expect(source).toContain("cmux-linux-x64-installer.run");
+    expect(source).not.toContain("sudo apt install ./cmux-linux-x64.deb");
   });
 });
 

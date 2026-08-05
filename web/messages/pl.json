@@ -3571,7 +3571,6 @@
     "title": "cmux dla {platform}",
     "tagline": "Przeglądarka Chromium i przestrzeń robocza dla agentów, stworzone jako jedna całość.",
     "logoAlt": "Ikona aplikacji cmux",
-    "portableCta": "Przenośny ZIP",
     "featuresTitle": "Stworzone do pracy z agentami",
     "features": {
       "chromium": {
@@ -3603,6 +3602,7 @@
       "metaDescription": "Pobierz cmux dla Windows x64: bezpłatną przeglądarkę Chromium i przestrzeń roboczą dla agentów typu open source, z kartami według zadań i powierzchniami terminala.",
       "subtitle": "Natywna kompilacja x64 z kartami Chromium, przestrzeniami roboczymi cmux i znanymi skrótami klawiaturowymi Windows.",
       "primaryCta": "Pobierz instalator (.exe)",
+      "secondaryCta": "Przenośny ZIP",
       "requirements": "Windows 10 lub nowszy · x64",
       "installBody": "Uruchom instalator i postępuj zgodnie z komunikatami Windows. Wybierz przenośny ZIP, jeśli wolisz przechowywać cmux w folderze bez instalacji w całym systemie."
     },
@@ -3611,9 +3611,10 @@
       "metaTitle": "Pobierz cmux dla Linux",
       "metaDescription": "Pobierz cmux dla Linux x64: bezpłatną przeglądarkę Chromium i przestrzeń roboczą dla agentów typu open source, z kartami według zadań i powierzchniami terminala.",
       "subtitle": "Natywna kompilacja x64 z kartami Chromium, przestrzeniami roboczymi cmux i zintegrowanymi powierzchniami terminala.",
-      "primaryCta": "Pobierz .deb",
-      "requirements": "Debian lub Ubuntu · x64",
-      "installBody": "Pobierz pakiet Debiana i zainstaluj go za pomocą menedżera pakietów. Wybierz przenośny ZIP, aby zainstalować aplikację dla jednego użytkownika i korzystać z aktualizacji w aplikacji."
+      "primaryCta": "Pobierz instalator z automatycznymi aktualizacjami (.run)",
+      "secondaryCta": "Pakiet Debiana (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Uruchom raz instalator dla bieżącego użytkownika. Zainstaluje cmux w ~/.local bez uprawnień roota i włączy podpisane aktualizacje w aplikacji. Jeśli chcesz, aby aktualizacjami zarządzał menedżer pakietów, wybierz zamiast niego pakiet Debiana."
     }
   },
   "emails": {
