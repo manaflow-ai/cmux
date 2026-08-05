@@ -58,6 +58,8 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     }
 
     private func presentStandalone() {
+        alert.layout()
+
         let buttons = alert.buttons
         if buttons.indices.contains(0) {
             buttons[0].target = self
