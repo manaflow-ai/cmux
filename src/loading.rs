@@ -16,6 +16,14 @@ pub struct DelayedSpinner {
 
 impl DelayedSpinner {
     pub fn new(message: &'static str) -> Self {
+        Self::with_delay(message, INITIAL_DELAY)
+    }
+
+    pub fn immediate(message: &'static str) -> Self {
+        Self::with_delay(message, Duration::ZERO)
+    }
+
+    fn with_delay(message: &'static str, initial_delay: Duration) -> Self {
         if !io::stderr().is_terminal() {
             return Self {
                 stop: None,
@@ -24,18 +32,23 @@ impl DelayedSpinner {
         }
 
         let (stop, stopped) = mpsc::channel();
+        let (ready, displayed) = mpsc::channel();
         let thread = thread::spawn(move || {
             if !matches!(
-                stopped.recv_timeout(INITIAL_DELAY),
+                stopped.recv_timeout(initial_delay),
                 Err(RecvTimeoutError::Timeout)
             ) {
                 return;
             }
 
             let mut stderr = io::stderr().lock();
+            let mut ready = Some(ready);
             for frame in FRAMES.iter().cycle() {
                 let _ = write!(stderr, "\r{frame} {message}…");
                 let _ = stderr.flush();
+                if let Some(ready) = ready.take() {
+                    let _ = ready.send(());
+                }
                 if !matches!(
                     stopped.recv_timeout(FRAME_DELAY),
                     Err(RecvTimeoutError::Timeout)
@@ -50,6 +63,9 @@ impl DelayedSpinner {
             );
             let _ = stderr.flush();
         });
+        if initial_delay.is_zero() {
+            let _ = displayed.recv();
+        }
 
         Self {
             stop: Some(stop),

@@ -75,6 +75,7 @@ struct RouteSession {
 }
 
 pub fn login(no_browser: bool) -> Result<(), Error> {
+    let starting = crate::loading::DelayedSpinner::new("Starting CodeRouter authorization");
     let api_url = api_url()?;
     let client = client(REQUEST_TIMEOUT)?;
     let public = load_public_config(&client, &api_url)?;
@@ -87,6 +88,7 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
         None,
         Some(json!({ "expires_in_millis": 15 * 60 * 1_000 })),
     )?;
+    starting.finish();
     let mut confirmation = reqwest::Url::parse(&public.auth.confirm_url)
         .map_err(|error| Error::Backend(format!("invalid confirmation URL: {error}")))?;
     confirmation
@@ -97,6 +99,7 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
         let _ = webbrowser::open(confirmation.as_str());
     }
 
+    let waiting = crate::loading::DelayedSpinner::new("Waiting for CodeRouter authorization");
     let deadline = Instant::now() + Duration::from_secs(15 * 60);
     let refresh_token = loop {
         if Instant::now() >= deadline {
@@ -127,11 +130,13 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
             }
         }
     };
+    waiting.finish();
 
     complete_login(&api_url, &client, &public, &refresh_token)
 }
 
 pub fn login_with_code(value: &str) -> Result<(), Error> {
+    let exchanging = crate::loading::DelayedSpinner::new("Exchanging CodeRouter sign-in code");
     let api_url = api_url()?;
     let client = client(REQUEST_TIMEOUT)?;
     let public = load_public_config(&client, &api_url)?;
@@ -147,6 +152,7 @@ pub fn login_with_code(value: &str) -> Result<(), Error> {
     let refresh_token = tokens.refresh_token.ok_or_else(|| {
         Error::Backend("Authentication succeeded without returning a refresh token".into())
     })?;
+    exchanging.finish();
     complete_login(&api_url, &client, &public, &refresh_token)
 }
 
@@ -156,6 +162,7 @@ fn complete_login(
     public: &PublicConfig,
     refresh_token: &str,
 ) -> Result<(), Error> {
+    let loading = crate::loading::DelayedSpinner::new("Setting up CodeRouter");
     let tokens = refresh_stack_tokens(client, &public.auth, refresh_token)?;
     let teams: TeamEnvelope = stack_json(
         client,
@@ -198,6 +205,7 @@ fn complete_login(
             route.openai_base_url
         },
     })?;
+    loading.finish();
     println!("Signed in to CodeRouter.");
     Ok(())
 }
@@ -299,8 +307,8 @@ pub fn upload_credential(credential: &Value) -> Result<Value, Error> {
         )
         .json(credential)
         .send()
-        .map_err(network_error("upload CodeRouter account"))?,
-        "upload CodeRouter account",
+        .map_err(network_error("upload subscription to CodeRouter"))?,
+        "upload subscription to CodeRouter",
     )
 }
 

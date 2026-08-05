@@ -146,6 +146,7 @@ fn codex_browser_oauth() -> Result<Value, Error> {
     println!("  {authorize}");
     let _ = webbrowser::open(authorize.as_str());
 
+    let waiting = crate::loading::DelayedSpinner::new("Waiting for OpenAI authorization");
     let deadline = Instant::now() + Duration::from_secs(5 * 60);
     let code = loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -187,7 +188,9 @@ fn codex_browser_oauth() -> Result<Value, Error> {
         ));
         break code;
     };
+    waiting.finish();
 
+    let exchanging = crate::loading::DelayedSpinner::new("Completing OpenAI authorization");
     let token: TokenResponse = response_json(
         client()?
             .post(format!("{OPENAI_ISSUER}/oauth/token"))
@@ -202,6 +205,7 @@ fn codex_browser_oauth() -> Result<Value, Error> {
             .map_err(network_error("exchange OpenAI authorization"))?,
         "exchange OpenAI authorization",
     )?;
+    exchanging.finish();
     let claims = jwt_claims(&token.id_token)?;
     let account_id = claims
         .get("chatgpt_account_id")
@@ -285,6 +289,7 @@ fn codex_authorize_url(
 }
 
 fn opencode_device_oauth() -> Result<Value, Error> {
+    let starting = crate::loading::DelayedSpinner::new("Starting OpenCode authorization");
     let client = client()?;
     let device: DeviceCode = response_json(
         client
@@ -294,6 +299,7 @@ fn opencode_device_oauth() -> Result<Value, Error> {
             .map_err(network_error("start OpenCode Go authorization"))?,
         "start OpenCode Go authorization",
     )?;
+    starting.finish();
     let url = if device.verification_uri_complete.starts_with("http") {
         device.verification_uri_complete.clone()
     } else {
@@ -303,6 +309,7 @@ fn opencode_device_oauth() -> Result<Value, Error> {
     println!("Code: {}", device.user_code);
     let _ = webbrowser::open(&url);
 
+    let waiting = crate::loading::DelayedSpinner::new("Waiting for OpenCode authorization");
     let deadline = Instant::now() + Duration::from_secs(device.expires_in.max(1));
     let mut wait = Duration::from_secs(device.interval.max(1));
     let token = loop {
@@ -342,6 +349,8 @@ fn opencode_device_oauth() -> Result<Value, Error> {
             }
         }
     };
+    waiting.finish();
+    let loading = crate::loading::DelayedSpinner::new("Loading OpenCode account");
     let user: OpenCodeUser = bearer_json(
         &client,
         &format!("{OPENCODE_CONSOLE}/api/user"),
@@ -357,6 +366,7 @@ fn opencode_device_oauth() -> Result<Value, Error> {
     let org = orgs
         .into_iter()
         .min_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
+    loading.finish();
     Ok(json!({
         "provider": "opencode-go",
         "accessToken": token.access_token,

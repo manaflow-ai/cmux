@@ -82,7 +82,10 @@ fn run_routed_opencode(args: &[OsString]) -> Result<i32, Error> {
                 .into(),
         )
     })?;
-    let content = control_plane::opencode_config()?;
+    let loading = crate::loading::DelayedSpinner::new("Preparing OpenCode");
+    let result = control_plane::opencode_config();
+    loading.finish();
+    let content = result?;
     process::run_attached_with_env(
         &opencode,
         args,
@@ -169,7 +172,10 @@ fn run_add(args: &[OsString]) -> Result<i32, Error> {
     }
     println!("Adding {}…", provider.label());
     let credential = oauth::authenticate_with_fallback(provider)?;
-    let result = control_plane::upload_credential(&credential)?;
+    let saving = crate::loading::DelayedSpinner::immediate("Uploading subscription to CodeRouter");
+    let upload = control_plane::upload_credential(&credential);
+    saving.finish();
+    let result = upload?;
     if result
         .get("alreadyExists")
         .and_then(serde_json::Value::as_bool)
