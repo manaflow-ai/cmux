@@ -518,12 +518,26 @@ fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
 }
 
 struct DeadlinePending<R> {
-    result: Arc<Mutex<Option<R>>>,
+    result: Arc<Mutex<Option<DeadlineCompletion<R>>>>,
+}
+
+struct DeadlineCompletion<R> {
+    completed_at: Instant,
+    value: R,
 }
 
 impl<R> DeadlinePending<R> {
     fn try_take(&self) -> Option<R> {
-        self.result.lock().unwrap().take()
+        self.result.lock().unwrap().take().map(|completion| completion.value)
+    }
+
+    fn try_take_before(&self, deadline: Instant) -> Option<R> {
+        let mut result = self.result.lock().unwrap();
+        if result.as_ref().is_some_and(|completion| completion.completed_at <= deadline) {
+            result.take().map(|completion| completion.value)
+        } else {
+            None
+        }
     }
 }
 
@@ -560,7 +574,9 @@ where
         let result = Arc::new(Mutex::new(None));
         let job_result = result.clone();
         if pool.submit(Box::new(move || {
-            *job_result.lock().unwrap() = Some(operation(&item, deadline));
+            let value = operation(&item, deadline);
+            *job_result.lock().unwrap() =
+                Some(DeadlineCompletion { completed_at: Instant::now(), value });
             let _ = sender.send(index);
         })) {
             submitted += 1;
@@ -580,7 +596,7 @@ where
                     std::mem::replace(&mut ordered[index], DeadlineMapResult::Unscheduled);
                 match pending {
                     DeadlineMapResult::Pending(pending) => {
-                        if let Some(result) = pending.try_take() {
+                        if let Some(result) = pending.try_take_before(deadline) {
                             ordered[index] = DeadlineMapResult::Complete(result);
                             submitted -= 1;
                         } else {
@@ -591,6 +607,15 @@ where
                 }
             }
             Err(_) => break,
+        }
+    }
+    for result in &mut ordered {
+        let completed = match result {
+            DeadlineMapResult::Pending(pending) => pending.try_take_before(deadline),
+            DeadlineMapResult::Complete(_) | DeadlineMapResult::Unscheduled => None,
+        };
+        if let Some(completed) = completed {
+            *result = DeadlineMapResult::Complete(completed);
         }
     }
     ordered
@@ -18298,6 +18323,20 @@ mod tests {
             vec![0, 2, 4, 6, 8, 10, 12, 14]
         );
         assert!(max_active.load(Ordering::Acquire) > 1);
+    }
+
+    #[test]
+    fn fanout_completion_after_the_shared_deadline_remains_retryable() {
+        let deadline = Instant::now();
+        let pending = DeadlinePending {
+            result: Arc::new(Mutex::new(Some(DeadlineCompletion {
+                completed_at: deadline + Duration::from_millis(1),
+                value: 42,
+            }))),
+        };
+
+        assert_eq!(pending.try_take_before(deadline), None);
+        assert_eq!(pending.try_take(), Some(42));
     }
 
     #[test]
