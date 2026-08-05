@@ -50,7 +50,7 @@ struct MobilePairingScannerSheet: View {
                             }
                             .ignoresSafeArea(edges: .bottom)
 
-                            Text(MobilePairingScannerGuidanceCopy.text)
+                            Text(Self.guidanceText)
                                 .font(.footnote.weight(.medium))
                                 .multilineTextAlignment(.center)
                                 .foregroundStyle(.white)
@@ -181,8 +181,8 @@ struct MobilePairingScannerSheet: View {
 }
 #endif
 
-enum MobilePairingScannerGuidanceCopy {
-    static var text: String {
+extension MobilePairingScannerSheet {
+    static var guidanceText: String {
         L10n.string(
             "mobile.pairing.scannerInstruction",
             defaultValue: """
