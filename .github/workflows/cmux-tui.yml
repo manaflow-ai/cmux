@@ -124,11 +124,12 @@ jobs:
             valgrind_args=()
             test_args=()
             case "$(basename "$bin")" in
-              pty-*)
-                # These integration tests each own PTYs, sockets, and reader
-                # threads. Valgrind serializes their CPU work internally, so
-                # test-harness parallelism only creates scheduler starvation
-                # and wall-clock timeout races without increasing coverage.
+              pty-*|cmux_tui_core-*)
+                # These tests own bounded worker pools, PTYs, sockets, and
+                # deadline-sensitive readers. Valgrind serializes their CPU
+                # work internally, so test-harness parallelism only creates
+                # scheduler starvation, shared-quota interference, and
+                # wall-clock timeout races without increasing coverage.
                 test_args+=(--test-threads=1)
                 ;;
               relay_wss_diagnostic-*)
