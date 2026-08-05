@@ -71,7 +71,7 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
                 "workspace", "create",
                 "--name", "paste-buffer-regression",
                 "--cwd", "/tmp",
-                "--command", "cat",
+                "--command", "/bin/cat </dev/tty",
                 "--focus", "false",
             ]
         )
