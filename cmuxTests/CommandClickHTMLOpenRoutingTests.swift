@@ -234,7 +234,7 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func filesystemProbePoolAlternatesBrowserWorkWithQueuedClicks() async {
+    func filesystemProbePoolRunsBrowserWorkIndependentlyOfQueuedClicks() async {
         let pool = WordPathFilesystemResolutionCoordinator(
             maximumCoalescedQueueWait: .seconds(60)
         )
@@ -273,11 +273,12 @@ struct CommandClickHTMLOpenRoutingTests {
             discarded: {},
             expired: {}
         )
-        releaseFirstClick.continuation.yield()
 
         var eventIterator = events.stream.makeAsyncIterator()
-        #expect(await eventIterator.next() == "click-1")
         #expect(await eventIterator.next() == "browser")
+
+        releaseFirstClick.continuation.yield()
+        #expect(await eventIterator.next() == "click-1")
         #expect(await eventIterator.next() == "click-2")
 
         firstClickStarted.continuation.finish()
