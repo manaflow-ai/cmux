@@ -24,7 +24,8 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(commands[.claude]?.hasPrefix("claude ") == true)
         #expect(commands[.codex]?.hasPrefix("codex ") == true)
         #expect(commands[.grok]?.hasPrefix("grok ") == true)
-        #expect(commands[.opencode]?.contains("opencode run --format json") == true)
+        #expect(commands[.opencode]?.hasPrefix("opencode --prompt ") == true)
+        #expect(commands[.opencode]?.contains(" run ") == false)
         #expect(commands[.omp]?.hasPrefix("omp ") == true)
         #expect(commands[.pi]?.hasPrefix("pi -- ") == true)
         #expect(commands[.amp]?.hasPrefix("printf '%s\\n' ") == true)
@@ -36,8 +37,6 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(commands[.copilot]?.hasPrefix("copilot --interactive ") == true)
         #expect(commands[.codebuddy]?.hasPrefix("codebuddy ") == true)
         #expect(commands[.factory]?.hasPrefix("droid ") == true)
-        #expect(commands[.qoder]?.hasPrefix("qodercli --prompt-interactive ") == true)
-        #expect(commands[.kimi]?.hasPrefix("kimi --prompt ") == true)
         #expect(commands.values.allSatisfy { $0.contains("don'\\''t drop this") })
     }
 
@@ -529,17 +528,16 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
-    func openCodeTargetCreatesFreshSessionBeforeOpeningTUI() throws {
+    func openCodeTargetSeedsTheInteractiveTUI() throws {
         let command = try #require(
             AgentConversationForkRequest.TargetHarness.opencode.startupCommand(
                 handoffMessage: "User:\nContinue this work"
             )
         )
 
-        #expect(command.contains("opencode run --format json -- "))
-        #expect(command.contains(#""sessionID":""#))
-        #expect(command.contains(#"exec opencode --session "$opencode_session""#))
-        #expect(!command.contains("opencode --prompt"))
+        #expect(command.hasPrefix("opencode --prompt "))
+        #expect(!command.contains("opencode run"))
+        #expect(!command.contains("sessionID"))
         #expect(command.contains("Continue this work"))
     }
 

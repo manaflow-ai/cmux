@@ -1,15 +1,20 @@
-import Combine
 import Foundation
+import Observation
 
 /// Refreshable process catalog used by command-palette and context-menu forks.
 /// Filesystem discovery runs away from the main actor.
 @MainActor
-final class AgentConversationForkTargetCatalog: ObservableObject {
-    @Published private(set) var installedTargets: [AgentConversationForkTarget]
+@Observable
+final class AgentConversationForkTargetCatalog {
+    private(set) var installedTargets: [AgentConversationForkTarget]
 
+    @ObservationIgnored
     private let minimumRefreshInterval: TimeInterval
+    @ObservationIgnored
     private let customDiscovery: (@Sendable () -> [AgentConversationForkTarget])?
+    @ObservationIgnored
     private var lastRefreshDate: Date?
+    @ObservationIgnored
     private var refreshTask: Task<Void, Never>?
 
     convenience init() {

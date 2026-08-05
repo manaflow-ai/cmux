@@ -237,6 +237,30 @@ struct AgentConversationTransferSourceTests {
         )])
     }
 
+    @Test(arguments: ["qodercli", "kimi"])
+    func installedTargetDiscoveryOmitsHarnessWithoutInteractiveSeed(
+        executableName: String
+    ) throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent(executableName)
+        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data()))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+
+        let targets = AgentConversationForkTargetDiscoverer(
+            environment: ["HOME": root.path, "PATH": root.path],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [:],
+            includeStandardSearchDirectories: false
+        ).discover()
+
+        #expect(targets.isEmpty)
+    }
+
     @Test
     func resolvedTargetPathSurvivesIntoStartupCommand() throws {
         let target = AgentConversationForkTarget(

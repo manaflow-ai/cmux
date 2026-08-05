@@ -2879,9 +2879,9 @@ struct ContentView: View {
             toggleCommandPalette()
         })
 
-        view = AnyView(view.onReceive(
-            tabManager.agentConversationForkTargetCatalog.$installedTargets.dropFirst()
-        ) { _ in
+        view = AnyView(view.onChange(
+            of: tabManager.agentConversationForkTargetCatalog.installedTargets
+        ) { _, _ in
             guard isCommandPalettePresented else { return }
             scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
         })

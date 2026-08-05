@@ -18,8 +18,6 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
     case copilot
     case codebuddy
     case factory
-    case qoder
-    case kimi
 
     var id: String { rawValue }
 
@@ -76,10 +74,7 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .grok:
             "\(executable) \(quotedMessage)"
         case .opencode:
-            Self.openCodeStartupCommand(
-                handoffMessage: handoffMessage,
-                executable: executable
-            )
+            "\(executable) --prompt \(quotedMessage)"
         case .omp:
             "\(executable) \(quotedMessage)"
         case .pi:
@@ -103,10 +98,6 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             "\(executable) \(quotedMessage)"
         case .factory:
             "\(executable) \(quotedMessage)"
-        case .qoder:
-            "\(executable) --prompt-interactive \(quotedMessage)"
-        case .kimi:
-            "\(executable) --prompt \(quotedMessage)"
         }
     }
 
@@ -116,7 +107,7 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .codex: .codex
         case .opencode: .opencode
         case .current, .grok, .omp, .pi, .amp, .cursor, .gemini, .kiro,
-             .antigravity, .hermesAgent, .copilot, .codebuddy, .factory, .qoder, .kimi:
+             .antigravity, .hermesAgent, .copilot, .codebuddy, .factory:
             nil
         }
     }
@@ -155,27 +146,10 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ["codebuddy", "cbc"]
         case .factory:
             ["droid", "factory"]
-        case .qoder:
-            ["qodercli", "qoder"]
-        case .kimi:
-            ["kimi", "kimi-cli", "kimi-code"]
         }
     }
 
     var preferredExecutableName: String {
         executableNames.first ?? rawValue
-    }
-
-    private static func openCodeStartupCommand(
-        handoffMessage: String,
-        executable: String
-    ) -> String {
-        let quotedMessage = TerminalStartupShellQuoting.singleQuoted(handoffMessage)
-        return """
-        opencode_output=$(\(executable) run --format json -- \(quotedMessage)) || { printf '%s\\n' "$opencode_output"; exit 1; }
-        opencode_session=$(printf '%s\\n' "$opencode_output" | sed -n 's/.*"sessionID":"\\([^"]*\\)".*/\\1/p' | head -n 1)
-        [ -n "$opencode_session" ] || { printf '%s\\n' "$opencode_output"; exit 1; }
-        exec \(executable) --session "$opencode_session"
-        """
     }
 }
