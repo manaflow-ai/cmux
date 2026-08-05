@@ -24,6 +24,9 @@ const EXIT_PAYLOAD_VERSION: u16 = 1;
 const EXIT_PAYLOAD_HEADER_LEN: usize = 12;
 const EXIT_PAYLOAD_STATUS_LEN: usize = EXIT_PAYLOAD_HEADER_LEN + 4;
 pub const MAX_EXIT_REASON_BYTES: usize = 4096;
+const LAUNCH_FAILURE_PAYLOAD_VERSION: u16 = 1;
+const LAUNCH_FAILURE_PAYLOAD_HEADER_LEN: usize = 2 * size_of::<u16>();
+pub const MAX_LAUNCH_FAILURE_MESSAGE_BYTES: usize = 4096;
 /// The live Output or Resized payload is not independently renderable. Its
 /// immediately following sequenced frame must be Colors, and consumers must
 /// apply both before publishing terminal state.
@@ -247,6 +250,69 @@ pub fn decode_terminal_exit(payload: &[u8]) -> Result<TerminalExit, ProtocolErro
     Ok(TerminalExit { outcome, exited_at_ms })
 }
 
+/// Machine-readable category for a terminal host that could not publish a
+/// launched PTY.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum HostLaunchFailureKind {
+    PtyCapacityExhausted = 1,
+    LaunchFailed = 2,
+}
+
+/// Bounded launch failure returned on the bootstrap pipe before the hidden
+/// host exits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostLaunchFailure {
+    pub kind: HostLaunchFailureKind,
+    pub message: String,
+}
+
+impl HostLaunchFailure {
+    pub fn bounded(kind: HostLaunchFailureKind, mut message: String) -> Self {
+        if message.len() > MAX_LAUNCH_FAILURE_MESSAGE_BYTES {
+            let mut end = MAX_LAUNCH_FAILURE_MESSAGE_BYTES;
+            while !message.is_char_boundary(end) {
+                end -= 1;
+            }
+            message.truncate(end);
+        }
+        Self { kind, message }
+    }
+}
+
+pub fn encode_host_launch_failure(failure: &HostLaunchFailure) -> Result<Vec<u8>, ProtocolError> {
+    if failure.message.is_empty() || failure.message.len() > MAX_LAUNCH_FAILURE_MESSAGE_BYTES {
+        return Err(ProtocolError::MalformedLaunchFailurePayload);
+    }
+    let mut payload = Vec::with_capacity(LAUNCH_FAILURE_PAYLOAD_HEADER_LEN + failure.message.len());
+    payload.extend_from_slice(&LAUNCH_FAILURE_PAYLOAD_VERSION.to_le_bytes());
+    payload.extend_from_slice(&(failure.kind as u16).to_le_bytes());
+    payload.extend_from_slice(failure.message.as_bytes());
+    Ok(payload)
+}
+
+pub fn decode_host_launch_failure(payload: &[u8]) -> Result<HostLaunchFailure, ProtocolError> {
+    if !(LAUNCH_FAILURE_PAYLOAD_HEADER_LEN + 1
+        ..=LAUNCH_FAILURE_PAYLOAD_HEADER_LEN + MAX_LAUNCH_FAILURE_MESSAGE_BYTES)
+        .contains(&payload.len())
+    {
+        return Err(ProtocolError::MalformedLaunchFailurePayload);
+    }
+    let version = u16::from_le_bytes(payload[0..2].try_into().expect("fixed version slice"));
+    if version != LAUNCH_FAILURE_PAYLOAD_VERSION {
+        return Err(ProtocolError::MalformedLaunchFailurePayload);
+    }
+    let kind = match u16::from_le_bytes(payload[2..4].try_into().expect("fixed kind slice")) {
+        1 => HostLaunchFailureKind::PtyCapacityExhausted,
+        2 => HostLaunchFailureKind::LaunchFailed,
+        _ => return Err(ProtocolError::MalformedLaunchFailurePayload),
+    };
+    let message = std::str::from_utf8(&payload[LAUNCH_FAILURE_PAYLOAD_HEADER_LEN..])
+        .map_err(|_| ProtocolError::MalformedLaunchFailurePayload)?
+        .to_string();
+    Ok(HostLaunchFailure { kind, message })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum MessageKind {
@@ -277,6 +343,8 @@ pub enum MessageKind {
     /// Targeted response to `SetKittyGraphicsLimits`; payload is the applied
     /// four-field resource limit tuple.
     KittyGraphicsLimitsAck = 19,
+    /// Response to `Launch` when the hidden host cannot publish a PTY.
+    LaunchFailed = 20,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -327,6 +395,7 @@ impl TryFrom<u16> for MessageKind {
             17 => Ok(Self::ClearHistoryAck),
             18 => Ok(Self::CellPixelSizeAck),
             19 => Ok(Self::KittyGraphicsLimitsAck),
+            20 => Ok(Self::LaunchFailed),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -391,6 +460,7 @@ pub enum ProtocolError {
     PayloadTooLarge { len: usize, max: usize },
     Truncated { expected: usize, actual: usize },
     MalformedExitPayload,
+    MalformedLaunchFailurePayload,
     DecoderFailed,
 }
 
@@ -414,6 +484,9 @@ impl fmt::Display for ProtocolError {
                 write!(f, "truncated terminal-host frame: expected {expected} bytes, got {actual}")
             }
             Self::MalformedExitPayload => write!(f, "malformed terminal-host exit payload"),
+            Self::MalformedLaunchFailurePayload => {
+                write!(f, "malformed terminal-host launch-failure payload")
+            }
             Self::DecoderFailed => write!(f, "terminal-host decoder is unusable after an error"),
         }
     }
@@ -717,6 +790,28 @@ mod tests {
         assert_eq!(MessageKind::try_from(19).unwrap(), MessageKind::KittyGraphicsLimitsAck);
         assert_eq!(MessageKind::SetKittyGraphicsLimits as u16, 109);
         assert_eq!(MessageKind::try_from(109).unwrap(), MessageKind::SetKittyGraphicsLimits);
+    }
+
+    #[test]
+    fn launch_failure_has_a_stable_bounded_wire_format() {
+        assert_eq!(MessageKind::LaunchFailed as u16, 20);
+        assert_eq!(MessageKind::try_from(20).unwrap(), MessageKind::LaunchFailed);
+
+        let failure = HostLaunchFailure::bounded(
+            HostLaunchFailureKind::PtyCapacityExhausted,
+            "terminal launch failed: PTY capacity exhausted".into(),
+        );
+        let payload = encode_host_launch_failure(&failure).unwrap();
+        assert_eq!(decode_host_launch_failure(&payload).unwrap(), failure);
+
+        let oversized = format!("{}é", "x".repeat(MAX_LAUNCH_FAILURE_MESSAGE_BYTES));
+        let bounded = HostLaunchFailure::bounded(HostLaunchFailureKind::LaunchFailed, oversized);
+        assert!(bounded.message.len() <= MAX_LAUNCH_FAILURE_MESSAGE_BYTES);
+        assert!(bounded.message.is_char_boundary(bounded.message.len()));
+        assert_eq!(
+            decode_host_launch_failure(&encode_host_launch_failure(&bounded).unwrap()).unwrap(),
+            bounded
+        );
     }
 
     #[test]

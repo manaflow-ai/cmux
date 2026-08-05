@@ -43,14 +43,14 @@ export function GET(request: Request): Response {
       subrouter: {
         url: subrouterURL,
         exchangeUrl: new URL(
-          "/api/subrouter/exchange",
+          "/api/subrouter/tenant-exchange",
           request.url,
         ).toString(),
       },
     },
     {
       headers: {
-        "cache-control": "public, max-age=300",
+        "cache-control": "no-store",
       },
     },
   );

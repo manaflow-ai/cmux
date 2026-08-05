@@ -29,10 +29,11 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_VIEWER_SIZE_ACKS, Frame,
-    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
-    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
-    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, encode_terminal_exit, read_frame,
-    wait_for_native_child_status, write_frame,
+    HostLaunchFailure, HostLaunchFailureKind, KITTY_IMAGE_ALIAS_COUNT_LEN,
+    KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD,
+    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
+    TerminalExit, decode_host_launch_failure, encode_host_launch_failure, encode_terminal_exit,
+    read_frame, wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -410,7 +411,7 @@ mod unix {
     use std::time::{Duration, Instant};
 
     use anyhow::Context;
-    use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
+    use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtyOpenError, PtySize};
     use ghostty_vt::{Callbacks, CursorShape, Terminal};
 
     use super::*;
@@ -1601,7 +1602,14 @@ mod unix {
         launch_frame.request_id = 2;
         write_frame(&mut stdin, &launch_frame)?;
         let launched_frame = read_required_frame(&mut stdout, "launch ready")?;
-        if launched_frame.kind != MessageKind::Ready || launched_frame.request_id != 2 {
+        if launched_frame.request_id != 2 {
+            anyhow::bail!("terminal host did not acknowledge launch");
+        }
+        if launched_frame.kind == MessageKind::LaunchFailed {
+            let failure = decode_host_launch_failure(&launched_frame.payload)?;
+            anyhow::bail!(failure.message);
+        }
+        if launched_frame.kind != MessageKind::Ready {
             anyhow::bail!("terminal host did not acknowledge launch");
         }
         let launched = HostReady::decode(&launched_frame.payload)?;
@@ -3475,7 +3483,17 @@ mod unix {
             anyhow::bail!("expected terminal-host Launch, received {:?}", launch_frame.kind);
         }
         let launch = HostLaunch::decode(&launch_frame.payload)?;
-        let shared = spawn_host_runtime(&launch, &bootstrapped)?;
+        let shared = match spawn_host_runtime(&launch, &bootstrapped) {
+            Ok(shared) => shared,
+            Err(error) => {
+                let failure = host_launch_failure(&error);
+                let mut response =
+                    Frame::new(MessageKind::LaunchFailed, encode_host_launch_failure(&failure)?);
+                response.request_id = launch_frame.request_id;
+                write_frame(writer, &response)?;
+                return Ok(());
+            }
+        };
 
         let endpoint = PathBuf::from(&launch.endpoint);
         let mut unpublished = UnpublishedHostGuard {
@@ -3596,6 +3614,17 @@ mod unix {
         thread::sleep(Duration::from_millis(20));
         drop(guard);
         Ok(())
+    }
+
+    fn host_launch_failure(error: &anyhow::Error) -> HostLaunchFailure {
+        let kind = if error.chain().any(|cause| {
+            cause.downcast_ref::<PtyOpenError>().is_some_and(PtyOpenError::is_capacity_exhausted)
+        }) {
+            HostLaunchFailureKind::PtyCapacityExhausted
+        } else {
+            HostLaunchFailureKind::LaunchFailed
+        };
+        HostLaunchFailure::bounded(kind, format!("terminal launch failed: {error:#}"))
     }
 
     fn spawn_host_runtime(
@@ -4940,6 +4969,80 @@ mod unix {
                 None,
                 "an absent Ghostty blink setting must survive the host boundary"
             );
+        }
+
+        #[test]
+        fn launch_failure_is_reported_before_bootstrap_pipe_closes() {
+            let sequence = RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let terminal_id = TerminalId::random().unwrap();
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id,
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let launch = HostLaunch {
+                endpoint: format!(
+                    "/tmp/cmux-host-launch-failure-{}-{sequence}.sock",
+                    std::process::id()
+                ),
+                record_path: format!(
+                    "/tmp/cmux-host-launch-failure-{}-{sequence}.json",
+                    std::process::id()
+                ),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 1_000,
+                cwd: Some("/tmp".into()),
+                command: vec!["/definitely/missing/cmux-terminal-host-child".into()],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+            let mut input = Vec::new();
+            write_frame(&mut input, &bootstrap.into_frame(1)).unwrap();
+            let mut launch_frame = Frame::new(MessageKind::Launch, launch.encode().unwrap());
+            launch_frame.request_id = 2;
+            write_frame(&mut input, &launch_frame).unwrap();
+
+            let mut output = Vec::new();
+            let result = serve_terminal_host_stdio(
+                &["--bootstrap-stdio".to_string()],
+                &mut std::io::Cursor::new(input),
+                &mut output,
+            );
+            assert!(result.is_ok(), "host closed without reporting launch failure: {result:?}");
+
+            let mut output = std::io::Cursor::new(output);
+            let ready = read_frame(&mut output, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+            assert_eq!(ready.kind, MessageKind::Ready);
+            let failure_frame = read_frame(&mut output, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+            assert_eq!(failure_frame.kind, MessageKind::LaunchFailed);
+            assert_eq!(failure_frame.request_id, 2);
+            let failure = decode_host_launch_failure(&failure_frame.payload).unwrap();
+            assert!(
+                failure
+                    .message
+                    .as_bytes()
+                    .windows("terminal launch failed".len())
+                    .any(|window| window == b"terminal launch failed"),
+                "launch failure payload omitted the child error: {failure:?}",
+            );
+        }
+
+        #[test]
+        fn pty_capacity_survives_context_as_a_typed_launch_failure() {
+            let error = anyhow::Error::new(PtyOpenError::from_io(
+                std_io::Error::from_raw_os_error(libc::ENXIO),
+            ))
+            .context("allocate terminal host");
+            let failure = host_launch_failure(&error);
+
+            assert_eq!(failure.kind, HostLaunchFailureKind::PtyCapacityExhausted);
+            assert!(failure.message.contains("terminal launch failed"));
+            assert!(failure.message.contains("PTY capacity exhausted"));
         }
 
         #[test]

@@ -10,7 +10,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
 
-use super::{Child, MasterPty, PtyCommand, PtySize};
+use super::{Child, MasterPty, PtyCommand, PtyOpenError, PtySize};
 
 pub(crate) struct Slave(File);
 
@@ -51,7 +51,7 @@ pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, 
         )
     };
     if result != 0 {
-        bail!("failed to open PTY: {}", io::Error::last_os_error());
+        return Err(PtyOpenError::from_io(io::Error::last_os_error()).into());
     }
 
     let master = unsafe { File::from_raw_fd(master_fd) };
