@@ -821,7 +821,7 @@ mod tests {
         let payload = encode_host_launch_failure(&failure).unwrap();
         assert_eq!(decode_host_launch_failure(&payload).unwrap(), failure);
         assert_eq!(failure.kind.reason_code(), "pty_capacity_exhausted");
-        let error = anyhow::Error::new(failure.clone());
+        let error = anyhow::Error::new(failure);
         assert_eq!(
             error.downcast_ref::<HostLaunchFailure>().map(|failure| failure.kind),
             Some(HostLaunchFailureKind::PtyCapacityExhausted)

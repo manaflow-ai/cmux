@@ -364,7 +364,7 @@ impl Drop for SessionEventWorker {
 }
 
 enum FrontendJournalMessage {
-    Event(Session, FrontendJournalEvent),
+    Event(Session, Box<FrontendJournalEvent>),
     Stop,
 }
 
@@ -389,7 +389,7 @@ impl FrontendJournalWorker {
 
     fn send(&self, session: Session, event: FrontendJournalEvent) {
         if let Some(sender) = &self.sender {
-            let _ = sender.send(FrontendJournalMessage::Event(session, event));
+            let _ = sender.send(FrontendJournalMessage::Event(session, Box::new(event)));
         }
     }
 
@@ -420,9 +420,9 @@ fn run_frontend_journal_worker(receiver: Receiver<FrontendJournalMessage>) {
                 Ok(FrontendJournalMessage::Stop) | Err(_) => return,
             }
         }
-        let committed = pending
-            .front()
-            .is_some_and(|(session, event)| session.journal_frontend_event(event.clone()).is_ok());
+        let committed = pending.front().is_some_and(|(session, event)| {
+            session.journal_frontend_event(event.as_ref().clone()).is_ok()
+        });
         if committed {
             pending.pop_front();
             continue;

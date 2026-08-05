@@ -598,7 +598,7 @@ fn add_agent_topology(
 
     if let Some(parent) = parent_session_id.as_deref() {
         let parent_id = if scope_kind == "session" && parent == scope_identity.as_str() {
-            root_node_id.clone()
+            root_node_id
         } else {
             stable_agent_node_id(&tree_id, "session", parent)
         };
@@ -606,7 +606,7 @@ fn add_agent_topology(
         normalized.insert("agent_relation".into(), Value::String("explicit".into()));
     } else if let Some(parent) = normalized.get("native_parent_agent_id").and_then(Value::as_str) {
         let parent_id = if native_root_agent_id.as_deref() == Some(parent) {
-            root_node_id.clone()
+            root_node_id
         } else {
             stable_agent_node_id(&tree_id, "agent", parent)
         };
@@ -616,7 +616,7 @@ fn add_agent_topology(
         // Claude Code's command-hook contract exposes a stable child ID but
         // no parent ID, and its subagents cannot spawn subagents. The parent
         // is therefore the root of the shared session tree.
-        normalized.insert("parent_agent_node_id".into(), Value::String(root_node_id.clone()));
+        normalized.insert("parent_agent_node_id".into(), Value::String(root_node_id));
         normalized.insert("agent_relation".into(), Value::String("provider_root".into()));
     } else if child_event
         || normalized.get("agent_node_id").and_then(Value::as_str) != Some(root_node_id.as_str())

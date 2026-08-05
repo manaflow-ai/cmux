@@ -343,8 +343,8 @@ impl JournalIngressSender {
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
         event: QueuedJournalEvent,
-    ) -> Result<(), std::sync::mpsc::SendError<QueuedJournalEvent>> {
-        sender.send(event)?;
+    ) -> Result<(), ()> {
+        sender.send(event).map_err(|_| ())?;
         if let Some(wake) = &self.wake_sender {
             match wake.try_send(()) {
                 Ok(()) | Err(TrySendError::Full(())) => {}

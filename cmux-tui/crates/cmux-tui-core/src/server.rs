@@ -14568,7 +14568,11 @@ mod tests {
                 .session_journal_reader()
                 .unwrap()
                 .unwrap()
-                .after_subjects(commit.sequence.saturating_sub(1), 1, &[subject.clone()])
+                .after_subjects(
+                    commit.sequence.saturating_sub(1),
+                    1,
+                    std::slice::from_ref(&subject),
+                )
                 .unwrap();
             let document = JournalDocument::new(direct.records.into_iter().next().unwrap());
             assert!(JournalStreamFilter::parse(Some(&filter_value)).unwrap().matches(&document));

@@ -307,7 +307,8 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
                 }
             }
             None => {
-                errors.push("helper: cmux-tui-hook was not found beside cmux-tui or on PATH".into())
+                errors
+                    .push("helper: cmux-tui-hook was not found beside cmux-tui or on PATH".into());
             }
         }
     }
@@ -891,11 +892,8 @@ fn json_hook_state(root: &Map<String, Value>, provider: Provider) -> &'static st
                 || value.contains("cmux-tui-cmux-irc")
         })
     };
-    let installed = provider
-        .events
-        .iter()
-        .filter(|event| hooks.get(**event).is_some_and(|value| owned(value)))
-        .count();
+    let installed =
+        provider.events.iter().filter(|event| hooks.get(**event).is_some_and(&owned)).count();
     if installed == provider.events.len() {
         "installed"
     } else if installed == 0 {
