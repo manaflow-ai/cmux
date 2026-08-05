@@ -138,9 +138,13 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
         // an XCTest failure even though its windows and terminal surfaces work.
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
+        let previousContinueAfterFailure = continueAfterFailure
+        continueAfterFailure = true
         XCTExpectFailure("App activation may fail on a headless UI runner", options: options) {
             app.launch()
         }
+        continueAfterFailure = previousContinueAfterFailure
+        print("Managed app launch returned: state=\(app.state.rawValue)")
         return app
     }
 
