@@ -259,6 +259,15 @@ pub enum HostLaunchFailureKind {
     LaunchFailed = 2,
 }
 
+impl HostLaunchFailureKind {
+    pub const fn reason_code(self) -> &'static str {
+        match self {
+            Self::PtyCapacityExhausted => "pty_capacity_exhausted",
+            Self::LaunchFailed => "terminal_launch_failed",
+        }
+    }
+}
+
 /// Bounded launch failure returned on the bootstrap pipe before the hidden
 /// host exits.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -279,6 +288,14 @@ impl HostLaunchFailure {
         Self { kind, message }
     }
 }
+
+impl fmt::Display for HostLaunchFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HostLaunchFailure {}
 
 pub fn encode_host_launch_failure(failure: &HostLaunchFailure) -> Result<Vec<u8>, ProtocolError> {
     if failure.message.is_empty() || failure.message.len() > MAX_LAUNCH_FAILURE_MESSAGE_BYTES {
@@ -803,6 +820,12 @@ mod tests {
         );
         let payload = encode_host_launch_failure(&failure).unwrap();
         assert_eq!(decode_host_launch_failure(&payload).unwrap(), failure);
+        assert_eq!(failure.kind.reason_code(), "pty_capacity_exhausted");
+        let error = anyhow::Error::new(failure.clone());
+        assert_eq!(
+            error.downcast_ref::<HostLaunchFailure>().map(|failure| failure.kind),
+            Some(HostLaunchFailureKind::PtyCapacityExhausted)
+        );
 
         let oversized = format!("{}é", "x".repeat(MAX_LAUNCH_FAILURE_MESSAGE_BYTES));
         let bounded = HostLaunchFailure::bounded(HostLaunchFailureKind::LaunchFailed, oversized);

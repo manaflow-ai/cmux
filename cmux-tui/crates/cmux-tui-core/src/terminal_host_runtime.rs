@@ -1607,7 +1607,7 @@ mod unix {
         }
         if launched_frame.kind == MessageKind::LaunchFailed {
             let failure = decode_host_launch_failure(&launched_frame.payload)?;
-            anyhow::bail!(failure.message);
+            return Err(failure.into());
         }
         if launched_frame.kind != MessageKind::Ready {
             anyhow::bail!("terminal host did not acknowledge launch");

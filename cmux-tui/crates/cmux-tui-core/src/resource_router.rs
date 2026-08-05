@@ -1478,6 +1478,14 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
     }
+    if let Some(failure) = error.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>()
+    {
+        return ResourceError::operation_failed(
+            "terminal.launch",
+            failure.message.clone(),
+            json!({"reason_code":failure.kind.reason_code()}),
+        );
+    }
     let message = error.to_string();
     if message.starts_with("idempotency.conflict:") {
         let fields = message.split_whitespace().collect::<Vec<_>>();
@@ -1517,6 +1525,18 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
 mod tests {
     use super::*;
     use crate::SurfaceOptions;
+
+    #[test]
+    fn terminal_host_launch_failures_keep_their_machine_readable_reason() {
+        let failure = crate::terminal_host_protocol::HostLaunchFailure::bounded(
+            crate::terminal_host_protocol::HostLaunchFailureKind::PtyCapacityExhausted,
+            "terminal launch failed: PTY capacity exhausted".into(),
+        );
+        let error = resource_operation_error(anyhow::Error::new(failure));
+        assert_eq!(error.code, "operation.failed");
+        assert_eq!(error.details["operation"], "terminal.launch");
+        assert_eq!(error.details["extra"]["reason_code"], "pty_capacity_exhausted");
+    }
 
     fn catalog_fixture(descriptor: &Value, parameters: &HashMap<String, Value>) -> Value {
         match descriptor["kind"].as_str().expect("fixture descriptor kind") {
