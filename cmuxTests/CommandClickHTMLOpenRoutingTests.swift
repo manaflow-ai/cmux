@@ -310,6 +310,52 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func repeatedHTMLPathThroughFilesystemAliasReusesOneBrowser() async throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        let previousSupportedFiles = defaults.object(forKey: supportedFilesKey)
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            restore(previousSupportedFiles, forKey: supportedFilesKey, in: defaults)
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+        }
+        defaults.set(true, forKey: supportedFilesKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        let fixtureDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-html-alias-\(UUID().uuidString)", isDirectory: true)
+        let htmlURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>filesystem alias</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path
+        ))
+        let browser = try #require(workspace.panels.values.compactMap { $0 as? BrowserPanel }.first)
+        #expect(await waitForDocumentTitle("filesystem alias", in: browser))
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path
+        ))
+        #expect(workspace.panels.values.compactMap { $0 as? BrowserPanel }.count == 1)
+    }
+
+    @Test
     func decoratedHTMLURLStillReusesOneBrowser() throws {
         _ = NSApplication.shared
 
