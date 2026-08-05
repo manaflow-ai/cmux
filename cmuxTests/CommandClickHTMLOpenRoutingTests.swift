@@ -680,7 +680,8 @@ struct CommandClickHTMLOpenRoutingTests {
         let handledCommandClick = policy.routeRestrictedFileNewTabIntent(
             isFileOnly: true,
             isFileURL: true,
-            shouldOpenInNewTab: true,
+            hasExplicitNewTabIntent: true,
+            hasNilTargetNewTabIntent: false,
             route: { routed = true }
         )
 
@@ -691,11 +692,39 @@ struct CommandClickHTMLOpenRoutingTests {
         let handledPlainClick = policy.routeRestrictedFileNewTabIntent(
             isFileOnly: true,
             isFileURL: true,
-            shouldOpenInNewTab: false,
+            hasExplicitNewTabIntent: false,
+            hasNilTargetNewTabIntent: false,
             route: { routed = true }
         )
 
         #expect(!handledPlainClick)
+        #expect(!routed)
+
+        let handledTargetBlankLink = policy.routeRestrictedFileNewTabIntent(
+            isFileOnly: true,
+            isFileURL: true,
+            hasExplicitNewTabIntent: false,
+            hasNilTargetNewTabIntent: browserNavigationShouldFallbackNilTargetToNewTab(
+                navigationType: .linkActivated
+            ),
+            route: { routed = true }
+        )
+
+        #expect(handledTargetBlankLink)
+        #expect(routed)
+
+        routed = false
+        let handledScriptedPopup = policy.routeRestrictedFileNewTabIntent(
+            isFileOnly: true,
+            isFileURL: true,
+            hasExplicitNewTabIntent: false,
+            hasNilTargetNewTabIntent: browserNavigationShouldFallbackNilTargetToNewTab(
+                navigationType: .other
+            ),
+            route: { routed = true }
+        )
+
+        #expect(!handledScriptedPopup)
         #expect(!routed)
     }
 
