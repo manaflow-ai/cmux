@@ -1445,23 +1445,19 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
     CHECK(projected);
     CHECK_EQ(projected.value().tab_ids.size(), 2U);
 
-    auto legacy_attached = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+    auto missing_attached_views = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
             R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
-    CHECK(legacy_attached);
-    CHECK_EQ(legacy_attached.value().tab_ids.size(), 1U);
-    CHECK_EQ(
-        legacy_attached.value().tab_ids.front(),
-        legacy_attached.value().tab_id.value());
+    CHECK(!missing_attached_views);
+    CHECK_EQ(missing_attached_views.error().code, cmux::ErrorCode::decode);
 
-    auto legacy_detached = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+    auto missing_detached_views = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
             R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
-    CHECK(legacy_detached);
-    CHECK(!legacy_detached.value().tab_id.has_value());
-    CHECK(legacy_detached.value().tab_ids.empty());
+    CHECK(!missing_detached_views);
+    CHECK_EQ(missing_detached_views.error().code, cmux::ErrorCode::decode);
 
     auto nonnull_empty = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(

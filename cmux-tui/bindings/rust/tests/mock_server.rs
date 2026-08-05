@@ -2389,18 +2389,15 @@ fn terminal_snapshot_lifecycle_invariants_are_strict() {
 }
 
 #[test]
-fn terminal_snapshot_accepts_protocol_one_tab_id_only() {
+fn terminal_snapshot_requires_complete_view_ownership() {
     let mut attached = terminal_snapshot();
     attached.as_object_mut().unwrap().remove("tab_ids");
-    let attached: TerminalSnapshot = serde_json::from_value(attached).unwrap();
-    assert_eq!(attached.tab_ids, vec![attached.tab_id.clone().unwrap()]);
+    assert!(serde_json::from_value::<TerminalSnapshot>(attached).is_err());
 
     let mut detached = terminal_snapshot();
     detached.as_object_mut().unwrap().remove("tab_ids");
     detached["tab_id"] = json!(null);
-    let detached: TerminalSnapshot = serde_json::from_value(detached).unwrap();
-    assert_eq!(detached.tab_id, None);
-    assert!(detached.tab_ids.is_empty());
+    assert!(serde_json::from_value::<TerminalSnapshot>(detached).is_err());
 }
 
 #[test]

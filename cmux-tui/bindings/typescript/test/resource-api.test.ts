@@ -1936,7 +1936,7 @@ test("terminal snapshots expose lifecycle and durable exit details", async () =>
   client.close();
 });
 
-test("terminal snapshots accept protocol-one tab_id without tab_ids", async () => {
+test("terminal snapshots require complete view ownership", async () => {
   let refreshes = 0;
   const transport = new FakeTransport((request, current) => {
     current.ok(request, {
@@ -1952,13 +1952,8 @@ test("terminal snapshots accept protocol-one tab_id without tab_ids", async () =
   const client = new Client({ transport });
   const terminal = client.session(SESSION).terminal(TERMINAL);
 
-  const attached = await terminal.refresh();
-  assert.equal(attached.tabId, TAB);
-  assert.deepEqual(attached.tabIds, [TAB]);
-
-  const detached = await terminal.refresh();
-  assert.equal(detached.tabId, null);
-  assert.deepEqual(detached.tabIds, []);
+  await assert.rejects(() => terminal.refresh(), /tab_ids must be an array/);
+  await assert.rejects(() => terminal.refresh(), /tab_ids must be an array/);
   client.close();
 });
 

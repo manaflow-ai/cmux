@@ -975,6 +975,7 @@ TerminalSnapshot parse_terminal(const Json& value) {
         {
             "id",
             "tab_id",
+            "tab_ids",
             "title",
             "cols",
             "rows",
@@ -1002,17 +1003,12 @@ TerminalSnapshot parse_terminal(const Json& value) {
     }
     auto tab_id = required_nullable_id_value<TabId>(
         object, "tab_id", "terminal tab_id");
-    std::vector<TabId> tab_ids;
-    if (const auto found = object.find("tab_ids"); found != object.end()) {
-        tab_ids = array_value<TabId>(
-            found->second,
-            "terminal tab_ids",
-            [](const Json& item) {
-                return id_value<TabId>(item, "terminal tab_id");
-            });
-    } else if (tab_id.has_value()) {
-        tab_ids.push_back(tab_id.value());
-    }
+    auto tab_ids = array_value<TabId>(
+        field(object, "tab_ids", "terminal"),
+        "terminal tab_ids",
+        [](const Json& item) {
+            return id_value<TabId>(item, "terminal tab_id");
+        });
     if (tab_id.has_value() != !tab_ids.empty() ||
         (tab_id.has_value() && tab_id.value() != tab_ids.front())) {
         fail("terminal tab_id must be the first tab_ids item");

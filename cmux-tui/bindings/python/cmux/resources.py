@@ -816,17 +816,12 @@ def _terminal_snapshot(value: Any) -> TerminalSnapshot:
         if raw_tab_id is None
         else _required_id(payload, ("tab_id",), TabId)
     )
-    if "tab_ids" not in payload:
-        # Protocol 1 servers predating terminal projection expose only the
-        # nullable compatibility alias.
-        tab_ids = () if tab_id is None else (tab_id,)
-    else:
-        raw_tab_ids = payload["tab_ids"]
-        if not isinstance(raw_tab_ids, list):
-            raise ProtocolError("terminal tab_ids must be an array")
-        tab_ids = tuple(
-            _required_id({"id": item}, ("id",), TabId) for item in raw_tab_ids
-        )
+    raw_tab_ids = payload.get("tab_ids")
+    if not isinstance(raw_tab_ids, list):
+        raise ProtocolError("terminal tab_ids must be an array")
+    tab_ids = tuple(
+        _required_id({"id": item}, ("id",), TabId) for item in raw_tab_ids
+    )
     if tab_id != (tab_ids[0] if tab_ids else None):
         raise ProtocolError("terminal tab_id must be the first tab_ids item")
     lifecycle = _required_enum(

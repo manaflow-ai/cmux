@@ -247,29 +247,26 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	); !errors.Is(err, ErrProtocol) {
 		t.Fatalf("invalid copy mode error = %T %v", err, err)
 	}
-	legacyTerminal, err := decodeValue[TerminalSnapshot](
+	if _, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
 				`"tab_id":"tab_00000000000000000000000000000006",`+
 				`"title":"legacy","cols":80,"rows":24,"running":true,`+
 				`"lifecycle":"running"}`,
 		),
-		"legacy terminal snapshot",
-	)
-	if err != nil || legacyTerminal.TabID == nil || len(legacyTerminal.TabIDs) != 1 ||
-		legacyTerminal.TabIDs[0] != *legacyTerminal.TabID {
-		t.Fatalf("legacy terminal snapshot = %#v, %v", legacyTerminal, err)
+		"terminal snapshot missing tab_ids",
+	); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("missing attached tab_ids error = %T %v", err, err)
 	}
-	legacyDetached, err := decodeValue[TerminalSnapshot](
+	if _, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
 				`"tab_id":null,"title":"legacy","cols":80,"rows":24,`+
 				`"running":true,"lifecycle":"running"}`,
 		),
-		"legacy detached terminal snapshot",
-	)
-	if err != nil || legacyDetached.TabID != nil || len(legacyDetached.TabIDs) != 0 {
-		t.Fatalf("legacy detached terminal snapshot = %#v, %v", legacyDetached, err)
+		"detached terminal snapshot missing tab_ids",
+	); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("missing detached tab_ids error = %T %v", err, err)
 	}
 	terminal, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(

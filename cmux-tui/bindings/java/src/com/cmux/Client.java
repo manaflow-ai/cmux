@@ -2229,13 +2229,11 @@ public final class Client implements AutoCloseable {
             "tab_id",
             Ids.TabId::new
         );
-        List<Ids.TabId> tabIds = fields.containsKey("tab_ids")
-            ? decodeIds(
-                fields.get("tab_ids"),
-                "terminal tab_ids",
-                Ids.TabId::new
-            )
-            : tabId.map(List::of).orElseGet(List::of);
+        List<Ids.TabId> tabIds = decodeIds(
+            fields.get("tab_ids"),
+            "terminal tab_ids",
+            Ids.TabId::new
+        );
         return new Snapshots.TerminalSnapshot(
             new Ids.TerminalId(Wire.string(fields.get("id"), "terminal id")),
             tabId,

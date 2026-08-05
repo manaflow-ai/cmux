@@ -561,20 +561,14 @@ function tabSnapshot(value: unknown): TabSnapshot {
 
 function terminalSnapshot(value: unknown): TerminalSnapshot {
   const payload = unwrap(value, ["terminal"]);
-  const selectedTabId = requiredNullableId(payload, "tab_id", tabId);
-  let decodedTabIds: TabId[];
-  if (Object.hasOwn(payload, "tab_ids")) {
-    const rawTabIds = payload.tab_ids;
-    if (!Array.isArray(rawTabIds)) {
-      throw new CmuxProtocolError("terminal tab_ids must be an array");
-    }
-    decodedTabIds = rawTabIds.map(
-      (item) => requiredId({ id: item }, ["id"], tabId),
-    );
-  } else {
-    decodedTabIds = selectedTabId === null ? [] : [selectedTabId];
+  const rawTabIds = payload.tab_ids;
+  if (!Array.isArray(rawTabIds)) {
+    throw new CmuxProtocolError("terminal tab_ids must be an array");
   }
-  const tabIds = Object.freeze(decodedTabIds);
+  const tabIds = Object.freeze(
+    rawTabIds.map((item) => requiredId({ id: item }, ["id"], tabId)),
+  );
+  const selectedTabId = requiredNullableId(payload, "tab_id", tabId);
   if (selectedTabId !== (tabIds[0] ?? null)) {
     throw new CmuxProtocolError("terminal tab_id must be the first tab_ids item");
   }

@@ -8768,27 +8768,18 @@ fn decodeTerminalSnapshot(
         return error.InvalidTerminalState;
     }
     const tab_id = try requiredNullableId(TabId, object, "tab_id");
-    const raw_tab_ids: ?[]const raw.wire.Value = if (object.get("tab_ids")) |raw_value|
-        switch (raw_value) {
-            .array => |items| items.items,
-            else => return error.ExpectedArray,
-        }
-    else
-        null;
-    const tab_ids = try allocator.alloc(
-        TabId,
-        if (raw_tab_ids) |items| items.len else if (tab_id != null) 1 else 0,
-    );
+    const raw_tab_ids = switch (object.get("tab_ids") orelse
+        return error.MissingField) {
+        .array => |items| items.items,
+        else => return error.ExpectedArray,
+    };
+    const tab_ids = try allocator.alloc(TabId, raw_tab_ids.len);
     errdefer allocator.free(tab_ids);
-    if (raw_tab_ids) |items| {
-        for (items, 0..) |item, index| {
-            tab_ids[index] = switch (item) {
-                .string => |text| try TabId.parse(text),
-                else => return error.ExpectedString,
-            };
-        }
-    } else if (tab_id) |legacy_tab_id| {
-        tab_ids[0] = legacy_tab_id;
+    for (raw_tab_ids, 0..) |item, index| {
+        tab_ids[index] = switch (item) {
+            .string => |text| try TabId.parse(text),
+            else => return error.ExpectedString,
+        };
     }
     if ((tab_id == null) != (tab_ids.len == 0) or
         (tab_id != null and !std.meta.eql(tab_id.?, tab_ids[0])))
@@ -17681,7 +17672,7 @@ test "terminal lifecycle and durable exit constraints are strict" {
     );
     try std.testing.expect(running_snapshot.exit == null);
 
-    var legacy_attached = try raw.wire.parse(
+    var missing_attached_views = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
             "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
@@ -17689,31 +17680,30 @@ test "terminal lifecycle and durable exit constraints are strict" {
             "\"running\":true,\"lifecycle\":\"running\"}",
         .{},
     );
-    defer legacy_attached.deinit();
-    const legacy_attached_snapshot = try decodeTerminalSnapshot(
+    defer missing_attached_views.deinit();
+    try std.testing.expectError(
+        error.MissingField,
+        decodeTerminalSnapshot(
         decoded_arena.allocator(),
-        legacy_attached.value,
-    );
-    try std.testing.expectEqual(@as(usize, 1), legacy_attached_snapshot.tab_ids.len);
-    try std.testing.expectEqual(
-        legacy_attached_snapshot.tab_id.?,
-        legacy_attached_snapshot.tab_ids[0],
+            missing_attached_views.value,
+        ),
     );
 
-    var legacy_detached = try raw.wire.parse(
+    var missing_detached_views = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
             "\"tab_id\":null,\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
             "\"running\":true,\"lifecycle\":\"running\"}",
         .{},
     );
-    defer legacy_detached.deinit();
-    const legacy_detached_snapshot = try decodeTerminalSnapshot(
-        decoded_arena.allocator(),
-        legacy_detached.value,
+    defer missing_detached_views.deinit();
+    try std.testing.expectError(
+        error.MissingField,
+        decodeTerminalSnapshot(
+            decoded_arena.allocator(),
+            missing_detached_views.value,
+        ),
     );
-    try std.testing.expect(legacy_detached_snapshot.tab_id == null);
-    try std.testing.expectEqual(@as(usize, 0), legacy_detached_snapshot.tab_ids.len);
 
     var exited = try raw.wire.parse(
         std.testing.allocator,

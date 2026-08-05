@@ -497,32 +497,29 @@ public final class ResourceApiTest {
                     Results.TerminalExitCode,
             "terminal snapshot exposes typed lifecycle and exit"
         );
-        Snapshots.TerminalSnapshot legacyTerminal = Client.decodeTerminal(Map.of(
-            "id", "term_" + HEX,
-            "tab_id", "tab_" + HEX,
-            "title", "legacy",
-            "cols", 80,
-            "rows", 24,
-            "running", true,
-            "lifecycle", "running"
-        ));
-        require(
-            legacyTerminal.tabIds().equals(List.of(legacyTerminal.tabId().orElseThrow())),
-            "protocol-one terminal tab_id expands to tabIds"
+        expect(
+            IllegalArgumentException.class,
+            () -> Client.decodeTerminal(Map.of(
+                "id", "term_" + HEX,
+                "tab_id", "tab_" + HEX,
+                "title", "missing views",
+                "cols", 80,
+                "rows", 24,
+                "running", true,
+                "lifecycle", "running"
+            ))
         );
-        Map<String, Object> legacyDetachedFields = new LinkedHashMap<>();
-        legacyDetachedFields.put("id", "term_" + HEX);
-        legacyDetachedFields.put("tab_id", null);
-        legacyDetachedFields.put("title", "legacy detached");
-        legacyDetachedFields.put("cols", 80);
-        legacyDetachedFields.put("rows", 24);
-        legacyDetachedFields.put("running", true);
-        legacyDetachedFields.put("lifecycle", "running");
-        Snapshots.TerminalSnapshot legacyDetached =
-            Client.decodeTerminal(legacyDetachedFields);
-        require(
-            legacyDetached.tabId().isEmpty() && legacyDetached.tabIds().isEmpty(),
-            "protocol-one detached terminal expands to empty tabIds"
+        Map<String, Object> missingDetachedViews = new LinkedHashMap<>();
+        missingDetachedViews.put("id", "term_" + HEX);
+        missingDetachedViews.put("tab_id", null);
+        missingDetachedViews.put("title", "missing detached views");
+        missingDetachedViews.put("cols", 80);
+        missingDetachedViews.put("rows", 24);
+        missingDetachedViews.put("running", true);
+        missingDetachedViews.put("lifecycle", "running");
+        expect(
+            IllegalArgumentException.class,
+            () -> Client.decodeTerminal(missingDetachedViews)
         );
         expect(
             IllegalArgumentException.class,

@@ -767,7 +767,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		}
 	case *TerminalSnapshot:
 		required = []string{
-			"id", "tab_id", "title", "cols", "rows", "running", "lifecycle",
+			"id", "tab_id", "tab_ids", "title", "cols", "rows", "running", "lifecycle",
 		}
 	case *BrowserSnapshot:
 		required = []string{
@@ -902,17 +902,6 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("tab snapshot ids must be present")
 		}
 	case *TerminalSnapshot:
-		var terminalFields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &terminalFields); err != nil {
-			return err
-		}
-		if _, hasTabIDs := terminalFields["tab_ids"]; !hasTabIDs {
-			if decoded.TabID == nil {
-				decoded.TabIDs = []TabID{}
-			} else {
-				decoded.TabIDs = []TabID{*decoded.TabID}
-			}
-		}
 		if decoded.ID == "" || decoded.TabIDs == nil ||
 			decoded.Cols == 0 || decoded.Rows == 0 {
 			return fmt.Errorf("terminal snapshot ids and dimensions must be present")
@@ -937,6 +926,10 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf(
 				"terminal running must be true exactly while lifecycle is running",
 			)
+		}
+		var terminalFields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &terminalFields); err != nil {
+			return err
 		}
 		exitRaw, hasExit := terminalFields["exit"]
 		if hasExit && bytes.Equal(bytes.TrimSpace(exitRaw), []byte("null")) {
