@@ -37,10 +37,12 @@ pub(super) fn restore_public_projections(
                 .terminal_id
                 .clone()
                 .context("terminal notification omitted its terminal identity")?;
-            terminal_notifications.insert(
-                terminal_id,
-                SurfaceNotification { notification: numeric_id, level, unread: true },
-            );
+            if surface.is_some() {
+                terminal_notifications.insert(
+                    terminal_id,
+                    SurfaceNotification { notification: numeric_id, level, unread: true },
+                );
+            }
         }
         notification_ledger.push_back(ResourceNotification {
             id: notification.id,
@@ -215,10 +217,8 @@ mod tests {
         let terminal = TerminalPublicId::parse("term_00000000000000000000000000000003").unwrap();
         let projections = RegistryPublicProjections {
             notifications: vec![RegistryNotificationProjection {
-                id: NotificationPublicId::parse(
-                    "notification_00000000000000000000000000000003",
-                )
-                .unwrap(),
+                id: NotificationPublicId::parse("notification_00000000000000000000000000000003")
+                    .unwrap(),
                 title: "finished".into(),
                 body: String::new(),
                 level: "info".into(),

@@ -74,24 +74,18 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
     let session_id = resolve_session(mux, &request.selectors)?;
     let terminal = request.fields.get("terminal_id").map(parse_terminal_id).transpose()?;
     let state = request.fields.get("state").map(parse_agent_state).transpose()?;
+    let state_filter = state.map(AgentState::as_str);
     // Public agents are durable terminal projections. They remain listable
     // after process exit detaches the runtime and every tab view.
-    let mut values = mux
+    let values = mux
         .with_resource_projection(|registry, _state| {
             Ok(registry
-                .public_agent_projections()?
+                .public_agent_projections(terminal.as_ref(), state_filter)?
                 .into_iter()
-                .filter(|agent| {
-                    terminal.as_ref().is_none_or(|terminal| agent.terminal_id == *terminal)
-                })
-                .filter(|agent| state.is_none_or(|state| agent.state.as_str() == state.as_str()))
                 .map(|agent| agent.into_public_snapshot(&session_id))
                 .collect::<Vec<_>>())
         })
         .map_err(resource_operation_error)?;
-    values.sort_by(|left, right| {
-        left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
-    });
     Ok(Value::Array(values))
 }
 
@@ -746,13 +740,8 @@ mod tests {
         let unrelated_terminal = unrelated.terminal_public_id().cloned().unwrap();
 
         for (surface, session) in [(requested.id, "requested"), (unrelated.id, "unrelated")] {
-            mux.report_agent(
-                surface,
-                AgentState::Working,
-                AgentSource::Hook,
-                Some(session.into()),
-            )
-            .unwrap();
+            mux.report_agent(surface, AgentState::Working, AgentSource::Hook, Some(session.into()))
+                .unwrap();
         }
         mux.corrupt_agent_projection_for_test(&unrelated_terminal);
 

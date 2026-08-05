@@ -4426,10 +4426,7 @@ impl Mux {
 
     #[cfg(test)]
     pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
-        self.workspace_registry
-            .lock()
-            .unwrap()
-            .corrupt_agent_projection_for_test(terminal_id);
+        self.workspace_registry.lock().unwrap().corrupt_agent_projection_for_test(terminal_id);
     }
 
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
@@ -15530,9 +15527,7 @@ mod tests {
             .unwrap();
         let terminal_delta = changes
             .iter()
-            .find(|change| {
-                change["resource"] == "terminal" && change["id"] == terminal_id.as_str()
-            })
+            .find(|change| change["resource"] == "terminal" && change["id"] == terminal_id.as_str())
             .expect("projection changes the terminal's placement list");
         assert_eq!(&terminal_delta["value"], terminal);
 
