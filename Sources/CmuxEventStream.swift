@@ -140,8 +140,35 @@ extension TerminalController {
         return source
     }
 
-    nonisolated func publishSocketEvents(command: String, response: String) {
-        CmuxSocketEventMapper.publish(command: command, response: response)
+    nonisolated func publishSocketEvents(
+        command: String,
+        response: String,
+        caller: () -> CmuxSocketCallerIdentity
+    ) {
+        CmuxSocketEventMapper.publish(command: command, response: response, caller: caller)
+    }
+
+    /// Resolves who is on the other end of a control-socket connection, entirely
+    /// from kernel state (https://github.com/manaflow-ai/cmux/issues/9611).
+    ///
+    /// `pid` is the accept-time `LOCAL_PEERPID`. The process name comes from
+    /// `proc_pidpath` for that pid. The surface comes from the caller process's
+    /// controlling terminal matched against live Ghostty PTYs, reusing the same
+    /// `.controllingTTY` resolution agent hooks use, so a caller cannot claim a
+    /// surface it is not actually running in. Nothing here reads the request.
+    ///
+    /// Cost: one bounded-cache pid lookup plus one main hop. Connections memoize
+    /// the result, so `cmux send` pays this once, not per event.
+    nonisolated func socketCallerIdentity(peerProcessID pid: pid_t?) -> CmuxSocketCallerIdentity {
+        guard let pid, pid > 0 else { return .unknown }
+        let processName = CmuxSocketCallerResolver.processName(pid: pid)
+        let surfaceId = v2MainSync(commandKey: "socket.caller.identity") {
+            AppDelegate.shared?
+                .liveAgentDeliveryTarget(forAgentPID: pid, resolution: .controllingTTY)?
+                .surfaceId
+                .uuidString
+        }
+        return CmuxSocketCallerIdentity(pid: pid, processName: processName, surfaceId: surfaceId)
     }
 
     private nonisolated func writeEventsStreamLine(_ object: [String: Any], socket: Int32) -> Bool {

@@ -1583,6 +1583,16 @@ class TerminalController {
             }
         }
         var passwordAuthorization = SocketPasswordAuthorization()
+        // Attribution for every event this connection publishes. The peer pid is
+        // fixed for the connection's lifetime, so resolve it at most once and
+        // only when a command actually maps to an event.
+        var resolvedCallerIdentity: CmuxSocketCallerIdentity?
+        func socketCallerIdentityForConnection() -> CmuxSocketCallerIdentity {
+            if let resolvedCallerIdentity { return resolvedCallerIdentity }
+            let identity = socketCallerIdentity(peerProcessID: pid)
+            resolvedCallerIdentity = identity
+            return identity
+        }
         let lineReader = ControlClientLineReader(
             socket: socket,
             initialLimits: initialReadLimits,
@@ -1648,7 +1658,11 @@ class TerminalController {
                 passwordAuthorization = result.passwordAuthorization
                 if let response = result.response {
                     let didWriteResponse = writeSocketResponse(response, to: socket)
-                    publishSocketEvents(command: trimmed, response: response)
+                    publishSocketEvents(
+                        command: trimmed,
+                        response: response,
+                        caller: socketCallerIdentityForConnection
+                    )
                     if !didWriteResponse {
                         shouldCloseSocket = true
                     }
