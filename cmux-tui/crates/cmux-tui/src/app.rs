@@ -19,6 +19,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_core::resource::FrontendProjectionPublicId;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
@@ -6003,7 +6004,7 @@ pub struct App {
     session_generation: u64,
     app_events: SyncSender<AppEvent>,
     frontend_journal: FrontendJournalWorker,
-    frontend_instance: String,
+    frontend_projection_id: FrontendProjectionPublicId,
     last_frontend_presentation: Option<FrontendPresentationSnapshot>,
     outer_size: (u16, u16),
     host_input: HostInputRuntime,
@@ -7272,13 +7273,17 @@ fn run_with_machine_updates_inner(
         Ok(worker) => worker,
         Err(error) => return Err(terminal_restore.restore_after_error(error)),
     };
+    let frontend_projection_id = match FrontendProjectionPublicId::random() {
+        Ok(id) => id,
+        Err(error) => return Err(terminal_restore.restore_after_error(error.into())),
+    };
     let mut app = App {
         session,
         session_event_worker: Some(session_event_worker),
         session_generation,
         app_events: tx,
         frontend_journal,
-        frontend_instance: uuid::Uuid::new_v4().simple().to_string(),
+        frontend_projection_id,
         last_frontend_presentation: None,
         outer_size: (0, 0),
         host_input,
@@ -8899,7 +8904,7 @@ impl App {
         }
         let next = self.frontend_presentation_snapshot();
         let previous = self.last_frontend_presentation.replace(next.clone());
-        let generation = format!("{}_{}", self.frontend_instance, self.session_generation);
+        let generation = format!("{}_{}", self.frontend_projection_id, self.session_generation);
         let session = self.session.inner.clone();
         if previous.as_ref().is_none_or(|previous| previous.focus != next.focus) {
             let focus = next.focus;
@@ -8907,6 +8912,7 @@ impl App {
                 session.clone(),
                 FrontendJournalEvent::Focus {
                     event_id: frontend_journal_event_id(),
+                    frontend_projection_id: self.frontend_projection_id.clone(),
                     generation: generation.clone(),
                     target: focus.target,
                     workspace_id: focus.workspace_id,
@@ -8923,6 +8929,7 @@ impl App {
                 session.clone(),
                 FrontendJournalEvent::Resize {
                     event_id: frontend_journal_event_id(),
+                    frontend_projection_id: self.frontend_projection_id.clone(),
                     generation: generation.clone(),
                     cols: resize.cols,
                     rows: resize.rows,
@@ -8937,6 +8944,7 @@ impl App {
                 session,
                 FrontendJournalEvent::Viewport {
                     event_id: frontend_journal_event_id(),
+                    frontend_projection_id: self.frontend_projection_id.clone(),
                     generation,
                     screen_id: viewport.screen_id,
                     offset: viewport.offset,
@@ -35142,7 +35150,10 @@ mod tests {
             session_generation: 1,
             app_events: events,
             frontend_journal: FrontendJournalWorker::disabled(),
-            frontend_instance: "test".into(),
+            frontend_projection_id: FrontendProjectionPublicId::parse(
+                "projection_00000000000000000000000000000001",
+            )
+            .unwrap(),
             last_frontend_presentation: None,
             outer_size: (0, 0),
             host_input: HostInputRuntime::new(),

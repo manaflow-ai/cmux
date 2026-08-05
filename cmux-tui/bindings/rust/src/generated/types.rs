@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298.
+// cmux-tui mux protocol 10, IR 3fb00766119909d35be17301cb020de39d83ffd67a4a1ec6baaaeedd2fe6ee0d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -274,6 +274,7 @@ pub enum FrontendJournalEvent {
         #[serde(default, skip_serializing_if = "Optional::is_missing")]
         content_id: Optional<String>,
         event_id: String,
+        frontend_projection_id: String,
         generation: String,
         #[serde(default, skip_serializing_if = "Optional::is_missing")]
         pane_id: Optional<String>,
@@ -291,12 +292,14 @@ pub enum FrontendJournalEvent {
         cell_width: u16,
         cols: u16,
         event_id: String,
+        frontend_projection_id: String,
         generation: String,
         rows: u16,
     },
     #[serde(rename = "viewport")]
     Viewport {
         event_id: String,
+        frontend_projection_id: String,
         generation: String,
         offset: u64,
         #[serde(default, skip_serializing_if = "Optional::is_missing")]

@@ -212,10 +212,21 @@ public final class Options {
             Objects.requireNonNull(decision, "decision");
         }
     }
-    public record ProjectionPut(Mutation mutation, Map<String, Object> projection) {
+    public record ProjectionPut(
+        Mutation mutation,
+        String frontendId,
+        String windowId,
+        String generation,
+        Map<String, Object> projection,
+        Optional<Decimal> expectedProjectionRevision
+    ) {
         public ProjectionPut {
             mutation = mut(mutation);
+            Objects.requireNonNull(frontendId, "frontendId");
+            Objects.requireNonNull(windowId, "windowId");
+            Objects.requireNonNull(generation, "generation");
             projection = copy(projection);
+            expectedProjectionRevision = opt(expectedProjectionRevision);
         }
     }
     public record WorkspaceCreate(
@@ -612,8 +623,26 @@ public final class Options {
             });
         }
     }
-    public record ViewerSize(Control control, int width, int height) {
-        public ViewerSize { control = Options.control(control); nonnegative(width, "width"); nonnegative(height, "height"); }
+    public record ViewerSize(
+        Control control,
+        String attachmentLease,
+        int width,
+        int height
+    ) {
+        public ViewerSize {
+            control = Options.control(control);
+            Objects.requireNonNull(attachmentLease, "attachmentLease");
+            bounded(attachmentLease, "attachmentLease", 1, 128);
+            nonnegative(width, "width");
+            nonnegative(height, "height");
+        }
+    }
+    public record ViewAttachment(Control control, String attachmentLease) {
+        public ViewAttachment {
+            control = Options.control(control);
+            Objects.requireNonNull(attachmentLease, "attachmentLease");
+            bounded(attachmentLease, "attachmentLease", 1, 128);
+        }
     }
     public record Scroll(Mutation mutation, long delta) {
         public Scroll { mutation = mut(mutation); }

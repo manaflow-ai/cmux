@@ -1226,6 +1226,10 @@ mod tests {
         }
         mux.journal_local_frontend_event(crate::FrontendJournalEvent::Resize {
             event_id: "event_hook_saturation_barrier".into(),
+            frontend_projection_id: crate::resource::FrontendProjectionPublicId::parse(
+                "projection_00000000000000000000000000000077",
+            )
+            .unwrap(),
             generation: "hook-saturation-frontend".into(),
             cols: 80,
             rows: 24,

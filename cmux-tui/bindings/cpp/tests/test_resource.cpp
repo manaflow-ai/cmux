@@ -167,6 +167,16 @@ std::string stream_open_response(
         "{\"stream_id\":\"" + stream_id + "\"}");
 }
 
+std::string attachment_open_response(
+    const std::string& request_id,
+    const std::string& stream_id,
+    const std::string& attachment_lease) {
+    return response(
+        request_id,
+        "{\"stream_id\":\"" + stream_id +
+            "\",\"attachment_lease\":\"" + attachment_lease + "\"}");
+}
+
 std::string resource_snapshot(std::uint64_t revision) {
     const auto decimal = std::to_string(revision);
     return
@@ -2893,11 +2903,13 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
     auto client = client_for(control, stream_state);
     std::atomic<bool> open_route_ok{false};
     std::atomic<bool> resize_route_ok{false};
+    std::atomic<bool> release_route_ok{false};
 
     std::thread server([
         stream_state,
         &open_route_ok,
-        &resize_route_ok
+        &resize_route_ok,
+        &release_route_ok
     ] {
         wait_for_writes(stream_state, 1);
         cmux::Json open;
@@ -2921,7 +2933,10 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
             std::memory_order_release);
         enqueue(
             stream_state,
-            stream_open_response(request_id, stream_id));
+            attachment_open_response(
+                request_id,
+                stream_id,
+                "terminal-lease"));
 
         wait_for_writes(stream_state, 2);
         cmux::Json resize;
@@ -2938,6 +2953,8 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
                     "terminal.viewer.resize" &&
                 resize_params->at("terminal").as_string().value() ==
                     "term_0123456789abcdef0123456789abcdef" &&
+                resize_params->at("attachment_lease").as_string().value() ==
+                    "terminal-lease" &&
                 resize_params->at("cols").as_uint64().value() == 100U &&
                 resize_params->at("rows").as_uint64().value() == 40U,
             std::memory_order_release);
@@ -2945,7 +2962,7 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
             stream_state,
             response(
                 resize_id,
-                R"({"accepted":true,"size":{"cols":100,"rows":40}})"));
+                R"({"accepted":true,"size":{"cols":100,"rows":40},"outcome":"applied"})"));
 
         wait_for_writes(stream_state, 3);
         cmux::Json release;
@@ -2956,7 +2973,19 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
         }
         const auto release_id =
             std::string(release.find("id")->as_string().value());
-        enqueue(stream_state, response(release_id));
+        const auto* release_params =
+            release.find("params")->as_object().value();
+        release_route_ok.store(
+            release.find("operation")->as_string().value() ==
+                    "terminal.viewer.release" &&
+                release_params->at("terminal").as_string().value() ==
+                    "term_0123456789abcdef0123456789abcdef" &&
+                release_params->at("attachment_lease").as_string().value() ==
+                    "terminal-lease",
+            std::memory_order_release);
+        enqueue(
+            stream_state,
+            response(release_id, R"({"outcome":"applied"})"));
     });
 
     auto terminal_id = cmux::TerminalId::parse(
@@ -2973,11 +3002,18 @@ TEST("attachment resize and release stay on the dedicated stream connection") {
     CHECK(resized);
     CHECK(resized.value().accepted);
     CHECK_EQ(resized.value().size.cols, 100U);
+    CHECK_EQ(
+        resized.value().outcome,
+        cmux::ViewerResizeResult::Outcome::applied);
     auto released = stream.value().release_viewer();
     CHECK(released);
+    CHECK_EQ(
+        released.value().outcome,
+        cmux::ViewerResizeResult::Outcome::applied);
     server.join();
     CHECK(open_route_ok.load(std::memory_order_acquire));
     CHECK(resize_route_ok.load(std::memory_order_acquire));
+    CHECK(release_route_ok.load(std::memory_order_acquire));
     std::lock_guard lock(control->mutex);
     CHECK(control->outgoing.empty());
 }

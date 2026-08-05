@@ -4941,7 +4941,7 @@ impl Mux {
         selectors: crate::ResourceSelectors,
         projection_id: &FrontendProjectionPublicId,
         projection: &Value,
-        expected_revision: Option<u64>,
+        expected_projection_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let fingerprint = serde_json::json!({
@@ -4955,6 +4955,12 @@ impl Mux {
         {
             return Ok(replay);
         }
+        let projection_revision = registry
+            .get_frontend_projection("resource-api", "session", projection_id.as_str())?
+            .map(|projection| projection.projection_revision)
+            .unwrap_or(0)
+            .checked_add(1)
+            .context("frontend projection revision exhausted")?;
         let mut session_selectors = selectors;
         session_selectors.frontend_projection = None;
         let mut state = self.state.lock().unwrap();
@@ -4971,7 +4977,11 @@ impl Mux {
         let value = serde_json::json!({
             "id":projection_id,
             "session_id":session_id,
-            "projection":projection,
+            "frontend_id":projection["frontend_id"],
+            "window_id":projection["window_id"],
+            "generation":projection["generation"],
+            "projection":projection["projection"],
+            "projection_revision":projection_revision.to_string(),
         });
         let deltas = serde_json::json!([{
             "kind":"upsert",
@@ -4985,7 +4995,7 @@ impl Mux {
             "frontend_projection.put",
             &fingerprint,
             None,
-            expected_revision,
+            expected_projection_revision,
             "resource-api",
             "session",
             projection_id.as_str(),
@@ -17270,6 +17280,9 @@ mod tests {
             "machine":"current",
             "session":"current",
             "frontend_projection":projection_id,
+            "frontend_id":"cmux-test",
+            "window_id":"window-restart",
+            "generation":"launch-restart",
             "projection":{
                 "schema":"cmux.sidebar.test/1",
                 "revision":"7",

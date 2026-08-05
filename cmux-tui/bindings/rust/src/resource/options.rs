@@ -745,7 +745,11 @@ pub struct TerminalDefaultsOptions {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProjectionOptions {
+    pub frontend_id: String,
+    pub window_id: String,
+    pub generation: String,
     pub projection: Value,
+    pub expected_projection_revision: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

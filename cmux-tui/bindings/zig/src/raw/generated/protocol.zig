@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298";
+pub const ir_sha256 = "3fb00766119909d35be17301cb020de39d83ffd67a4a1ec6baaaeedd2fe6ee0d";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -321,6 +321,7 @@ pub const FrontendFocusTarget = enum {
 pub const FrontendJournalEventFocus = struct {
     content_id: wire.Field([]const u8) = .absent,
     event_id: []const u8,
+    frontend_projection_id: []const u8,
     generation: []const u8,
     pane_id: wire.Field([]const u8) = .absent,
     screen_id: wire.Field([]const u8) = .absent,
@@ -334,12 +335,14 @@ pub const FrontendJournalEventResize = struct {
     cell_width: u16,
     cols: u16,
     event_id: []const u8,
+    frontend_projection_id: []const u8,
     generation: []const u8,
     rows: u16,
 };
 
 pub const FrontendJournalEventViewport = struct {
     event_id: []const u8,
+    frontend_projection_id: []const u8,
     generation: []const u8,
     offset: u64,
     screen_id: wire.Field([]const u8) = .absent,

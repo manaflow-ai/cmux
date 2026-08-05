@@ -1108,6 +1108,28 @@
       },
       "extra": false
     },
+    "ViewAttachmentStreamOpened": {
+      "kind": "object",
+      "fields": {
+        "stream_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "stream"
+          }
+        },
+        "attachment_lease": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
+      },
+      "extra": false
+    },
     "Size": {
       "kind": "object",
       "fields": {
@@ -2604,6 +2626,40 @@
             "name": "JsonValue"
           }
         },
+        "frontend_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "window_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "generation": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "projection_revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
         "extra": {
           "required": false,
           "type": {
@@ -3994,6 +4050,13 @@
             "kind": "ref",
             "name": "Size"
           }
+        },
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ViewAttachmentOutcome"
+          }
         }
       },
       "extra": false
@@ -4013,6 +4076,34 @@
           "type": {
             "kind": "ref",
             "name": "PixelSize"
+          }
+        },
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ViewAttachmentOutcome"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ViewAttachmentOutcome": {
+      "kind": "enum",
+      "values": [
+        "applied",
+        "passive",
+        "superseded"
+      ]
+    },
+    "ViewerReleaseResult": {
+      "kind": "object",
+      "fields": {
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ViewAttachmentOutcome"
           }
         }
       },
@@ -5794,7 +5885,7 @@
       },
       "result": {
         "kind": "ref",
-        "name": "StreamOpened"
+        "name": "ViewAttachmentStreamOpened"
       },
       "stream": {
         "item": {
@@ -6567,12 +6658,22 @@
           "tab": "optional",
           "browser": "required"
         },
-        "fields": {},
+        "fields": {
+          "attachment_lease": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          }
+        },
         "extra": false
       },
       "result": {
         "kind": "ref",
-        "name": "EmptyResult"
+        "name": "ViewerReleaseResult"
       },
       "errors": [
         "operation.failed",
@@ -6607,6 +6708,15 @@
           "browser": "required"
         },
         "fields": {
+          "attachment_lease": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
           "width_px": {
             "required": true,
             "type": {
@@ -6974,13 +7084,40 @@
               "name": "JsonValue"
             }
           },
-          "expected_revision": {
+          "frontend_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "window_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "generation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "expected_projection_revision": {
             "required": false,
             "type": {
               "kind": "primitive",
               "name": "decimal"
             },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+            "description": "Optimistic concurrency revision for this frontend window projection. Omit for no revision precondition."
           }
         },
         "extra": false
@@ -10421,7 +10558,7 @@
       },
       "result": {
         "kind": "ref",
-        "name": "StreamOpened"
+        "name": "ViewAttachmentStreamOpened"
       },
       "stream": {
         "item": {
@@ -11453,12 +11590,22 @@
           "tab": "optional",
           "terminal": "required"
         },
-        "fields": {},
+        "fields": {
+          "attachment_lease": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          }
+        },
         "extra": false
       },
       "result": {
         "kind": "ref",
-        "name": "EmptyResult"
+        "name": "ViewerReleaseResult"
       },
       "errors": [
         "operation.failed",
@@ -11493,6 +11640,15 @@
           "terminal": "required"
         },
         "fields": {
+          "attachment_lease": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
           "cols": {
             "required": true,
             "type": {

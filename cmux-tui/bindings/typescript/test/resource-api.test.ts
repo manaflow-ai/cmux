@@ -1589,7 +1589,11 @@ test("auxiliary resource discriminants select their decoder and preserve extra f
           value: {
             id: PROJECTION,
             session_id: SESSION,
+            frontend_id: "swift",
+            window_id: "window-a",
+            generation: "launch-a",
             projection: { kind: "tree", tabs: 2 },
+            projection_revision: "1",
             extra: { source: "sidebar" },
           },
         },
@@ -1697,7 +1701,10 @@ test("browser frames expose the exact pointer token used by mouse and wheel", as
   const transport = new FakeTransport((request, current) => {
     if (request.operation === "browser.attach") {
       openedStream = (request.params as Envelope).stream_id as string;
-      current.ok(request, { stream_id: openedStream });
+      current.ok(request, {
+        stream_id: openedStream,
+        attachment_lease: "browser-lease",
+      });
       return;
     }
     current.ok(request, {
@@ -1830,7 +1837,10 @@ test("browser frames reject a missing or non-string pointer token", async () => 
     let openedStream = "";
     const transport = new FakeTransport((request, current) => {
       openedStream = (request.params as Envelope).stream_id as string;
-      current.ok(request, { stream_id: openedStream });
+      current.ok(request, {
+        stream_id: openedStream,
+        attachment_lease: "browser-lease",
+      });
     });
     const client = new Client({
       transport,

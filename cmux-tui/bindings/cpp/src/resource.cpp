@@ -1925,6 +1925,37 @@ FrontendProjection Client::projection(FrontendProjectionId id) const {
         Selector<FrontendProjectionId>::by_id(std::move(id)));
 }
 
+Result<FrontendProjectionSnapshot> FrontendProjection::refresh() const {
+    return read(Operation::frontend_projection_get);
+}
+
+Result<MutationResult<FrontendProjectionSnapshot>> FrontendProjection::put(
+    ProjectionPutOptions projection,
+    MutationOptions options) const {
+    if (projection.frontend_id.empty() || projection.frontend_id.size() > 128 ||
+        projection.window_id.empty() || projection.window_id.size() > 128 ||
+        projection.generation.empty() || projection.generation.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "frontend, window, and generation IDs must contain 1 to 128 bytes");
+    }
+    Json::Object params{
+        {"frontend_id", Json(std::move(projection.frontend_id))},
+        {"window_id", Json(std::move(projection.window_id))},
+        {"generation", Json(std::move(projection.generation))},
+        {"projection", std::move(projection.projection)},
+    };
+    if (projection.expected_projection_revision) {
+        params.emplace(
+            "expected_projection_revision",
+            Json(std::to_string(*projection.expected_projection_revision)));
+    }
+    return mutate(
+        Operation::frontend_projection_put,
+        std::move(params),
+        std::move(options));
+}
+
 SidebarView Client::sidebar_view(
     Selector<SidebarViewId> selector) const {
     return SidebarView(state_, std::move(selector), "sidebar_view");
@@ -2626,6 +2657,7 @@ Result<RendererGrant> Terminal::renderer_grant(Json::Object params) const {
 }
 
 Result<ViewerResizeResult> Terminal::resize_viewer(
+    std::string attachment_lease,
     std::uint16_t columns,
     std::uint16_t rows) const {
     if (columns == 0 || rows == 0) {
@@ -2633,21 +2665,35 @@ Result<ViewerResizeResult> Terminal::resize_viewer(
             ErrorCode::invalid_argument,
             "terminal cell dimensions must be positive");
     }
+    if (attachment_lease.empty() || attachment_lease.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "attachment lease must contain 1 to 128 bytes");
+    }
     return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::terminal_viewer_resize,
         routed_params(Json::Object{
+            {"attachment_lease", Json(std::move(attachment_lease))},
             {"cols", Json(static_cast<std::uint64_t>(columns))},
             {"rows", Json(static_cast<std::uint64_t>(rows))},
         }),
         {}));
 }
 
-Result<EmptyResult> Terminal::release_viewer() const {
+Result<ViewerReleaseResult> Terminal::release_viewer(
+    std::string attachment_lease) const {
+    if (attachment_lease.empty() || attachment_lease.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "attachment lease must contain 1 to 128 bytes");
+    }
     return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::terminal_viewer_release,
-        routed_params(),
+        routed_params(Json::Object{
+            {"attachment_lease", Json(std::move(attachment_lease))},
+        }),
         {}));
 }
 
@@ -2802,6 +2848,7 @@ Result<MutationResult<EmptyResult>> Browser::wheel(
 }
 
 Result<BrowserViewerResizeResult> Browser::resize_viewer(
+    std::string attachment_lease,
     std::uint32_t width_px,
     std::uint32_t height_px) const {
     if (width_px == 0 || height_px == 0) {
@@ -2809,21 +2856,35 @@ Result<BrowserViewerResizeResult> Browser::resize_viewer(
             ErrorCode::invalid_argument,
             "browser pixel dimensions must be positive");
     }
+    if (attachment_lease.empty() || attachment_lease.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "attachment lease must contain 1 to 128 bytes");
+    }
     return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::browser_viewer_resize,
         routed_params(Json::Object{
+            {"attachment_lease", Json(std::move(attachment_lease))},
             {"width_px", Json(static_cast<std::uint64_t>(width_px))},
             {"height_px", Json(static_cast<std::uint64_t>(height_px))},
         }),
         {}));
 }
 
-Result<EmptyResult> Browser::release_viewer() const {
+Result<ViewerReleaseResult> Browser::release_viewer(
+    std::string attachment_lease) const {
+    if (attachment_lease.empty() || attachment_lease.size() > 128) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "attachment lease must contain 1 to 128 bytes");
+    }
     return detail::ResourceReadResult(detail::resource_control(
         state_,
         Operation::browser_viewer_release,
-        routed_params(),
+        routed_params(Json::Object{
+            {"attachment_lease", Json(std::move(attachment_lease))},
+        }),
         {}));
 }
 
@@ -3259,6 +3320,7 @@ struct ResourceStream::Impl {
     std::unique_ptr<Transport> transport;
     ClientOptions options;
     StreamId stream_id;
+    std::optional<std::string> attachment_lease;
     std::string machine_selector;
     std::string session_selector;
     Json::Object connection_route;
@@ -3476,9 +3538,16 @@ detail::ResourceClientState::open_stream(
             if (!response) {
                 return std::move(response).error();
             }
+            const bool view_attachment =
+                operation == Operation::terminal_attach ||
+                operation == Operation::browser_attach;
             auto exact = require_exact_fields(
                 response.value(),
-                {"stream_id", "cursor"},
+                view_attachment
+                    ? std::initializer_list<std::string_view>{
+                          "stream_id", "attachment_lease"}
+                    : std::initializer_list<std::string_view>{
+                          "stream_id", "cursor"},
                 "stream open result");
             if (!exact) {
                 return std::move(exact).error();
@@ -3490,7 +3559,21 @@ detail::ResourceClientState::open_stream(
                     ErrorCode::protocol,
                     "stream open result ID mismatch");
             }
-            if (const Json* cursor = response.value().find("cursor")) {
+            if (view_attachment) {
+                auto lease = require_string(
+                    response.value(), "attachment_lease");
+                if (!lease || lease.value().empty() || lease.value().size() > 128) {
+                    return make_error(
+                        ErrorCode::decode,
+                        "stream attachment lease must contain 1 to 128 bytes");
+                }
+                impl->attachment_lease = std::string(lease.value());
+            }
+            if (!view_attachment) {
+                const Json* cursor = response.value().find("cursor");
+                if (!cursor) {
+                    return impl;
+                }
                 if (cursor->is_null()) {
                     return make_error(
                         ErrorCode::decode,
@@ -3546,6 +3629,11 @@ ResourceStream::~ResourceStream() {
 const StreamId& ResourceStream::id() const noexcept {
     static const StreamId empty;
     return impl_ ? impl_->stream_id : empty;
+}
+
+const std::optional<std::string>& ResourceStream::attachment_lease() const noexcept {
+    static const std::optional<std::string> empty;
+    return impl_ ? impl_->attachment_lease : empty;
 }
 
 Result<std::optional<RawStreamItem>> ResourceStream::next() {
@@ -3695,17 +3783,27 @@ Result<ViewerResizeResult> TerminalAttachmentStream::resize_viewer(
             ErrorCode::invalid_argument,
             "terminal cell dimensions must be positive");
     }
+    const auto& lease = stream_.attachment_lease();
+    if (!lease) {
+        return make_error(ErrorCode::decode, "terminal attachment has no lease");
+    }
     return detail::ResourceReadResult(stream_.connection_control(
         Operation::terminal_viewer_resize,
         Json::Object{
+            {"attachment_lease", Json(*lease)},
             {"cols", Json(static_cast<std::uint64_t>(columns))},
             {"rows", Json(static_cast<std::uint64_t>(rows))},
         }));
 }
 
-Result<EmptyResult> TerminalAttachmentStream::release_viewer() {
+Result<ViewerReleaseResult> TerminalAttachmentStream::release_viewer() {
+    const auto& lease = stream_.attachment_lease();
+    if (!lease) {
+        return make_error(ErrorCode::decode, "terminal attachment has no lease");
+    }
     return detail::ResourceReadResult(stream_.connection_control(
-        Operation::terminal_viewer_release));
+        Operation::terminal_viewer_release,
+        Json::Object{{"attachment_lease", Json(*lease)}}));
 }
 
 Result<BrowserViewerResizeResult> BrowserAttachmentStream::resize_viewer(
@@ -3716,17 +3814,27 @@ Result<BrowserViewerResizeResult> BrowserAttachmentStream::resize_viewer(
             ErrorCode::invalid_argument,
             "browser pixel dimensions must be positive");
     }
+    const auto& lease = stream_.attachment_lease();
+    if (!lease) {
+        return make_error(ErrorCode::decode, "browser attachment has no lease");
+    }
     return detail::ResourceReadResult(stream_.connection_control(
         Operation::browser_viewer_resize,
         Json::Object{
+            {"attachment_lease", Json(*lease)},
             {"width_px", Json(static_cast<std::uint64_t>(width_px))},
             {"height_px", Json(static_cast<std::uint64_t>(height_px))},
         }));
 }
 
-Result<EmptyResult> BrowserAttachmentStream::release_viewer() {
+Result<ViewerReleaseResult> BrowserAttachmentStream::release_viewer() {
+    const auto& lease = stream_.attachment_lease();
+    if (!lease) {
+        return make_error(ErrorCode::decode, "browser attachment has no lease");
+    }
     return detail::ResourceReadResult(stream_.connection_control(
-        Operation::browser_viewer_release));
+        Operation::browser_viewer_release,
+        Json::Object{{"attachment_lease", Json(*lease)}}));
 }
 
 Result<StreamEnd> ResourceStream::cancel() {

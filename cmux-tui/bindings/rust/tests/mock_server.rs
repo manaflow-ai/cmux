@@ -1163,7 +1163,11 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             })
         )
         .unwrap();
-        success(&mut terminal_stream, &terminal_open, json!({"stream_id": terminal_stream_id}));
+        success(
+            &mut terminal_stream,
+            &terminal_open,
+            json!({"stream_id": terminal_stream_id, "attachment_lease": "terminal-lease"}),
+        );
 
         let terminal_resize = request(&mut terminal_reader);
         assert_eq!(terminal_resize["operation"], "terminal.viewer.resize");
@@ -1173,6 +1177,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
                 "machine": "current",
                 "session": SESSION,
                 "terminal": TERMINAL,
+                "attachment_lease": "terminal-lease",
                 "cols": 100,
                 "rows": 30
             })
@@ -1192,7 +1197,11 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
         success(
             &mut terminal_stream,
             &terminal_resize,
-            json!({"accepted": true, "size": {"cols": 100, "rows": 30}}),
+            json!({
+                "accepted": true,
+                "size": {"cols": 100, "rows": 30},
+                "outcome": "applied"
+            }),
         );
 
         let terminal_release = request(&mut terminal_reader);
@@ -1202,10 +1211,11 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             json!({
                 "machine": "current",
                 "session": SESSION,
-                "terminal": TERMINAL
+                "terminal": TERMINAL,
+                "attachment_lease": "terminal-lease"
             })
         );
-        success(&mut terminal_stream, &terminal_release, json!({}));
+        success(&mut terminal_stream, &terminal_release, json!({"outcome": "applied"}));
 
         let terminal_cancel = request(&mut terminal_reader);
         assert_eq!(terminal_cancel["operation"], "stream.cancel");
@@ -1227,7 +1237,11 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
         let browser_open = request(&mut browser_reader);
         assert_eq!(browser_open["operation"], "browser.attach");
         let browser_stream_id = browser_open["params"]["stream_id"].as_str().unwrap().to_string();
-        success(&mut browser_stream, &browser_open, json!({"stream_id": browser_stream_id}));
+        success(
+            &mut browser_stream,
+            &browser_open,
+            json!({"stream_id": browser_stream_id, "attachment_lease": "browser-lease"}),
+        );
 
         let browser_resize = request(&mut browser_reader);
         assert_eq!(browser_resize["operation"], "browser.viewer.resize");
@@ -1237,6 +1251,7 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
                 "machine": "current",
                 "session": SESSION,
                 "browser": BROWSER,
+                "attachment_lease": "browser-lease",
                 "width_px": 1280,
                 "height_px": 720
             })
@@ -1246,7 +1261,8 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             &browser_resize,
             json!({
                 "accepted": true,
-                "size": {"width_px": 1280, "height_px": 720}
+                "size": {"width_px": 1280, "height_px": 720},
+                "outcome": "applied"
             }),
         );
 
@@ -1257,10 +1273,11 @@ fn attachment_resize_and_release_use_each_owned_stream_connection() {
             json!({
                 "machine": "current",
                 "session": SESSION,
-                "browser": BROWSER
+                "browser": BROWSER,
+                "attachment_lease": "browser-lease"
             })
         );
-        success(&mut browser_stream, &browser_release, json!({}));
+        success(&mut browser_stream, &browser_release, json!({"outcome": "applied"}));
 
         let browser_cancel = request(&mut browser_reader);
         assert_eq!(browser_cancel["operation"], "stream.cancel");
@@ -1730,7 +1747,11 @@ fn live_stream_overflow_sends_one_cancel_and_prevents_reuse() {
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let open = request(&mut reader);
         let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
-        success(&mut stream, &open, json!({"stream_id":stream_id}));
+        success(
+            &mut stream,
+            &open,
+            json!({"stream_id":stream_id, "attachment_lease":"overflow-lease"}),
+        );
 
         let resize = request(&mut reader);
         assert_eq!(resize["operation"], "terminal.viewer.resize");
@@ -2070,10 +2091,14 @@ fn catalog_terminal_session_client_and_pairing_results_are_concrete() {
             ),
             (
                 "terminal.viewer.resize",
-                json!({"accepted": true, "size": {"cols": 100, "rows": 30}}),
+                json!({
+                    "accepted": true,
+                    "size": {"cols": 100, "rows": 30},
+                    "outcome": "applied"
+                }),
                 false,
             ),
-            ("terminal.viewer.release", json!({}), false),
+            ("terminal.viewer.release", json!({"outcome": "applied"}), false),
             (
                 "client.cell_pixels.set",
                 json!({
@@ -2150,8 +2175,11 @@ fn catalog_terminal_session_client_and_pairing_results_are_concrete() {
     );
     assert_eq!(terminal.copy(CopyOptions::default()).unwrap().text, "copied");
     assert_eq!(terminal.process().unwrap().children, vec![43]);
-    assert_eq!(terminal.viewer_resize(Size::new(100, 30).unwrap()).unwrap().size.cols, 100);
-    terminal.viewer_release().unwrap();
+    assert_eq!(
+        terminal.viewer_resize("terminal-lease", Size::new(100, 30).unwrap()).unwrap().size.cols,
+        100
+    );
+    terminal.viewer_release("terminal-lease").unwrap();
 
     let connected = session.connected_client(cmux::ConnectedClientId::parse(CLIENT).unwrap());
     assert_eq!(

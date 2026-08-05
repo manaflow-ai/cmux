@@ -162,7 +162,11 @@ type FrontendProjectionGetOptions struct {
 }
 type FrontendProjectionPutOptions struct {
 	MutationOptions
-	Projection JSONValue
+	FrontendID                 string
+	WindowID                   string
+	Generation                 string
+	Projection                 JSONValue
+	ExpectedProjectionRevision *Decimal
 }
 
 type WorkspaceListOptions struct{ ReadOptions }
@@ -350,10 +354,14 @@ type TerminalRendererGrantCreateOptions struct {
 }
 type TerminalViewerResizeOptions struct {
 	ControlOptions
-	Cols uint16
-	Rows uint16
+	AttachmentLease string
+	Cols            uint16
+	Rows            uint16
 }
-type TerminalViewerReleaseOptions struct{ ControlOptions }
+type TerminalViewerReleaseOptions struct {
+	ControlOptions
+	AttachmentLease string
+}
 type TerminalViewportScrollOptions struct {
 	MutationOptions
 	DeltaRows int32
@@ -419,10 +427,14 @@ type BrowserInputWheelOptions struct {
 }
 type BrowserViewerResizeOptions struct {
 	ControlOptions
-	WidthPX  uint32
-	HeightPX uint32
+	AttachmentLease string
+	WidthPX         uint32
+	HeightPX        uint32
 }
-type BrowserViewerReleaseOptions struct{ ControlOptions }
+type BrowserViewerReleaseOptions struct {
+	ControlOptions
+	AttachmentLease string
+}
 type BrowserAttachOptions struct {
 	StreamOptions
 	WidthPX  *uint32

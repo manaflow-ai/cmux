@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298. */
+/* cmux-tui mux protocol 10, IR 3fb00766119909d35be17301cb020de39d83ffd67a4a1ec6baaaeedd2fe6ee0d. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -150,6 +150,7 @@ export type FrontendFocusTarget = "pane" | "machine_rail" | "workspace_rail";
 export type FrontendJournalEvent = ({ "kind": "focus" } & {
   "content_id"?: (string) | null;
   "event_id": string;
+  "frontend_projection_id": string;
   "generation": string;
   "kind": "focus";
   "pane_id"?: (string) | null;
@@ -162,11 +163,13 @@ export type FrontendJournalEvent = ({ "kind": "focus" } & {
   "cell_width": number;
   "cols": number;
   "event_id": string;
+  "frontend_projection_id": string;
   "generation": string;
   "kind": "resize";
   "rows": number;
 }) | ({ "kind": "viewport" } & {
   "event_id": string;
+  "frontend_projection_id": string;
   "generation": string;
   "kind": "viewport";
   "offset": bigint;

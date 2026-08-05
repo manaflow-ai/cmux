@@ -27,6 +27,7 @@ public final class Wire {
     public static final String BROWSER = "browser";
     public static final String CLIENT = "client";
     public static final String STREAM_ID = "stream_id";
+    public static final String ATTACHMENT_LEASE = "attachment_lease";
     public static final String IDEMPOTENCY_KEY = "idempotency_key";
     public static final String ARGV = "argv";
     public static final String SHELL = "shell";

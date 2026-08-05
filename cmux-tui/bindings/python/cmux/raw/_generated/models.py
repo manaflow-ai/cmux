@@ -403,6 +403,7 @@ class FocusDirectionResult:
 class FrontendJournalEventFocus:
     __cmux_schema_path__: ClassVar[str] = 'types/FrontendJournalEvent/variants/focus'
     event_id: str
+    frontend_projection_id: str
     generation: str
     kind: Literal['focus']
     target: FrontendFocusTarget
@@ -420,6 +421,7 @@ class FrontendJournalEventResize:
     cell_width: int
     cols: int
     event_id: str
+    frontend_projection_id: str
     generation: str
     kind: Literal['resize']
     rows: int
@@ -429,6 +431,7 @@ class FrontendJournalEventResize:
 class FrontendJournalEventViewport:
     __cmux_schema_path__: ClassVar[str] = 'types/FrontendJournalEvent/variants/viewport'
     event_id: str
+    frontend_projection_id: str
     generation: str
     kind: Literal['viewport']
     offset: int

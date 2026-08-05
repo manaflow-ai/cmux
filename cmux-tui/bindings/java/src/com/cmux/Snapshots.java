@@ -352,13 +352,21 @@ public final class Snapshots {
     public record FrontendProjectionSnapshot(
         Ids.ProjectionId id,
         Ids.SessionId sessionId,
+        String frontendId,
+        String windowId,
+        String generation,
         JsonValue projection,
+        Decimal projectionRevision,
         Map<String, Object> extra
     ) implements ResourceEntitySnapshot {
         public FrontendProjectionSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(sessionId, "sessionId");
+            Objects.requireNonNull(frontendId, "frontendId");
+            Objects.requireNonNull(windowId, "windowId");
+            Objects.requireNonNull(generation, "generation");
             Objects.requireNonNull(projection, "projection");
+            Objects.requireNonNull(projectionRevision, "projectionRevision");
             extra = copy(extra);
         }
     }

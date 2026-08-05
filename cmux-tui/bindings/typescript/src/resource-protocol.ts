@@ -81,6 +81,7 @@ interface StreamCancellationConfirmation {
 
 interface StreamState<Value> {
   readonly id: StreamId;
+  attachmentLease?: string;
   readonly decode: (value: unknown) => Value;
   readonly cancelRoute: Readonly<{
     machine: string;
@@ -292,7 +293,13 @@ export class ResourceProtocol {
       if (!isRecord(opened)) {
         throw new CmuxProtocolError(`${operation.name} result must be an object`);
       }
-      const allowed = new Set(["stream_id", "cursor"]);
+      const isViewAttachment = operation.name === operations.terminalAttach.name
+        || operation.name === operations.browserAttach.name;
+      const allowed = new Set([
+        "stream_id",
+        "cursor",
+        ...(isViewAttachment ? ["attachment_lease"] : []),
+      ]);
       const unknown = Object.keys(opened).find((key) => !allowed.has(key));
       if (unknown !== undefined) {
         throw new CmuxProtocolError(
@@ -303,6 +310,17 @@ export class ResourceProtocol {
         throw new CmuxProtocolError(
           `${operation.name} returned stream ${String(opened.stream_id)} for ${id}`,
         );
+      }
+      if (isViewAttachment) {
+        if (
+          typeof opened.attachment_lease !== "string"
+          || !hasUtf8ByteLength(opened.attachment_lease, 1, 128)
+        ) {
+          throw new CmuxProtocolError(
+            `${operation.name} result requires a 1 to 128 byte attachment_lease`,
+          );
+        }
+        state.attachmentLease = opened.attachment_lease;
       }
       if (Object.hasOwn(opened, "cursor")) decodeCursor(opened.cursor);
       if (this.closed) {
@@ -1242,6 +1260,11 @@ implements AsyncIterable<StreamItem<Value>>, AsyncIterator<StreamItem<Value>> {
 
   get id(): StreamId {
     return this.state.id;
+  }
+
+  /** Lease required to size or release a terminal/browser attachment. */
+  get attachmentLease(): string | undefined {
+    return this.state.attachmentLease;
   }
 
   get end(): StreamEnd | undefined {

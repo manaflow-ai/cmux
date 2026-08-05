@@ -757,7 +757,12 @@ mod tests {
                 projection.as_str(),
                 1,
                 None,
-                &json!({"columns":[1,2]}),
+                &json!({
+                    "frontend_id":"cmux-test",
+                    "window_id":"window-test",
+                    "generation":"launch-test",
+                    "projection":{"columns":[1,2]},
+                }),
             )
             .unwrap();
 
@@ -775,7 +780,10 @@ mod tests {
         assert_eq!(defaults.palette[255], Some(Rgb { r: 0xfd, g: 0xfe, b: 0xfe }));
         assert_eq!(restored.frontend_projections.len(), 1);
         assert_eq!(restored.frontend_projections[0].subject_key, projection.as_str());
-        assert_eq!(restored.frontend_projections[0].projection, json!({"columns":[1,2]}));
+        assert_eq!(
+            restored.frontend_projections[0].projection["projection"],
+            json!({"columns":[1,2]})
+        );
     }
 
     #[test]

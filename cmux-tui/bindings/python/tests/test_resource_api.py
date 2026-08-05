@@ -702,7 +702,14 @@ class ResourceApiTests(unittest.TestCase):
                 requests = frames(connection)
                 opened = next(requests)
                 stream_id = opened["params"]["stream_id"]
-                ok(connection, opened, {"stream_id": stream_id})
+                ok(
+                    connection,
+                    opened,
+                    {
+                        "stream_id": stream_id,
+                        "attachment_lease": "browser-lease",
+                    },
+                )
                 item = {
                     "kind": "frame",
                     "mime_type": "image/png",
@@ -871,8 +878,9 @@ class ResourceApiTests(unittest.TestCase):
             "terminal.viewer.resize": {
                 "accepted": True,
                 "size": {"cols": 100, "rows": 30},
+                "outcome": "applied",
             },
-            "terminal.viewer.release": {},
+            "terminal.viewer.release": {"outcome": "applied"},
             "terminal.renderer_grant.create": {
                 "endpoint": "unix:///tmp/renderer.sock",
                 "terminal_id": str(TERMINAL),
@@ -950,10 +958,16 @@ class ResourceApiTests(unittest.TestCase):
                 self.assertEqual(terminal.copy().mode, "screen")
                 self.assertEqual(terminal.process().children, (43,))
                 self.assertEqual(
-                    terminal.resize_viewer(cmux.ViewerSizeOptions(100, 30)).size.cols,
+                    terminal.resize_viewer(
+                        "terminal-lease",
+                        cmux.ViewerSizeOptions(100, 30),
+                    ).size.cols,
                     100,
                 )
-                self.assertIsNone(terminal.release_viewer())
+                self.assertEqual(
+                    terminal.release_viewer("terminal-lease").outcome,
+                    "applied",
+                )
                 grant = terminal.create_renderer_grant()
                 self.assertEqual(grant.terminal_id, TERMINAL)
                 receipt = terminal.write(

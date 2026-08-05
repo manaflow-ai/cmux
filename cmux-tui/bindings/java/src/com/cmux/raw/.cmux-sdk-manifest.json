@@ -442,18 +442,18 @@
     },
     {
       "path": "FrontendJournalEventFocus.java",
-      "sha256": "ad65167200d19d2969dabab29acf28668a450e58307467de51bf8708f1f07ab8",
-      "size": 7150
+      "sha256": "34bee4295d467a7b452f23d748cfbd8081b4207fb4ce5efbe8e58fbf83f74b21",
+      "size": 8163
     },
     {
       "path": "FrontendJournalEventResize.java",
-      "sha256": "00bdf0539117c23e142b8c43679b47cdfa2446e09c8e6060e939dd48527042eb",
-      "size": 5744
+      "sha256": "9f3017c47b09bd68e80e4938002c19e5146e2c25f9694d814a8413fc7c30a79f",
+      "size": 6758
     },
     {
       "path": "FrontendJournalEventViewport.java",
-      "sha256": "0817eea65833468b9099809666423e66993b9cadf64e6dca548acdbe276cd04a",
-      "size": 5833
+      "sha256": "02a38bb0aa4ab38ce91bb450bb3104887e8cb390a9e8c50d6eac84609c47da06",
+      "size": 6849
     },
     {
       "path": "FrontendProjection.java",
@@ -792,7 +792,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "4ba5306262acfc9914772b80e199972a92b5f8956cdd1d1d6e8ff628bc9206b2",
+      "sha256": "56c8b8c827e51e6f94f9a498e9d7f28620efa5f8573f7c3d12fbabe92031c58b",
       "size": 3967
     },
     {
@@ -1387,7 +1387,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298",
+  "ir_sha256": "3fb00766119909d35be17301cb020de39d83ffd67a4a1ec6baaaeedd2fe6ee0d",
   "language": "java",
   "mux_protocol": 10,
   "schema_version": 2

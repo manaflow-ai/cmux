@@ -4500,6 +4500,7 @@ const RawStream = struct {
     machine_selector: []u8,
     session_selector: []u8,
     attachment: AttachmentSelector = .none,
+    attachment_lease: ?[]u8 = null,
     pending: std.ArrayList(raw.wire.OwnedValue) = .empty,
     pending_sizes: std.ArrayList(usize) = .empty,
     pending_bytes: usize = 0,
@@ -4605,14 +4606,25 @@ const RawStream = struct {
     }
 
     fn validateOpenResult(
-        self: *const RawStream,
+        self: *RawStream,
         value: raw.wire.Value,
     ) !void {
         const open_result = switch (value) {
             .object => |item| item,
             else => return error.ExpectedObject,
         };
-        try ensureOnlyFields(open_result, &.{ "stream_id", "cursor" });
+        const view_attachment = switch (self.attachment) {
+            .terminal, .browser => true,
+            .none => false,
+        };
+        if (view_attachment) {
+            try ensureOnlyFields(
+                open_result,
+                &.{ "stream_id", "attachment_lease" },
+            );
+        } else {
+            try ensureOnlyFields(open_result, &.{ "stream_id", "cursor" });
+        }
         const acknowledged_stream_id = try objectString(
             open_result,
             "stream_id",
@@ -4624,7 +4636,13 @@ const RawStream = struct {
         )) {
             return error.StreamIdMismatch;
         }
-        if (open_result.get("cursor")) |cursor| {
+        if (view_attachment) {
+            const lease = try objectString(open_result, "attachment_lease");
+            if (lease.len < 1 or lease.len > 128) {
+                return error.InvalidAttachmentLease;
+            }
+            self.attachment_lease = try self.client.allocator.dupe(u8, lease);
+        } else if (open_result.get("cursor")) |cursor| {
             _ = try parseStrictCursor(cursor);
         }
     }
@@ -4724,6 +4742,9 @@ const RawStream = struct {
             .terminal => |selector| self.client.allocator.free(selector),
             .browser => |selector| self.client.allocator.free(selector),
             .none => {},
+        }
+        if (self.attachment_lease) |lease| {
+            self.client.allocator.free(lease);
         }
         self.client.deinit();
         self.* = undefined;
@@ -5291,6 +5312,12 @@ pub const TerminalAttachmentStream = struct {
             "terminal",
             .{ .string = try allocator.dupe(u8, terminal) },
         );
+        const lease = self.raw_stream.attachment_lease orelse
+            return error.MissingAttachmentLease;
+        try params.put(
+            "attachment_lease",
+            .{ .string = try allocator.dupe(u8, lease) },
+        );
         try params.put("cols", .{ .integer = cols });
         try params.put("rows", .{ .integer = rows });
         return decodeOwnedSimpleResult(
@@ -5304,7 +5331,7 @@ pub const TerminalAttachmentStream = struct {
 
     pub fn releaseTerminalViewer(
         self: *Self,
-    ) !OwnedEmptyResult {
+    ) !OwnedViewerReleaseResult {
         var arena = std.heap.ArenaAllocator.init(
             self.raw_stream.client.allocator,
         );
@@ -5333,7 +5360,14 @@ pub const TerminalAttachmentStream = struct {
             "terminal",
             .{ .string = try allocator.dupe(u8, terminal) },
         );
-        return decodeEmptyResult(
+        const lease = self.raw_stream.attachment_lease orelse
+            return error.MissingAttachmentLease;
+        try params.put(
+            "attachment_lease",
+            .{ .string = try allocator.dupe(u8, lease) },
+        );
+        return decodeOwnedSimpleResult(
+            ViewerReleaseResult,
             try self.raw_stream.control(
                 .terminal_viewer_release,
                 .{ .object = params },
@@ -5404,6 +5438,12 @@ pub const BrowserAttachmentStream = struct {
             "browser",
             .{ .string = try allocator.dupe(u8, browser) },
         );
+        const lease = self.raw_stream.attachment_lease orelse
+            return error.MissingAttachmentLease;
+        try params.put(
+            "attachment_lease",
+            .{ .string = try allocator.dupe(u8, lease) },
+        );
         try params.put("width_px", .{ .integer = width_px });
         try params.put("height_px", .{ .integer = height_px });
         return decodeOwnedSimpleResult(
@@ -5417,7 +5457,7 @@ pub const BrowserAttachmentStream = struct {
 
     pub fn releaseBrowserViewer(
         self: *Self,
-    ) !OwnedEmptyResult {
+    ) !OwnedViewerReleaseResult {
         var arena = std.heap.ArenaAllocator.init(
             self.raw_stream.client.allocator,
         );
@@ -5446,7 +5486,14 @@ pub const BrowserAttachmentStream = struct {
             "browser",
             .{ .string = try allocator.dupe(u8, browser) },
         );
-        return decodeEmptyResult(
+        const lease = self.raw_stream.attachment_lease orelse
+            return error.MissingAttachmentLease;
+        try params.put(
+            "attachment_lease",
+            .{ .string = try allocator.dupe(u8, lease) },
+        );
+        return decodeOwnedSimpleResult(
+            ViewerReleaseResult,
             try self.raw_stream.control(
                 .browser_viewer_release,
                 .{ .object = params },
@@ -6599,8 +6646,20 @@ pub const PairingResolutionResult = struct {
 pub const FrontendProjectionSnapshot = struct {
     id: FrontendProjectionId,
     session_id: SessionId,
+    frontend_id: []const u8,
+    window_id: []const u8,
+    generation: []const u8,
     projection: raw.wire.Value,
+    projection_revision: u64,
     extra: ?raw.wire.Object,
+};
+
+pub const ProjectionPutOptions = struct {
+    frontend_id: []const u8,
+    window_id: []const u8,
+    generation: []const u8,
+    projection: raw.wire.Value,
+    expected_projection_revision: ?u64 = null,
 };
 
 pub const SidebarViewSnapshot = struct {
@@ -6747,6 +6806,7 @@ pub const PixelSize = struct {
 pub const BrowserViewerResizeResult = struct {
     accepted: bool,
     size: PixelSize,
+    outcome: ViewAttachmentOutcome,
 };
 
 pub const CellPixelFailure = struct {
@@ -7016,6 +7076,17 @@ pub const Size = struct {
 pub const ViewerResizeResult = struct {
     accepted: bool,
     size: Size,
+    outcome: ViewAttachmentOutcome,
+};
+
+pub const ViewAttachmentOutcome = enum {
+    applied,
+    passive,
+    superseded,
+};
+
+pub const ViewerReleaseResult = struct {
+    outcome: ViewAttachmentOutcome,
 };
 
 pub const PaneNeighborResult = struct {
@@ -7180,6 +7251,7 @@ pub const OwnedTerminalWaitExitResult =
 pub const OwnedTerminalCopyResult = OwnedValue(TerminalCopyResult);
 pub const OwnedProcessInfoResult = OwnedDecodedValue(ProcessInfoResult);
 pub const OwnedViewerResizeResult = OwnedValue(ViewerResizeResult);
+pub const OwnedViewerReleaseResult = OwnedValue(ViewerReleaseResult);
 pub const OwnedBrowserViewerResizeResult =
     OwnedValue(BrowserViewerResizeResult);
 pub const OwnedCellPixelsResult = OwnedDecodedValue(CellPixelsResult);
@@ -7686,11 +7758,14 @@ fn decodeBrowserViewerResizeResult(
     value: raw.wire.Value,
 ) !BrowserViewerResizeResult {
     const object = try detailObject(value);
-    try ensureOnlyFields(object, &.{ "accepted", "size" });
+    try ensureOnlyFields(object, &.{ "accepted", "size", "outcome" });
     return .{
         .accepted = try objectBool(object, "accepted"),
         .size = try decodePixelSize(
             object.get("size") orelse return error.MissingField,
+        ),
+        .outcome = try decodeViewAttachmentOutcome(
+            try objectString(object, "outcome"),
         ),
     };
 }
@@ -8336,7 +8411,7 @@ fn decodeViewerResizeResult(
     value: raw.wire.Value,
 ) !ViewerResizeResult {
     const object = try detailObject(value);
-    try ensureOnlyFields(object, &.{ "accepted", "size" });
+    try ensureOnlyFields(object, &.{ "accepted", "size", "outcome" });
     const size = try detailObject(
         object.get("size") orelse return error.MissingField,
     );
@@ -8347,6 +8422,30 @@ fn decodeViewerResizeResult(
             .cols = try objectUnsigned(u16, size, "cols", 1),
             .rows = try objectUnsigned(u16, size, "rows", 1),
         },
+        .outcome = try decodeViewAttachmentOutcome(
+            try objectString(object, "outcome"),
+        ),
+    };
+}
+
+fn decodeViewAttachmentOutcome(
+    value: []const u8,
+) !ViewAttachmentOutcome {
+    if (std.mem.eql(u8, value, "applied")) return .applied;
+    if (std.mem.eql(u8, value, "passive")) return .passive;
+    if (std.mem.eql(u8, value, "superseded")) return .superseded;
+    return error.InvalidViewAttachmentOutcome;
+}
+
+fn decodeViewerReleaseResult(
+    value: raw.wire.Value,
+) !ViewerReleaseResult {
+    const object = try detailObject(value);
+    try ensureOnlyFields(object, &.{"outcome"});
+    return .{
+        .outcome = try decodeViewAttachmentOutcome(
+            try objectString(object, "outcome"),
+        ),
     };
 }
 
@@ -8827,7 +8926,10 @@ fn decodeFrontendProjectionSnapshot(
     const object = try detailObject(value);
     try ensureOnlyFields(
         object,
-        &.{ "id", "session_id", "projection", "extra" },
+        &.{
+            "id", "session_id", "frontend_id", "window_id", "generation",
+            "projection", "projection_revision", "extra",
+        },
     );
     return .{
         .id = try parseRequiredId(
@@ -8840,8 +8942,15 @@ fn decodeFrontendProjectionSnapshot(
             object,
             "session_id",
         ),
+        .frontend_id = try objectString(object, "frontend_id"),
+        .window_id = try objectString(object, "window_id"),
+        .generation = try objectString(object, "generation"),
         .projection = object.get("projection") orelse
             return error.MissingField,
+        .projection_revision = try decimalU64(
+            object.get("projection_revision") orelse
+                return error.MissingField,
+        ),
         .extra = try optionalExtra(object),
     };
 }
@@ -9284,6 +9393,8 @@ fn decodeOwnedSimpleResult(
         try decodeViewerResizeResult(owned_result.value)
     else if (comptime Result == BrowserViewerResizeResult)
         try decodeBrowserViewerResizeResult(owned_result.value)
+    else if (comptime Result == ViewerReleaseResult)
+        try decodeViewerReleaseResult(owned_result.value)
     else
         @compileError("unsupported simple result");
     const decoded = OwnedValue(Result){
@@ -12076,7 +12187,7 @@ fn HandleImpl(
 
         pub fn putProjection(
             self: Self,
-            projection: raw.wire.Value,
+            projection: ProjectionPutOptions,
             mutation: MutationOptions,
         ) !FrontendProjectionMutationResult {
             if (comptime !std.mem.eql(
@@ -12093,7 +12204,22 @@ fn HandleImpl(
                 null,
             );
             defer params.deinit();
-            try params.putValue("projection", projection);
+            if (projection.frontend_id.len < 1 or projection.frontend_id.len > 128 or
+                projection.window_id.len < 1 or projection.window_id.len > 128 or
+                projection.generation.len < 1 or projection.generation.len > 128)
+            {
+                return error.InvalidProjectionIdentity;
+            }
+            try params.putString("frontend_id", projection.frontend_id);
+            try params.putString("window_id", projection.window_id);
+            try params.putString("generation", projection.generation);
+            try params.putValue("projection", projection.projection);
+            if (projection.expected_projection_revision) |revision| {
+                try params.putDecimal(
+                    "expected_projection_revision",
+                    revision,
+                );
+            }
             return decodeTypedMutation(
                 FrontendProjectionSnapshot,
                 try self.client.mutate(
@@ -13662,7 +13788,7 @@ pub const FrontendProjection = struct {
 
     pub fn putProjection(
         self: Self,
-        projection: raw.wire.Value,
+        projection: ProjectionPutOptions,
         mutation: MutationOptions,
     ) !FrontendProjectionMutationResult {
         return self.impl().putProjection(projection, mutation);
@@ -13901,7 +14027,10 @@ const fake_pairing_snapshot_json =
 const fake_projection_snapshot_json =
     "{\"id\":\"projection_dddddddddddddddddddddddddddddddd\"," ++
     "\"session_id\":\"session_22222222222222222222222222222222\"," ++
+    "\"frontend_id\":\"swift-frontend\",\"window_id\":\"window-1\"," ++
+    "\"generation\":\"window-generation-1\"," ++
     "\"projection\":{\"sidebar\":\"compact\"}," ++
+    "\"projection_revision\":\"3\"," ++
     "\"extra\":{\"projection_future\":true}}";
 
 const fake_sidebar_snapshot_json =
@@ -14110,6 +14239,7 @@ const FakeShared = struct {
         self: *FakeShared,
         request_id: []const u8,
         stream_id: []const u8,
+        is_attachment: bool,
     ) !void {
         if (self.stream_open_ack == .missing_result) {
             const response = try std.fmt.allocPrint(
@@ -14124,11 +14254,19 @@ const FakeShared = struct {
         }
         const oversized_generation = "g" ** 129;
         const result = switch (self.stream_open_ack) {
-            .matching => try std.fmt.allocPrint(
-                self.allocator,
-                "{{\"stream_id\":\"{s}\"}}",
-                .{stream_id},
-            ),
+            .matching => if (is_attachment)
+                try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"stream_id\":\"{s}\"," ++
+                        "\"attachment_lease\":\"attachment-lease\"}}",
+                    .{stream_id},
+                )
+            else
+                try std.fmt.allocPrint(
+                    self.allocator,
+                    "{{\"stream_id\":\"{s}\"}}",
+                    .{stream_id},
+                ),
             .matching_with_cursor => try std.fmt.allocPrint(
                 self.allocator,
                 "{{\"stream_id\":\"{s}\",\"cursor\":{{" ++
@@ -14566,13 +14704,14 @@ const FakeShared = struct {
                         "terminal.viewer.resize",
                     ))
                         "{\"accepted\":true,\"size\":{" ++
-                            "\"cols\":100,\"rows\":30}}"
+                            "\"cols\":100,\"rows\":30}," ++
+                            "\"outcome\":\"applied\"}"
                     else if (std.mem.eql(
                         u8,
                         operation,
                         "terminal.viewer.release",
                     ))
-                        "{}"
+                        "{\"outcome\":\"applied\"}"
                     else if (std.mem.eql(
                         u8,
                         operation,
@@ -14585,13 +14724,14 @@ const FakeShared = struct {
                         "browser.viewer.resize",
                     ))
                         "{\"accepted\":true,\"size\":{" ++
-                            "\"width_px\":1440,\"height_px\":900}}"
+                            "\"width_px\":1440,\"height_px\":900}," ++
+                            "\"outcome\":\"applied\"}"
                     else if (std.mem.eql(
                         u8,
                         operation,
                         "browser.viewer.release",
                     ))
-                        "{}"
+                        "{\"outcome\":\"applied\"}"
                     else if (std.mem.eql(
                         u8,
                         operation,
@@ -14816,6 +14956,7 @@ const FakeShared = struct {
                 try self.appendStreamOpenResponse(
                     id,
                     try objectString(params, "stream_id"),
+                    !std.mem.eql(u8, operation, "sidebar_view.attach"),
                 );
                 continue;
             }
@@ -14826,7 +14967,7 @@ const FakeShared = struct {
                 };
                 const stream_id = try objectString(params, "stream_id");
                 try self.appendStreamOpenPreamble(stream_id);
-                try self.appendStreamOpenResponse(id, stream_id);
+                try self.appendStreamOpenResponse(id, stream_id, false);
                 if (self.mode == .delayed_stream_item) {
                     self.delayed_stream_id = try self.allocator.dupe(
                         u8,
@@ -14849,7 +14990,7 @@ const FakeShared = struct {
                     else => return error.ExpectedObject,
                 };
                 const stream_id = try objectString(params, "stream_id");
-                try self.appendStreamOpenResponse(id, stream_id);
+                try self.appendStreamOpenResponse(id, stream_id, false);
                 try self.appendJournalStreamItem(stream_id);
                 continue;
             }
@@ -20013,7 +20154,12 @@ test "auxiliary resource facades are typed and fully routed" {
     var projection = try session
         .frontendProjection(projection_id)
         .putProjection(
-        .{ .object = projection_object },
+        .{
+            .frontend_id = "swift-frontend",
+            .window_id = "window-1",
+            .generation = "window-generation-1",
+            .projection = .{ .object = projection_object },
+        },
         try MutationOptions.withKey("projection-put"),
     );
     defer projection.deinit();

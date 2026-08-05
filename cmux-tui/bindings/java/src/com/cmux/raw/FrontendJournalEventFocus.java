@@ -13,6 +13,7 @@ import java.util.Objects;
 public final class FrontendJournalEventFocus implements WireValue, FrontendJournalEvent {
     private final Field<String> contentId;
     private final String eventId;
+    private final String frontendProjectionId;
     private final String generation;
     private final Field<String> paneId;
     private final Field<String> screenId;
@@ -24,6 +25,8 @@ public final class FrontendJournalEventFocus implements WireValue, FrontendJourn
         this.contentId = builder.contentId;
         if (!builder.eventIdSet) throw new IllegalArgumentException("event_id is required");
         this.eventId = Wire.nonNull(builder.eventId, "event_id");
+        if (!builder.frontendProjectionIdSet) throw new IllegalArgumentException("frontend_projection_id is required");
+        this.frontendProjectionId = Wire.nonNull(builder.frontendProjectionId, "frontend_projection_id");
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
         this.paneId = builder.paneId;
@@ -38,6 +41,7 @@ public final class FrontendJournalEventFocus implements WireValue, FrontendJourn
 
     public Field<String> contentId() { return contentId; }
     public String eventId() { return eventId; }
+    public String frontendProjectionId() { return frontendProjectionId; }
     public String generation() { return generation; }
     public String kind() { return "focus"; }
     public Field<String> paneId() { return paneId; }
@@ -55,6 +59,8 @@ public final class FrontendJournalEventFocus implements WireValue, FrontendJourn
         }
         Object rawEventId = Wire.required(object, "event_id");
         builder.eventId(Wire.string(rawEventId, "FrontendJournalEventFocus.event_id"));
+        Object rawFrontendProjectionId = Wire.required(object, "frontend_projection_id");
+        builder.frontendProjectionId(Wire.string(rawFrontendProjectionId, "FrontendJournalEventFocus.frontend_projection_id"));
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "FrontendJournalEventFocus.generation"));
         Object rawKind = Wire.required(object, "kind");
@@ -85,6 +91,7 @@ public final class FrontendJournalEventFocus implements WireValue, FrontendJourn
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "content_id", contentId);
         Wire.put(object, "event_id", eventId);
+        Wire.put(object, "frontend_projection_id", frontendProjectionId);
         Wire.put(object, "generation", generation);
         Wire.put(object, "kind", "focus");
         Wire.put(object, "pane_id", paneId);
@@ -98,11 +105,11 @@ public final class FrontendJournalEventFocus implements WireValue, FrontendJourn
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof FrontendJournalEventFocus that)) return false;
-        return Objects.equals(contentId, that.contentId) && Objects.equals(eventId, that.eventId) && Objects.equals(generation, that.generation) && Objects.equals(paneId, that.paneId) && Objects.equals(screenId, that.screenId) && Objects.equals(tabId, that.tabId) && Objects.equals(target, that.target) && Objects.equals(workspaceId, that.workspaceId);
+        return Objects.equals(contentId, that.contentId) && Objects.equals(eventId, that.eventId) && Objects.equals(frontendProjectionId, that.frontendProjectionId) && Objects.equals(generation, that.generation) && Objects.equals(paneId, that.paneId) && Objects.equals(screenId, that.screenId) && Objects.equals(tabId, that.tabId) && Objects.equals(target, that.target) && Objects.equals(workspaceId, that.workspaceId);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(contentId, eventId, generation, paneId, screenId, tabId, target, workspaceId); }
+    public int hashCode() { return Objects.hash(contentId, eventId, frontendProjectionId, generation, paneId, screenId, tabId, target, workspaceId); }
 
     @Override
     public String toString() { return "FrontendJournalEventFocus" + toWire(); }
@@ -111,6 +118,8 @@ public final class FrontendJournalEventFocus implements WireValue, FrontendJourn
         private Field<String> contentId = Field.omitted();
         private String eventId;
         private boolean eventIdSet;
+        private String frontendProjectionId;
+        private boolean frontendProjectionIdSet;
         private String generation;
         private boolean generationSet;
         private Field<String> paneId = Field.omitted();
@@ -127,6 +136,11 @@ public final class FrontendJournalEventFocus implements WireValue, FrontendJourn
         public Builder eventId(String value) {
             this.eventId = value;
             this.eventIdSet = true;
+            return this;
+        }
+        public Builder frontendProjectionId(String value) {
+            this.frontendProjectionId = value;
+            this.frontendProjectionIdSet = true;
             return this;
         }
         public Builder generation(String value) {

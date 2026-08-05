@@ -540,10 +540,14 @@ type PairingRequestSnapshot struct {
 }
 
 type FrontendProjectionSnapshot struct {
-	ID         ProjectionID         `json:"id"`
-	SessionID  SessionID            `json:"session_id"`
-	Projection JSONValue            `json:"projection"`
-	Extra      map[string]JSONValue `json:"extra,omitempty"`
+	ID                 ProjectionID         `json:"id"`
+	SessionID          SessionID            `json:"session_id"`
+	FrontendID         string               `json:"frontend_id"`
+	WindowID           string               `json:"window_id"`
+	Generation         string               `json:"generation"`
+	Projection         JSONValue            `json:"projection"`
+	ProjectionRevision Decimal              `json:"projection_revision"`
+	Extra              map[string]JSONValue `json:"extra,omitempty"`
 }
 
 type SidebarViewSnapshot struct {

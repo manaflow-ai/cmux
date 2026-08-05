@@ -575,7 +575,13 @@ func (s *Session) Projection(ctx context.Context, options FrontendProjectionGetO
 }
 func (p *FrontendProjection) Put(ctx context.Context, options FrontendProjectionPutOptions) (MutationResult[*FrontendProjection], error) {
 	input := p.route.params()
+	input["frontend_id"] = options.FrontendID
+	input["window_id"] = options.WindowID
+	input["generation"] = options.Generation
 	input["projection"] = options.Projection
+	if options.ExpectedProjectionRevision != nil {
+		input["expected_projection_revision"] = *options.ExpectedProjectionRevision
+	}
 	merge(input, options.Extra)
 	return mutationHandle(
 		ctx, p.client, wirev1.ProjectionPut, input, options.MutationOptions,
@@ -788,7 +794,10 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			"id", "session_id", "peer", "code", "expires_in_seconds", "status",
 		}
 	case *FrontendProjectionSnapshot:
-		required = []string{"id", "session_id", "projection"}
+		required = []string{
+			"id", "session_id", "frontend_id", "window_id", "generation",
+			"projection", "projection_revision",
+		}
 	case *SidebarViewSnapshot:
 		required = []string{"id", "session_id", "cols", "rows", "running"}
 	case *PingResult:
@@ -818,7 +827,11 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			"width_px", "height_px", "resized_terminals", "failures",
 		}
 	case *ViewerResizeResult, *BrowserViewerResizeResult:
-		required = []string{"accepted", "size"}
+		required = []string{"accepted", "size", "outcome"}
+	case *ViewerReleaseResult:
+		required = []string{"outcome"}
+	case *ViewAttachmentStreamOpened:
+		required = []string{"stream_id", "attachment_lease"}
 	case *RenderCursor:
 		required = []string{"x", "y", "style", "blink", "visible", "color"}
 	case *RenderRun:
@@ -1003,7 +1016,8 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("invalid pairing request status %q", decoded.Status)
 		}
 	case *FrontendProjectionSnapshot:
-		if decoded.ID == "" || decoded.SessionID == "" {
+		if decoded.ID == "" || decoded.SessionID == "" || decoded.FrontendID == "" ||
+			decoded.WindowID == "" || decoded.Generation == "" {
 			return fmt.Errorf("frontend projection snapshot ids must be present")
 		}
 	case *SidebarViewSnapshot:
@@ -1067,10 +1081,14 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		if decoded.Size.Cols == 0 || decoded.Size.Rows == 0 {
 			return fmt.Errorf("viewer resize size must be non-zero")
 		}
+		return validateViewAttachmentOutcome(decoded.Outcome)
 	case *BrowserViewerResizeResult:
 		if decoded.Size.WidthPX == 0 || decoded.Size.HeightPX == 0 {
 			return fmt.Errorf("browser viewer resize size must be non-zero")
 		}
+		return validateViewAttachmentOutcome(decoded.Outcome)
+	case *ViewerReleaseResult:
+		return validateViewAttachmentOutcome(decoded.Outcome)
 	case *RenderCursor:
 		return validateRenderCursor(*decoded)
 	case *RenderRun:
@@ -1698,6 +1716,7 @@ func (t *Terminal) CreateRendererGrant(ctx context.Context, options TerminalRend
 }
 func (t *Terminal) ResizeViewer(ctx context.Context, options TerminalViewerResizeOptions) (ViewerResizeResult, error) {
 	input := t.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	input[wirev1.FieldCols] = options.Cols
 	input[wirev1.FieldRows] = options.Rows
 	merge(input, options.Extra)
@@ -1705,11 +1724,12 @@ func (t *Terminal) ResizeViewer(ctx context.Context, options TerminalViewerResiz
 		ctx, t.client, wirev1.TerminalViewerResize, input, "viewer resize result",
 	)
 }
-func (t *Terminal) ReleaseViewer(ctx context.Context, options TerminalViewerReleaseOptions) (EmptyResult, error) {
+func (t *Terminal) ReleaseViewer(ctx context.Context, options TerminalViewerReleaseOptions) (ViewerReleaseResult, error) {
 	input := t.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	merge(input, options.Extra)
-	return readValue[EmptyResult](
-		ctx, t.client, wirev1.TerminalViewerRelease, input, "empty result",
+	return readValue[ViewerReleaseResult](
+		ctx, t.client, wirev1.TerminalViewerRelease, input, "viewer release result",
 	)
 }
 func (t *Terminal) ScrollViewport(ctx context.Context, options TerminalViewportScrollOptions) (MutationResult[EmptyResult], error) {
@@ -1916,6 +1936,7 @@ func (b *Browser) Wheel(ctx context.Context, options BrowserInputWheelOptions) (
 }
 func (b *Browser) ResizeViewer(ctx context.Context, options BrowserViewerResizeOptions) (BrowserViewerResizeResult, error) {
 	input := b.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	input["width_px"] = options.WidthPX
 	input["height_px"] = options.HeightPX
 	merge(input, options.Extra)
@@ -1924,11 +1945,12 @@ func (b *Browser) ResizeViewer(ctx context.Context, options BrowserViewerResizeO
 		"browser viewer resize result",
 	)
 }
-func (b *Browser) ReleaseViewer(ctx context.Context, options BrowserViewerReleaseOptions) (EmptyResult, error) {
+func (b *Browser) ReleaseViewer(ctx context.Context, options BrowserViewerReleaseOptions) (ViewerReleaseResult, error) {
 	input := b.route.params()
+	input["attachment_lease"] = options.AttachmentLease
 	merge(input, options.Extra)
-	return readValue[EmptyResult](
-		ctx, b.client, wirev1.BrowserViewerRelease, input, "empty result",
+	return readValue[ViewerReleaseResult](
+		ctx, b.client, wirev1.BrowserViewerRelease, input, "viewer release result",
 	)
 }
 func (b *Browser) Attach(ctx context.Context, options BrowserAttachOptions) (*Stream[BrowserAttachmentItem], error) {
@@ -3009,6 +3031,15 @@ func validColor(value string) bool {
 		}
 	}
 	return true
+}
+
+func validateViewAttachmentOutcome(outcome ViewAttachmentOutcome) error {
+	switch outcome {
+	case ViewAttachmentApplied, ViewAttachmentPassive, ViewAttachmentSuperseded:
+		return nil
+	default:
+		return fmt.Errorf("invalid view attachment outcome %q", outcome)
+	}
 }
 
 func decodeRendererGrant(raw json.RawMessage) (RendererGrant, error) {

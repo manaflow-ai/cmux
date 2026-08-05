@@ -15276,6 +15276,9 @@ Result<Json> Codec<FrontendJournalEventFocus>::encode(const FrontendJournalEvent
     auto encoded_event_id = encode_value(value.event_id);
     if (!encoded_event_id) return std::move(encoded_event_id).error();
     object.emplace("event_id", std::move(encoded_event_id).value());
+    auto encoded_frontend_projection_id = encode_value(value.frontend_projection_id);
+    if (!encoded_frontend_projection_id) return std::move(encoded_frontend_projection_id).error();
+    object.emplace("frontend_projection_id", std::move(encoded_frontend_projection_id).value());
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
@@ -15327,6 +15330,15 @@ Result<FrontendJournalEventFocus> Codec<FrontendJournalEventFocus>::decode(const
         auto decoded = decode_value<std::string>(*field_event_id);
         if (!decoded) return std::move(decoded).error();
         result.event_id = std::move(decoded).value();
+    }
+    const Json* field_frontend_projection_id = value.find("frontend_projection_id");
+    if (!field_frontend_projection_id) {
+        return make_error(ErrorCode::decode, "missing required field 'frontend_projection_id'");
+    }
+    if (field_frontend_projection_id) {
+        auto decoded = decode_value<std::string>(*field_frontend_projection_id);
+        if (!decoded) return std::move(decoded).error();
+        result.frontend_projection_id = std::move(decoded).value();
     }
     const Json* field_generation = value.find("generation");
     if (!field_generation) {
@@ -15414,6 +15426,9 @@ Result<Json> Codec<FrontendJournalEventResize>::encode(const FrontendJournalEven
     auto encoded_event_id = encode_value(value.event_id);
     if (!encoded_event_id) return std::move(encoded_event_id).error();
     object.emplace("event_id", std::move(encoded_event_id).value());
+    auto encoded_frontend_projection_id = encode_value(value.frontend_projection_id);
+    if (!encoded_frontend_projection_id) return std::move(encoded_frontend_projection_id).error();
+    object.emplace("frontend_projection_id", std::move(encoded_frontend_projection_id).value());
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
@@ -15463,6 +15478,15 @@ Result<FrontendJournalEventResize> Codec<FrontendJournalEventResize>::decode(con
         if (!decoded) return std::move(decoded).error();
         result.event_id = std::move(decoded).value();
     }
+    const Json* field_frontend_projection_id = value.find("frontend_projection_id");
+    if (!field_frontend_projection_id) {
+        return make_error(ErrorCode::decode, "missing required field 'frontend_projection_id'");
+    }
+    if (field_frontend_projection_id) {
+        auto decoded = decode_value<std::string>(*field_frontend_projection_id);
+        if (!decoded) return std::move(decoded).error();
+        result.frontend_projection_id = std::move(decoded).value();
+    }
     const Json* field_generation = value.find("generation");
     if (!field_generation) {
         return make_error(ErrorCode::decode, "missing required field 'generation'");
@@ -15500,6 +15524,9 @@ Result<Json> Codec<FrontendJournalEventViewport>::encode(const FrontendJournalEv
     auto encoded_event_id = encode_value(value.event_id);
     if (!encoded_event_id) return std::move(encoded_event_id).error();
     object.emplace("event_id", std::move(encoded_event_id).value());
+    auto encoded_frontend_projection_id = encode_value(value.frontend_projection_id);
+    if (!encoded_frontend_projection_id) return std::move(encoded_frontend_projection_id).error();
+    object.emplace("frontend_projection_id", std::move(encoded_frontend_projection_id).value());
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
@@ -15532,6 +15559,15 @@ Result<FrontendJournalEventViewport> Codec<FrontendJournalEventViewport>::decode
         auto decoded = decode_value<std::string>(*field_event_id);
         if (!decoded) return std::move(decoded).error();
         result.event_id = std::move(decoded).value();
+    }
+    const Json* field_frontend_projection_id = value.find("frontend_projection_id");
+    if (!field_frontend_projection_id) {
+        return make_error(ErrorCode::decode, "missing required field 'frontend_projection_id'");
+    }
+    if (field_frontend_projection_id) {
+        auto decoded = decode_value<std::string>(*field_frontend_projection_id);
+        if (!decoded) return std::move(decoded).error();
+        result.frontend_projection_id = std::move(decoded).value();
     }
     const Json* field_generation = value.find("generation");
     if (!field_generation) {

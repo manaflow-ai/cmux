@@ -201,4 +201,12 @@ export interface MutationOptions extends RequestOptions {
   readonly correlationKey?: string;
 }
 
+export interface ProjectionPutOptions {
+  readonly frontendId: string;
+  readonly windowId: string;
+  readonly generation: string;
+  readonly projection: JsonValue;
+  readonly expectedProjectionRevision?: DecimalString;
+}
+
 export type ProjectionValue = JsonValue;

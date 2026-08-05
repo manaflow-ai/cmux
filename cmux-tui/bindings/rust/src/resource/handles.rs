@@ -1697,20 +1697,31 @@ impl Terminal {
         )
     }
 
-    pub fn viewer_resize(&self, options: Size) -> Result<ViewerResizeResult> {
+    pub fn viewer_resize(
+        &self,
+        attachment_lease: &str,
+        options: Size,
+    ) -> Result<ViewerResizeResult> {
         wire::validate_size(options)?;
         wire::decode_exact(
             &self.session.client.connection_control(
                 ops::TERMINAL_VIEWER_RESIZE,
-                self.params().u16(field::COLS, options.cols).u16(field::ROWS, options.rows),
+                self.params()
+                    .string(field::ATTACHMENT_LEASE, attachment_lease)
+                    .u16(field::COLS, options.cols)
+                    .u16(field::ROWS, options.rows),
             )?,
             "terminal viewer resize result",
         )
     }
 
-    pub fn viewer_release(&self) -> Result<()> {
-        decode_empty(
-            &self.session.client.connection_control(ops::TERMINAL_VIEWER_RELEASE, self.params())?,
+    pub fn viewer_release(&self, attachment_lease: &str) -> Result<ViewerReleaseResult> {
+        wire::decode_exact(
+            &self.session.client.connection_control(
+                ops::TERMINAL_VIEWER_RELEASE,
+                self.params().string(field::ATTACHMENT_LEASE, attachment_lease),
+            )?,
+            "terminal viewer release result",
         )
     }
 
@@ -2040,12 +2051,17 @@ impl Browser {
         )?)
     }
 
-    pub fn viewer_resize(&self, options: PixelSize) -> Result<BrowserViewerResizeResult> {
+    pub fn viewer_resize(
+        &self,
+        attachment_lease: &str,
+        options: PixelSize,
+    ) -> Result<BrowserViewerResizeResult> {
         wire::validate_pixel_size(options)?;
         wire::decode_exact(
             &self.session.client.connection_control(
                 ops::BROWSER_VIEWER_RESIZE,
                 self.params()
+                    .string(field::ATTACHMENT_LEASE, attachment_lease)
                     .u32(field::WIDTH_PX, options.width_px)
                     .u32(field::HEIGHT_PX, options.height_px),
             )?,
@@ -2053,9 +2069,13 @@ impl Browser {
         )
     }
 
-    pub fn viewer_release(&self) -> Result<()> {
-        decode_empty(
-            &self.session.client.connection_control(ops::BROWSER_VIEWER_RELEASE, self.params())?,
+    pub fn viewer_release(&self, attachment_lease: &str) -> Result<ViewerReleaseResult> {
+        wire::decode_exact(
+            &self.session.client.connection_control(
+                ops::BROWSER_VIEWER_RELEASE,
+                self.params().string(field::ATTACHMENT_LEASE, attachment_lease),
+            )?,
+            "browser viewer release result",
         )
     }
 
@@ -2427,7 +2447,15 @@ impl FrontendProjection {
         mutation_snapshot(
             self.session.client.mutate(
                 ops::FRONTEND_PROJECTION_PUT,
-                self.params().value(field::PROJECTION, options.projection),
+                self.params()
+                    .string(field::FRONTEND_ID, options.frontend_id)
+                    .string(field::WINDOW_ID, options.window_id)
+                    .string(field::GENERATION, options.generation)
+                    .value(field::PROJECTION, options.projection)
+                    .optional_u64(
+                        field::EXPECTED_PROJECTION_REVISION,
+                        options.expected_projection_revision,
+                    ),
                 mutation,
             )?,
             "frontend_projection",

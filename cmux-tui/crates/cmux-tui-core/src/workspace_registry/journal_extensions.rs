@@ -711,10 +711,15 @@ impl WorkspaceRegistry {
                 let mut subjects = BTreeSet::from([
                     JournalSubject { kind: "session".into(), id: session_id.clone() },
                     JournalSubject { kind: "client".into(), id: principal_id.clone() },
+                    JournalSubject {
+                        kind: "frontend_projection".into(),
+                        id: event.frontend_projection_id().to_string(),
+                    },
                 ]);
                 let (kind, payload) = match event {
                     crate::FrontendJournalEvent::Focus {
                         event_id: _,
+                        frontend_projection_id,
                         generation,
                         target,
                         workspace_id,
@@ -757,6 +762,7 @@ impl WorkspaceRegistry {
                             "frontend.focus.changed",
                             json!({
                                 "format":"cmux.frontend-focus.v1",
+                                "frontend_projection_id":frontend_projection_id,
                                 "generation":generation,
                                 "target":target,
                                 "workspace_id":workspace_id,
@@ -769,6 +775,7 @@ impl WorkspaceRegistry {
                     }
                     crate::FrontendJournalEvent::Resize {
                         event_id: _,
+                        frontend_projection_id,
                         generation,
                         cols,
                         rows,
@@ -783,6 +790,7 @@ impl WorkspaceRegistry {
                             "frontend.resized",
                             json!({
                                 "format":"cmux.frontend-geometry.v1",
+                                "frontend_projection_id":frontend_projection_id,
                                 "generation":generation,
                                 "cols":cols,
                                 "rows":rows,
@@ -793,6 +801,7 @@ impl WorkspaceRegistry {
                     }
                     crate::FrontendJournalEvent::Viewport {
                         event_id: _,
+                        frontend_projection_id,
                         generation,
                         screen_id,
                         offset,
@@ -809,6 +818,7 @@ impl WorkspaceRegistry {
                             "frontend.viewport.changed",
                             json!({
                                 "format":"cmux.frontend-viewport.v1",
+                                "frontend_projection_id":frontend_projection_id,
                                 "generation":generation,
                                 "screen_id":screen_id,
                                 "offset":offset.to_string(),
@@ -820,11 +830,13 @@ impl WorkspaceRegistry {
                 };
                 expand_topology_subjects(&tx, &mut subjects)?;
                 let subjects = subjects.into_iter().collect::<Vec<_>>();
-                let producer =
-                    JournalProducer { kind: "frontend".into(), id: principal_id.clone() };
+                let producer = JournalProducer {
+                    kind: "frontend".into(),
+                    id: event.frontend_projection_id().to_string(),
+                };
                 let authority = JournalAuthority {
                     principal_id: principal_id.clone(),
-                    lease_id: format!("frontend:{principal_id}"),
+                    lease_id: format!("frontend:{}", event.frontend_projection_id()),
                     generation: event.generation().into(),
                     role: "frontend.observer".into(),
                 };

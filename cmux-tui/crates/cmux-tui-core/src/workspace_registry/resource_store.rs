@@ -790,7 +790,7 @@ impl WorkspaceRegistry {
         operation: &str,
         fingerprint: &Value,
         expected_generation: Option<&str>,
-        expected_revision: Option<u64>,
+        expected_projection_revision: Option<u64>,
         frontend: &str,
         scope: &str,
         subject_key: &str,
@@ -824,14 +824,7 @@ impl WorkspaceRegistry {
             );
         }
         let previous_revision = transaction_resource_revision(&tx)?;
-        if let Some(expected) = expected_revision
-            && expected != previous_revision
-        {
-            anyhow::bail!(
-                "resource revision conflict: expected {expected}, current {previous_revision}"
-            );
-        }
-        let projection_revision = tx
+        let current_projection_revision = tx
             .query_row(
                 "SELECT projection_revision FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
@@ -842,7 +835,15 @@ impl WorkspaceRegistry {
             .map(u64::try_from)
             .transpose()
             .context("projection revision is negative")?
-            .unwrap_or(0)
+            .unwrap_or(0);
+        if let Some(expected) = expected_projection_revision
+            && expected != current_projection_revision
+        {
+            anyhow::bail!(
+                "projection revision conflict: expected {expected}, current {current_projection_revision}"
+            );
+        }
+        let projection_revision = current_projection_revision
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
         tx.execute(

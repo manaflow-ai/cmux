@@ -141,6 +141,8 @@ from .models import (
     Size,
     PixelSize,
     Unknown,
+    ViewAttachmentOutcome,
+    ViewerReleaseResult,
     ViewerResizeResult,
     WorkspaceSnapshot,
 )
@@ -986,7 +988,14 @@ def _aux_snapshot(
             "expires_in_seconds",
             "status",
         ),
-        FrontendProjectionSnapshot: ("session_id", "projection"),
+        FrontendProjectionSnapshot: (
+            "session_id",
+            "frontend_id",
+            "window_id",
+            "generation",
+            "projection",
+            "projection_revision",
+        ),
         NotificationSnapshot: (
             "session_id",
             "title",
@@ -1036,9 +1045,16 @@ def _aux_snapshot(
             ("session_id",),
             SessionId,
         )
+        arguments["frontend_id"] = _required_string(payload, "frontend_id")
+        arguments["window_id"] = _required_string(payload, "window_id")
+        arguments["generation"] = _required_string(payload, "generation")
         if "projection" not in payload:
             raise ProtocolError("frontend projection omitted projection")
         arguments["projection"] = payload["projection"]
+        arguments["projection_revision"] = _required_decimal(
+            payload,
+            "projection_revision",
+        )
     elif snapshot_type is NotificationSnapshot:
         arguments.update(
             title=_required_string(payload, "title"),
@@ -1384,16 +1400,29 @@ def _process_info_result(value: Any) -> ProcessInfoResult:
 
 def _viewer_resize_result(value: Any) -> ViewerResizeResult:
     payload = _mapping(value, "viewer resize result")
-    _strict_object(payload, ("accepted", "size"), "viewer resize result")
+    _strict_object(
+        payload,
+        ("accepted", "size", "outcome"),
+        "viewer resize result",
+    )
     return ViewerResizeResult(
         _required_bool(payload, "accepted"),
         _size(payload.get("size")),
+        _required_enum(
+            payload,
+            "outcome",
+            ("applied", "passive", "superseded"),
+        ),
     )
 
 
 def _browser_viewer_resize_result(value: Any) -> BrowserViewerResizeResult:
     payload = _mapping(value, "browser viewer resize result")
-    _strict_object(payload, ("accepted", "size"), "browser viewer resize result")
+    _strict_object(
+        payload,
+        ("accepted", "size", "outcome"),
+        "browser viewer resize result",
+    )
     size = _mapping(payload.get("size"), "pixel size")
     _strict_object(size, ("width_px", "height_px"), "pixel size")
     return BrowserViewerResizeResult(
@@ -1402,7 +1431,23 @@ def _browser_viewer_resize_result(value: Any) -> BrowserViewerResizeResult:
             _required_positive_uint32(size, "width_px"),
             _required_positive_uint32(size, "height_px"),
         ),
+        _required_enum(
+            payload,
+            "outcome",
+            ("applied", "passive", "superseded"),
+        ),
     )
+
+
+def _viewer_release_result(value: Any) -> ViewerReleaseResult:
+    payload = _mapping(value, "viewer release result")
+    _strict_object(payload, ("outcome",), "viewer release result")
+    outcome: ViewAttachmentOutcome = _required_enum(
+        payload,
+        "outcome",
+        ("applied", "passive", "superseded"),
+    )
+    return ViewerReleaseResult(outcome)
 
 
 def _cell_pixels_result(value: Any) -> CellPixelsResult:
@@ -4054,18 +4099,26 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
             _renderer_grant_result,
         )
 
-    def resize_viewer(self, options: ViewerSizeOptions) -> ViewerResizeResult:
+    def resize_viewer(
+        self,
+        attachment_lease: str,
+        options: ViewerSizeOptions,
+    ) -> ViewerResizeResult:
         return self._client._control(
             Operations.TERMINAL_VIEWER_RESIZE,
-            {**self._params(), **_options(options)},
+            {
+                **self._params(),
+                "attachment_lease": attachment_lease,
+                **_options(options),
+            },
             _viewer_resize_result,
         )
 
-    def release_viewer(self) -> None:
+    def release_viewer(self, attachment_lease: str) -> ViewerReleaseResult:
         return self._client._control(
             Operations.TERMINAL_VIEWER_RELEASE,
-            self._params(),
-            _empty_result,
+            {**self._params(), "attachment_lease": attachment_lease},
+            _viewer_release_result,
         )
 
     def scroll_viewport(
@@ -4299,19 +4352,24 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
 
     def resize_viewer(
         self,
+        attachment_lease: str,
         options: BrowserViewerSizeOptions,
     ) -> BrowserViewerResizeResult:
         return self._client._control(
             Operations.BROWSER_VIEWER_RESIZE,
-            {**self._params(), **_options(options)},
+            {
+                **self._params(),
+                "attachment_lease": attachment_lease,
+                **_options(options),
+            },
             _browser_viewer_resize_result,
         )
 
-    def release_viewer(self) -> None:
+    def release_viewer(self, attachment_lease: str) -> ViewerReleaseResult:
         return self._client._control(
             Operations.BROWSER_VIEWER_RELEASE,
-            self._params(),
-            _empty_result,
+            {**self._params(), "attachment_lease": attachment_lease},
+            _viewer_release_result,
         )
 
     def attach(
@@ -4475,11 +4533,26 @@ class FrontendProjection(
         self,
         projection: Mapping[str, Any],
         *,
+        frontend_id: str,
+        window_id: str,
+        generation: str,
+        expected_projection_revision: Optional[str] = None,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
     ) -> MutationResult["FrontendProjection"]:
         return self._client._mutation_handle(
             Operations.FRONTEND_PROJECTION_PUT,
-            {**self._params(), "projection": dict(projection)},
+            {
+                **self._params(),
+                "frontend_id": frontend_id,
+                "window_id": window_id,
+                "generation": generation,
+                "projection": dict(projection),
+                **(
+                    {"expected_projection_revision": expected_projection_revision}
+                    if expected_projection_revision is not None
+                    else {}
+                ),
+            },
             idempotency_key,
             expected_revision,
             lambda result: _aux_snapshot(

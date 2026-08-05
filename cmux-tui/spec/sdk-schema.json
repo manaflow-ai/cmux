@@ -65,6 +65,14 @@
               "presence": "required",
               "nullable": false
             },
+            "frontend_projection_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
             "generation": {
               "type": {
                 "kind": "scalar",
@@ -148,6 +156,14 @@
               "presence": "required",
               "nullable": false
             },
+            "frontend_projection_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
             "generation": {
               "type": {
                 "kind": "scalar",
@@ -203,6 +219,14 @@
               "nullable": false
             },
             "event_id": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "frontend_projection_id": {
               "type": {
                 "kind": "scalar",
                 "name": "string"

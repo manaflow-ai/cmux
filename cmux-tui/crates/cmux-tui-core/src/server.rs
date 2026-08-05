@@ -3770,22 +3770,43 @@ impl ClientRegistry {
         surface: SurfaceId,
         stream: OutboundStream,
     ) -> anyhow::Result<Option<String>> {
+        self.attach_surface_with_lease_policy(client, surface, stream, false)
+    }
+
+    fn attach_surface_with_required_lease(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: OutboundStream,
+    ) -> anyhow::Result<String> {
+        self.attach_surface_with_lease_policy(client, surface, stream, true)?
+            .ok_or_else(|| anyhow::anyhow!("required view attachment lease was not minted"))
+    }
+
+    fn attach_surface_with_lease_policy(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: OutboundStream,
+        require_lease: bool,
+    ) -> anyhow::Result<Option<String>> {
         let mut state = self.state.lock().unwrap();
         let record = state
             .clients
             .get_mut(&client)
             .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
-        let lease = if record.capabilities.contains(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
-            let mut lease = mint_view_lease()?;
-            while record.view_leases.contains_key(&lease)
-                || record.retired_view_leases.contains_key(&lease)
-            {
-                lease = mint_view_lease()?;
-            }
-            Some(lease)
-        } else {
-            None
-        };
+        let lease =
+            if require_lease || record.capabilities.contains(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
+                let mut lease = mint_view_lease()?;
+                while record.view_leases.contains_key(&lease)
+                    || record.retired_view_leases.contains_key(&lease)
+                {
+                    lease = mint_view_lease()?;
+                }
+                Some(lease)
+            } else {
+                None
+            };
         let stream_id = stream.id;
         let attached = record.attached.entry(surface).or_default();
         attached.pending_streams.insert(stream_id, stream);
@@ -6041,35 +6062,125 @@ fn resource_terminal_viewer_resize(
 ) -> Result<Value, ResourceError> {
     let operation = "terminal.viewer.resize";
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+    let lease =
+        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
     let cols = checked_resource_u16(operation, &request.fields, "cols")?;
     let rows = checked_resource_u16(operation, &request.fields, "rows")?;
     let (cols, rows) = clamp_terminal_size(cols, rows);
-    let resize = mux
-        .resize_surface_for_control_client_with_reservation(surface.id, client, cols, rows)
-        .map_err(|error| {
-            ResourceError::operation_failed(operation, error.to_string(), json!({}))
-        })?;
-    if let Some((true, name, kind, _)) = resize.attached {
-        mux.emit(MuxEvent::ClientChanged { client, name, kind });
-    }
-    Ok(json!({"accepted":resize.accepted,"size":{"cols":cols,"rows":rows}}))
+    let (accepted, outcome) =
+        resize_resource_view(mux, client, surface.id, lease, (cols, rows), operation)?;
+    Ok(json!({
+        "accepted":accepted,
+        "size":{"cols":cols,"rows":rows},
+        "outcome":outcome,
+    }))
 }
 
-fn release_resource_viewer_size(mux: &Mux, client: u64, surface: SurfaceId) {
+fn invalid_resource_view_lease(operation: &'static str) -> ResourceError {
+    ResourceError::operation_failed(
+        operation,
+        "attachment lease is invalid for this resource",
+        json!({"reason_code":"invalid_attachment_lease"}),
+    )
+}
+
+fn resize_resource_view(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    lease: &str,
+    size: (u16, u16),
+    operation: &'static str,
+) -> Result<(bool, &'static str), ResourceError> {
     let _lifecycle = mux.lock_client_sizing_lifecycle();
-    let attached = mux.control_clients.clear_size(client, surface);
-    let had_report = mux.client_surface_size(surface, client).is_some();
-    if had_report {
-        mux.remove_surface_size_client(surface, client);
-    }
-    if attached.as_ref().is_some_and(|(changed, _, _)| *changed)
-        || (attached.is_none() && had_report)
+    match mux
+        .control_clients
+        .view_lease_status(client, surface, lease)
+        .map_err(|_| invalid_resource_view_lease(operation))?
     {
-        let (name, kind) = attached
-            .map(|(_, name, kind)| (name, kind))
-            .or_else(|| mux.control_clients.client_info(client))
-            .unwrap_or((None, None));
-        mux.emit(MuxEvent::ClientChanged { client, name, kind });
+        ViewLeaseStatus::Superseded => return Ok((false, "superseded")),
+        ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+            return Ok((false, "superseded"));
+        }
+        ViewLeaseStatus::Current { .. } => {}
+    }
+    match mux
+        .control_clients
+        .prepare_view_resize(client, surface, lease, size)
+        .map_err(|_| invalid_resource_view_lease(operation))?
+    {
+        ViewResizePreparation::Superseded => Ok((false, "superseded")),
+        ViewResizePreparation::Passive { .. } => Ok((false, "passive")),
+        ViewResizePreparation::GeometryOwner { update, previous_view_size } => {
+            let resize = match mux.resize_surface_for_prepared_control_client_with_completion(
+                surface,
+                client,
+                size,
+                None,
+                Some(update),
+            ) {
+                Ok(resize) => resize,
+                Err(error) => {
+                    mux.control_clients.restore_view_size(
+                        client,
+                        surface,
+                        lease,
+                        previous_view_size,
+                    );
+                    if !surface_has_view_placement(mux, surface) {
+                        return Ok((false, "superseded"));
+                    }
+                    return Err(ResourceError::operation_failed(
+                        operation,
+                        error.to_string(),
+                        json!({}),
+                    ));
+                }
+            };
+            if let Some((true, name, kind, _)) = resize.attached {
+                mux.emit(MuxEvent::ClientChanged { client, name, kind });
+            }
+            Ok((resize.accepted, "applied"))
+        }
+    }
+}
+
+fn release_resource_view(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    lease: &str,
+    operation: &'static str,
+) -> Result<&'static str, ResourceError> {
+    let _lifecycle = mux.lock_client_sizing_lifecycle();
+    match mux
+        .control_clients
+        .view_lease_status(client, surface, lease)
+        .map_err(|_| invalid_resource_view_lease(operation))?
+    {
+        ViewLeaseStatus::Superseded => return Ok("superseded"),
+        ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+            return Ok("superseded");
+        }
+        ViewLeaseStatus::Current { .. } => {}
+    }
+    match mux
+        .control_clients
+        .release_view_size(client, surface, lease)
+        .map_err(|_| invalid_resource_view_lease(operation))?
+    {
+        ViewReleasePreparation::Superseded => Ok("superseded"),
+        ViewReleasePreparation::Passive => Ok("passive"),
+        ViewReleasePreparation::GeometryOwner { changed, name, kind } => {
+            let had_report = mux.client_surface_size(surface, client).is_some();
+            if had_report {
+                mux.remove_surface_size_client(surface, client);
+            }
+            if changed || had_report {
+                mux.emit(MuxEvent::ClientChanged { client, name, kind });
+            }
+            Ok("applied")
+        }
     }
 }
 
@@ -6079,8 +6190,10 @@ fn resource_terminal_viewer_release(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    release_resource_viewer_size(mux, client, surface.id);
-    Ok(json!({}))
+    let lease =
+        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
+    let outcome = release_resource_view(mux, client, surface.id, lease, "terminal.viewer.release")?;
+    Ok(json!({"outcome":outcome}))
 }
 
 fn browser_cells_for_pixels(mux: &Mux, width_px: u32, height_px: u32) -> (u16, u16) {
@@ -6108,6 +6221,8 @@ fn resource_browser_viewer_resize(
 ) -> Result<Value, ResourceError> {
     let operation = "browser.viewer.resize";
     let (_, surface) = resource_browser_surface(mux, &request.selectors)?;
+    let lease =
+        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
     let width_px =
         u32::try_from(request.fields["width_px"].as_u64().expect("catalog validates width_px"))
             .expect("catalog validates uint32");
@@ -6115,16 +6230,14 @@ fn resource_browser_viewer_resize(
         u32::try_from(request.fields["height_px"].as_u64().expect("catalog validates height_px"))
             .expect("catalog validates uint32");
     let (cols, rows) = browser_cells_for_pixels(mux, width_px, height_px);
-    let resize = mux
-        .resize_surface_for_control_client_with_reservation(surface.id, client, cols, rows)
-        .map_err(|error| {
-            ResourceError::operation_failed(operation, error.to_string(), json!({}))
-        })?;
-    if let Some((true, name, kind, _)) = resize.attached {
-        mux.emit(MuxEvent::ClientChanged { client, name, kind });
-    }
+    let (accepted, outcome) =
+        resize_resource_view(mux, client, surface.id, lease, (cols, rows), operation)?;
     let (width_px, height_px) = browser_pixels_for_cells(mux, cols, rows);
-    Ok(json!({"accepted":resize.accepted,"size":{"width_px":width_px,"height_px":height_px}}))
+    Ok(json!({
+        "accepted":accepted,
+        "size":{"width_px":width_px,"height_px":height_px},
+        "outcome":outcome,
+    }))
 }
 
 fn resource_browser_viewer_release(
@@ -6133,8 +6246,10 @@ fn resource_browser_viewer_release(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resource_browser_surface(mux, &request.selectors)?;
-    release_resource_viewer_size(mux, client, surface.id);
-    Ok(json!({}))
+    let lease =
+        request.fields["attachment_lease"].as_str().expect("catalog validates attachment leases");
+    let outcome = release_resource_view(mux, client, surface.id, lease, "browser.viewer.release")?;
+    Ok(json!({"outcome":outcome}))
 }
 
 fn resource_terminal_renderer_grant(
@@ -6331,13 +6446,18 @@ fn prepare_resource_surface_attach(
     let (outbound, canceled, worker_permit) =
         install_resource_outbound(mux, client, writer, &stream_id, operation)?;
     let lifecycle = AttachLifecycle::default();
-    let marked = match mark_client_attached(mux, client, surface, outbound.clone(), initial_size) {
-        Ok(marked) => marked,
-        Err(error) => {
-            cleanup_resource_stream(mux, client, &stream_id);
-            return Err(ResourceError::operation_failed(operation, error.to_string(), json!({})));
-        }
-    };
+    let marked =
+        match mark_resource_client_attached(mux, client, surface, outbound.clone(), initial_size) {
+            Ok(marked) => marked,
+            Err(error) => {
+                cleanup_resource_stream(mux, client, &stream_id);
+                return Err(ResourceError::operation_failed(
+                    operation,
+                    error.to_string(),
+                    json!({}),
+                ));
+            }
+        };
     Ok((
         ResourceSurfaceAttachStart {
             stream_id,
@@ -6382,7 +6502,7 @@ fn prepare_terminal_resource_attach(
         (None, None) => None,
         _ => unreachable!("catalog validates paired terminal attach size"),
     };
-    let (common, _) = prepare_resource_surface_attach(
+    let (common, marked) = prepare_resource_surface_attach(
         mux,
         client,
         writer,
@@ -6399,7 +6519,10 @@ fn prepare_terminal_resource_attach(
         }
     };
     Ok((
-        json!({"stream_id":stream_id}),
+        json!({
+            "stream_id":stream_id,
+            "attachment_lease":marked.lease.expect("resource attach always mints a lease"),
+        }),
         TerminalResourceAttachStart { common, terminal_id, attach },
     ))
 }
@@ -6680,7 +6803,10 @@ fn prepare_browser_resource_attach(
         "size":{"width_px":width_px,"height_px":height_px},
     });
     Ok((
-        json!({"stream_id":stream_id}),
+        json!({
+            "stream_id":stream_id,
+            "attachment_lease":marked.lease.expect("resource attach always mints a lease"),
+        }),
         BrowserResourceAttachStart { common, initial, frames, snapshot },
     ))
 }
@@ -9683,7 +9809,36 @@ fn mark_client_attached(
     stream: OutboundStream,
     initial_size: Option<(u16, u16)>,
 ) -> anyhow::Result<MarkedClientAttach> {
-    let lease = mux.control_clients.attach_surface(client, surface, stream.clone())?;
+    mark_client_attached_with_lease_policy(mux, client, surface, stream, initial_size, false)
+}
+
+fn mark_resource_client_attached(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    stream: OutboundStream,
+    initial_size: Option<(u16, u16)>,
+) -> anyhow::Result<MarkedClientAttach> {
+    mark_client_attached_with_lease_policy(mux, client, surface, stream, initial_size, true)
+}
+
+fn mark_client_attached_with_lease_policy(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    stream: OutboundStream,
+    initial_size: Option<(u16, u16)>,
+    require_lease: bool,
+) -> anyhow::Result<MarkedClientAttach> {
+    let lease = if require_lease {
+        Some(mux.control_clients.attach_surface_with_required_lease(
+            client,
+            surface,
+            stream.clone(),
+        )?)
+    } else {
+        mux.control_clients.attach_surface(client, surface, stream.clone())?
+    };
     if let Some((cols, rows)) = initial_size {
         let cols = cols.max(1);
         let rows = rows.max(1);
@@ -14217,6 +14372,10 @@ mod tests {
         );
         mux.journal_local_frontend_event(crate::FrontendJournalEvent::Resize {
             event_id: "event_terminal_regex_barrier".into(),
+            frontend_projection_id: crate::resource::FrontendProjectionPublicId::parse(
+                "projection_00000000000000000000000000000041",
+            )
+            .unwrap(),
             generation: "frontend_terminal_regex_generation".into(),
             cols: 80,
             rows: 24,

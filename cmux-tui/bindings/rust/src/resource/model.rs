@@ -762,7 +762,12 @@ pub struct PairingRequestSnapshot {
 pub struct FrontendProjectionSnapshot {
     pub id: FrontendProjectionId,
     pub session_id: SessionId,
+    pub frontend_id: String,
+    pub window_id: String,
+    pub generation: String,
     pub projection: Document,
+    #[serde(deserialize_with = "deserialize_decimal")]
+    pub projection_revision: u64,
     #[serde(default)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -1221,6 +1226,7 @@ pub struct ViewerResizeResult {
     pub accepted: bool,
     #[serde(deserialize_with = "deserialize_size")]
     pub size: Size,
+    pub outcome: ViewAttachmentOutcome,
 }
 
 /// Result of assigning browser viewer dimensions.
@@ -1230,6 +1236,21 @@ pub struct BrowserViewerResizeResult {
     pub accepted: bool,
     #[serde(deserialize_with = "deserialize_pixel_size")]
     pub size: PixelSize,
+    pub outcome: ViewAttachmentOutcome,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewAttachmentOutcome {
+    Applied,
+    Passive,
+    Superseded,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ViewerReleaseResult {
+    pub outcome: ViewAttachmentOutcome,
 }
 
 /// Result of publishing client cell pixel dimensions.

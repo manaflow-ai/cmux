@@ -39,10 +39,11 @@ func (e *StreamEndError) Error() string {
 // handshake. After acknowledgement, each Recv or Cancel context governs that
 // operation without imposing an idle stream deadline.
 type Stream[T any] struct {
-	client *Client
-	id     StreamID
-	route  *streamRoute
-	decode func(json.RawMessage) (T, error)
+	client          *Client
+	id              StreamID
+	attachmentLease string
+	route           *streamRoute
+	decode          func(json.RawMessage) (T, error)
 
 	mu            sync.Mutex
 	finished      bool
@@ -54,6 +55,12 @@ type Stream[T any] struct {
 }
 
 func (s *Stream[T]) ID() StreamID { return s.id }
+
+// AttachmentLease returns the lease required to size or release a terminal or
+// browser attachment. Other stream kinds return false.
+func (s *Stream[T]) AttachmentLease() (string, bool) {
+	return s.attachmentLease, s.attachmentLease != ""
+}
 
 func (s *Stream[T]) Recv(ctx context.Context) (StreamItem[T], error) {
 	var zero StreamItem[T]
@@ -408,16 +415,31 @@ func openStream[T any](
 		}
 		return failOpen(err)
 	}
-	opened, err := decodeValue[StreamOpened](raw, operation.Name+" result")
-	if err != nil {
-		return failOpen(err)
+	openedID := StreamID("")
+	attachmentLease := ""
+	if operation.Name == wirev1.TerminalAttach.Name || operation.Name == wirev1.BrowserAttach.Name {
+		opened, decodeErr := decodeValue[ViewAttachmentStreamOpened](raw, operation.Name+" result")
+		if decodeErr != nil {
+			return failOpen(decodeErr)
+		}
+		openedID = opened.StreamID
+		attachmentLease = opened.AttachmentLease
+		if len(attachmentLease) < 1 || len(attachmentLease) > 128 {
+			return failOpen(&ProtocolError{Message: operation.Name + " attachment_lease must contain 1 to 128 bytes"})
+		}
+	} else {
+		opened, decodeErr := decodeValue[StreamOpened](raw, operation.Name+" result")
+		if decodeErr != nil {
+			return failOpen(decodeErr)
+		}
+		openedID = opened.StreamID
 	}
-	if opened.StreamID != id {
+	if openedID != id {
 		return failOpen(&ProtocolError{
 			Message: fmt.Sprintf(
 				"%s returned stream %s for %s",
 				operation.Name,
-				opened.StreamID,
+				openedID,
 				id,
 			),
 		})
@@ -437,7 +459,8 @@ func openStream[T any](
 	client.mu.Unlock()
 	return &Stream[T]{
 		client: client, id: id, route: route, decode: decode,
-		cancelParams: cancelParams,
+		attachmentLease: attachmentLease,
+		cancelParams:    cancelParams,
 	}, nil
 }
 

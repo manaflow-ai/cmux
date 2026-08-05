@@ -431,10 +431,13 @@ impl Client {
                 }
             }
         };
-        if let Err(error) = validate_stream_open_ack(&response, &stream_id) {
-            connection.close();
-            return Err(error);
-        }
+        let attachment_lease = match validate_stream_open_ack(operation, &response, &stream_id) {
+            Ok(attachment_lease) => attachment_lease,
+            Err(error) => {
+                connection.close();
+                return Err(error);
+            }
+        };
         let writer = match connection.shutdown_clone() {
             Ok(writer) => writer,
             Err(error) => {
@@ -444,6 +447,7 @@ impl Client {
         };
         ResourceStream::from_parts(StreamParts {
             id: stream_id,
+            attachment_lease,
             connection,
             writer,
             cancel_params,
@@ -833,7 +837,11 @@ fn stream_overflow_error() -> Error {
     }
 }
 
-fn validate_stream_open_ack(response: &Value, expected: &StreamId) -> Result<()> {
+fn validate_stream_open_ack(
+    operation: &str,
+    response: &Value,
+    expected: &StreamId,
+) -> Result<Option<String>> {
     let object = response
         .as_object()
         .ok_or_else(|| Error::UnexpectedEnvelope("stream open result must be an object".into()))?;
@@ -849,9 +857,28 @@ fn validate_stream_open_ack(response: &Value, expected: &StreamId) -> Result<()>
     if let Some(cursor) = object.get("cursor") {
         super::wire::parse_cursor(cursor)?;
     }
+    let is_view_attachment = matches!(operation, ops::TERMINAL_ATTACH | ops::BROWSER_ATTACH);
+    let attachment_lease = if is_view_attachment {
+        let lease = object.get("attachment_lease").and_then(Value::as_str).ok_or_else(|| {
+            Error::UnexpectedEnvelope(
+                "terminal and browser stream results require attachment_lease".into(),
+            )
+        })?;
+        if lease.is_empty() || lease.len() > 128 {
+            return Err(Error::UnexpectedEnvelope(
+                "stream attachment_lease must contain 1 to 128 bytes".into(),
+            ));
+        }
+        Some(lease.to_string())
+    } else {
+        None
+    };
     let mut unknown = object
         .keys()
-        .filter(|field| !matches!(field.as_str(), "stream_id" | "cursor"))
+        .filter(|field| {
+            !matches!(field.as_str(), "stream_id" | "cursor")
+                && !(is_view_attachment && field.as_str() == "attachment_lease")
+        })
         .cloned()
         .collect::<Vec<_>>();
     unknown.sort();
@@ -861,7 +888,7 @@ fn validate_stream_open_ack(response: &Value, expected: &StreamId) -> Result<()>
             unknown.join(", ")
         )));
     }
-    Ok(())
+    Ok(attachment_lease)
 }
 
 pub(crate) fn decode_response(response: Value, expected_id: &str) -> Result<Value> {

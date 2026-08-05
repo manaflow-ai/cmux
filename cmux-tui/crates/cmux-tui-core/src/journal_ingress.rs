@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::Mux;
 use crate::resource::{
-    ContentPublicId, PanePublicId, ScreenPublicId, TabPublicId, TerminalPublicId, WorkspacePublicId,
+    ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
+    TerminalPublicId, WorkspacePublicId,
 };
 
 const JOURNAL_QUEUE_CAPACITY: usize = 1024;
@@ -28,6 +29,7 @@ pub enum FrontendFocusTarget {
 pub enum FrontendJournalEvent {
     Focus {
         event_id: String,
+        frontend_projection_id: FrontendProjectionPublicId,
         generation: String,
         target: FrontendFocusTarget,
         workspace_id: Option<WorkspacePublicId>,
@@ -38,6 +40,7 @@ pub enum FrontendJournalEvent {
     },
     Resize {
         event_id: String,
+        frontend_projection_id: FrontendProjectionPublicId,
         generation: String,
         cols: u16,
         rows: u16,
@@ -46,6 +49,7 @@ pub enum FrontendJournalEvent {
     },
     Viewport {
         event_id: String,
+        frontend_projection_id: FrontendProjectionPublicId,
         generation: String,
         screen_id: Option<ScreenPublicId>,
         offset: u64,
@@ -68,6 +72,14 @@ impl FrontendJournalEvent {
             Self::Focus { event_id, .. }
             | Self::Resize { event_id, .. }
             | Self::Viewport { event_id, .. } => event_id,
+        }
+    }
+
+    pub(crate) fn frontend_projection_id(&self) -> &FrontendProjectionPublicId {
+        match self {
+            Self::Focus { frontend_projection_id, .. }
+            | Self::Resize { frontend_projection_id, .. }
+            | Self::Viewport { frontend_projection_id, .. } => frontend_projection_id,
         }
     }
 }
@@ -377,7 +389,9 @@ fn complete_batch_error(batch: &[QueuedJournalEvent], error: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resource::{PanePublicId, ScreenPublicId, TabPublicId, WorkspacePublicId};
+    use crate::resource::{
+        FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId, WorkspacePublicId,
+    };
 
     fn public_id<T>(
         prefix: &str,
@@ -401,8 +415,10 @@ mod tests {
         let pane_id = public_id("pane", 3, PanePublicId::parse);
         let tab_id = public_id("tab", 4, TabPublicId::parse);
         let terminal_id = public_id("term", 5, TerminalPublicId::parse);
+        let projection_id = public_id("projection", 6, FrontendProjectionPublicId::parse);
         let event = FrontendJournalEvent::Focus {
             event_id: "event_frontend_focus_test".into(),
+            frontend_projection_id: projection_id.clone(),
             generation: "frontend_generation_1".into(),
             target: FrontendFocusTarget::Pane,
             workspace_id: Some(workspace_id.clone()),
@@ -430,6 +446,7 @@ mod tests {
             ("pane", pane_id.as_str()),
             ("tab", tab_id.as_str()),
             ("terminal", terminal_id.as_str()),
+            ("frontend_projection", projection_id.as_str()),
         ] {
             assert!(record.subjects.iter().any(|subject| subject.kind == kind && subject.id == id));
         }
@@ -450,8 +467,10 @@ mod tests {
             &root,
         )
         .unwrap();
+        let projection_id = public_id("projection", 7, FrontendProjectionPublicId::parse);
         let event = |cols| FrontendJournalEvent::Resize {
             event_id: "event_frontend_resize_conflict".into(),
+            frontend_projection_id: projection_id.clone(),
             generation: "frontend_generation_1".into(),
             cols,
             rows: 24,
@@ -506,6 +525,7 @@ mod tests {
         injector.execute_batch("DROP TRIGGER reject_test_terminal_output;").unwrap();
         mux.journal_local_frontend_event(FrontendJournalEvent::Resize {
             event_id: "event_writer_retry_barrier".into(),
+            frontend_projection_id: public_id("projection", 8, FrontendProjectionPublicId::parse),
             generation: "writer-retry-frontend".into(),
             cols: 80,
             rows: 24,
@@ -590,6 +610,7 @@ mod tests {
         }
         mux.journal_local_frontend_event(FrontendJournalEvent::Resize {
             event_id: "event_ingress_throughput_barrier".into(),
+            frontend_projection_id: public_id("projection", 9, FrontendProjectionPublicId::parse),
             generation: "ingress-throughput-frontend".into(),
             cols: 80,
             rows: 24,

@@ -24,6 +24,7 @@ pub(crate) mod field {
     pub(crate) const FRONTEND_PROJECTION: &str = "frontend_projection";
     pub(crate) const SIDEBAR_VIEW: &str = "sidebar_view";
     pub(crate) const STREAM_ID: &str = "stream_id";
+    pub(crate) const ATTACHMENT_LEASE: &str = "attachment_lease";
     pub(crate) const NAME: &str = "name";
     pub(crate) const KIND: &str = "kind";
     pub(crate) const INDEX: &str = "index";
@@ -71,6 +72,10 @@ pub(crate) mod field {
     pub(crate) const LEVEL: &str = "level";
     pub(crate) const TERMINAL_ID: &str = "terminal_id";
     pub(crate) const PROJECTION: &str = "projection";
+    pub(crate) const FRONTEND_ID: &str = "frontend_id";
+    pub(crate) const WINDOW_ID: &str = "window_id";
+    pub(crate) const GENERATION: &str = "generation";
+    pub(crate) const EXPECTED_PROJECTION_REVISION: &str = "expected_projection_revision";
     pub(crate) const DECISION: &str = "decision";
     pub(crate) const STATE: &str = "state";
     pub(crate) const SOURCE: &str = "source";

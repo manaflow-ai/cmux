@@ -117,6 +117,7 @@ import {
   type Unknown,
   type ReloadConfigResult,
   type ViewerResizeResult,
+  type ViewerReleaseResult,
   type JsonValue,
   type WorkspaceSnapshot,
 } from "./models.js";
@@ -136,6 +137,7 @@ import type {
   LayoutApplyOptions,
   MutationOptions,
   NotificationOptions,
+  ProjectionPutOptions,
   RequestOptions,
   RunOptions,
   SessionEventsOptions,
@@ -855,7 +857,10 @@ function frontendProjectionSnapshot(
   const base = snapshotFields(
     payload,
     projectionId,
-    ["session_id", "projection"],
+    [
+      "session_id", "frontend_id", "window_id", "generation", "projection",
+      "projection_revision",
+    ],
   );
   if (!Object.hasOwn(payload, "projection")) {
     throw new CmuxProtocolError("frontend projection omitted projection");
@@ -863,7 +868,11 @@ function frontendProjectionSnapshot(
   return Object.freeze({
     ...base,
     sessionId: requiredId(payload, ["session_id"], sessionId),
+    frontendId: requiredString(payload, "frontend_id"),
+    windowId: requiredString(payload, "window_id"),
+    generation: requiredString(payload, "generation"),
     projection: jsonValue(payload.projection, "frontend projection"),
+    projectionRevision: requiredDecimal(payload, "projection_revision"),
   });
 }
 
@@ -2078,10 +2087,15 @@ function rendererGrantResult(value: unknown): RendererGrant {
 
 function viewerResizeResult(value: unknown): ViewerResizeResult {
   const payload = record(value, "viewer resize result");
-  strictObject(payload, ["accepted", "size"], "viewer resize result");
+  strictObject(payload, ["accepted", "size", "outcome"], "viewer resize result");
   return Object.freeze({
     accepted: requiredBoolean(payload, "accepted"),
     size: size(payload.size),
+    outcome: requiredEnum(
+      payload,
+      "outcome",
+      ["applied", "passive", "superseded"] as const,
+    ),
   });
 }
 
@@ -2091,12 +2105,29 @@ function browserViewerResizeResult(
   const payload = record(value, "browser viewer resize result");
   strictObject(
     payload,
-    ["accepted", "size"],
+    ["accepted", "size", "outcome"],
     "browser viewer resize result",
   );
   return Object.freeze({
     accepted: requiredBoolean(payload, "accepted"),
     size: pixelSize(payload.size),
+    outcome: requiredEnum(
+      payload,
+      "outcome",
+      ["applied", "passive", "superseded"] as const,
+    ),
+  });
+}
+
+function viewerReleaseResult(value: unknown): ViewerReleaseResult {
+  const payload = record(value, "viewer release result");
+  strictObject(payload, ["outcome"], "viewer release result");
+  return Object.freeze({
+    outcome: requiredEnum(
+      payload,
+      "outcome",
+      ["applied", "passive", "superseded"] as const,
+    ),
   });
 }
 
@@ -3649,22 +3680,26 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
   }
 
   resizeViewer(
+    attachmentLease: string,
     size: ViewerSizeOptions,
     options: RequestOptions = {},
   ): Promise<ViewerResizeResult> {
     return this.client[controlOperation](
       operations.terminalViewerResize,
-      { ...this.params(), ...optionFields(size) },
+      { ...this.params(), attachment_lease: attachmentLease, ...optionFields(size) },
       viewerResizeResult,
       options,
     );
   }
 
-  releaseViewer(options: RequestOptions = {}): Promise<void> {
+  releaseViewer(
+    attachmentLease: string,
+    options: RequestOptions = {},
+  ): Promise<ViewerReleaseResult> {
     return this.client[controlOperation](
       operations.terminalViewerRelease,
-      this.params(),
-      emptyResult,
+      { ...this.params(), attachment_lease: attachmentLease },
+      viewerReleaseResult,
       options,
     );
   }
@@ -3826,22 +3861,26 @@ export class Browser extends Handle<BrowserId, BrowserSnapshot> {
   }
 
   resizeViewer(
+    attachmentLease: string,
     size: BrowserViewerSizeOptions,
     options: RequestOptions = {},
   ): Promise<BrowserViewerResizeResult> {
     return this.client[controlOperation](
       operations.browserViewerResize,
-      { ...this.params(), ...optionFields(size) },
+      { ...this.params(), attachment_lease: attachmentLease, ...optionFields(size) },
       browserViewerResizeResult,
       options,
     );
   }
 
-  releaseViewer(options: RequestOptions = {}): Promise<void> {
+  releaseViewer(
+    attachmentLease: string,
+    options: RequestOptions = {},
+  ): Promise<ViewerReleaseResult> {
     return this.client[controlOperation](
       operations.browserViewerRelease,
-      this.params(),
-      emptyResult,
+      { ...this.params(), attachment_lease: attachmentLease },
+      viewerReleaseResult,
       options,
     );
   }
@@ -3981,12 +4020,21 @@ export class PairingRequest extends Handle<PairingRequestId, PairingRequestSnaps
 export class FrontendProjection extends Handle<ProjectionId, FrontendProjectionSnapshot> {
   protected readonly selectorKey = "frontend_projection";
   put(
-    projection: JsonValue,
+    value: ProjectionPutOptions,
     options: MutationOptions = {},
   ): Promise<MutationResult<FrontendProjection>> {
     return this.client[mutateOperation](
       operations.frontendProjectionPut,
-      { ...this.params(), projection },
+      {
+        ...this.params(),
+        frontend_id: value.frontendId,
+        window_id: value.windowId,
+        generation: value.generation,
+        projection: value.projection,
+        ...(value.expectedProjectionRevision !== undefined
+          ? { expected_projection_revision: value.expectedProjectionRevision }
+          : {}),
+      },
       options,
       frontendProjectionSnapshot,
       (snapshot) => this.acceptSnapshot(snapshot),

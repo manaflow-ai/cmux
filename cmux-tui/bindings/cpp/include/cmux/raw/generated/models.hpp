@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298";
+inline constexpr std::string_view kProtocolIrSha256 = "3fb00766119909d35be17301cb020de39d83ffd67a4a1ec6baaaeedd2fe6ee0d";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1066,6 +1066,7 @@ enum class FrontendFocusTarget {
 struct FrontendJournalEventFocus {
     Field<std::string> content_id{};
     std::string event_id{};
+    std::string frontend_projection_id{};
     std::string generation{};
     Field<std::string> pane_id{};
     Field<std::string> screen_id{};
@@ -1080,6 +1081,7 @@ struct FrontendJournalEventResize {
     std::uint16_t cell_width{};
     std::uint16_t cols{};
     std::string event_id{};
+    std::string frontend_projection_id{};
     std::string generation{};
     std::uint16_t rows{};
     friend bool operator==(const FrontendJournalEventResize&, const FrontendJournalEventResize&) = default;
@@ -1087,6 +1089,7 @@ struct FrontendJournalEventResize {
 
 struct FrontendJournalEventViewport {
     std::string event_id{};
+    std::string frontend_projection_id{};
     std::string generation{};
     std::uint64_t offset{};
     Field<std::string> screen_id{};
