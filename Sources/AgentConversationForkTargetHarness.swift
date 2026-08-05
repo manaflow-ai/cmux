@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 /// Agent harness that receives a forked conversation.
@@ -54,16 +55,16 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
 
     func startupCommand(
         handoffMessage: String,
-        executablePath: String? = nil
+        executablePath: String? = nil,
+        runtimeSearchPath: String? = nil
     ) -> String? {
         // These interactive CLIs require their seed through an argv or documented
         // first-message adapter; writing it to their live stdin would race TUI startup.
         let quotedMessage = TerminalStartupShellQuoting.singleQuoted(handoffMessage)
-        let executable = executablePath.map { path in
-            path.contains("/")
-                ? TerminalStartupShellQuoting.singleQuoted(path)
-                : path
-        } ?? preferredExecutableName
+        let executable = startupExecutableInvocation(
+            executablePath: executablePath,
+            runtimeSearchPath: runtimeSearchPath
+        )
         return switch self {
         case .current:
             nil
@@ -87,7 +88,7 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .gemini:
             "\(executable) --prompt-interactive \(quotedMessage)"
         case .kiro:
-            "\(executable) chat \(quotedMessage)"
+            "\(executable) chat --agent cmux \(quotedMessage)"
         case .antigravity:
             "\(executable) --prompt-interactive \(quotedMessage)"
         case .hermesAgent:
@@ -99,6 +100,45 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .factory:
             "\(executable) \(quotedMessage)"
         }
+    }
+
+    private func startupExecutableInvocation(
+        executablePath: String?,
+        runtimeSearchPath: String?
+    ) -> String {
+        let resolvedExecutable = executablePath ?? preferredExecutableName
+        let isResolvedPath = resolvedExecutable.contains("/")
+        let executableToken: String
+        var environmentAssignments: [String] = []
+
+        if let runtimeSearchPath = runtimeSearchPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !runtimeSearchPath.isEmpty {
+            environmentAssignments.append("PATH=\(runtimeSearchPath)")
+        }
+
+        switch self {
+        case .claude:
+            executableToken = AgentResumeArgv.claudeWrapperShellExecutableToken
+            if isResolvedPath {
+                environmentAssignments.append("CMUX_CUSTOM_CLAUDE_PATH=\(resolvedExecutable)")
+            }
+        case .codex:
+            executableToken = AgentResumeArgv.codexWrapperShellExecutableToken
+            if isResolvedPath {
+                environmentAssignments.append("CMUX_CUSTOM_CODEX_PATH=\(resolvedExecutable)")
+            }
+        default:
+            executableToken = isResolvedPath
+                ? TerminalStartupShellQuoting.singleQuoted(resolvedExecutable)
+                : resolvedExecutable
+        }
+
+        guard !environmentAssignments.isEmpty else { return executableToken }
+        let assignments = environmentAssignments
+            .map(TerminalStartupShellQuoting.singleQuoted)
+            .joined(separator: " ")
+        return "/usr/bin/env \(assignments) \(executableToken)"
     }
 
     var providerID: AgentSessionProviderID? {

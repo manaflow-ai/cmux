@@ -180,7 +180,7 @@ struct AgentExecutableResolver {
         return lhs.path > rhs.path
     }
 
-    private func runtimeSearchPath(
+    func runtimeSearchPath(
         searchDirectories: [String],
         includingExecutableAt executableURL: URL
     ) -> String {

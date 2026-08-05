@@ -52,23 +52,36 @@ struct AgentConversationForkTargetDiscoverer: Sendable {
 
         return AgentConversationForkTargetHarness.allCases.compactMap { harness in
             guard harness != .current else { return nil }
-            let executableURL: URL?
+            let resolution: (executableURL: URL, runtimeSearchPath: String?)?
             if let provider = harness.providerID {
-                executableURL = try? resolver.resolve(
+                let plan = try? resolver.resolve(
                     provider,
                     searchDirectories: searchDirectories,
                     executableNames: harness.executableNames
-                ).executableURL
+                )
+                resolution = plan.map {
+                    ($0.executableURL, $0.environment["PATH"])
+                }
             } else {
-                executableURL = resolver.resolveExecutable(
+                let executableURL = resolver.resolveExecutable(
                     named: harness.executableNames,
                     searchDirectories: searchDirectories
                 )
+                resolution = executableURL.map {
+                    (
+                        $0,
+                        resolver.runtimeSearchPath(
+                            searchDirectories: searchDirectories,
+                            includingExecutableAt: $0
+                        )
+                    )
+                }
             }
-            guard let executableURL else { return nil }
+            guard let resolution else { return nil }
             return AgentConversationForkTarget(
                 harness: harness,
-                executablePath: executableURL.path
+                executablePath: resolution.executableURL.path,
+                runtimeSearchPath: resolution.runtimeSearchPath
             )
         }
     }

@@ -1546,6 +1546,7 @@ enum SessionTranscriptLoader {
     ) throws {
         guard retention.requiresCompleteLatestScan else { return }
         guard !metrics.didSkipOversizedRecord,
+              !metrics.didEncounterMalformedRecord,
               metrics.didReachStart || didSatisfyRetention else {
             throw SessionTranscriptLoadError.incompleteSource
         }
@@ -1558,7 +1559,9 @@ enum SessionTranscriptLoader {
         retention: SessionTranscriptRetention
     ) throws {
         guard retention.requiresCompleteLatestScan, hasLatestTurns else { return }
-        guard openingUser != nil, !metrics.didSkipOversizedRecord else {
+        guard openingUser != nil,
+              !metrics.didSkipOversizedRecord,
+              !metrics.didEncounterMalformedRecord else {
             throw SessionTranscriptLoadError.incompleteSource
         }
     }

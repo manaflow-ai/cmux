@@ -127,6 +127,25 @@ struct SessionIndexJSONLReaderTests {
         #expect(metrics.bytesRead == Data((oversized + "\n" + matching + "\n").utf8).count)
     }
 
+    @Test(arguments: [ReadDirection.start, .tail])
+    func readerReportsMalformedRecords(_ direction: ReadDirection) throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-malformed-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let history = [
+            #"{"sessionId":"older"}"#,
+            #"{"sessionId":"malformed""#,
+            #"{"sessionId":"newer"}"#,
+        ].joined(separator: "\n") + "\n"
+        try Data(history.utf8).write(to: url)
+
+        let metrics = direction.read(url: url)
+
+        #expect(metrics.recordsVisited == 3)
+        #expect(metrics.didEncounterMalformedRecord)
+    }
+
     @Test
     func tailReaderReturnsNewestRecordsWithoutReadingTheWholeHistory() throws {
         let url = FileManager.default.temporaryDirectory

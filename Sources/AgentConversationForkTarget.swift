@@ -5,21 +5,29 @@ import Foundation
 struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable {
     let harness: AgentConversationForkTargetHarness
     let executablePath: String?
+    let runtimeSearchPath: String?
 
     var id: String { harness.rawValue }
     var title: String { harness.title }
 
     init(
         harness: AgentConversationForkTargetHarness,
-        executablePath: String?
+        executablePath: String?,
+        runtimeSearchPath: String? = nil
     ) {
         self.harness = harness
         if harness == .current {
             self.executablePath = nil
+            self.runtimeSearchPath = nil
         } else {
             let normalized = executablePath?.trimmingCharacters(in: .whitespacesAndNewlines)
             precondition(normalized?.isEmpty == false, "Installed fork targets require an executable path")
             self.executablePath = normalized
+            let normalizedSearchPath = runtimeSearchPath?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            self.runtimeSearchPath = normalizedSearchPath?.isEmpty == false
+                ? normalizedSearchPath
+                : nil
         }
     }
 
@@ -41,7 +49,8 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
     func startupCommand(handoffMessage: String) -> String? {
         harness.startupCommand(
             handoffMessage: handoffMessage,
-            executablePath: executablePath
+            executablePath: executablePath,
+            runtimeSearchPath: runtimeSearchPath
         )
     }
 }

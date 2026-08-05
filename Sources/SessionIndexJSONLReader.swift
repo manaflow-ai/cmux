@@ -3,6 +3,11 @@ import Foundation
 
 /// Streaming, byte-bounded JSONL reader shared by Vault index and preview paths.
 struct SessionIndexJSONLReader: Sendable {
+    private enum VisitResult {
+        case malformed
+        case visited(shouldStop: Bool)
+    }
+
     private let chunkSize: Int
     private let maximumRecordBytes: Int
 
@@ -49,6 +54,7 @@ struct SessionIndexJSONLReader: Sendable {
         var bytesRead = 0
         var recordsVisited = 0
         var didSkipOversizedRecord = false
+        var didEncounterMalformedRecord = false
 
         func append(_ segment: Data.SubSequence) {
             guard !segment.isEmpty, !isSkippingOversizedRecord else { return }
@@ -69,7 +75,13 @@ struct SessionIndexJSONLReader: Sendable {
             guard !lineData.isEmpty || isSkippingOversizedRecord else { return false }
             recordsVisited += 1
             guard !isSkippingOversizedRecord else { return false }
-            return Self.visit(line: lineData, body: body)
+            switch Self.visit(line: lineData, body: body) {
+            case .malformed:
+                didEncounterMalformedRecord = true
+                return false
+            case .visited(let shouldStop):
+                return shouldStop
+            }
         }
 
         while maximumBytes.map({ bytesRead < $0 }) != false, !Task.isCancelled {
@@ -87,7 +99,8 @@ struct SessionIndexJSONLReader: Sendable {
                     return SessionIndexJSONLReadMetrics(
                         bytesRead: bytesRead,
                         recordsVisited: recordsVisited,
-                        didSkipOversizedRecord: didSkipOversizedRecord
+                        didSkipOversizedRecord: didSkipOversizedRecord,
+                        didEncounterMalformedRecord: didEncounterMalformedRecord
                     )
                 }
                 segmentStart = chunk.index(after: newline)
@@ -103,7 +116,8 @@ struct SessionIndexJSONLReader: Sendable {
         return SessionIndexJSONLReadMetrics(
             bytesRead: bytesRead,
             recordsVisited: recordsVisited,
-            didSkipOversizedRecord: didSkipOversizedRecord
+            didSkipOversizedRecord: didSkipOversizedRecord,
+            didEncounterMalformedRecord: didEncounterMalformedRecord
         )
     }
 
@@ -157,8 +171,9 @@ struct SessionIndexJSONLReader: Sendable {
         var recordsVisited = 0
         var didSkipOversizedRecord =
             startsWithinRecord && skippedLeadingFragmentByteCount >= maximumRecordBytes
+        var didEncounterMalformedRecord = false
         var lineEnd = payload.endIndex
-        while lineEnd > completeRecordsStart {
+        recordLoop: while lineEnd > completeRecordsStart {
             while lineEnd > completeRecordsStart,
                   payload[payload.index(before: lineEnd)] == 0x0a {
                 lineEnd = payload.index(before: lineEnd)
@@ -181,8 +196,13 @@ struct SessionIndexJSONLReader: Sendable {
                 didSkipOversizedRecord = true
                 continue
             }
-            if Self.visit(line: Data(payload[lineStart..<currentLineEnd]), body: body) {
-                break
+            switch Self.visit(line: Data(payload[lineStart..<currentLineEnd]), body: body) {
+            case .malformed:
+                didEncounterMalformedRecord = true
+            case .visited(let shouldStop):
+                if shouldStop {
+                    break recordLoop
+                }
             }
         }
 
@@ -209,6 +229,7 @@ struct SessionIndexJSONLReader: Sendable {
             recordsVisited: recordsVisited,
             didReachStart: !includesBoundaryContext,
             didSkipOversizedRecord: didSkipOversizedRecord,
+            didEncounterMalformedRecord: didEncounterMalformedRecord,
             nextEndOffset: nextEndOffset
         )
     }
@@ -226,6 +247,7 @@ struct SessionIndexJSONLReader: Sendable {
         var recordsVisited = 0
         var didReachStart = false
         var didSkipOversizedRecord = false
+        var didEncounterMalformedRecord = false
         var stoppedEarly = false
         var pagesRead = 0
 
@@ -243,6 +265,8 @@ struct SessionIndexJSONLReader: Sendable {
             didReachStart = page.didReachStart
             didSkipOversizedRecord =
                 didSkipOversizedRecord || page.didSkipOversizedRecord
+            didEncounterMalformedRecord =
+                didEncounterMalformedRecord || page.didEncounterMalformedRecord
             endOffset = page.nextEndOffset
             pagesRead += 1
         } while !stoppedEarly
@@ -256,6 +280,7 @@ struct SessionIndexJSONLReader: Sendable {
             recordsVisited: recordsVisited,
             didReachStart: didReachStart,
             didSkipOversizedRecord: didSkipOversizedRecord,
+            didEncounterMalformedRecord: didEncounterMalformedRecord,
             nextEndOffset: endOffset
         )
     }
@@ -279,12 +304,12 @@ struct SessionIndexJSONLReader: Sendable {
     private static func visit(
         line: Data,
         body: ([String: Any]) -> Bool
-    ) -> Bool {
+    ) -> VisitResult {
         autoreleasepool {
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
-                return false
+                return .malformed
             }
-            return body(object)
+            return .visited(shouldStop: body(object))
         }
     }
 }

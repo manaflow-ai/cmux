@@ -204,10 +204,11 @@ struct AgentConversationTransferSourceTests {
             includeStandardSearchDirectories: false
         ).discover()
 
-        #expect(targets == [AgentConversationForkTarget(
-            harness: .claude,
-            executablePath: executable.path
-        )])
+        let target = try #require(targets.first)
+        #expect(targets.count == 1)
+        #expect(target.harness == .claude)
+        #expect(target.executablePath == executable.path)
+        #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(root.path))
     }
 
     @Test
@@ -231,10 +232,11 @@ struct AgentConversationTransferSourceTests {
             includeStandardSearchDirectories: false
         ).discover()
 
-        #expect(targets == [AgentConversationForkTarget(
-            harness: .codebuddy,
-            executablePath: executable.path
-        )])
+        let target = try #require(targets.first)
+        #expect(targets.count == 1)
+        #expect(target.harness == .codebuddy)
+        #expect(target.executablePath == executable.path)
+        #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(bin.path))
     }
 
     @Test(arguments: ["qodercli", "kimi"])
@@ -265,10 +267,12 @@ struct AgentConversationTransferSourceTests {
     func resolvedTargetPathSurvivesIntoStartupCommand() throws {
         let target = AgentConversationForkTarget(
             harness: .claude,
-            executablePath: "/tmp/Custom Tools/claude"
+            executablePath: "/tmp/Custom Tools/claude",
+            runtimeSearchPath: "/tmp/Custom Tools:/usr/bin"
         )
         let command = try #require(target.startupCommand(handoffMessage: "User: keep context"))
 
+        #expect(command.hasPrefix("/usr/bin/env 'PATH=/tmp/Custom Tools:/usr/bin' "))
         #expect(command.contains("'CMUX_CUSTOM_CLAUDE_PATH=/tmp/Custom Tools/claude'"))
         #expect(command.contains(AgentResumeArgv.claudeWrapperShellExecutableToken))
         #expect(command.contains("User: keep context"))
@@ -297,10 +301,11 @@ struct AgentConversationTransferSourceTests {
         )
 
         await catalog.refresh(force: true)
-        #expect(catalog.installedTargets == [AgentConversationForkTarget(
-            harness: .codex,
-            executablePath: executable.path
-        )])
+        let target = try #require(catalog.installedTargets.first)
+        #expect(catalog.installedTargets.count == 1)
+        #expect(target.harness == .codex)
+        #expect(target.executablePath == executable.path)
+        #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(root.path))
 
         try FileManager.default.removeItem(at: executable)
         await catalog.refresh(force: true)
