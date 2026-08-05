@@ -12,7 +12,8 @@ struct SidebarAppKitRowCellTests {
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
-        metadataEntries: [SidebarStatusEntry] = []
+        metadataEntries: [SidebarStatusEntry] = [],
+        metadataBlocks: [SidebarMetadataBlock] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
@@ -30,7 +31,7 @@ struct SidebarAppKitRowCellTests {
             copyableSidebarSSHError: nil,
             latestConversationMessage: nil,
             metadataEntries: metadataEntries,
-            metadataBlocks: [],
+            metadataBlocks: metadataBlocks,
             latestLog: nil,
             progress: nil,
             activeCodingAgentCount: 0,
@@ -61,6 +62,7 @@ struct SidebarAppKitRowCellTests {
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
+        metadataBlocks: [SidebarMetadataBlock] = [],
         shortcutHintText: String? = nil
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
@@ -71,7 +73,8 @@ struct SidebarAppKitRowCellTests {
             snapshot: makeSnapshot(
                 customDescription: customDescription,
                 isPinned: isPinned,
-                metadataEntries: metadataEntries
+                metadataEntries: metadataEntries,
+                metadataBlocks: metadataBlocks
             ),
             settings: resolvedSettings,
             isActive: isActive,
@@ -275,6 +278,65 @@ struct SidebarAppKitRowCellTests {
         }
     }
 
+    private static func textView(
+        in cell: SidebarWorkspaceRowTableCellView,
+        displaying text: String
+    ) -> SidebarRowTextView? {
+        descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .first { $0.stringValue == text }
+    }
+
+    private static func rasterizedTextColor(in textView: SidebarRowTextView) throws -> NSColor {
+        textView.displayIfNeeded()
+        let bounds = textView.bounds.integral
+        let bitmap = try #require(textView.bitmapImageRepForCachingDisplay(in: bounds))
+        bitmap.size = bounds.size
+        textView.cacheDisplay(in: bounds, to: bitmap)
+
+        var mostOpaqueColor: NSColor?
+        var greatestAlpha: CGFloat = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      color.alphaComponent > greatestAlpha else {
+                    continue
+                }
+                greatestAlpha = color.alphaComponent
+                mostOpaqueColor = color
+            }
+        }
+        #expect(greatestAlpha > 0)
+        return try #require(mostOpaqueColor)
+    }
+
+    private static func rgbDistance(_ lhs: NSColor, _ rhs: NSColor) throws -> CGFloat {
+        let lhs = try #require(lhs.usingColorSpace(.sRGB))
+        let rhs = try #require(rhs.usingColorSpace(.sRGB))
+        let red = lhs.redComponent - rhs.redComponent
+        let green = lhs.greenComponent - rhs.greenComponent
+        let blue = lhs.blueComponent - rhs.blueComponent
+        return sqrt(red * red + green * green + blue * blue)
+    }
+
+    private static func expectActiveLink(
+        in textView: SidebarRowTextView,
+        toRenderWith expectedColor: NSColor
+    ) throws {
+        let renderedColor = try rasterizedTextColor(in: textView)
+        let expectedDistance = try rgbDistance(renderedColor, expectedColor)
+        let systemLinkDistance = try rgbDistance(renderedColor, .linkColor)
+
+        #expect(
+            expectedDistance < 0.1,
+            "Expected selected-row link pixels to use \(expectedColor), got \(renderedColor)"
+        )
+        #expect(
+            systemLinkDistance > 0.25,
+            "Expected selected-row link pixels to differ from NSColor.linkColor, got \(renderedColor)"
+        )
+    }
+
     @discardableResult
     private static func layoutCell(_ cell: SidebarWorkspaceRowTableCellView, model: SidebarWorkspaceRowModel, width: CGFloat = 440) -> NSWindow {
         let height = cell.layoutContent(model: model, width: width, apply: false)
@@ -454,6 +516,47 @@ struct SidebarAppKitRowCellTests {
         #expect(hitView === textView)
         #expect(openedURL == url)
         #expect(!textView.isSelectable)
+    }
+
+    @Test
+    func activeWorkspaceDescriptionLinkUsesSelectedRowForeground() throws {
+        let model = Self.makeModel(
+            isActive: true,
+            customDescription: "[description link](https://cmux.com/description)"
+        )
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.textView(in: cell, displaying: "description link"))
+
+        try Self.expectActiveLink(
+            in: textView,
+            toRenderWith: SidebarRowPalette(model: model).secondary(0.84)
+        )
+        withExtendedLifetime(window) {}
+    }
+
+    @Test
+    func activeMetadataBlockLinkUsesSelectedRowForeground() throws {
+        let model = Self.makeModel(
+            isActive: true,
+            metadataBlocks: [
+                SidebarMetadataBlock(
+                    key: "details",
+                    markdown: "[metadata link](https://cmux.com/metadata)",
+                    priority: 0,
+                    timestamp: .distantPast
+                ),
+            ]
+        )
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.textView(in: cell, displaying: "metadata link"))
+
+        try Self.expectActiveLink(
+            in: textView,
+            toRenderWith: SidebarRowPalette(model: model).secondary(0.8)
+        )
+        withExtendedLifetime(window) {}
     }
 
     @Test
