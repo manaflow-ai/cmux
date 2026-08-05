@@ -33,7 +33,7 @@ export async function POST(request: Request): Promise<Response> {
       headers: {
         authorization: `Bearer ${resolved.value.accessToken}`,
         "content-type": "application/json",
-        "x-subrouter-stack-control-token": controlToken,
+        "x-coderouter-control": controlToken,
       },
       body: JSON.stringify({
         capabilities,
