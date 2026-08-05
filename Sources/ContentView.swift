@@ -1238,10 +1238,6 @@ struct ContentView: View {
     nonisolated private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
-    private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
-    private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
-    private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
-    private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
         CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
@@ -1307,13 +1303,19 @@ struct ContentView: View {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+            return MainWindowSidebarWidthPolicy.maximumLeftWidth(
+                availableWidth: resolvedAvailableWidth,
+                minimumWidth: minimumSidebarWidth
+            )
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
             ?? NSScreen.main?.frame.width
             ?? 1920
-        return max(minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
+        return MainWindowSidebarWidthPolicy.maximumLeftWidth(
+            availableWidth: fallbackScreenWidth,
+            minimumWidth: minimumSidebarWidth
+        )
     }
 
     static func clampedSidebarWidth(
@@ -1321,14 +1323,11 @@ struct ContentView: View {
         maximumWidth: CGFloat,
         minimumWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultMinimumSidebarWidth)
     ) -> CGFloat {
-        let sanitizedMaximumWidth = max(minimumWidth, maximumWidth.isFinite ? maximumWidth : minimumWidth)
-        guard candidate.isFinite else {
-            return max(
-                minimumWidth,
-                min(sanitizedMaximumWidth, CGFloat(SessionPersistencePolicy.defaultSidebarWidth))
-            )
-        }
-        return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
+        MainWindowSidebarWidthPolicy.clampedLeftWidth(
+            candidate,
+            maximumWidth: maximumWidth,
+            minimumWidth: minimumWidth
+        )
     }
 
     static func clampedRightSidebarWidth(
@@ -1336,21 +1335,11 @@ struct ContentView: View {
         availableWidth: CGFloat,
         configuredMaximumWidth: CGFloat? = nil
     ) -> CGFloat {
-        let minimumWidth = Self.minimumRightSidebarWidth
-        let sanitizedCandidate = candidate.isFinite ? candidate : 220
-        let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = max(
-            minimumWidth,
-            sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
+        MainWindowSidebarWidthPolicy.clampedRightWidth(
+            candidate,
+            availableWidth: availableWidth,
+            configuredMaximumWidth: configuredMaximumWidth
         )
-        let configuredOrDefaultCap: CGFloat
-        if let configuredMaximumWidth, configuredMaximumWidth.isFinite {
-            configuredOrDefaultCap = max(minimumWidth, configuredMaximumWidth)
-        } else {
-            configuredOrDefaultCap = Self.maximumRightSidebarWidth
-        }
-        let maximumWidth = min(configuredOrDefaultCap, availableWidthCap)
-        return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
@@ -13484,73 +13473,6 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     }
 }
 
-enum BonsplitTabDragPayload {
-    static let typeIdentifier = "com.splittabbar.tabtransfer"
-    static let dropContentType = UTType(exportedAs: typeIdentifier)
-    static let dropContentTypes: [UTType] = [dropContentType]
-    private static let currentProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
-
-    struct Transfer: Decodable {
-        struct TabInfo: Decodable {
-            let id: UUID
-            let kind: String?
-        }
-
-        let tab: TabInfo
-        let sourcePaneId: UUID
-        let sourceProcessId: Int32
-
-        private enum CodingKeys: String, CodingKey {
-            case tab
-            case sourcePaneId
-            case sourceProcessId
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.tab = try container.decode(TabInfo.self, forKey: .tab)
-            self.sourcePaneId = try container.decode(UUID.self, forKey: .sourcePaneId)
-            // Legacy payloads won't include this field. Treat as foreign process.
-            self.sourceProcessId = try container.decodeIfPresent(Int32.self, forKey: .sourceProcessId) ?? -1
-        }
-    }
-
-    private static func isCurrentProcessTransfer(_ transfer: Transfer) -> Bool {
-        transfer.sourceProcessId == currentProcessId
-    }
-
-    static func currentTransfer() -> Transfer? {
-        transfer(from: NSPasteboard(name: .drag))
-    }
-
-    static func canRouteWorkspaceDrop(pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-            && !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
-    }
-
-    static func transfer(from pasteboard: NSPasteboard) -> Transfer? {
-        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types) else {
-            return nil
-        }
-        let type = NSPasteboard.PasteboardType(typeIdentifier)
-
-        if let data = pasteboard.data(forType: type),
-           let transfer = try? JSONDecoder().decode(Transfer.self, from: data),
-           isCurrentProcessTransfer(transfer) {
-            return transfer
-        }
-
-        if let raw = pasteboard.string(forType: type),
-           let data = raw.data(using: .utf8),
-           let transfer = try? JSONDecoder().decode(Transfer.self, from: data),
-           isCurrentProcessTransfer(transfer) {
-            return transfer
-        }
-
-        return nil
-    }
-}
-
 @MainActor
 struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
@@ -14229,9 +14151,4 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
             indicator: indicator
         )
     }
-}
-
-enum SidebarSelection {
-    case tabs
-    case notifications
 }

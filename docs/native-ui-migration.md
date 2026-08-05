@@ -77,6 +77,16 @@ The counts are discovery metrics. Completion is determined by the gates below.
     The default workspace sidebar, custom-sidebar host, installed-extension
     host, all six bundled providers, permission review, provider picker, and
     XPC renderer are also native.
+    - [ ] `Sources/App/CmuxHelpCommands.swift`
+    - [ ] `Sources/App/CmuxMainWindow.swift`
+    - [ ] `Sources/ContentView.swift`
+    - [ ] `Sources/IrohTransportDebugMenuButtons.swift`
+    - [ ] `Sources/NativeAppKitSupportBridges.swift`
+    - [ ] `Sources/VerticalTabsSidebar+EmptyAreasAndFooter.swift`
+    - [ ] `Sources/cmuxApp+EqualizeSplitsMenu.swift`
+    - [ ] `Sources/cmuxApp+HistoryMenu.swift`
+    - [ ] `Sources/cmuxApp+SurfaceNavigationMenu.swift`
+    - [ ] `Sources/cmuxApp.swift`
   - [ ] Remove every `NSHostingView` and `NSHostingController` boundary.
 - [ ] iOS packages and executable
   - [ ] `CmuxMobileShellUI` (177 import files; notification feed, terminal

@@ -220714,6 +220714,23 @@
         }
       }
     },
+    "sidebar.resize.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのサイズを変更"
+          }
+        }
+      }
+    },
     "sidebar.status.autoReturn": {
       "extractionState": "manual",
       "localizations": {

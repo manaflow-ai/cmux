@@ -9007,25 +9007,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        let root = ContentView(
-            updateViewModel: updateViewModel,
-            windowId: windowId,
-            titlebarControlsLayoutModel: titlebarControlsLayoutModel
-        )
-            .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(sidebarState)
-            .environmentObject(sidebarSelectionState)
-            .environmentObject(fileExplorerState)
-            .environmentObject(cmuxConfigStore)
-            // AppKit hosts this ContentView in its own NSHostingView, which does
-            // not inherit the App scene's SwiftUI environment. Inject the
-            // settings runtime so `@LiveSetting` can resolve the stores it
-            // observes throughout the main window (e.g. the sidebar). The key is
-            // optional, so a nil runtime just leaves reads at their seeded
-            // catalog default.
-            .environment(\.settingsRuntime, settingsRuntime)
-            .cmuxFontMagnificationEnvironment()
+        let usesNativeAppKitRoot = ProcessInfo.processInfo.environment["CMUX_NATIVE_APPKIT_ROOT"] == "1"
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
@@ -9100,7 +9082,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 lastCascadePoint = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
             }
         }
-        window.contentView = MainWindowHostingView(rootView: root)
+        let nativeRootController: MainWindowNativeViewController?
+        if usesNativeAppKitRoot {
+            let rootController = MainWindowNativeViewController(
+                updateViewModel: updateViewModel,
+                windowId: windowId,
+                tabManager: tabManager,
+                notificationStore: notificationStore,
+                sidebarState: sidebarState,
+                sidebarSelectionState: sidebarSelectionState,
+                fileExplorerState: fileExplorerState,
+                cmuxConfigStore: cmuxConfigStore,
+                titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+                settingsRuntime: settingsRuntime
+            )
+            nativeRootController = rootController
+            window.contentViewController = rootController
+        } else {
+            nativeRootController = nil
+            let root = ContentView(
+                updateViewModel: updateViewModel,
+                windowId: windowId,
+                titlebarControlsLayoutModel: titlebarControlsLayoutModel
+            )
+                .environmentObject(tabManager)
+                .environmentObject(notificationStore)
+                .environmentObject(sidebarState)
+                .environmentObject(sidebarSelectionState)
+                .environmentObject(fileExplorerState)
+                .environmentObject(cmuxConfigStore)
+                // AppKit hosts this ContentView in its own NSHostingView, which does
+                // not inherit the App scene's SwiftUI environment. Inject the
+                // settings runtime so `@LiveSetting` can resolve the stores it
+                // observes throughout the main window (e.g. the sidebar). The key is
+                // optional, so a nil runtime just leaves reads at their seeded
+                // catalog default.
+                .environment(\.settingsRuntime, settingsRuntime)
+                .cmuxFontMagnificationEnvironment()
+            window.contentView = MainWindowHostingView(rootView: root)
+        }
 
         // Apply shared window styling.
         attachUpdateAccessory(to: window)
@@ -9111,8 +9131,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         controller.onFrameRestorationCheckpoint = { [weak self] restoredWindow in
             self?.fitRestoredMainWindowFramesIfNeeded(windows: [restoredWindow])
         }
-        controller.onClose = { [weak self, weak controller] in
+        controller.onClose = { [weak self, weak controller, weak nativeRootController] in
             guard let self, let controller else { return }
+            nativeRootController?.teardown()
             let manager = self.tabManagerFor(windowId: windowId)
             // An explicit close of the window's LAST remote workspace (a tab/session
             // close) kills its remote session(s) — synced with tmux — even though it

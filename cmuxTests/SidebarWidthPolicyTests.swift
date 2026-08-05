@@ -31,22 +31,22 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
-    func testContentViewClampKeepsMinimumSidebarWidth() {
+    func testMainWindowClampKeepsMinimumSidebarWidth() {
         XCTAssertEqual(
-            ContentView.clampedSidebarWidth(184, maximumWidth: 600),
+            MainWindowSidebarWidthPolicy.clampedLeftWidth(184, maximumWidth: 600),
             CGFloat(SessionPersistencePolicy.minimumSidebarWidth),
             accuracy: 0.001
         )
     }
 
-    func testContentViewClampCanUseSmallerConfiguredMinimumSidebarWidth() {
+    func testMainWindowClampCanUseSmallerConfiguredMinimumSidebarWidth() {
         XCTAssertEqual(
-            ContentView.clampedSidebarWidth(184, maximumWidth: 600, minimumWidth: 160),
+            MainWindowSidebarWidthPolicy.clampedLeftWidth(184, maximumWidth: 600, minimumWidth: 160),
             184,
             accuracy: 0.001
         )
         XCTAssertEqual(
-            ContentView.clampedSidebarWidth(140, maximumWidth: 600, minimumWidth: 160),
+            MainWindowSidebarWidthPolicy.clampedLeftWidth(140, maximumWidth: 600, minimumWidth: 160),
             160,
             accuracy: 0.001
         )
@@ -72,7 +72,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
     func testRightSidebarClampAllowsWideExplorerOnLargeWindows() {
         XCTAssertEqual(
-            ContentView.clampedRightSidebarWidth(900, availableWidth: 1600),
+            MainWindowSidebarWidthPolicy.clampedRightWidth(900, availableWidth: 1600),
             900,
             accuracy: 0.001
         )
@@ -80,7 +80,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
     func testRightSidebarFirstCustomMaximumMatchesBuiltInCap() {
         XCTAssertEqual(
-            ContentView.clampedRightSidebarWidth(10_000, availableWidth: 10_000),
+            MainWindowSidebarWidthPolicy.clampedRightWidth(10_000, availableWidth: 10_000),
             CGFloat(RightSidebarWidthSettings.defaultConfiguredMaximumWidth),
             accuracy: 0.001
         )
@@ -88,7 +88,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
     func testRightSidebarClampLeavesTerminalWidthWhenMaxWidthSettingIsMissing() {
         XCTAssertEqual(
-            ContentView.clampedRightSidebarWidth(10_000, availableWidth: 1000),
+            MainWindowSidebarWidthPolicy.clampedRightWidth(10_000, availableWidth: 1000),
             640,
             accuracy: 0.001
         )
@@ -96,7 +96,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
     func testRightSidebarConfiguredMaxCanExceedBuiltInDefaultOnWideWindows() {
         XCTAssertEqual(
-            ContentView.clampedRightSidebarWidth(
+            MainWindowSidebarWidthPolicy.clampedRightWidth(
                 10_000,
                 availableWidth: 2400,
                 configuredMaximumWidth: 1_500
@@ -108,7 +108,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
     func testRightSidebarConfiguredMaxStillLeavesTerminalWidth() {
         XCTAssertEqual(
-            ContentView.clampedRightSidebarWidth(
+            MainWindowSidebarWidthPolicy.clampedRightWidth(
                 10_000,
                 availableWidth: 1000,
                 configuredMaximumWidth: 1_400
@@ -120,7 +120,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
     func testRightSidebarConfiguredMaxBelowMinimumClampsToMinimumWidth() {
         XCTAssertEqual(
-            ContentView.clampedRightSidebarWidth(
+            MainWindowSidebarWidthPolicy.clampedRightWidth(
                 10_000,
                 availableWidth: 1000,
                 configuredMaximumWidth: 120
@@ -132,7 +132,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
     func testRightSidebarClampKeepsMinimumWidth() {
         XCTAssertEqual(
-            ContentView.clampedRightSidebarWidth(20, availableWidth: 1000),
+            MainWindowSidebarWidthPolicy.clampedRightWidth(20, availableWidth: 1000),
             276,
             accuracy: 0.001
         )
