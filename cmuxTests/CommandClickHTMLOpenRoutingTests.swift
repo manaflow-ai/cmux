@@ -73,6 +73,31 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func filesystemProbeExecutesItsScriptForFilesAndDirectories() async throws {
+        let fileManager = FileManager.default
+        let fixtureDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-word-path-probe-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: fixtureDirectory) }
+
+        let fileURL = fixtureDirectory.appendingPathComponent("preview.html", isDirectory: false)
+        try "<title>Probe</title>".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let probe = WordPathFilesystemProbe(timeout: 1)
+        let fileResolution = try #require(
+            await probe.firstExistingPath(in: [fileURL.path])
+        )
+        #expect(fileResolution.candidatePath == fileURL.path)
+        #expect(fileResolution.resolvedPath == fileURL.resolvingSymlinksInPath().path)
+
+        let directoryResolution = try #require(
+            await probe.firstExistingPath(in: [fixtureDirectory.path])
+        )
+        #expect(directoryResolution.candidatePath == fixtureDirectory.path)
+        #expect(directoryResolution.resolvedPath == fixtureDirectory.resolvingSymlinksInPath().path)
+    }
+
+    @Test
     func hoverFilesystemProbePoolRunsOneAndRetainsOnlyLatestPendingJob() async {
         let pool = WordPathFilesystemResolutionCoordinator()
         let firstStarted = AsyncStream<Void>.makeStream()
