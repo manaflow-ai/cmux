@@ -87,4 +87,21 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
         #expect(selectedOmp["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
     }
+
+    @Test("Preserves OpenCode storage settings without replaying captured provenance")
+    func preservesOpenCodeStorageSettingsWithoutCapturedProvenance() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "OPENCODE_DB": "custom.db",
+                "OPENCODE_DISABLE_CHANNEL_DB": "1",
+                OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey: "/tmp/opencode-dev.db",
+            ],
+            kind: "opencode"
+        )
+
+        #expect(selected == [
+            "OPENCODE_DB": "custom.db",
+            "OPENCODE_DISABLE_CHANNEL_DB": "1",
+        ])
+    }
 }

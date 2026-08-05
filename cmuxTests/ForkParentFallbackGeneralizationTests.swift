@@ -436,12 +436,20 @@ struct ForkParentFallbackGeneralizationTests {
                     return processArguments(fixture: fixture, argv: ["/usr/local/bin/codex", "fork", fixture.parentCodexId], launchKind: "codex")
                 }
                 return nil
+            },
+            openCodeDatabasePathProvider: { pid, _ in
+                pid == 5_150 ? "/tmp/opencode-dev.db" : nil
             }
         )
 
         let entry = try #require(detected[key])
         #expect(entry.snapshot.kind == .opencode)
         #expect(entry.snapshot.sessionId == "oc-session")
+        #expect(
+            entry.snapshot.launchCommand?.environment?[
+                OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey
+            ] == "/tmp/opencode-dev.db"
+        )
     }
 
     private struct Fixture {

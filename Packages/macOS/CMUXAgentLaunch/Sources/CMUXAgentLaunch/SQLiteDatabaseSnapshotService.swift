@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SQLite3
 
@@ -72,6 +73,8 @@ public struct SQLiteDatabaseSnapshotService {
         try Task.checkCancellation()
         let startedAt = now()
         try checkDeadline(startedAt: startedAt)
+        let sourceDescriptor = try validatedRegularSourceDescriptor(path: sourcePath)
+        defer { _ = Darwin.close(sourceDescriptor) }
 
         var sourceDatabase: OpaquePointer?
         let sourceOpenResult = sqlite3_open_v2(
@@ -195,6 +198,25 @@ public struct SQLiteDatabaseSnapshotService {
                 maximumDuration: maximumDuration
             )
         }
+    }
+
+    /// Opens special files without waiting for a peer, then keeps the validated
+    /// regular file alive while SQLite opens the same source path. This prevents
+    /// FIFOs and devices from bypassing the snapshot deadline inside sqlite3_open_v2.
+    private func validatedRegularSourceDescriptor(path: String) throws -> Int32 {
+        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            throw SQLiteDatabaseSnapshotError.sqlite("cannot open source database")
+        }
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG else {
+            _ = Darwin.close(descriptor)
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "source database is not a regular file"
+            )
+        }
+        return descriptor
     }
 
     private func removeSnapshotSidecars(destinationPath: String) throws {

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import CMUXAgentLaunch
 import SQLite3
@@ -19,14 +20,21 @@ extension AgentLaunchCommandSnapshot {
         let storageIdentityKeys: [String]
         switch launcher {
         case "opencode":
-            storageIdentityKeys = ["HOME", "XDG_DATA_HOME"]
+            storageIdentityKeys = [
+                "HOME",
+                "XDG_DATA_HOME",
+                "OPENCODE_DB",
+                "OPENCODE_DISABLE_CHANNEL_DB",
+                OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey,
+            ]
         case "hermes", "hermes-agent":
             storageIdentityKeys = ["HOME"]
         default:
             storageIdentityKeys = []
         }
-        // Storage identity is captured for transcript lookup; resume policy
-        // intentionally filters these keys before relaunching the agent.
+        // Storage identity is captured for transcript lookup. Source-only keys
+        // such as HOME and the kernel-derived database path remain filtered on
+        // replay; provider settings already allowed by policy remain available.
         for key in storageIdentityKeys {
             if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !value.isEmpty {
@@ -67,6 +75,9 @@ extension RestorableAgentSessionIndex {
         capturedAt: TimeInterval,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        openCodeDatabasePathProvider: (Int, [String: String]) -> String? = {
+            openCodeDatabasePathHeldOpen(processID: $0, environment: $1)
         }
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         // KERN_PROCARGS2 argv/env decoding is the expensive unit of this scan; memoize so
@@ -86,7 +97,8 @@ extension RestorableAgentSessionIndex {
             capturedAt: capturedAt,
             fileManager: fileManager,
             scopedProcessIDsByPanelKey: scopedProcessIDsByPanelKey,
-            processArgumentsProvider: cachedProcessArguments
+            processArgumentsProvider: cachedProcessArguments,
+            databasePathProvider: openCodeDatabasePathProvider
         )
         resolved.merge(processDetectedOllamaSnapshots(
             processSnapshot: processSnapshot,
@@ -275,7 +287,8 @@ extension RestorableAgentSessionIndex {
         capturedAt: TimeInterval,
         fileManager: FileManager,
         scopedProcessIDsByPanelKey: [PanelKey: Set<Int>],
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
+        databasePathProvider: (Int, [String: String]) -> String?
     ) -> [PanelKey: ProcessDetectedSnapshotEntry] {
         var resolved: [PanelKey: ProcessDetectedSnapshotEntry] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
@@ -360,6 +373,19 @@ extension RestorableAgentSessionIndex {
                 observed: process.observed,
                 executablePath: executablePath
             ) else { continue }
+            var launchEnvironment = process.observed.environment
+            launchEnvironment.removeValue(
+                forKey: OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey
+            )
+            if let databasePath = databasePathProvider(
+                process.processID,
+                process.observed.environment
+            )?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !databasePath.isEmpty {
+                launchEnvironment[
+                    OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey
+                ] = databasePath
+            }
             let snapshot = SessionRestorableAgentSnapshot(
                 kind: .opencode,
                 sessionId: sessionId,
@@ -369,7 +395,7 @@ extension RestorableAgentSessionIndex {
                     executablePath: executablePath,
                     arguments: launchArguments,
                     workingDirectory: process.workingDirectory,
-                    environment: process.observed.environment
+                    environment: launchEnvironment
                 )
             )
             resolved[process.panelKey] = (
@@ -382,6 +408,76 @@ extension RestorableAgentSessionIndex {
         }
 
         return resolved
+    }
+
+    /// Returns the one OpenCode database the live process holds open. The
+    /// kernel path captures compile-time channel selection that is otherwise
+    /// absent from argv and environment (`opencode-dev.db`, for example).
+    private static func openCodeDatabasePathHeldOpen(
+        processID: Int,
+        environment: [String: String]
+    ) -> String? {
+        let listSize = proc_pidinfo(pid_t(processID), PROC_PIDLISTFDS, 0, nil, 0)
+        guard listSize > 0 else { return nil }
+        let descriptorCount = min(
+            Int(listSize) / MemoryLayout<proc_fdinfo>.stride,
+            4_096
+        )
+        guard descriptorCount > 0 else { return nil }
+        var descriptors = [proc_fdinfo](
+            repeating: proc_fdinfo(),
+            count: descriptorCount
+        )
+        let bytesRead = descriptors.withUnsafeMutableBufferPointer { buffer in
+            proc_pidinfo(
+                pid_t(processID),
+                PROC_PIDLISTFDS,
+                0,
+                buffer.baseAddress,
+                Int32(buffer.count * MemoryLayout<proc_fdinfo>.stride)
+            )
+        }
+        guard bytesRead > 0 else { return nil }
+
+        let resolver = OpenCodeSessionResolver(defaultHomeDirectory: NSHomeDirectory())
+        let expectedPath = (resolver.databasePath(env: environment) as NSString)
+            .standardizingPath
+        guard expectedPath != ":memory:" else { return nil }
+        let expectedDirectory = (expectedPath as NSString).deletingLastPathComponent
+        var candidates = Set<String>()
+        let usedCount = min(
+            descriptors.count,
+            Int(bytesRead) / MemoryLayout<proc_fdinfo>.stride
+        )
+        for descriptor in descriptors.prefix(usedCount)
+        where descriptor.proc_fdtype == UInt32(PROX_FDTYPE_VNODE) {
+            var info = vnode_fdinfowithpath()
+            let infoSize = proc_pidfdinfo(
+                pid_t(processID),
+                descriptor.proc_fd,
+                PROC_PIDFDVNODEPATHINFO,
+                &info,
+                Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+            )
+            guard infoSize > 0 else { continue }
+            let rawPath = withUnsafeBytes(of: &info.pvip.vip_path) { raw -> String in
+                guard let baseAddress = raw.baseAddress else { return "" }
+                return String(cString: baseAddress.assumingMemoryBound(to: CChar.self))
+            }
+            let path = (rawPath as NSString).standardizingPath
+            if path == expectedPath {
+                return path
+            }
+            let name = (path as NSString).lastPathComponent
+            guard (path as NSString).deletingLastPathComponent == expectedDirectory,
+                  name == "opencode.db"
+                    || (name.hasPrefix("opencode-") && name.hasSuffix(".db")) else {
+                continue
+            }
+            candidates.insert(path)
+        }
+        guard candidates.count == 1 else { return nil }
+        return candidates.first
     }
 
     private static func openCodeExecutablePath(

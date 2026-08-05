@@ -103,6 +103,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "KIRO_LOG_NO_COLOR",
         "KIMI_SHARE_DIR",
         "NODE_OPTIONS",
+        "OPENCODE_DB",
+        "OPENCODE_DISABLE_CHANNEL_DB",
         "OPENCODE_CONFIG_DIR",
         "OLLAMA_EDITOR",
         "OLLAMA_HOST",
