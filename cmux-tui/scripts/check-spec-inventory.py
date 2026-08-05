@@ -808,6 +808,14 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "presentation-only",
         "route": "status snapshot + frontend clipboard",
     },
+    "ActivateSidebarProfile": {
+        "classification": "presentation-only",
+        "route": "frontend sidebar profile composition",
+    },
+    "SetSidebarViewVisible": {
+        "classification": "presentation-only",
+        "route": "frontend per-profile view visibility",
+    },
     "SetClientSizing": {
         "classification": "direct",
         "route": "set-client-sizing",

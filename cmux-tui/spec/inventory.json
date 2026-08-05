@@ -384,6 +384,8 @@
     {"variant": "ToggleSidebar", "classification": "presentation-only", "route": "frontend action adapter"},
     {"variant": "ToggleSidebarCompact", "classification": "presentation-only", "route": "frontend action adapter"},
     {"variant": "FocusSidebar", "classification": "presentation-only", "route": "frontend action adapter"},
+    {"variant": "ActivateSidebarProfile", "classification": "presentation-only", "route": "frontend sidebar profile composition"},
+    {"variant": "SetSidebarViewVisible", "classification": "presentation-only", "route": "frontend per-profile view visibility"},
     {"variant": "ShowShortcuts", "classification": "presentation-only", "route": "frontend shortcut overlay"},
     {"variant": "SetClientSizing", "classification": "direct", "route": "set-client-sizing"},
     {"variant": "UseClientSize", "classification": "direct", "route": "set-client-sizing exclusive:true"},
