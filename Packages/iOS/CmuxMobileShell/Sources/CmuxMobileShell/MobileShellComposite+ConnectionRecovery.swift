@@ -622,7 +622,17 @@ extension MobileShellComposite {
                 )
                 : nil
         )
-        guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
+        guard let firstRoute = pinnedRoutes.first else {
+            if connectionMethodStore?.method == .tailscale {
+                // Tailscale-only with no granted route: fail closed with the
+                // actionable pairing-code requirement instead of a generic
+                // unsupported-route message.
+                applyTailscalePairingRequiredFailure(
+                    disconnect: !hasActiveMacConnection
+                )
+            }
+            return .failed(.unsupportedRoute)
+        }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
 
@@ -648,7 +658,8 @@ extension MobileShellComposite {
                     ifStillCurrent: ifStillCurrent
                 )
                 guard ifStillCurrent?() ?? true else { return .superseded }
-                if noThrowFailure == .noSupportedRoute {
+                if noThrowFailure == .noSupportedRoute
+                    || noThrowFailure == .tailscalePairingRequired {
                     outcome = .failed(.unsupportedRoute)
                 }
             } catch {
@@ -821,12 +832,34 @@ extension MobileShellComposite {
     ) async {
         let scope = await currentScopeSnapshot()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
+        // Under the Tailscale-only method a registry tap may dial only routes
+        // covered by this device's stored grant for that Mac; a fresh registry
+        // route can never mint authorization by itself.
+        let tailscalePreference: MobileShellComposite.TailscaleRoutePreference? =
+            connectionMethodStore?.method == .tailscale
+                ? Self.TailscaleRoutePreference(
+                    macDeviceID: device.deviceId,
+                    grantRoutes: pairedMacs.first {
+                        cmxCanonicalDeviceID($0.macDeviceID)
+                            == cmxCanonicalDeviceID(device.deviceId)
+                            && $0.legacyTailscaleRoutes?.isEmpty == false
+                    }?.legacyTailscaleRoutes ?? []
+                )
+                : nil
         let candidateRoutes = Self.storedReconnectRoutes(
             instance.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscalePreference: tailscalePreference
         )
         guard !candidateRoutes.isEmpty else {
+            if tailscalePreference != nil {
+                // A user tap needs feedback: explain the missing pairing-code
+                // authorization rather than failing silently.
+                applyTailscalePairingRequiredFailure(
+                    disconnect: !hasActiveMacConnection
+                )
+            }
             mobileShellLog.error(
                 "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
             )
@@ -868,6 +901,9 @@ extension MobileShellComposite {
         accountID: String,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
+        // Zero-touch discovery connects new Macs over Iroh; the Tailscale-only
+        // method forbids that transport entirely.
+        guard connectionMethodStore?.method != .tailscale else { return false }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let candidateRoutes = Self.storedReconnectRoutes(
             mac.routes,

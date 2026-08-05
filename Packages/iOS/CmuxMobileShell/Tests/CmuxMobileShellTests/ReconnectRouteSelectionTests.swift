@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -516,7 +517,9 @@ import Testing
 
     func makeReconnectStore(
         routes: [CmxAttachRoute],
-        runtime: any MobileSyncRuntime
+        runtime: any MobileSyncRuntime,
+        connectionMethod: MobileConnectionMethod? = nil,
+        userAuthorizedTailscaleRoutes: [CmxAttachRoute] = []
     ) async throws -> MobileShellComposite {
         let (pairedStore, _) = try makePairedMacStore()
         try await pairedStore.upsert(
@@ -528,10 +531,30 @@ import Testing
             teamID: nil,
             now: Date()
         )
+        if !userAuthorizedTailscaleRoutes.isEmpty {
+            try await pairedStore.authorizeUserTailscaleRoutes(
+                macDeviceID: "test-mac",
+                instanceTag: nil,
+                stackUserID: "user-1",
+                teamID: nil,
+                routes: userAuthorizedTailscaleRoutes
+            )
+        }
+        var connectionMethodStore: MobileConnectionMethodStore?
+        if let connectionMethod {
+            let methodStore = MobileConnectionMethodStore(
+                defaults: UserDefaults(
+                    suiteName: "connection-method-\(UUID().uuidString)"
+                )!
+            )
+            methodStore.method = connectionMethod
+            connectionMethodStore = methodStore
+        }
         let store = MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
             pairedMacStore: pairedStore,
+            connectionMethodStore: connectionMethodStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(suiteName: "reconnect-routes-\(UUID().uuidString)")!,
@@ -541,7 +564,7 @@ import Testing
         return store
     }
 
-    @Test func tailscalePreferencePromotesGrantedRouteAheadOfIrohPin() throws {
+    @Test func tailscaleMethodDialsOnlyTheGrantedTailscaleRoute() throws {
         let tailscale = try tailscale()
         let routes = MobileShellComposite.storedReconnectRoutes(
             [tailscale, try iroh()],
@@ -553,14 +576,15 @@ import Testing
             )
         )
 
-        // The granted Tailscale destination dials first; Iroh stays as the
-        // fallback instead of being exclusive.
-        #expect(routes.map(\.kind) == [.tailscale, .iroh])
+        // The Tailscale method is a determinant: the granted destination is
+        // the only dialable route, with no Iroh fallback.
+        #expect(routes.map(\.kind) == [.tailscale])
     }
 
-    @Test func tailscalePreferenceWithoutGrantKeepsIrohExclusivePin() throws {
-        // A preference flip alone grants nothing: without a device-local grant
-        // the Iroh pin still drops every raw host/port fallback.
+    @Test func tailscaleMethodWithoutGrantFailsClosed() throws {
+        // A method flip alone grants nothing: without a device-local grant
+        // there is nothing the method allows dialing. The result is empty,
+        // never a silent Iroh fallback.
         let routes = MobileShellComposite.storedReconnectRoutes(
             [try tailscale(), try iroh()],
             supportedKinds: [.iroh, .tailscale],
@@ -571,10 +595,10 @@ import Testing
             )
         )
 
-        #expect(routes.map(\.kind) == [.iroh])
+        #expect(routes.isEmpty)
     }
 
-    @Test func tailscalePreferenceIgnoresGrantForDifferentDestination() throws {
+    @Test func tailscaleMethodIgnoresGrantForDifferentDestination() throws {
         let otherDestination = try tailscale(50907)
         let routes = MobileShellComposite.storedReconnectRoutes(
             [try tailscale(), try iroh()],
@@ -586,6 +610,6 @@ import Testing
             )
         )
 
-        #expect(routes.map(\.kind) == [.iroh])
+        #expect(routes.isEmpty)
     }
 }
