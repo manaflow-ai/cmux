@@ -5335,11 +5335,12 @@ fn percent_encode_query(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        AUTHORITY_CAPTURE_ATTEMPTS, BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions,
-        BrowserCommand, BrowserFrame, BrowserSession, BrowserSource, BrowserStatus,
-        MAX_RECONFIGURE_WAITERS_PER_RESERVATION, SequencedBrowserCommand, capture_scale_for,
-        handle_frame_navigated, handle_same_document_navigated, new_surface, normalize_url,
-        runtime_endpoint, scaled_pixels, start_surface_thread, take_latest_worker_commands,
+        AUTHORITY_CAPTURE_ATTEMPT_BUDGET, AUTHORITY_CAPTURE_ATTEMPTS,
+        BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
+        BrowserSession, BrowserSource, BrowserStatus, MAX_RECONFIGURE_WAITERS_PER_RESERVATION,
+        SequencedBrowserCommand, capture_scale_for, handle_frame_navigated,
+        handle_same_document_navigated, new_surface, normalize_url, runtime_endpoint,
+        scaled_pixels, start_surface_thread, take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -5350,6 +5351,15 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
     use tungstenite::{Message, accept};
+
+    fn test_duration(duration: Duration) -> Duration {
+        let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(1)
+            .clamp(1, 16);
+        duration.saturating_mul(scale)
+    }
 
     fn test_frame(seq: u64) -> BrowserFrame {
         BrowserFrame {
@@ -9123,9 +9133,13 @@ mod tests {
             attempts, AUTHORITY_CAPTURE_ATTEMPTS,
             "document verification must reach the healthy final attempt"
         );
+        let total_attempt_budget = (0..AUTHORITY_CAPTURE_ATTEMPTS)
+            .fold(Duration::ZERO, |total, _| {
+                total.saturating_add(AUTHORITY_CAPTURE_ATTEMPT_BUDGET)
+            });
         assert!(
-            elapsed < Duration::from_millis(600),
-            "bounded attempts monopolized the input worker for {elapsed:?}"
+            elapsed < test_duration(total_attempt_budget),
+            "bounded attempts exceeded their configured budget in {elapsed:?}"
         );
     }
 
