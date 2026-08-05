@@ -53599,6 +53599,23 @@
         }
       }
     },
+    "cli.terminalCreation.help.initialCommandDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run this as the new terminal's initial command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルの初期コマンドとして実行"
+          }
+        }
+      }
+    },
     "cli.workspace.create.error.envFileRequiresValue": {
       "extractionState": "manual",
       "localizations": {
