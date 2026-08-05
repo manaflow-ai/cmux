@@ -71,7 +71,7 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
                 "workspace", "create",
                 "--name", "paste-buffer-regression",
                 "--cwd", "/tmp",
-                "--command", "cat",
+                "--command", "cat; exec /bin/sleep 60",
                 "--focus", "true",
             ]
         )
@@ -90,7 +90,11 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
             socketPath: socketPath,
             arguments: ["send", "--workspace", workspace, "--", readinessMarker + "\n"]
         )
-        XCTAssertEqual(readinessSend.status, 0, readinessSend.diagnostic)
+        XCTAssertEqual(
+            readinessSend.status,
+            0,
+            "\(readinessSend.diagnostic) \(appProcessDiagnostics()) log=[\(tailOfAppLog())]"
+        )
         let readinessScreen = waitForScreenMarker(
             readinessMarker,
             cliPath: cliPath,
