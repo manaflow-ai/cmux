@@ -130,16 +130,17 @@ struct CmxIrohClientSessionTests {
             await completion.complete()
         }
         await receive.waitUntilStopStarted()
-        for _ in 0 ..< 100 { await Task.yield() }
+        // The stop gate stays held, so child-stream cleanup is provably
+        // blocked. close() completing within the bound proves it returned
+        // without waiting for that cleanup; a regression times out here.
+        try await Self.waitUntil { await completion.isComplete() }
         let parentClosedBeforeChildCleanup =
             await connection.observedCloseCallCount() == 1
-        let closeReturnedBeforeChildCleanup = await completion.isComplete()
 
         await receive.releaseStop()
         await close.value
 
         #expect(parentClosedBeforeChildCleanup)
-        #expect(closeReturnedBeforeChildCleanup)
     }
 
     @Test
@@ -603,6 +604,17 @@ struct CmxIrohClientSessionTests {
             source: .native,
             privacyScope: .publicInternet
         )
+    }
+
+    private static func waitUntil(
+        _ condition: @escaping @Sendable () async -> Bool
+    ) async throws {
+        for _ in 0 ..< 1_000 {
+            if await condition() { return }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        struct TimedOut: Error {}
+        throw TimedOut()
     }
 
     func tailscaleHint() throws -> CmxIrohPathHint {
