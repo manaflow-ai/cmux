@@ -467,7 +467,8 @@
         "SetDefaults": 106,
         "ClearHistory": 107,
         "SetCellPixelSize": 108,
-        "SetKittyGraphicsLimits": 109
+        "SetKittyGraphicsLimits": 109,
+        "Activate": 110
       }
     },
     "machine_provider_v1": {
