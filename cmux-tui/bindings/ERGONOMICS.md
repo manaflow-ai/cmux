@@ -1,7 +1,7 @@
 # SDK ergonomics findings
 
 The seven public SDKs expose handwritten resource handles over the reviewed
-113-operation `cmux.protocol/1` catalog. The raw protocol inventory is a
+113-operation `cmux.protocol/2` catalog. The raw protocol inventory is a
 separate compatibility surface with 96 commands and 45 events. Deterministic
 generation is limited to those private protocol-10 models under each package's
 explicit `raw` namespace. Consumers do not run a generator or install a

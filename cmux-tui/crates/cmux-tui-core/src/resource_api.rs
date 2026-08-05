@@ -1,4 +1,4 @@
-//! Transport-independent machine routing for `cmux.protocol/1`.
+//! Transport-independent machine routing for `cmux.protocol/2`.
 //!
 //! The session mux owns local terminal state. Machine catalogs and providers
 //! live in the outer runtime, so the public router crosses this injected
@@ -826,7 +826,7 @@ mod tests {
         idempotency_key: Option<&str>,
     ) -> Value {
         let mut request = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":id,
             "operation":operation,

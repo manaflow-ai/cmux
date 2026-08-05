@@ -170,7 +170,7 @@ fn terminal_resource(id: &str) -> TerminalPublicId {
 }
 
 fn agent_resource(terminal_id: &TerminalPublicId) -> crate::resource::AgentPublicId {
-    let digest = Sha256::digest(format!("cmux.protocol/1/agent/{terminal_id}").as_bytes());
+    let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
     let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     crate::resource::AgentPublicId::parse(format!("agent_{payload}")).unwrap()
 }

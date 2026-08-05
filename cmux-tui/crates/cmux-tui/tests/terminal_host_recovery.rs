@@ -2574,7 +2574,7 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
 fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
     let mut harness = RecoveryHarness::start_with_host_ready_delay("public-create-recovery", 2_000);
     let create = serde_json::json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"request",
         "id":"public-create-request",
         "operation":"workspace.create",
@@ -2964,7 +2964,7 @@ fn resource_request(
     idempotency_key: Option<&str>,
 ) -> serde_json::Value {
     let mut value = serde_json::json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"request",
         "id":id,
         "operation":operation,
@@ -2974,7 +2974,7 @@ fn resource_request(
         value["idempotency_key"] = serde_json::json!(idempotency_key);
     }
     let response = request_response(path, value);
-    assert_eq!(response["protocol"], "cmux.protocol/1", "request failed: {response}");
+    assert_eq!(response["protocol"], "cmux.protocol/2", "request failed: {response}");
     assert_eq!(response["type"], "response", "request failed: {response}");
     assert_eq!(response["id"], id, "request failed: {response}");
     assert_eq!(response["ok"], true, "request failed: {response}");

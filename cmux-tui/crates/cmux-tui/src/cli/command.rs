@@ -2201,7 +2201,7 @@ mod tests {
     fn operation_catalog() -> Value {
         serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../spec/resource-operations-v1.json"
+            "/../../spec/resource-operations-v2.json"
         )))
         .expect("canonical operation catalog")
     }

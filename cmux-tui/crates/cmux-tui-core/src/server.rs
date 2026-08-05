@@ -5254,7 +5254,7 @@ fn public_client_id(
     client: u64,
 ) -> Result<ClientPublicId, ResourceError> {
     let mut digest = Sha256::new();
-    digest.update(b"cmux.protocol/1/client/");
+    digest.update(b"cmux.protocol/2/client/");
     digest.update(session_id.as_str().as_bytes());
     digest.update(b"/");
     digest.update(client.to_be_bytes());
@@ -6042,7 +6042,7 @@ fn send_resource_uncursored_stream_item(
     writer
         .send_stream_backpressured(
             &json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"stream_item",
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
@@ -6882,7 +6882,7 @@ fn send_resource_stream_item(
     writer
         .send_stream_backpressured(
             &json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"stream_item",
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
@@ -6958,7 +6958,7 @@ fn resource_stream_end(
     error: Option<(ResourceOperation, ResourceError)>,
 ) -> Value {
     let mut end = json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"stream_end",
         "stream_id":stream_id,
         "reason":reason,
@@ -11657,7 +11657,7 @@ mod tests {
         idempotency_key: Option<&str>,
     ) -> String {
         let mut request = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":id,
             "operation":operation,
@@ -11678,7 +11678,7 @@ mod tests {
     fn resource_protocol_responses_are_identical_for_unix_and_websocket_clients() {
         let mux = test_mux();
         let request = serde_json::to_string(&json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":"transport-parity",
             "operation":"session.ping",
@@ -11698,7 +11698,7 @@ mod tests {
 
         assert_eq!(responses[0], responses[1]);
         let response: Value = serde_json::from_str(&responses[0]).unwrap();
-        assert_eq!(response["protocol"], "cmux.protocol/1");
+        assert_eq!(response["protocol"], "cmux.protocol/2");
         assert_eq!(response["type"], "response");
         assert_eq!(response["id"], "transport-parity");
         assert_eq!(response["ok"], true);
@@ -13361,7 +13361,7 @@ mod tests {
     #[test]
     fn connection_handler_owns_every_router_connection_operation() {
         let catalog: Value =
-            serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json"))
+            serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
                 .unwrap();
         let mut connection_operations = 0usize;
         for name in catalog["operations"].as_object().unwrap().keys() {

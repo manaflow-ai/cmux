@@ -6,7 +6,7 @@ under an explicit `raw` namespace.
 
 The split is deliberate:
 
-- [`resource-operations-v1.json`](resource-operations-v1.json) defines the
+- [`resource-operations-v2.json`](resource-operations-v2.json) defines the
   stable public operations, selectors, fields, results, errors, and streams.
 - Public resource handles, options, lifecycle, errors, and conveniences are
   handwritten in each language.
@@ -147,7 +147,7 @@ zeroized when their owning values are released. Private modules live under
 ## Transport parity
 
 Unix sockets use one JSON object per line. WebSockets use one JSON object per
-text frame. Both carry the same `cmux.protocol/1` envelopes and ordering.
+text frame. Both carry the same `cmux.protocol/2` envelopes and ordering.
 Transport-specific code may frame and authenticate a connection; it may not
 change operation parameters or results.
 

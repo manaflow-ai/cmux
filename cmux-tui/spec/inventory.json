@@ -446,6 +446,7 @@
         "ClearHistoryAck": 17,
         "CellPixelSizeAck": 18,
         "KittyGraphicsLimitsAck": 19,
+        "LaunchFailed": 20,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
