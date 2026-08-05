@@ -17,13 +17,10 @@ import struct CmuxSettings.AppCatalogSection
 struct CommandClickHTMLOpenRoutingTests {
     @Test
     func filesystemProbeUsesDeadlineAndPreservesCandidateOrder() async throws {
-        let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
-            stdout: "1\0readable-file\0/private/tmp/second.html\n",
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        ))
+        let runner = RecordingWordPathProbeCommandRunner(
+            resolvedPaths: ["/tmp/second.html": "/private/tmp/second.html"],
+            readableRegularPaths: ["/private/tmp/second.html"]
+        )
         let probe = WordPathFilesystemProbe(
             commands: runner,
             timeout: 0.25
@@ -35,32 +32,42 @@ struct CommandClickHTMLOpenRoutingTests {
         #expect(resolution?.candidatePath == "/tmp/second.html")
         #expect(resolution?.resolvedPath == "/private/tmp/second.html")
         #expect(resolution?.isReadableRegularFile == true)
-        let invocation = try #require(await runner.lastInvocation())
-        #expect(invocation.directory == "/")
-        #expect(invocation.executable == "/bin/sh")
-        #expect(invocation.arguments.suffix(paths.count) == paths[...])
-        #expect(invocation.timeout == 0.25)
+        let invocations = await runner.allInvocations()
+        #expect(invocations.map(\.executable) == [
+            "/usr/bin/realpath",
+            "/usr/bin/realpath",
+            "/bin/test",
+            "/bin/test",
+        ])
+        #expect(
+            invocations
+                .filter { $0.executable == "/usr/bin/realpath" }
+                .compactMap(\.arguments.first) == paths
+        )
+        #expect(invocations.allSatisfy { $0.directory == "/" })
+        #expect(invocations.allSatisfy { ($0.timeout ?? 0) > 0 && ($0.timeout ?? 1) <= 0.25 })
     }
 
     @Test
     func filesystemProbeValidatesTheCanonicalTargetAfterResolvingIt() async throws {
-        let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
-            stdout: "0\0readable-file\0/private/tmp/index.html\n",
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        ))
+        let runner = RecordingWordPathProbeCommandRunner(
+            resolvedPaths: ["/tmp/index.html": "/private/tmp/index.html"],
+            readableRegularPaths: ["/private/tmp/index.html"]
+        )
         let probe = WordPathFilesystemProbe(commands: runner)
 
         _ = await probe.firstExistingPath(in: ["/tmp/index.html"])
 
-        let invocation = try #require(await runner.lastInvocation())
-        let script = try #require(invocation.arguments.dropFirst().first)
-        let resolution = try #require(script.range(of: "resolved_candidate=$("))
-        let validation = try #require(script.range(of: "[ -f \"$resolved_candidate\" ]"))
-        #expect(resolution.lowerBound < validation.lowerBound)
-        #expect(!script.contains("[ -f \"$candidate\" ]"))
+        let invocations = await runner.allInvocations()
+        let canonicalization = try #require(invocations.first)
+        let regularFileValidation = try #require(invocations.dropFirst().first)
+        let readabilityValidation = try #require(invocations.dropFirst(2).first)
+        #expect(canonicalization.executable == "/usr/bin/realpath")
+        #expect(canonicalization.arguments == ["/tmp/index.html"])
+        #expect(regularFileValidation.executable == "/bin/test")
+        #expect(regularFileValidation.arguments == ["-f", "/private/tmp/index.html"])
+        #expect(readabilityValidation.executable == "/bin/test")
+        #expect(readabilityValidation.arguments == ["-r", "/private/tmp/index.html"])
     }
 
     @Test
@@ -79,13 +86,10 @@ struct CommandClickHTMLOpenRoutingTests {
 
     @Test
     func filesystemProbeKeepsClickedExtensionSeparateFromCanonicalTarget() async throws {
-        let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
-            stdout: "0\0readable-file\0/private/tmp/generated-file\n",
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        ))
+        let runner = RecordingWordPathProbeCommandRunner(
+            resolvedPaths: ["/tmp/preview.html": "/private/tmp/generated-file"],
+            readableRegularPaths: ["/private/tmp/generated-file"]
+        )
         let probe = WordPathFilesystemProbe(commands: runner)
 
         let resolution = try #require(
@@ -1895,11 +1899,24 @@ private actor RecordingWordPathProbeCommandRunner: CommandRunning {
         let timeout: TimeInterval?
     }
 
-    private let result: CommandResult
-    private var invocation: Invocation?
+    private let forcedResult: CommandResult?
+    private let resolvedPaths: [String: String]
+    private let readableRegularPaths: Set<String>
+    private var invocations: [Invocation] = []
 
     init(result: CommandResult) {
-        self.result = result
+        forcedResult = result
+        resolvedPaths = [:]
+        readableRegularPaths = []
+    }
+
+    init(
+        resolvedPaths: [String: String],
+        readableRegularPaths: Set<String>
+    ) {
+        forcedResult = nil
+        self.resolvedPaths = resolvedPaths
+        self.readableRegularPaths = readableRegularPaths
     }
 
     func run(
@@ -1908,16 +1925,41 @@ private actor RecordingWordPathProbeCommandRunner: CommandRunning {
         arguments: [String],
         timeout: TimeInterval?
     ) async -> CommandResult {
-        invocation = Invocation(
+        invocations.append(Invocation(
             directory: directory,
             executable: executable,
             arguments: arguments,
             timeout: timeout
-        )
-        return result
+        ))
+        if let forcedResult {
+            return forcedResult
+        }
+
+        if executable == "/usr/bin/realpath",
+           let candidate = arguments.first,
+           let resolvedPath = resolvedPaths[candidate] {
+            return result(stdout: "\(resolvedPath)\n", exitStatus: 0)
+        }
+        if executable == "/bin/test",
+           arguments.count == 2,
+           readableRegularPaths.contains(arguments[1]),
+           arguments[0] == "-f" || arguments[0] == "-r" {
+            return result(stdout: "", exitStatus: 0)
+        }
+        return result(stdout: "", exitStatus: 1)
     }
 
-    func lastInvocation() -> Invocation? {
-        invocation
+    func allInvocations() -> [Invocation] {
+        invocations
+    }
+
+    private func result(stdout: String, exitStatus: Int32) -> CommandResult {
+        CommandResult(
+            stdout: stdout,
+            stderr: "",
+            exitStatus: exitStatus,
+            timedOut: false,
+            executionError: nil
+        )
     }
 }
