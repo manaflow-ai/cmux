@@ -88,6 +88,8 @@ struct PullRequestLinkConfigurationTests {
         "https://github.com/manaflow-ai/cmux/pull/not-a-number",
         "https://github.com/manaflow-ai/cmux/pull/0",
         "https://app.graphite.com/github/pr/manaflow-ai/cmux/9641",
+        "https://github.com/manaflow-ai/cmux/pull/9641/files",
+        "https://github.com/manaflow-ai/cmux/pull/9641#issuecomment-1",
     ])
     func unrecognizedPullRequestURLsAreNotRewritten(rawURL: String) throws {
         let url = try #require(URL(string: rawURL))
@@ -96,12 +98,26 @@ struct PullRequestLinkConfigurationTests {
         #expect(configuration.resolvedURL(for: url) == url)
     }
 
-    @Test func referenceParsesTrailingPathSegments() throws {
-        let withTab = try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/9641/files"))
-        let reference = try #require(PullRequestLinkReference(pullRequestURL: withTab))
+    @Test func referenceParsesCanonicalPullRequestURL() throws {
+        let reference = try #require(PullRequestLinkReference(pullRequestURL: canonical))
 
         #expect(reference.owner == "manaflow-ai")
         #expect(reference.repo == "cmux")
         #expect(reference.number == 9641)
+    }
+
+    /// A deeper path or a fragment addresses something more specific than the
+    /// pull request — a diff tab, a review comment — and no rewrite can carry
+    /// that target to another host, so those URLs are left alone.
+    @Test(arguments: [
+        "https://github.com/manaflow-ai/cmux/pull/9641/files",
+        "https://github.com/manaflow-ai/cmux/pull/9641/commits/abc123",
+        "https://github.com/manaflow-ai/cmux/pull/9641#issuecomment-1",
+        "https://github.com/manaflow-ai/cmux/pull/9641#discussion_r1",
+    ])
+    func referenceRejectsMoreSpecificTargets(rawURL: String) throws {
+        let url = try #require(URL(string: rawURL))
+
+        #expect(PullRequestLinkReference(pullRequestURL: url) == nil)
     }
 }

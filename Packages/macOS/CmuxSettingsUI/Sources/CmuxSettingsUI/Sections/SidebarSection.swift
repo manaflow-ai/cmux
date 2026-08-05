@@ -442,7 +442,10 @@ public struct SidebarSection: View {
                     TextField(
                         "",
                         text: Binding(get: { prLinkTemplate.current }, set: { prLinkTemplate.set($0) }),
-                        prompt: Text(verbatim: "https://app.graphite.com/github/pr/{owner}/{repo}/{number}")
+                        prompt: Text(String(
+                            localized: "settings.app.customPullRequestLinkURLTemplate.prompt",
+                            defaultValue: "https://app.graphite.com/github/pr/{owner}/{repo}/{number}"
+                        ))
                     )
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("SettingsSidebarCustomPullRequestLinkURLTemplateField")

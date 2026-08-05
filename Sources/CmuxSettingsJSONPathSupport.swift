@@ -286,14 +286,6 @@ enum SidebarSettingsFileMapping {
             defaultsKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey
         ),
         .init(
-            jsonKey: "pullRequestLinkDestination",
-            defaultsKey: sidebar.pullRequestLinkDestination.userDefaultsKey
-        ),
-        .init(
-            jsonKey: "customPullRequestLinkURLTemplate",
-            defaultsKey: sidebar.customPullRequestLinkURLTemplate.userDefaultsKey
-        ),
-        .init(
             jsonKey: "openPortLinksInCmuxBrowser",
             defaultsKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey
         ),
@@ -323,6 +315,17 @@ enum SidebarSettingsFileMapping {
         default:
             return nil
         }
+    }
+
+    static let pullRequestLinkDestinationKey = sidebar.pullRequestLinkDestination.userDefaultsKey
+    static let customPullRequestLinkURLTemplateKey = sidebar.customPullRequestLinkURLTemplate.userDefaultsKey
+
+    static func pullRequestLinkDestinationStoredValue(_ rawValue: String) -> String? {
+        PullRequestLinkDestination(rawValue: rawValue)?.rawValue
+    }
+
+    static func customPullRequestLinkURLTemplateStoredValue(_ rawValue: String) -> String? {
+        PullRequestLinkConfiguration.isValidURLTemplate(rawValue) ? rawValue : nil
     }
 }
 

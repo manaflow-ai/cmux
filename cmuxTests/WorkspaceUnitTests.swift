@@ -1327,6 +1327,118 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: SidebarWorkspaceTitleWrapSettings.key) as? Bool, true)
     }
 
+    /// `sidebar.pullRequestLinkDestination` is a string enum, so it must not be
+    /// read through the Boolean mapping — that silently dropped the value and
+    /// left PR links on GitHub for anyone configuring it from cmux.json.
+    func testSettingsFileStoreParsesSidebarPullRequestLinkDestination() throws {
+        let defaults = UserDefaults.standard
+        let destinationKey = SidebarSettingsFileMapping.pullRequestLinkDestinationKey
+        let templateKey = SidebarSettingsFileMapping.customPullRequestLinkURLTemplateKey
+        let previousDestination = defaults.object(forKey: destinationKey)
+        let previousTemplate = defaults.object(forKey: templateKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousDestination {
+                defaults.set(previousDestination, forKey: destinationKey)
+            } else {
+                defaults.removeObject(forKey: destinationKey)
+            }
+
+            if let previousTemplate {
+                defaults.set(previousTemplate, forKey: templateKey)
+            } else {
+                defaults.removeObject(forKey: templateKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: destinationKey)
+        defaults.removeObject(forKey: templateKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "pullRequestLinkDestination": "custom",
+                "customPullRequestLinkURLTemplate": "https://review.example.com/{owner}/{repo}/{number}"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let configuration = PullRequestLinkSettingsStore(defaults: defaults).currentConfiguration
+        XCTAssertEqual(configuration.destination, .custom)
+        XCTAssertEqual(
+            configuration.resolvedURL(for: URL(string: "https://github.com/manaflow-ai/cmux/pull/9641")!)
+                .absoluteString,
+            "https://review.example.com/manaflow-ai/cmux/9641"
+        )
+    }
+
+    func testSettingsFileStoreRejectsInvalidSidebarPullRequestLinkDestination() throws {
+        let defaults = UserDefaults.standard
+        let destinationKey = SidebarSettingsFileMapping.pullRequestLinkDestinationKey
+        let previousDestination = defaults.object(forKey: destinationKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousDestination {
+                defaults.set(previousDestination, forKey: destinationKey)
+            } else {
+                defaults.removeObject(forKey: destinationKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: destinationKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "pullRequestLinkDestination": "gitlab"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(defaults.object(forKey: destinationKey))
+        XCTAssertEqual(PullRequestLinkSettingsStore(defaults: defaults).currentConfiguration.destination, .github)
+    }
+
     func testSettingsFileStoreParsesWorkspaceTodoControlsBetaSetting() throws {
         let defaults = UserDefaults.standard
         let managedKey = SettingCatalog().betaFeatures.workspaceTodoControls.userDefaultsKey

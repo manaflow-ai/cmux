@@ -34,16 +34,20 @@ public struct PullRequestLinkReference: Equatable, Sendable {
 
     /// Parses a reference out of a pull request URL.
     ///
-    /// - Parameter pullRequestURL: An `http` or `https` URL whose path is
+    /// - Parameter pullRequestURL: An `http` or `https` URL whose path is exactly
     ///   `/{owner}/{repo}/pull/{number}`. GitHub's `html_url` has this shape.
     /// - Returns: `nil` when the scheme or path shape does not match, in which
-    ///   case callers keep the original URL rather than rewriting it.
+    ///   case callers keep the original URL rather than rewriting it. Deeper
+    ///   paths (`/pull/42/files`) and fragments (`#issuecomment-1`) are rejected
+    ///   on purpose: they address something more specific than the pull request,
+    ///   and no rewrite can carry that target across hosts.
     public init?(pullRequestURL: URL) {
         guard let scheme = pullRequestURL.scheme?.lowercased(), scheme == "https" || scheme == "http" else {
             return nil
         }
         let segments = pullRequestURL.pathComponents.filter { $0 != "/" }
-        guard segments.count >= 4,
+        guard pullRequestURL.fragment == nil,
+              segments.count == 4,
               segments[2].lowercased() == "pull",
               let number = Int(segments[3]),
               number > 0,

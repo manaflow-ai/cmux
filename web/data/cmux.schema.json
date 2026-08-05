@@ -1073,12 +1073,14 @@
           "type": "string",
           "enum": ["github", "graphite", "custom"],
           "default": "github",
-          "description": "Where sidebar pull request links go. github keeps the pull request's own URL, graphite opens it in Graphite's review UI, and custom renders customPullRequestLinkURLTemplate."
+          "description": "Where sidebar pull request links go. github keeps the pull request's own URL, graphite opens it in Graphite's review UI, and custom renders customPullRequestLinkURLTemplate.",
+          "descriptionKey": "schemaDescriptions.sidebar.pullRequestLinkDestination"
         },
         "customPullRequestLinkURLTemplate": {
           "type": "string",
           "default": "",
-          "description": "Pull request URL used when pullRequestLinkDestination is custom. Include {owner}, {repo}, and {number}; {number} is required. Leave empty to open the pull request's own page."
+          "description": "Pull request URL used when pullRequestLinkDestination is custom. Include {owner}, {repo}, and {number}; {number} is required. An empty or invalid template falls back to the pull request's own page.",
+          "descriptionKey": "schemaDescriptions.sidebar.customPullRequestLinkURLTemplate"
         },
         "openPortLinksInCmuxBrowser": {
           "type": "boolean",
