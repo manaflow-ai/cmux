@@ -269,7 +269,8 @@ struct AgentConversationTransferSourceTests {
         )
         let command = try #require(target.startupCommand(handoffMessage: "User: keep context"))
 
-        #expect(command.hasPrefix("'/tmp/Custom Tools/claude' "))
+        #expect(command.contains("'CMUX_CUSTOM_CLAUDE_PATH=/tmp/Custom Tools/claude'"))
+        #expect(command.contains(AgentResumeArgv.claudeWrapperShellExecutableToken))
         #expect(command.contains("User: keep context"))
     }
 

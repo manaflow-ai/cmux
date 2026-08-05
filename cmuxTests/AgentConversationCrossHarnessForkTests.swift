@@ -1,4 +1,5 @@
 import CmuxConversationTransfer
+import CMUXAgentLaunch
 import Foundation
 import SQLite3
 import Testing
@@ -21,8 +22,8 @@ struct AgentConversationCrossHarnessForkTests {
                 (harness, try #require(harness.startupCommand(handoffMessage: message)))
             })
 
-        #expect(commands[.claude]?.hasPrefix("claude ") == true)
-        #expect(commands[.codex]?.hasPrefix("codex ") == true)
+        #expect(commands[.claude]?.hasPrefix(AgentResumeArgv.claudeWrapperShellExecutableToken) == true)
+        #expect(commands[.codex]?.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken) == true)
         #expect(commands[.grok]?.hasPrefix("grok ") == true)
         #expect(commands[.opencode]?.hasPrefix("opencode --prompt ") == true)
         #expect(commands[.opencode]?.contains(" run ") == false)
@@ -31,7 +32,7 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(commands[.amp]?.hasPrefix("printf '%s\\n' ") == true)
         #expect(commands[.cursor]?.hasPrefix("cursor-agent ") == true)
         #expect(commands[.gemini]?.hasPrefix("gemini --prompt-interactive ") == true)
-        #expect(commands[.kiro]?.hasPrefix("kiro-cli chat ") == true)
+        #expect(commands[.kiro]?.hasPrefix("kiro-cli chat --agent cmux ") == true)
         #expect(commands[.antigravity]?.hasPrefix("agy --prompt-interactive ") == true)
         #expect(commands[.hermesAgent]?.hasPrefix("hermes chat --tui --query ") == true)
         #expect(commands[.copilot]?.hasPrefix("copilot --interactive ") == true)
@@ -194,7 +195,7 @@ struct AgentConversationCrossHarnessForkTests {
             destination: .newTab
         ).startupCommandOverride(sourceSnapshot: snapshot))
 
-        #expect(command.hasPrefix("claude "))
+        #expect(command.hasPrefix(AgentResumeArgv.claudeWrapperShellExecutableToken))
         #expect(command.contains("Find the parser bug"))
         #expect(command.contains("The parser drops the final field"))
     }
@@ -219,7 +220,7 @@ struct AgentConversationCrossHarnessForkTests {
             destination: .newWorkspace
         ).startupCommandOverride(sourceSnapshot: snapshot))
 
-        #expect(command.hasPrefix("codex "))
+        #expect(command.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken))
         #expect(command.contains("Repair the renderer"))
         #expect(command.contains("The wakeup path is stale"))
     }
@@ -414,6 +415,39 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func jsonlTransferFailsClosedWhenNewestRecordIsMalformed() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("malformed-latest.jsonl")
+        try [
+            #"{"role":"user","content":"opening request"}"#,
+            #"{"role":"assistant","content":"stale response"}"#,
+            #"{"role":"assistant","content":"new response""#,
+        ].joined(separator: "\n").write(
+            to: transcript,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        await #expect {
+            try await SessionTranscriptLoader.load(source: .init(
+                agent: .registered(RegisteredSessionAgent(id: "generic")),
+                sessionId: "malformed-latest",
+                fileURL: transcript,
+                retention: .transferOpeningUserAndLatest(
+                    turnLimit: 1,
+                    textByteLimit: 32 * 1_024
+                )
+            ))
+        } throws: { error in
+            guard case SessionTranscriptLoadError.incompleteSource = error else {
+                return false
+            }
+            return true
+        }
+    }
+
+    @Test
     func antigravityTransferFailsClosedWhenOpeningExceedsByteBound() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
@@ -475,7 +509,7 @@ struct AgentConversationCrossHarnessForkTests {
             exportService: service
         ))
 
-        #expect(command.hasPrefix("claude "))
+        #expect(command.hasPrefix(AgentResumeArgv.claudeWrapperShellExecutableToken))
         #expect(command.contains("Inspect OpenCode storage"))
         #expect(command.contains("Storage is SQLite-backed"))
     }
