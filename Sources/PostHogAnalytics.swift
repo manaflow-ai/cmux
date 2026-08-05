@@ -7,8 +7,8 @@ import PostHog
 final class PostHogAnalytics: @unchecked Sendable {
     static let shared = PostHogAnalytics()
 
-    // The PostHog project API key is intentionally embedded in the app (it's a public key).
-    private let apiKey = "phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP"
+    // The PostHog project token is intentionally embedded in the app (it's a public key).
+    private let projectToken = "phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP"
 
     // PostHog Cloud US default (matches other cmux properties).
     private let host = "https://us.i.posthog.com"
@@ -78,7 +78,7 @@ final class PostHogAnalytics: @unchecked Sendable {
         // Avoid polluting production analytics while iterating locally.
         return ProcessInfo.processInfo.environment["CMUX_POSTHOG_ENABLE"] == "1"
 #else
-        return !apiKey.isEmpty && apiKey != "REPLACE_WITH_POSTHOG_PUBLIC_KEY"
+        return !projectToken.isEmpty && projectToken != "REPLACE_WITH_POSTHOG_PUBLIC_KEY"
 #endif
     }
 
@@ -117,7 +117,7 @@ final class PostHogAnalytics: @unchecked Sendable {
         guard !didStart else { return }
         guard isEnabled else { return }
 
-        let config = PostHogConfig(apiKey: apiKey, host: host)
+        let config = PostHogConfig(projectToken: projectToken, host: host)
         config.captureApplicationLifecycleEvents = false
         config.captureScreenViews = false
 #if DEBUG
