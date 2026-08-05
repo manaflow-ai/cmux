@@ -481,54 +481,79 @@ fn add_agent_topology(
     normalized: &mut Map<String, Value>,
 ) {
     let scope = [
-        "root_agent_session_id",
-        "native_root_agent_id",
-        "parent_agent_session_id",
-        "agent_session_id",
-        "transcript_path",
+        ("root_agent_session_id", "session"),
+        ("native_root_agent_id", "agent"),
+        ("parent_agent_session_id", "session"),
+        ("agent_session_id", "session"),
+        ("transcript_path", "transcript"),
     ]
     .into_iter()
-    .find_map(|field| normalized.get(field).and_then(Value::as_str))
-    .or_else(|| terminal_id.map(TerminalPublicId::as_str));
-    let Some(scope) = scope else { return };
-    let tree_id = stable_topology_id("agenttree", &[source, scope]);
+    .find_map(|(field, identity_kind)| {
+        normalized
+            .get(field)
+            .and_then(Value::as_str)
+            .map(|identity| (identity_kind, identity.to_string()))
+    })
+    .or_else(|| terminal_id.map(|terminal| ("terminal", terminal.as_str().to_string())));
+    let Some((scope_kind, scope_identity)) = scope else {
+        return;
+    };
+    let tree_id = stable_topology_id("agenttree", &[source, scope_kind, &scope_identity]);
     normalized.insert("agent_tree_id".into(), Value::String(tree_id.clone()));
+    let root_node_id = stable_agent_node_id(&tree_id, scope_kind, &scope_identity);
 
     let event = semantic_key(native_event);
     let child_event = is_child_spawn(&event)
         || is_child_completion(&event)
         || matches!(event.as_str(), "subagentfailed" | "childfailed");
-    let native_agent_id = if child_event {
+    let native_agent_id =
+        normalized.get("native_agent_id").and_then(Value::as_str).map(str::to_owned);
+    let native_root_agent_id =
+        normalized.get("native_root_agent_id").and_then(Value::as_str).map(str::to_owned);
+    let session_id = normalized.get("agent_session_id").and_then(Value::as_str).map(str::to_owned);
+    let parent_session_id =
+        normalized.get("parent_agent_session_id").and_then(Value::as_str).map(str::to_owned);
+    let node_identity = if child_event {
         normalized
             .get("native_child_agent_id")
             .and_then(Value::as_str)
-            .or_else(|| normalized.get("native_agent_id").and_then(Value::as_str))
+            .or(native_agent_id.as_deref())
+            .map(|identity| ("agent", identity, "native"))
     } else {
-        normalized
-            .get("native_agent_id")
-            .and_then(Value::as_str)
-            .or_else(|| normalized.get("native_root_agent_id").and_then(Value::as_str))
-    }
-    .map(str::to_owned);
+        session_id
+            .as_deref()
+            .map(|identity| ("session", identity, "session"))
+            .or_else(|| native_agent_id.as_deref().map(|identity| ("agent", identity, "native")))
+            .or_else(|| {
+                native_root_agent_id.as_deref().map(|identity| ("agent", identity, "native_root"))
+            })
+    };
     let fallback_agent_name =
         child_event.then(|| normalized.get("agent_name").and_then(Value::as_str)).flatten();
-    let node_key = native_agent_id.as_ref().map(|id| (id.clone(), "native")).or_else(|| {
-        fallback_agent_name.and_then(|name| {
+    let (node_id, identity_quality) = match node_identity {
+        Some((identity_kind, identity, quality)) => {
+            let is_root = (identity_kind == scope_kind && identity == scope_identity.as_str())
+                || (identity_kind == "agent"
+                    && native_root_agent_id.as_deref() == Some(identity)
+                    && parent_session_id.is_none());
+            let node_id = if is_root {
+                root_node_id.clone()
+            } else {
+                stable_agent_node_id(&tree_id, identity_kind, identity)
+            };
+            (node_id, quality.to_string())
+        }
+        None if !child_event => (root_node_id.clone(), "session_root".into()),
+        None if fallback_agent_name.is_some() => {
+            let name = fallback_agent_name.expect("presence checked");
             let turn = normalized.get("turn_id").and_then(Value::as_str).unwrap_or("");
             let tool = normalized.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
             if turn.is_empty() && tool.is_empty() {
-                return None;
+                normalized.insert("agent_relation".into(), Value::String("unknown".into()));
+                return;
             }
-            let key = format!("name:{name}\0turn:{turn}\0tool:{tool}");
-            Some((key, "name_fallback"))
-        })
-    });
-    let (node_id, identity_quality) = match node_key {
-        Some((key, quality)) => {
-            (stable_topology_id("agentnode", &[&tree_id, &key]), quality.to_string())
-        }
-        None if !child_event => {
-            (stable_topology_id("agentnode", &[&tree_id, "root"]), "session_root".into())
+            let identity = format!("name:{name}\0turn:{turn}\0tool:{tool}");
+            (stable_agent_node_id(&tree_id, "name_fallback", &identity), "name_fallback".into())
         }
         None => {
             normalized.insert("agent_relation".into(), Value::String("unknown".into()));
@@ -538,27 +563,39 @@ fn add_agent_topology(
     normalized.insert("agent_node_id".into(), Value::String(node_id));
     normalized.insert("agent_identity_quality".into(), Value::String(identity_quality));
 
-    if let Some(parent) =
-        normalized.get("native_parent_agent_id").and_then(Value::as_str).map(str::to_owned)
-    {
-        let parent_id = stable_topology_id("agentnode", &[&tree_id, &parent]);
+    if let Some(parent) = parent_session_id.as_deref() {
+        let parent_id = if scope_kind == "session" && parent == scope_identity.as_str() {
+            root_node_id.clone()
+        } else {
+            stable_agent_node_id(&tree_id, "session", parent)
+        };
+        normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
+        normalized.insert("agent_relation".into(), Value::String("explicit".into()));
+    } else if let Some(parent) = normalized.get("native_parent_agent_id").and_then(Value::as_str) {
+        let parent_id = if native_root_agent_id.as_deref() == Some(parent) {
+            root_node_id.clone()
+        } else {
+            stable_agent_node_id(&tree_id, "agent", parent)
+        };
         normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
         normalized.insert("agent_relation".into(), Value::String("explicit".into()));
     } else if matches!(source, "claude" | "claude-code") && child_event {
         // Claude Code's command-hook contract exposes a stable child ID but
         // no parent ID, and its subagents cannot spawn subagents. The parent
         // is therefore the root of the shared session tree.
-        let parent_id = stable_topology_id("agentnode", &[&tree_id, "root"]);
-        normalized.insert("parent_agent_node_id".into(), Value::String(parent_id));
+        normalized.insert("parent_agent_node_id".into(), Value::String(root_node_id.clone()));
         normalized.insert("agent_relation".into(), Value::String("provider_root".into()));
     } else if child_event
-        || native_agent_id.as_deref()
-            != normalized.get("native_root_agent_id").and_then(Value::as_str)
+        || normalized.get("agent_node_id").and_then(Value::as_str) != Some(root_node_id.as_str())
     {
         normalized.insert("agent_relation".into(), Value::String("unknown".into()));
     } else {
         normalized.insert("agent_relation".into(), Value::String("root".into()));
     }
+}
+
+fn stable_agent_node_id(tree_id: &str, identity_kind: &str, identity: &str) -> String {
+    stable_topology_id("agentnode", &[tree_id, identity_kind, identity])
 }
 
 fn stable_topology_id(prefix: &str, components: &[&str]) -> String {
