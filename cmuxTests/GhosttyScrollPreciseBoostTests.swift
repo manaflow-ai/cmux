@@ -57,4 +57,22 @@ struct GhosttyScrollPreciseBoostTests {
             ).shouldDoublePreciseScrollDelta
         )
     }
+
+    @Test
+    func scrollSpeedUsesAnExplicitlyUpdatedSnapshot() {
+        let accumulator = TerminalScrollSpeedAccumulator(multiplier: 2)
+        var x: CGFloat = 2
+        var y: CGFloat = -3
+
+        accumulator.apply(x: &x, y: &y, precision: true)
+        #expect(x == 4)
+        #expect(y == -6)
+
+        accumulator.updateMultiplier(0.5)
+        x = 2
+        y = -3
+        accumulator.apply(x: &x, y: &y, precision: true)
+        #expect(x == 1)
+        #expect(y == -1.5)
+    }
 }

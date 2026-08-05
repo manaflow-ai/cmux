@@ -166,6 +166,31 @@ struct ClosedMainWindowRoutingTests {
 @MainActor
 @Suite("Window zombie regressions", .serialized)
 struct WindowZombieRegressionTests {
+    @Test("Stored host window resolves without evaluating app-wide fallbacks")
+    func storedHostWindowAvoidsFallbackLookup() {
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let reference = WeakWindowReference(hostWindow)
+        var fallbackLookupCount = 0
+
+        func fallback(_ window: NSWindow?) -> NSWindow? {
+            fallbackLookupCount += 1
+            return window
+        }
+
+        let resolved = reference.preferredWindow(
+            keyWindow: fallback(nil),
+            mainWindow: fallback(nil)
+        )
+
+        #expect(resolved === hostWindow)
+        #expect(fallbackLookupCount == 0)
+    }
+
     @Test("SwiftUI window state does not own its native window")
     func swiftUIWindowStateDoesNotOwnItsNativeWindow() {
         weak var releasedWindow: NSWindow?
