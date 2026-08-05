@@ -6,9 +6,15 @@ import Foundation
 /// deadline-bounded probe runs at a time. Discrete clicks use a bounded FIFO,
 /// correctness-critical Browser work coalesces per owner and expires after a
 /// bounded queue wait, hover movement collapses to the newest request, and
-/// hover starts are rate limited. Clicks and Browser work run before hovers.
+/// hover starts are rate limited. Click and Browser work alternate while both
+/// are pending, and either class runs before hover work.
 @MainActor
 final class WordPathFilesystemResolutionCoordinator {
+    private enum ForegroundQueueTurn {
+        case click
+        case coalesced
+    }
+
     typealias Completion = @MainActor @Sendable () -> Void
     typealias Work = @Sendable () async -> Completion
     typealias Prepare = @MainActor @Sendable () -> Work?
@@ -38,6 +44,7 @@ final class WordPathFilesystemResolutionCoordinator {
     private var pendingCoalescedKeys = Set<UUID>()
     private var pendingCoalescedJobs: [UUID: Job] = [:]
     private var pendingCoalescedKeyByJobID: [UUID: UUID] = [:]
+    private var foregroundQueueTurn: ForegroundQueueTurn = .coalesced
     private var coalescedExpiryTimer: DispatchSourceTimer?
     private var coalescedExpiryTimerDeadline: DispatchTime?
     private var pendingHover: Job?
@@ -189,29 +196,24 @@ final class WordPathFilesystemResolutionCoordinator {
            now >= coalescedExpiryTimerDeadline {
             expirePendingCoalescedJobs(now: now)
         }
-        if !pendingClicks.isEmpty {
-            let next = pendingClicks.removeFirst()
+
+        if foregroundQueueTurn == .coalesced,
+           let next = dequeueNextCoalescedJob() {
+            foregroundQueueTurn = .click
             start(next)
             return
         }
-
-        while pendingCoalescedHead < pendingCoalescedOrder.count {
-            let key = pendingCoalescedOrder[pendingCoalescedHead]
-            pendingCoalescedHead += 1
-            pendingCoalescedKeys.remove(key)
-            if let next = pendingCoalescedJobs.removeValue(forKey: key) {
-                pendingCoalescedKeyByJobID.removeValue(forKey: next.id)
-                compactPendingCoalescedOrderIfNeeded()
-                if let queueDeadline = next.queueDeadline,
-                   DispatchTime.now() >= queueDeadline {
-                    next.expired?()
-                    continue
-                }
-                start(next)
-                return
-            }
+        if !pendingClicks.isEmpty {
+            let next = pendingClicks.removeFirst()
+            foregroundQueueTurn = .coalesced
+            start(next)
+            return
         }
-        compactPendingCoalescedOrderIfNeeded()
+        if let next = dequeueNextCoalescedJob() {
+            foregroundQueueTurn = .click
+            start(next)
+            return
+        }
 
         guard let next = pendingHover else {
             cancelScheduledHoverStart()
@@ -224,6 +226,26 @@ final class WordPathFilesystemResolutionCoordinator {
         }
         pendingHover = nil
         start(next)
+    }
+
+    private func dequeueNextCoalescedJob() -> Job? {
+        while pendingCoalescedHead < pendingCoalescedOrder.count {
+            let key = pendingCoalescedOrder[pendingCoalescedHead]
+            pendingCoalescedHead += 1
+            pendingCoalescedKeys.remove(key)
+            if let next = pendingCoalescedJobs.removeValue(forKey: key) {
+                pendingCoalescedKeyByJobID.removeValue(forKey: next.id)
+                compactPendingCoalescedOrderIfNeeded()
+                if let queueDeadline = next.queueDeadline,
+                   DispatchTime.now() >= queueDeadline {
+                    next.expired?()
+                    continue
+                }
+                return next
+            }
+        }
+        compactPendingCoalescedOrderIfNeeded()
+        return nil
     }
 
     private func compactPendingCoalescedOrderIfNeeded() {
