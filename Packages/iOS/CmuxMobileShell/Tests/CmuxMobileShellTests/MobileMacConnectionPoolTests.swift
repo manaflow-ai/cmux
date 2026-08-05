@@ -4130,13 +4130,13 @@ import Testing
         #expect(try await pollUntil {
             subscription.deferredRefreshTask != nil
         })
-        #expect(try await pollUntil {
-            clock.sleeperCount > 0
-        })
         subscription.isTransitioningToFocus = true
-        clock.advance(by: .milliseconds(500))
         #expect(try await pollUntil {
-            subscription.deferredRefreshTask == nil
+            guard subscription.deferredRefreshTask != nil else {
+                return true
+            }
+            _ = clock.advanceToNextSleeper()
+            return false
         })
         #expect(await router.count(of: "workspace.list") == 3)
         #expect(subscription.refreshPending)
@@ -4155,9 +4155,12 @@ import Testing
             subscription.deferredRefreshTask != nil
         })
         #expect(try await pollUntil {
-            clock.sleeperCount > 0
+            if await router.count(of: "workspace.list") >= 4 {
+                return true
+            }
+            _ = clock.advanceToNextSleeper()
+            return false
         })
-        clock.advance(by: .milliseconds(500))
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 4))
         #expect(try await pollUntil {
             shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.workspaces.first?.name

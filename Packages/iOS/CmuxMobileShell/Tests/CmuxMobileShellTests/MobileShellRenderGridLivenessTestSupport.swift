@@ -866,12 +866,22 @@ final class OutputCollector {
     private var task: Task<Void, Never>?
     private weak var mountedStore: MobileShellComposite?
     private var mountedSurfaceID: String?
+    private var mountedStreamToken: UUID?
+    private var mountedContinuation:
+        AsyncStream<MobileTerminalOutputChunk>.Continuation?
 
     func mount(store: MobileShellComposite, surfaceID: String) {
         mountedStore = store
         mountedSurfaceID = surfaceID
+        let stream = store.terminalOutputStream(surfaceID: surfaceID)
+        mountedStreamToken = store.terminalOutputStreamTokensBySurfaceID[
+            surfaceID
+        ]
+        mountedContinuation = store.terminalByteContinuationsBySurfaceID[
+            surfaceID
+        ]
         task = Task { @MainActor [weak self] in
-            for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
+            for await chunk in stream {
                 self?.lines.append(String(decoding: chunk.data, as: UTF8.self))
                 self?.viewportPolicies.append(chunk.viewportPolicy)
                 store.terminalOutputDidProcess(
@@ -885,15 +895,21 @@ final class OutputCollector {
     func unmount() async {
         let mountedTask = task
         task = nil
-        if let mountedStore, let mountedSurfaceID {
-            mountedStore.terminalByteContinuationsBySurfaceID[
-                mountedSurfaceID
-            ]?.finish()
+        mountedContinuation?.finish()
+        if let mountedStore,
+           let mountedSurfaceID,
+           let mountedStreamToken {
+            mountedStore.unregisterTerminalOutput(
+                surfaceID: mountedSurfaceID,
+                streamToken: mountedStreamToken
+            )
         }
         mountedTask?.cancel()
         _ = await mountedTask?.value
         mountedStore = nil
         mountedSurfaceID = nil
+        mountedStreamToken = nil
+        mountedContinuation = nil
     }
 }
 
