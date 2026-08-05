@@ -306,7 +306,7 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        await Self.drainMainRunLoop(for: window)
+        try await Self.waitForSelectedTerminalRuntime(in: tabManager, window: window)
         #expect(counts.contentViewBody > 0)
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
@@ -405,7 +405,7 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        await Self.drainMainRunLoop(for: window)
+        try await Self.waitForSelectedTerminalRuntime(in: tabManager, window: window)
         counts.reset()
 
         tabManager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
@@ -489,7 +489,7 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        await Self.drainMainRunLoop(for: window)
+        try await Self.waitForSelectedTerminalRuntime(in: tabManager, window: window)
         let workspaceCell = try #require(
             window.contentView.flatMap { root in
                 Self.descendants(of: root)
@@ -674,6 +674,29 @@ final class WorkspaceContentViewVisibilityTests {
                 == SidebarFooterCircularIconStyle.standard.weight
         )
 #endif
+    }
+
+    @MainActor
+    private static func waitForSelectedTerminalRuntime(
+        in tabManager: TabManager,
+        window: NSWindow
+    ) async throws {
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+
+        while panel.surface.surface == nil, clock.now < deadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            await Task.yield()
+        }
+
+        #expect(
+            panel.surface.surface != nil,
+            "The mounted terminal runtime must be ready before measuring unrelated view invalidations."
+        )
+        await drainMainRunLoop(for: window)
     }
 
     @MainActor
