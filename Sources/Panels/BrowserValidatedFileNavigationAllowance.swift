@@ -13,8 +13,12 @@ struct BrowserValidatedFileNavigationAllowance {
         return true
     }
 
-    mutating func consumeIfMatches(_ url: URL) -> Bool {
+    mutating func consumeIfMatches(
+        _ url: URL,
+        targetFrameIsMainFrame: Bool?
+    ) -> Bool {
         defer { expectedURLString = nil }
+        guard targetFrameIsMainFrame == true else { return false }
         return expectedURLString == url.absoluteString
     }
 

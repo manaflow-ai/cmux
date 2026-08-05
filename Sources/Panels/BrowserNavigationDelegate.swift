@@ -350,6 +350,27 @@ import WebKit
         )
 #endif
 
+        if let fileURL = navigationAction.request.url,
+           owner?.localFileReadAccessPolicy == .fileOnly,
+           fileURL.isFileURL {
+            guard validatedFileOnlyNavigationAllowance.consumeIfMatches(
+                fileURL,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            ) else {
+                clearAttemptedRequest(discardPendingBypasses: true)
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.nav.decidePolicy.action kind=cancelFileOnly " +
+                        "reason=missingValidatedAppNavigation url=\(browserNavigationDebugURL(fileURL))"
+                )
+#endif
+                decisionHandler(.cancel)
+                return
+            }
+        } else if navigationAction.targetFrame?.isMainFrame != false {
+            validatedFileOnlyNavigationAllowance.clear()
+        }
+
         if navigationAction.navigationType == .linkActivated,
            navigationAction.targetFrame?.isMainFrame != false,
            let url = navigationAction.request.url,
@@ -497,20 +518,6 @@ import WebKit
             reportTerminalCancellation()
             decisionHandler(.cancel)
             return
-        }
-
-        if let fileURL = navigationAction.request.url,
-           navigationAction.targetFrame?.isMainFrame != false,
-           owner?.localFileReadAccessPolicy == .fileOnly,
-           fileURL.isFileURL {
-            if !validatedFileOnlyNavigationAllowance.consumeIfMatches(fileURL) {
-                clearAttemptedRequest()
-                decisionHandler(.cancel)
-                requestNavigation?(navigationAction.request, .currentTab, nil)
-                return
-            }
-        } else if navigationAction.targetFrame?.isMainFrame != false {
-            validatedFileOnlyNavigationAllowance.clear()
         }
 
 #if DEBUG

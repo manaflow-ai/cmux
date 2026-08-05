@@ -861,6 +861,26 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
 
+        if url.isFileURL,
+           controller?.usesFileOnlyReadAccess == true {
+            guard validatedFileOnlyNavigationAllowance.consumeIfMatches(
+                url,
+                targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
+            ) else {
+                clearAttemptedRequest(discardPendingBypasses: true)
+#if DEBUG
+                cmuxDebugLog(
+                    "popup.nav kind=cancelFileOnly " +
+                        "reason=missingValidatedAppNavigation url=\(browserNavigationDebugURL(url))"
+                )
+#endif
+                decisionHandler(.cancel)
+                return
+            }
+        } else if navigationAction.targetFrame?.isMainFrame != false {
+            validatedFileOnlyNavigationAllowance.clear()
+        }
+
         // Only guard main-frame navigations
         guard navigationAction.targetFrame?.isMainFrame != false else {
             if navigationAction.shouldPerformDownload {
@@ -871,19 +891,6 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             }
             decisionHandler(.allow)
             return
-        }
-
-        if navigationAction.targetFrame?.isMainFrame != false,
-           url.isFileURL,
-           controller?.usesFileOnlyReadAccess == true {
-            if !validatedFileOnlyNavigationAllowance.consumeIfMatches(url) {
-                clearAttemptedRequest()
-                decisionHandler(.cancel)
-                controller?.requestNavigation(navigationAction.request, in: webView)
-                return
-            }
-        } else {
-            validatedFileOnlyNavigationAllowance.clear()
         }
 
         // Insecure HTTP → show same prompt as main browser

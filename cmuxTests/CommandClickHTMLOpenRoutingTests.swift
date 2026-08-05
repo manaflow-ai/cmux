@@ -660,6 +660,43 @@ struct CommandClickHTMLOpenRoutingTests {
         webView.stopLoading()
     }
 
+    @Test
+    func validatedFileNavigationAllowanceIsExactMainFrameAndOneShot() throws {
+        let expectedURL = try #require(URL(string: "file:///tmp/expected.html"))
+        let otherURL = try #require(URL(string: "file:///tmp/other.html"))
+        var allowance = BrowserValidatedFileNavigationAllowance()
+
+        #expect(allowance.authorize(expectedURL))
+        #expect(!allowance.consumeIfMatches(
+            expectedURL,
+            targetFrameIsMainFrame: false
+        ))
+        #expect(!allowance.consumeIfMatches(
+            expectedURL,
+            targetFrameIsMainFrame: true
+        ))
+
+        #expect(allowance.authorize(expectedURL))
+        #expect(!allowance.consumeIfMatches(
+            otherURL,
+            targetFrameIsMainFrame: true
+        ))
+        #expect(!allowance.consumeIfMatches(
+            expectedURL,
+            targetFrameIsMainFrame: true
+        ))
+
+        #expect(allowance.authorize(expectedURL))
+        #expect(allowance.consumeIfMatches(
+            expectedURL,
+            targetFrameIsMainFrame: true
+        ))
+        #expect(!allowance.consumeIfMatches(
+            expectedURL,
+            targetFrameIsMainFrame: true
+        ))
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func fileOnlyBrowserRejectsScriptInitiatedInPageFileNavigation() async throws {
         _ = NSApplication.shared
