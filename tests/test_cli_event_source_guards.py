@@ -45,17 +45,17 @@ def validate_incremental_stream_scan(source: str) -> None:
     end = source.index("    private func waitForReadableStream(", start)
     body = source[start:end]
 
-    required = {
-        "private var streamLineSearchOffset = 0": "persistent scan offset",
-        "streamReadBuffer[searchStart...].firstIndex(of: 0x0A)": "incremental newline search",
-    }
-    for snippet, description in required.items():
-        if snippet not in source:
-            raise AssertionError(f"CLI event reader is missing {description}: {snippet}")
+    declaration = "private var streamLineSearchOffset = 0"
+    incremental_search = "streamReadBuffer[searchStart...].firstIndex(of: 0x0A)"
+    if declaration not in source:
+        raise AssertionError("CLI event reader is missing its persistent scan offset")
+    if incremental_search not in body:
+        raise AssertionError("readStreamLine is missing its incremental newline search")
     if "streamReadBuffer.firstIndex(of: 0x0A)" in body:
         raise AssertionError("readStreamLine still rescans the complete buffered frame")
-    if source.count("streamLineSearchOffset = 0") < 3:
-        raise AssertionError("stream scan offset must reset at initialization, close, and frame consumption")
+    reset_count = source.count("streamLineSearchOffset = 0") - source.count(declaration)
+    if reset_count < 2:
+        raise AssertionError("stream scan offset must reset on close and frame consumption")
 
 
 def validate_event_localizations() -> None:

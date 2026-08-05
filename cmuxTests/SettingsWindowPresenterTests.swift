@@ -262,7 +262,6 @@ extension SettingsWindowSharedStateSuites {
             defer { toggleRecorder.stopObserving() }
             var seenFactoryTokens: Set<Int> = []
             var expectedRestoredFrame: NSRect?
-            var retiredWindows: [WeakSettingsWindowBox] = []
 
             for cycle in 0..<100 {
                 let shouldRestorePreviousFrame = !cycle.isMultiple(of: 2)
@@ -355,13 +354,16 @@ extension SettingsWindowSharedStateSuites {
                     #expect(window.identifier == nil)
                     return weakWindow
                 }
-                retiredWindows.append(retiredWindow)
-
                 #expect(await SettingsWindowSharedStateSuites.waitUntil {
-                    visibleSettingsWindows().isEmpty
-                        && retiredWindows.allSatisfy { $0.window == nil }
+                    autoreleasepool {
+                        _ = RunLoop.main.run(
+                            mode: .default,
+                            before: Date(timeIntervalSinceNow: 0.001)
+                        )
+                    }
+                    return visibleSettingsWindows().isEmpty && retiredWindow.window == nil
                 })
-                #expect(retiredWindows.compactMap(\.window).isEmpty)
+                #expect(retiredWindow.window == nil)
             }
 
             #expect(factoryCallCount == 100)

@@ -24,6 +24,8 @@ extension SettingsWindowSharedStateSuites {
     @Suite(.serialized)
     struct SettingsWindowOpenRegressionTests {
         @Test func realWindowConstructionUsesDirectHostingView() async {
+            closeSettingsWindows()
+            defer { closeSettingsWindows() }
             let previousRuntime = AppDelegate.shared?.settingsRuntime
             AppDelegate.shared?.settingsRuntime = nil
             defer { AppDelegate.shared?.settingsRuntime = previousRuntime }
@@ -40,6 +42,7 @@ extension SettingsWindowSharedStateSuites {
             #expect(window.contentView != nil)
 
             window.orderOut(nil)
+            window.identifier = nil
             window.contentViewController = nil
             window.contentView = nil
             window.close()

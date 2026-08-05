@@ -2,6 +2,9 @@ internal import Foundation
 internal import Darwin
 
 extension SocketTransport {
+    /// Maximum number of preexisting clients discarded during one retained-path proof.
+    private static let maximumQueuedConnectionsToDrain = 64
+
     /// The filesystem identity of the socket inode at `path`, or nil when the
     /// path is missing or not a socket.
     ///
@@ -72,11 +75,13 @@ extension SocketTransport {
             return .failed(SocketStageFailure(stage: "listen", errnoCode: errno))
         }
 
-        while true {
+        var drainedConnectionCount = 0
+        while drainedConnectionCount < Self.maximumQueuedConnectionsToDrain {
             let queuedSocket = accept(listenerSocket, nil, nil)
             if queuedSocket >= 0 {
                 _ = configureCloseOnExec(queuedSocket)
                 close(queuedSocket)
+                drainedConnectionCount += 1
                 continue
             }
             let acceptErrno = errno
@@ -90,6 +95,12 @@ extension SocketTransport {
                 ))
             }
             break
+        }
+        if drainedConnectionCount == Self.maximumQueuedConnectionsToDrain {
+            return .pending(SocketStageFailure(
+                stage: "verify_bound_path_drain",
+                errnoCode: EAGAIN
+            ))
         }
 
         let (verificationClient, createErrno) = makeListenerSocket()

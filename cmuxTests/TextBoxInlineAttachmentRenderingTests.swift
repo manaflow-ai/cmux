@@ -8,21 +8,8 @@ import Testing
 @testable import cmux
 #endif
 
-private final class TextBoxDelegateTestDouble: NSObject, NSTextViewDelegate {}
-
 @MainActor
 @Suite struct TextBoxInlineAttachmentRenderingTests {
-    @Test func repeatedDelegateInstallationDoesNotMutateTextView() {
-        let textView = TextBoxInputTextView(
-            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
-        )
-        let delegate = TextBoxDelegateTestDouble()
-
-        #expect(TextBoxInputDelegateInstallation.installIfNeeded(delegate, on: textView))
-        #expect(!TextBoxInputDelegateInstallation.installIfNeeded(delegate, on: textView))
-        #expect(textView.delegate === delegate)
-    }
-
     @Test func largeAttachmentBatchUsesOneInlineCellWithoutDroppingFiles() throws {
         let textView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 420, height: 30)

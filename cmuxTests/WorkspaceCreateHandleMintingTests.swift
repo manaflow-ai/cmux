@@ -69,6 +69,10 @@ struct WorkspaceCreateHandleMintingTests {
         #expect(result["window_ref"] as? String == "window:1")
         #expect(result["workspace_ref"] as? String == "workspace:1")
         #expect(result["surface_ref"] as? String == "surface:1")
+        let handles = TerminalController.shared.controlCommandCoordinator.handles
+        #expect(handles.uuid(forRef: "window:2") == nil)
+        #expect(handles.uuid(forRef: "workspace:2") == nil)
+        #expect(handles.uuid(forRef: "surface:2") == nil)
     }
 
     private func makeMainWindow(id: UUID) -> NSWindow {

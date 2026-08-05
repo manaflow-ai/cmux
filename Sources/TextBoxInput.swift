@@ -2939,7 +2939,7 @@ struct TextBoxInputView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let textView = TextBoxInputTextView()
-        TextBoxInputDelegateInstallation.installIfNeeded(context.coordinator, on: textView)
+        context.coordinator.install(on: textView)
         textView.onMoveToWindow = onTextViewMovedToWindow
         textView.isRichText = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -3035,7 +3035,7 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.wantsLayer = true
         textView.layer?.backgroundColor = NSColor.clear.cgColor
         textView.layer?.borderWidth = 0
-        TextBoxInputDelegateInstallation.installIfNeeded(context.coordinator, on: textView)
+        context.coordinator.install(on: textView)
         textView.onLayoutCompleted = { [weak coordinator] textView, lineFragmentCount in
             coordinator?.recalculateHeight(textView, lineFragmentCount: lineFragmentCount)
         }
@@ -3049,6 +3049,13 @@ struct TextBoxInputView: NSViewRepresentable {
 
         init(parent: TextBoxInputView) {
             self.parent = parent
+        }
+
+        @discardableResult
+        func install(on textView: NSTextView) -> Bool {
+            guard textView.delegate !== self else { return false }
+            textView.delegate = self
+            return true
         }
 
         /// Captures pending-upload state once after representable construction restores AppKit storage.

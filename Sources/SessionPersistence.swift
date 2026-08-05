@@ -1548,7 +1548,7 @@ struct SessionTextBoxInputDraftPart: Codable, Equatable, Sendable {
     }
 }
 
-struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
+struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Hashable, Sendable {
     var displayName: String
     var submissionText: String
     var submissionPath: String

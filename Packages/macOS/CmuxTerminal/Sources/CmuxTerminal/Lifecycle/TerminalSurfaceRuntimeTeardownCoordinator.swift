@@ -17,6 +17,11 @@ internal import CMUXDebugLog
 /// instance and injects it through
 /// ``TerminalSurfaceRuntimeDependencies``.
 public actor TerminalSurfaceRuntimeTeardownCoordinator {
+    private typealias SubmittedOperation = (
+        coordinator: TerminalSurfaceRuntimeTeardownCoordinator,
+        operation: TerminalSurfaceRuntimeNativeOperation
+    )
+
     /// Largest hibernation batch that can reserve pending native teardowns.
     public static let maximumHibernationTeardownCount = 2
 
@@ -33,6 +38,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private var queuedOperations: [TerminalSurfaceRuntimeNativeOperation] = []
     private var nextQueuedOperationIndex = 0
     private var isWorkerRunning = false
+    private nonisolated let operationContinuation:
+        AsyncStream<SubmittedOperation>.Continuation
     private nonisolated let nativeWorkerQueue: DispatchQueue
     private nonisolated let hibernationAdmission =
         TerminalSurfaceRuntimeTeardownAdmission()
@@ -41,11 +48,21 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///
     /// - Parameter timeoutClock: Clock used for stuck-free reporting deadlines.
     public init(timeoutClock: any Clock<Duration> = ContinuousClock()) {
+        let (submittedOperations, operationContinuation) =
+            AsyncStream<SubmittedOperation>.makeStream()
         self.timeoutClock = timeoutClock
+        self.operationContinuation = operationContinuation
         nativeWorkerQueue = DispatchQueue(
             label: "com.cmux.terminal-surface-native-lifecycle",
             qos: .utility
         )
+        Task {
+            for await submission in submittedOperations {
+                await submission.coordinator.acceptSubmittedOperation(
+                    submission.operation
+                )
+            }
+        }
     }
 
     @MainActor
@@ -66,7 +83,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         _ request: TerminalSurfaceRuntimeScreenTailRequest
     ) async -> String? {
         await withCheckedContinuation { continuation in
-            queuedOperations.append(
+            submit(
                 .screenTail(
                     TerminalSurfaceRuntimeQueuedScreenTail(
                         request: request,
@@ -74,7 +91,6 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                     )
                 )
             )
-            startWorkerIfNeeded()
         }
     }
 
@@ -96,9 +112,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             operation: operation,
             completion: completion
         )
-        Task {
-            await self.enqueue(.creation(request))
-        }
+        submit(.creation(request))
         return TerminalSurfaceRuntimeCreationTicket(completion: completion)
     }
 
@@ -193,21 +207,27 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             freeSurface: freeSurface,
             completion: completion
         )
-        Task {
-            await self.enqueue(
-                .teardown(
-                    TerminalSurfaceRuntimeQueuedTeardown(
-                        request: request,
-                        hibernationReservation:
-                            hibernationReservation
-                    )
+        submit(
+            .teardown(
+                TerminalSurfaceRuntimeQueuedTeardown(
+                    request: request,
+                    hibernationReservation:
+                        hibernationReservation
                 )
             )
-        }
+        )
         return ticket
     }
 
-    private func enqueue(_ operation: TerminalSurfaceRuntimeNativeOperation) {
+    private nonisolated func submit(
+        _ operation: TerminalSurfaceRuntimeNativeOperation
+    ) {
+        operationContinuation.yield((self, operation))
+    }
+
+    private func acceptSubmittedOperation(
+        _ operation: TerminalSurfaceRuntimeNativeOperation
+    ) {
         if case let .teardown(queuedTeardown) = operation {
             pendingReasonsById[queuedTeardown.request.id] =
                 queuedTeardown.request.reason
@@ -275,6 +295,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         nextQueuedOperationIndex += 1
         if nextQueuedOperationIndex == queuedOperations.count {
             queuedOperations.removeAll(keepingCapacity: true)
+            nextQueuedOperationIndex = 0
+        } else if nextQueuedOperationIndex >= 32 {
+            queuedOperations.removeFirst(nextQueuedOperationIndex)
             nextQueuedOperationIndex = 0
         }
         return operation
@@ -357,5 +380,9 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             "reason=\(reason)"
         )
 #endif
+    }
+
+    deinit {
+        operationContinuation.finish()
     }
 }

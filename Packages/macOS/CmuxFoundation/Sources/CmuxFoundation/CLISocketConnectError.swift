@@ -46,9 +46,9 @@ public struct CLISocketConnectError: Error, CustomNSError, CustomStringConvertib
         let result = strerror_r(errnoCode, &buffer, buffer.count)
         if result == 0 {
             let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
-            return decodeSystemErrorMessage(bytes: bytes, errnoCode: errnoCode)
+            return decodeSystemErrorMessage(bytes: bytes)
         }
-        return localizedUnknownSystemError(errnoCode: errnoCode)
+        return localizedUnknownSystemError
     }
 
     /// POSIX error code exposed through `CustomNSError`.
@@ -68,17 +68,17 @@ public struct CLISocketConnectError: Error, CustomNSError, CustomStringConvertib
     public var sentryFingerprint: [String] {
         ["cmux-cli", "socket-connect", "errno-\(errnoCode)"]
     }
-}
 
-func decodeSystemErrorMessage(bytes: [UInt8], errnoCode: Int32) -> String {
-    String(bytes: bytes, encoding: .utf8)
-        ?? localizedUnknownSystemError(errnoCode: errnoCode)
-}
+    func decodeSystemErrorMessage(bytes: [UInt8]) -> String {
+        String(bytes: bytes, encoding: .utf8)
+            ?? localizedUnknownSystemError
+    }
 
-private func localizedUnknownSystemError(errnoCode: Int32) -> String {
-    let format = String(
-        localized: "cli.socket.error.unknownSystemError",
-        defaultValue: "Unknown error: %lld"
-    )
-    return String(format: format, locale: Locale.current, Int64(errnoCode))
+    private var localizedUnknownSystemError: String {
+        let format = String(
+            localized: "cli.socket.error.unknownSystemError",
+            defaultValue: "Unknown error: %lld"
+        )
+        return String(format: format, locale: Locale.current, Int64(errnoCode))
+    }
 }

@@ -635,7 +635,8 @@ final class SidebarLazyLayoutScaleTests {
         await Self.drainMainRunLoop(for: window, iterations: 40)
 
         #expect(
-            counter.workspaceRowBodies > rows * 3,
+            counter.workspaceRowBodies
+                > rows * DivergentGeometryFeedbackRowFixture.canaryThresholdPerRow,
             """
             The divergent GeometryReader → @State fixture only produced \
             \(counter.workspaceRowBodies) body evaluations for \(rows) rows; the harness \
@@ -652,9 +653,14 @@ final class SidebarLazyLayoutScaleTests {
 /// detection threshold. This shape remains banned in real sidebar rows by
 /// `scripts/check-sidebar-lazy-layout.py`.
 private struct DivergentGeometryFeedbackRowFixture: View {
+    static let canaryThresholdPerRow = 3
+    private static let heightIncrementCount = 8
+
     let onBody: () -> Void
     @State private var rowHeight: CGFloat = 20
-    private let terminalHeight: CGFloat = 24
+    private var terminalHeight: CGFloat {
+        20 + CGFloat(Self.heightIncrementCount)
+    }
 
     var body: some View {
         let _ = { onBody() }()

@@ -138,8 +138,7 @@ import Testing
             bundleID: "com.cmuxterm.app",
             displayName: "Studio",
             routes: [try route(host: "100.0.0.1", port: 51000)],
-            stopping: true,
-            now: Date(timeIntervalSince1970: 1_700_000_000)
+            stopping: true
         ))
         let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let routes = try #require(payload["routes"] as? [[String: Any]])

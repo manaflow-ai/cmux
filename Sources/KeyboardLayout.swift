@@ -87,24 +87,6 @@ enum KeyboardLayout {
         )
     }
 
-    #if DEBUG
-    /// Test seam for layouts not enabled on the host. All TIS work stays on a
-    /// detached utility task, matching the production loader.
-    static func textInputCharacter(
-        forKeyCode keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags,
-        inputSourceID: String
-    ) async -> String? {
-        await Task.detached(priority: .utility) {
-            KeyboardLayoutSystemLoader.textInputCharacter(
-                forKeyCode: keyCode,
-                modifierFlags: modifierFlags,
-                inputSourceID: inputSourceID
-            )
-        }.value
-    }
-    #endif
-
     /// Return the ASCII-normalized equivalent of an event's characters,
     /// falling back through the cached ASCII-capable layout translation.
     nonisolated static func normalizedCharacters(for event: NSEvent) -> String {

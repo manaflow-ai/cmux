@@ -47,10 +47,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
-    var atomicStructuralReloadProbe: (() -> Void)?
-    func flushPendingMutationsImmediately() {
-        mutationScheduler.flushPendingMutations()
-    }
     var dropTargetComputationProbe: (() -> Void)? {
         get { dropTargetGeometry.computationProbe }
         set { dropTargetGeometry.computationProbe = newValue }
@@ -498,9 +494,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 let postUpdateActions = requiresAtomicReorderReload
                     ? detachLoadedCells()
                     : []
-#if DEBUG
-                atomicStructuralReloadProbe?()
-#endif
                 table.reloadData()
                 // A height-changing reorder needs the atomic reload above to
                 // avoid stale moved-row frames. Preserve a stable visible row's

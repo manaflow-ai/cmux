@@ -523,7 +523,7 @@ struct BrowserPanelView: View {
               let manager = app.tabManagerFor(tabId: panel.workspaceId) else {
             return nil
         }
-        return manager.tabs.first(where: { $0.id == panel.workspaceId })
+        return manager.workspacesById[panel.workspaceId]
     }
 
     private var isCurrentPaneOwner: Bool {
@@ -1931,7 +1931,7 @@ struct BrowserPanelView: View {
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
               manager.selectedTabId == panel.workspaceId,
-              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else { return false }
+              let workspace = manager.workspacesById[panel.workspaceId] else { return false }
         return workspace.focusedPanelId == panel.id
     }
 
@@ -7854,7 +7854,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
-              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let workspace = manager.workspacesById[panel.workspaceId],
               let resolvedPaneId = workspace.paneId(forPanelId: panel.id) else {
             return nil
         }
@@ -7876,7 +7876,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
               manager.selectedTabId == panel.workspaceId,
-              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let workspace = manager.workspacesById[panel.workspaceId],
               let livePanel = workspace.panels[panel.id],
               livePanel === panel,
               let resolvedPaneId = workspace.paneId(forPanelId: panel.id),

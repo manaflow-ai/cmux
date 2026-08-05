@@ -8,22 +8,7 @@ struct TerminalSurfaceRuntimeCreationTicket: Sendable {
         self.completion = completion
     }
 
-    func wait(timeout: Duration) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await completion.wait()
-            }
-            group.addTask {
-                do {
-                    try await ContinuousClock().sleep(for: timeout)
-                    return false
-                } catch {
-                    return false
-                }
-            }
-            let completed = await group.next() ?? false
-            group.cancelAll()
-            return completed
-        }
+    func wait() async -> Bool {
+        await completion.wait()
     }
 }

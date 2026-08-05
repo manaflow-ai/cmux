@@ -240900,7 +240900,7 @@
         }
       }
     },
-    "textbox.attachmentGroup.many": {
+    "textbox.attachmentGroup.other": {
       "extractionState": "manual",
       "localizations": {
         "ar": {

@@ -1238,6 +1238,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E89950030000000000000001 /* KeyboardCopyModeResolvedCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89950030000000000000002 /* KeyboardCopyModeResolvedCell.swift */; };
 		E89950020000000000000001 /* KeyboardCopyModeSelectionKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89950020000000000000002 /* KeyboardCopyModeSelectionKind.swift */; };
 		A50012F5 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F4 /* KeyboardLayout.swift */; };
+		A17DB6000000000000000001 /* KeyboardLayoutDebugInputSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17DB6000000000000000002 /* KeyboardLayoutDebugInputSource.swift */; };
 		F9417A000000000000000003 /* KeyboardLayoutModifierTranslationMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9417B000000000000000003 /* KeyboardLayoutModifierTranslationMode.swift */; };
 		D9A300010000000000000001 /* KeyboardLayoutSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A300010000000000000002 /* KeyboardLayoutSnapshot.swift */; };
 		D9A300020000000000000001 /* KeyboardLayoutSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A300020000000000000002 /* KeyboardLayoutSnapshotCache.swift */; };
@@ -2382,7 +2383,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5330B0615330B0615330B061 /* TextBoxInlineAttachmentThumbnailSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */; };
 		5330B0815330B0815330B081 /* TextBoxInlineTextAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */; };
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
-		F9417A000000000000000016 /* TextBoxInputDelegateInstallation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9417B000000000000000016 /* TextBoxInputDelegateInstallation.swift */; };
 		C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */; };
 		C0DE7B310000000000000001 /* TextBoxMentionCachedIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */; };
 		C0DE7B250000000000000001 /* TextBoxMentionCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B250000000000000002 /* TextBoxMentionCandidate.swift */; };
@@ -3894,6 +3894,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E89950030000000000000002 /* KeyboardCopyModeResolvedCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCopyModeResolvedCell.swift; sourceTree = "<group>"; };
 		E89950020000000000000002 /* KeyboardCopyModeSelectionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCopyModeSelectionKind.swift; sourceTree = "<group>"; };
 		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
+		A17DB6000000000000000002 /* KeyboardLayoutDebugInputSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/KeyboardLayoutDebugInputSource.swift; sourceTree = "<group>"; };
 		F9417B000000000000000003 /* KeyboardLayoutModifierTranslationMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutModifierTranslationMode.swift; sourceTree = "<group>"; };
 		D9A300010000000000000002 /* KeyboardLayoutSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutSnapshot.swift; sourceTree = "<group>"; };
 		D9A300020000000000000002 /* KeyboardLayoutSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutSnapshotCache.swift; sourceTree = "<group>"; };
@@ -5023,7 +5024,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailSource.swift; sourceTree = "<group>"; };
 		5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineTextAttachment.swift; sourceTree = "<group>"; };
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
-		F9417B000000000000000016 /* TextBoxInputDelegateInstallation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInputDelegateInstallation.swift; sourceTree = "<group>"; };
 		C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/TextBoxInputTextViewDebug.swift; sourceTree = "<group>"; };
 		C0DE7B310000000000000002 /* TextBoxMentionCachedIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCachedIndex.swift; sourceTree = "<group>"; };
 		C0DE7B250000000000000002 /* TextBoxMentionCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxMentionCandidate.swift; sourceTree = "<group>"; };
@@ -6099,7 +6099,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F9417B000000000000000013 /* TextBoxAttachmentGroup.swift */,
 				F9417B000000000000000014 /* TextBoxAttachmentPresentation.swift */,
 				F9417B000000000000000015 /* TextBoxAttachmentThumbnailImageFactory.swift */,
-				F9417B000000000000000016 /* TextBoxInputDelegateInstallation.swift */,
 				F9417B000000000000000017 /* V2JavaScriptFailure.swift */,
 				F9417B000000000000000018 /* WorkspaceDeferredThemeRefresh.swift */,
 				F9417B000000000000000019 /* WorkspaceDeferredThemeRefreshOwner.swift */,
@@ -6115,6 +6114,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5FB1309 /* JSONCObjectEditor+Remove.swift */,
 				A5FB1310 /* JSONCObjectEditor+Set.swift */,
 				A50012F4 /* KeyboardLayout.swift */,
+				A17DB6000000000000000002 /* KeyboardLayoutDebugInputSource.swift */,
 				D9A300010000000000000002 /* KeyboardLayoutSnapshot.swift */,
 				D9A300020000000000000002 /* KeyboardLayoutSnapshotCache.swift */,
 				F9417B000000000000000023 /* KeyboardLayoutTaskSnapshot.swift */,
@@ -9279,6 +9279,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E89950030000000000000001 /* KeyboardCopyModeResolvedCell.swift in Sources */,
 				E89950020000000000000001 /* KeyboardCopyModeSelectionKind.swift in Sources */,
 				A50012F5 /* KeyboardLayout.swift in Sources */,
+				A17DB6000000000000000001 /* KeyboardLayoutDebugInputSource.swift in Sources */,
 				F9417A000000000000000003 /* KeyboardLayoutModifierTranslationMode.swift in Sources */,
 				D9A300010000000000000001 /* KeyboardLayoutSnapshot.swift in Sources */,
 				D9A300020000000000000001 /* KeyboardLayoutSnapshotCache.swift in Sources */,
@@ -10084,7 +10085,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5330B0615330B0615330B061 /* TextBoxInlineAttachmentThumbnailSource.swift in Sources */,
 				5330B0815330B0815330B081 /* TextBoxInlineTextAttachment.swift in Sources */,
 				C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */,
-				F9417A000000000000000016 /* TextBoxInputDelegateInstallation.swift in Sources */,
 				C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */,
 				C0DE7B310000000000000001 /* TextBoxMentionCachedIndex.swift in Sources */,
 				C0DE7B250000000000000001 /* TextBoxMentionCandidate.swift in Sources */,

@@ -39,7 +39,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
         hostedView.layoutSubtreeIfNeeded()
         #expect(
-            hostedView.surfaceView.frame.size != staleSurfaceSize,
+            hostedView.surfaceView.frame.size == NSSize(width: 420, height: 260),
             "The next AppKit layout pass must still reconcile terminal geometry"
         )
 
@@ -57,7 +57,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
         hostedView.layoutSubtreeIfNeeded()
         #expect(
-            hostedView.surfaceView.frame.size != staleWidthUpdateSize,
+            hostedView.surfaceView.frame.size == NSSize(width: 180, height: 260),
             "The next AppKit layout pass must apply the new content-width presentation"
         )
     }

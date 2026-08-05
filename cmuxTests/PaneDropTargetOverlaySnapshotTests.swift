@@ -35,5 +35,21 @@ struct PaneDropTargetOverlaySnapshotTests {
                     paneId: context.paneId
                 ))
         )
+        #expect(
+            PaneDropTargetOverlaySnapshot(dropContext: context)
+                != PaneDropTargetOverlaySnapshot(dropContext: PaneDropContext(
+                    workspaceId: UUID(),
+                    panelId: context.panelId,
+                    paneId: context.paneId
+                ))
+        )
+        #expect(
+            PaneDropTargetOverlaySnapshot(dropContext: context)
+                != PaneDropTargetOverlaySnapshot(dropContext: PaneDropContext(
+                    workspaceId: context.workspaceId,
+                    panelId: context.panelId,
+                    paneId: PaneID(id: UUID())
+                ))
+        )
     }
 }

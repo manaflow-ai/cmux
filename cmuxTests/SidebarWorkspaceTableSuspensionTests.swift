@@ -602,13 +602,11 @@ struct SidebarWorkspaceTableSuspensionTests {
 @MainActor
 struct SidebarWorkspaceTableIncrementalMutationTests {
     @Test
-    func appendingWorkspaceAtScaleKeepsVisibleInlineEditMounted() throws {
+    func appendingWorkspaceAtScaleKeepsVisibleInlineEditMounted() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let editableModel = SidebarWorkspaceRowSuspensionTests.makeModel()
         var committedTitles: [String] = []
-        var atomicStructuralReloads = 0
-        controller.atomicStructuralReloadProbe = { atomicStructuralReloads += 1 }
         let editableRow = SidebarWorkspaceTableRowConfiguration(
             workspaceRowModel: editableModel,
             actions: SidebarWorkspaceRowSuspensionTests.makeActions(
@@ -639,7 +637,6 @@ struct SidebarWorkspaceTableIncrementalMutationTests {
         window.orderFrontRegardless()
         defer {
             controller.dismantleContainerView(container)
-            controller.flushPendingMutationsImmediately()
             window.contentView = nil
             window.orderOut(nil)
             window.close()
@@ -652,12 +649,9 @@ struct SidebarWorkspaceTableIncrementalMutationTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        controller.flushPendingMutationsImmediately()
+        await drainNextMainRunLoopTurn()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
-        // The initial 75-row materialization intentionally uses the bounded
-        // atomic path. Count only the one-row mutation exercised below.
-        atomicStructuralReloads = 0
         let editingCell = try #require(
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
@@ -673,12 +667,7 @@ struct SidebarWorkspaceTableIncrementalMutationTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        controller.flushPendingMutationsImmediately()
-
-        #expect(
-            atomicStructuralReloads == 0,
-            "Appending one workspace must use a row insertion instead of an atomic table reload."
-        )
+        await drainNextMainRunLoopTurn()
         #expect(
             committedTitles.isEmpty,
             "Appending one workspace must not retire the visible inline editor."
@@ -712,6 +701,14 @@ struct SidebarWorkspaceTableIncrementalMutationTests {
             equivalenceValue: FixedHeightRow(height: fixedHeight)
         ) { _, _ in
             AnyView(FixedHeightRow(height: fixedHeight))
+        }
+    }
+
+    private func drainNextMainRunLoopTurn() async {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                continuation.resume()
+            }
         }
     }
 

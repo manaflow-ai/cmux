@@ -58,32 +58,6 @@ enum KeyboardLayoutSystemLoader {
             textInputCharacters: textInputCharacters
         )
     }
-
-    #if DEBUG
-    static func textInputCharacter(
-        forKeyCode keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags,
-        inputSourceID: String
-    ) -> String? {
-        let filter = [kTISPropertyInputSourceID as String: inputSourceID] as CFDictionary
-        guard let sources = TISCreateInputSourceList(filter, true)?.takeRetainedValue()
-            as? [TISInputSource],
-            let source = sources.first else {
-            return nil
-        }
-        let characters = translatedCharacters(
-            from: source,
-            modifierFlags: [modifierFlags],
-            mode: .textInput,
-            lowercased: false,
-            keyCodes: [keyCode]
-        )
-        return characters[KeyboardLayoutSnapshot.Key(
-            keyCode: keyCode,
-            modifierFlags: modifierFlags.intersection([.shift, .option])
-        )]
-    }
-    #endif
 }
 
 private func inputSourceID(from source: TISInputSource) -> String? {
@@ -98,7 +72,7 @@ private func inputSourceID(from source: TISInputSource) -> String? {
         .takeUnretainedValue() as String
 }
 
-private func translatedCharacters(
+func translatedCharacters(
     from source: TISInputSource,
     modifierFlags: [NSEvent.ModifierFlags],
     mode: KeyboardLayoutModifierTranslationMode,

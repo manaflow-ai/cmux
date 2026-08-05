@@ -17,7 +17,7 @@ struct TextBoxAttachmentGroup: Identifiable {
     var displayName: String {
         guard attachments.count > 1 else { return primaryAttachment.displayName }
         let format = String(
-            localized: "textbox.attachmentGroup.many",
+            localized: "textbox.attachmentGroup.other",
             defaultValue: "%lld files"
         )
         return String.localizedStringWithFormat(format, Int64(attachments.count))

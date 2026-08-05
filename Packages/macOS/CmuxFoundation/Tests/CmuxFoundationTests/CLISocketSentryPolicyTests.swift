@@ -180,14 +180,11 @@ import Testing
     }
 
     @Test func socketConnectErrorRejectsMalformedSystemErrorText() {
-        let valid = decodeSystemErrorMessage(
-            bytes: Array("Permission denied".utf8),
-            errnoCode: 1
+        let error = CLISocketConnectError(path: "/tmp/cmux.sock", errnoCode: 1)
+        let valid = error.decodeSystemErrorMessage(
+            bytes: Array("Permission denied".utf8)
         )
-        let malformed = decodeSystemErrorMessage(
-            bytes: [0xFF, 0xFE],
-            errnoCode: 1
-        )
+        let malformed = error.decodeSystemErrorMessage(bytes: [0xFF, 0xFE])
 
         #expect(valid == "Permission denied")
         #expect(!malformed.isEmpty)

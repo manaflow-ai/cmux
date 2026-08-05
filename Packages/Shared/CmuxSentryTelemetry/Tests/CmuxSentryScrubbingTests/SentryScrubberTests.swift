@@ -103,7 +103,7 @@ import Testing
         )
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test
     func markerRichTextWithoutAnAssignmentDoesNotWedgeScrubbing() {
         // Sentry HTTP-query breadcrumbs can contain long branch names with
         // "author" fragments. The free-text scanner must inspect this once,

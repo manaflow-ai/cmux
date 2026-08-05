@@ -11,7 +11,7 @@ import Testing
 @Suite(.serialized)
 struct MenuBarExtraNotificationItemReuseTests {
     @Test
-    func refreshingInlineNotificationsReusesMenuItems() {
+    func refreshingInlineNotificationsReusesMenuItems() throws {
         let store = TerminalNotificationStore.shared
         let originalNotifications = store.notifications
         store.replaceNotificationsForTesting([makeNotification(title: "First")])
@@ -34,15 +34,17 @@ struct MenuBarExtraNotificationItemReuseTests {
             store.replaceNotificationsForTesting(originalNotifications)
         }
 
-        let initialItems = controller.notificationItemsForTesting
-        #expect(initialItems.count == 1)
+        let initialItem = try #require(controller.menu.items.first {
+            $0.representedObject is TerminalNotification
+        })
 
         store.replaceNotificationsForTesting([makeNotification(title: "Second")])
-        controller.refreshForDebugControls()
+        controller.menuWillOpen(controller.menu)
 
-        let refreshedItems = controller.notificationItemsForTesting
-        #expect(refreshedItems.count == initialItems.count)
-        #expect(refreshedItems[0] === initialItems[0])
+        let refreshedItem = try #require(controller.menu.items.first {
+            $0.representedObject is TerminalNotification
+        })
+        #expect(refreshedItem === initialItem)
     }
 
     private func makeNotification(title: String) -> TerminalNotification {

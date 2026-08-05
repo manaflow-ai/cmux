@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Decides whether a CLI socket `EPERM` is a proven agent sandbox denial
@@ -48,7 +49,7 @@ public struct CLISocketSentryPolicy: Sendable {
     /// mismatched identity remains visible in Sentry.
     public func shouldSuppressPolicyDenial(_ context: CLISocketPolicyDenialContext) -> Bool {
         context.stage == "socket_connect" &&
-            context.errnoCode == 1 &&
+            context.errnoCode == EPERM &&
             context.socketExists &&
             context.socketIsUnixDomainSocket &&
             context.socketOwnerUID == context.processUID &&

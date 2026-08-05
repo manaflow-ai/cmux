@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
-    private let menu = NSMenu(title: "cmux")
+    let menu = NSMenu(title: "cmux")
     private let notificationStore: TerminalNotificationStore
     private let onShowGlobalSearch: (NSStatusBarButton, (() -> Void)?) -> Void
     private let onShowMainWindow: () -> Void
@@ -173,12 +173,6 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     func refreshForDebugControls() {
         refreshUI()
     }
-
-#if DEBUG
-    var notificationItemsForTesting: [NSMenuItem] {
-        notificationItems.filter { !$0.isHidden }
-    }
-#endif
 
     func removeFromMenuBar() {
         notificationMenuSnapshotCancellable?.cancel()

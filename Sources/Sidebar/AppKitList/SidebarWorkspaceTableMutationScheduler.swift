@@ -69,7 +69,7 @@ final class SidebarWorkspaceTableMutationScheduler {
         }
     }
 
-    func flushPendingMutations() {
+    private func flushPendingMutations() {
         let apply = pendingApply
         let flushViewportChange = shouldFlushViewportChange
         let flushTableReload = shouldFlushTableReload

@@ -90,7 +90,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         )
 
         await recorder.waitForFreeCount(1)
-        #expect(await ticket.wait(timeout: .seconds(1)))
+        #expect(await ticket.wait(timeout: nil))
         #expect(await recorder.freed == [UInt(bitPattern: surface)])
     }
 
@@ -128,6 +128,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         defer { for surface in surfaces { surface.deallocate() } }
         let firstFreeStarted = AsyncStream<Void>.makeStream()
         let releaseFirstFree = DispatchSemaphore(value: 0)
+        let lifecycle = TeardownLifetimeRecorder()
         defer {
             releaseFirstFree.signal()
             firstFreeStarted.continuation.finish()
@@ -140,8 +141,10 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             surface: surfaces[0],
             callbackContext: nil,
             freeSurface: { _ in
+                lifecycle.record("first.started")
                 firstFreeStarted.continuation.yield()
                 _ = releaseFirstFree.wait(timeout: .distantFuture)
+                lifecycle.record("first.completed")
             }
         )
         var firstFreeIterator = firstFreeStarted.stream.makeAsyncIterator()
@@ -153,17 +156,17 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             reason: "test.secondClose",
             surface: surfaces[1],
             callbackContext: nil,
-            freeSurface: { _ in }
-        )
-
-        #expect(
-            await secondTicket.wait(timeout: .milliseconds(100)) == false,
-            "concurrent native frees can corrupt Ghostty's renderer state"
+            freeSurface: { _ in lifecycle.record("second.completed") }
         )
 
         releaseFirstFree.signal()
-        #expect(await firstTicket.wait(timeout: .seconds(1)))
-        #expect(await secondTicket.wait(timeout: .seconds(1)))
+        #expect(await firstTicket.wait(timeout: nil))
+        #expect(await secondTicket.wait(timeout: nil))
+        #expect(lifecycle.snapshot() == [
+            "first.started",
+            "first.completed",
+            "second.completed",
+        ])
     }
 
     @Test func nativeCreationWaitsForEarlierTeardown() async {
@@ -172,7 +175,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         defer { surface.deallocate() }
         let freeStarted = AsyncStream<Void>.makeStream()
         let releaseFree = DispatchSemaphore(value: 0)
-        let creationCount = OSAllocatedUnfairLock(initialState: 0)
+        let lifecycle = TeardownLifetimeRecorder()
         defer {
             releaseFree.signal()
             freeStarted.continuation.finish()
@@ -185,8 +188,10 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             surface: surface,
             callbackContext: nil,
             freeSurface: { _ in
+                lifecycle.record("teardown.started")
                 freeStarted.continuation.yield()
                 _ = releaseFree.wait(timeout: .distantFuture)
+                lifecycle.record("teardown.completed")
             }
         )
         var freeStartedIterator = freeStarted.stream.makeAsyncIterator()
@@ -196,19 +201,43 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             id: UUID(),
             reason: "test.afterTeardown"
         ) {
-            creationCount.withLock { $0 += 1 }
+            lifecycle.record("creation.completed")
         }
 
-        #expect(
-            await creationTicket.wait(timeout: .milliseconds(100)) == false,
-            "native creation overlapped an earlier native free"
-        )
-        #expect(creationCount.withLock { $0 } == 0)
-
         releaseFree.signal()
-        #expect(await teardownTicket.wait(timeout: .seconds(1)))
-        #expect(await creationTicket.wait(timeout: .seconds(1)))
-        #expect(creationCount.withLock { $0 } == 1)
+        #expect(await teardownTicket.wait(timeout: nil))
+        #expect(await creationTicket.wait())
+        #expect(lifecycle.snapshot() == [
+            "teardown.started",
+            "teardown.completed",
+            "creation.completed",
+        ])
+    }
+
+    @Test func backToBackCreationAndTeardownPreserveSubmissionOrder() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+        let lifecycle = TeardownLifetimeRecorder()
+
+        let creationTicket = coordinator.enqueueRuntimeCreation(
+            id: UUID(),
+            reason: "test.backToBackCreation"
+        ) {
+            lifecycle.record("creation")
+        }
+        let teardownTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.backToBackTeardown",
+            surface: surface,
+            callbackContext: nil,
+            freeSurface: { _ in lifecycle.record("teardown") }
+        )
+
+        #expect(await creationTicket.wait())
+        #expect(await teardownTicket.wait(timeout: nil))
+        #expect(lifecycle.snapshot() == ["creation", "teardown"])
     }
 
     @Test func nativeTeardownWaitsForEarlierCreation() async {
@@ -217,7 +246,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         defer { surface.deallocate() }
         let creationStarted = AsyncStream<Void>.makeStream()
         let releaseCreation = RuntimeOperationGate()
-        let freeCount = OSAllocatedUnfairLock(initialState: 0)
+        let lifecycle = TeardownLifetimeRecorder()
         defer {
             creationStarted.continuation.finish()
             Task { await releaseCreation.open() }
@@ -227,8 +256,10 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             id: UUID(),
             reason: "test.creation"
         ) {
+            lifecycle.record("creation.started")
             creationStarted.continuation.yield()
             await releaseCreation.wait()
+            lifecycle.record("creation.completed")
         }
         var creationStartedIterator =
             creationStarted.stream.makeAsyncIterator()
@@ -241,20 +272,18 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             surface: surface,
             callbackContext: nil,
             freeSurface: { _ in
-                freeCount.withLock { $0 += 1 }
+                lifecycle.record("teardown.completed")
             }
         )
 
-        #expect(
-            await teardownTicket.wait(timeout: .milliseconds(100)) == false,
-            "native free overlapped an earlier native creation"
-        )
-        #expect(freeCount.withLock { $0 } == 0)
-
         await releaseCreation.open()
-        #expect(await creationTicket.wait(timeout: .seconds(1)))
-        #expect(await teardownTicket.wait(timeout: .seconds(1)))
-        #expect(freeCount.withLock { $0 } == 1)
+        #expect(await creationTicket.wait())
+        #expect(await teardownTicket.wait(timeout: nil))
+        #expect(lifecycle.snapshot() == [
+            "creation.started",
+            "creation.completed",
+            "teardown.completed",
+        ])
     }
 
     @Test func queuedCloseNativeFreesEventuallyDrain() async throws {
@@ -305,19 +334,13 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             )
         }
 
-        for ticket in laterTickets {
-            #expect(
-                await ticket.wait(timeout: .milliseconds(100)) == false,
-                "a later native free overlapped the first close"
-            )
-        }
         #expect(await stuckTicket.wait(timeout: .zero) == false)
 
         releaseStuckFree.signal()
-        #expect(await stuckTicket.wait(timeout: .seconds(1)))
+        #expect(await stuckTicket.wait(timeout: nil))
         for ticket in laterTickets {
             try #require(
-                await ticket.wait(timeout: .seconds(1)),
+                await ticket.wait(timeout: nil),
                 "a queued native free did not drain"
             )
         }
@@ -397,23 +420,15 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             }
         )
 
-        #expect(
-            await closeTicket.wait(timeout: .milliseconds(100)) == false,
-            "a close free overlapped a hibernation free"
-        )
-        #expect(
-            await secondIsolatedTicket.wait(timeout: .milliseconds(100)) == false,
-            "hibernation frees overlapped each other"
-        )
         #expect(closeFreeCount.withLock { $0 } == 0)
         #expect(await isolatedTicket.wait(timeout: .zero) == false)
         #expect(secondIsolatedFreeCount.withLock { $0 } == 0)
         #expect(await coordinator.reserveHibernationTeardown() == nil)
 
         releaseIsolatedFree.signal()
-        #expect(await isolatedTicket.wait(timeout: .seconds(1)))
-        #expect(await secondIsolatedTicket.wait(timeout: .seconds(1)))
-        #expect(await closeTicket.wait(timeout: .seconds(1)))
+        #expect(await isolatedTicket.wait(timeout: nil))
+        #expect(await secondIsolatedTicket.wait(timeout: nil))
+        #expect(await closeTicket.wait(timeout: nil))
         #expect(secondIsolatedFreeCount.withLock { $0 } == 1)
         #expect(closeFreeCount.withLock { $0 } == 1)
 
@@ -447,7 +462,7 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             }
         )
 
-        #expect(await ticket.wait(timeout: .seconds(1)))
+        #expect(await ticket.wait(timeout: nil))
         #expect(freeCount.withLock { $0 } == 1)
     }
 

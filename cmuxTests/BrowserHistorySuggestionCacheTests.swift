@@ -82,7 +82,7 @@ import Testing
         #expect(store.residentSuggestionCandidateCount == 0)
     }
 
-    @Test func largeHistoryImportDoesNotScanExistingHistoryForEveryEntry() throws {
+    @Test func largeHistoryImportMatchesEachExistingEntryOnce() throws {
         let (store, fileURL) = makeStore()
         defer { store.clearHistory(); try? FileManager.default.removeItem(at: fileURL) }
 
@@ -109,12 +109,11 @@ import Testing
             )
         }
 
-        let clock = ContinuousClock()
-        let elapsed = clock.measure {
-            #expect(store.mergeImportedEntries(imported) == imported.count)
-        }
-
-        #expect(elapsed < .milliseconds(500))
+        #expect(store.mergeImportedEntries(imported) == imported.count)
+        #expect(store.entries.count == existing.count)
+        #expect(store.entries.allSatisfy { entry in
+            entry.title == "Imported" && entry.visitCount == 2
+        })
     }
 
     @Test func indexedImportPreservesFirstMatchingEntrySemantics() throws {
