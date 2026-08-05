@@ -575,6 +575,7 @@ struct AgentConversationTransferSourceTests {
                 environment: [
                     "HOME": directory.appendingPathComponent("ignored-home").path,
                     "XDG_DATA_HOME": dataHome.path,
+                    "OPENCODE_DISABLE_CHANNEL_DB": "1",
                 ],
                 capturedAt: 123,
                 source: "process"
