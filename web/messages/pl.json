@@ -3593,7 +3593,7 @@
     },
     "installTitle": "Instalacja",
     "releaseTitle": "Wydania i aktualizacje",
-    "releaseBody": "Te linki zawsze prowadzą do najnowszego stabilnego wydania w <github>GitHub Releases</github>. cmux weryfikuje podpisane manifesty aktualizacji przed zainstalowaniem aktualizacji.",
+    "releaseBody": "Te linki zawsze prowadzą do najnowszego wydania nightly w <github>GitHub Releases</github>. cmux weryfikuje podpisane manifesty aktualizacji przed zainstalowaniem aktualizacji.",
     "sourceLink": "Zobacz kod źródłowy na GitHubie",
     "otherPlatform": "cmux dla {platform}",
     "macLink": "Terminal cmux dla Maca",

@@ -3590,7 +3590,7 @@
     },
     "installTitle": "Installer",
     "releaseTitle": "Versjoner og oppdateringer",
-    "releaseBody": "Disse lenkene peker alltid til den nyeste stabile versjonen på <github>GitHub Releases</github>. cmux verifiserer signerte oppdateringsmanifest før en oppdatering installeres.",
+    "releaseBody": "Disse lenkene peker alltid til den nyeste nightly-versjonen på <github>GitHub Releases</github>. cmux verifiserer signerte oppdateringsmanifest før en oppdatering installeres.",
     "sourceLink": "Se kildekoden på GitHub",
     "otherPlatform": "cmux for {platform}",
     "macLink": "cmux-terminal for Mac",

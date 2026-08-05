@@ -3592,7 +3592,7 @@
     },
     "installTitle": "安裝",
     "releaseTitle": "版本與更新",
-    "releaseBody": "這些連結一律指向 <github>GitHub Releases</github> 上的最新穩定版本。cmux 會在安裝更新前驗證已簽署的更新資訊清單。",
+    "releaseBody": "這些連結一律指向 <github>GitHub Releases</github> 上的最新 Nightly 版本。cmux 會在安裝更新前驗證已簽署的更新資訊清單。",
     "sourceLink": "在 GitHub 上檢視原始碼",
     "otherPlatform": "適用於 {platform} 的 cmux",
     "macLink": "Mac 版 cmux 終端",

@@ -3590,7 +3590,7 @@
     },
     "installTitle": "التثبيت",
     "releaseTitle": "الإصدارات والتحديثات",
-    "releaseBody": "تشير هذه الروابط دائمًا إلى أحدث إصدار مستقر على <github>GitHub Releases</github>. يتحقق cmux من بيانات التحديث الموقّعة قبل تثبيت أي تحديث.",
+    "releaseBody": "تشير هذه الروابط دائمًا إلى أحدث إصدار ليلي على <github>GitHub Releases</github>. يتحقق cmux من بيانات التحديث الموقّعة قبل تثبيت أي تحديث.",
     "sourceLink": "عرض الشفرة المصدرية على GitHub",
     "otherPlatform": "cmux لنظام {platform}",
     "macLink": "طرفية cmux لنظام Mac",

@@ -3593,7 +3593,7 @@
     },
     "installTitle": "Instalacija",
     "releaseTitle": "Izdanja i ažuriranja",
-    "releaseBody": "Ove poveznice uvijek vode do najnovijeg stabilnog izdanja na <github>GitHub Releases</github>. cmux provjerava potpisane manifeste ažuriranja prije instaliranja ažuriranja.",
+    "releaseBody": "Ove poveznice uvijek vode do najnovijeg noćnog izdanja na <github>GitHub Releases</github>. cmux provjerava potpisane manifeste ažuriranja prije instaliranja ažuriranja.",
     "sourceLink": "Pogledajte izvorni kod na GitHubu",
     "otherPlatform": "cmux za {platform}",
     "macLink": "cmux terminal za Mac",

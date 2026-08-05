@@ -10,13 +10,13 @@ import { PlatformDownloadLink } from "@/app/[locale]/components/platform-downloa
 import { PlatformIcon } from "@/app/[locale]/components/platform-icons";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
+  BROWSER_NIGHTLY_RELEASE_URL,
+  BROWSER_RELEASE_REPOSITORY_URL,
   isPlatformDownloadAvailable,
   PLATFORM_DOWNLOADS,
   type DownloadPlatform,
 } from "@/app/lib/download";
 import { Link } from "@/i18n/navigation";
-
-const GITHUB_URL = "https://github.com/manaflow-ai/cmux-browser";
 
 /** Renders the localized download, install, and release details for a platform. */
 export async function PlatformDownloadPage({
@@ -146,7 +146,7 @@ export async function PlatformDownloadPage({
             {t.rich("releaseBody", {
               github: (chunks) => (
                 <a
-                  href={`${GITHUB_URL}/releases/latest`}
+                  href={BROWSER_NIGHTLY_RELEASE_URL}
                   className="underline decoration-link-underline underline-offset-2 transition-colors hover:decoration-foreground"
                 >
                   {chunks}
@@ -158,7 +158,7 @@ export async function PlatformDownloadPage({
 
         <div className="mt-12 flex flex-wrap items-center justify-center gap-4 text-sm">
           <a
-            href={GITHUB_URL}
+            href={BROWSER_RELEASE_REPOSITORY_URL}
             className="text-muted underline decoration-link-underline underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground"
           >
             {t("sourceLink")}

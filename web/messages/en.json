@@ -54,7 +54,7 @@
     },
     "installTitle": "Install",
     "releaseTitle": "Releases and updates",
-    "releaseBody": "These links always point to the latest stable release on <github>GitHub Releases</github>. cmux verifies signed update manifests before installing an update.",
+    "releaseBody": "These links always point to the latest nightly release on <github>GitHub Releases</github>. cmux verifies signed update manifests before installing an update.",
     "sourceLink": "View source on GitHub",
     "otherPlatform": "cmux for {platform}",
     "macLink": "cmux terminal for Mac",

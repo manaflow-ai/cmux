@@ -3591,7 +3591,7 @@
     },
     "installTitle": "ដំឡើង",
     "releaseTitle": "កំណែចេញផ្សាយ និងការអាប់ដេត",
-    "releaseBody": "តំណទាំងនេះតែងតែចង្អុលទៅកំណែស្ថិរភាពចុងក្រោយបំផុតនៅលើ <github>GitHub Releases</github>។ cmux ផ្ទៀងផ្ទាត់បញ្ជីការអាប់ដេតដែលបានចុះហត្ថលេខា មុននឹងដំឡើងការអាប់ដេត។",
+    "releaseBody": "តំណទាំងនេះតែងតែចង្អុលទៅកំណែ nightly ចុងក្រោយបំផុតនៅលើ <github>GitHub Releases</github>។ cmux ផ្ទៀងផ្ទាត់បញ្ជីការអាប់ដេតដែលបានចុះហត្ថលេខា មុននឹងដំឡើងការអាប់ដេត។",
     "sourceLink": "មើលកូដប្រភពនៅលើ GitHub",
     "otherPlatform": "cmux សម្រាប់ {platform}",
     "macLink": "ស្ថានីយ cmux សម្រាប់ Mac",
