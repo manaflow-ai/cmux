@@ -1,6 +1,7 @@
 import CmuxCore
 import CmuxFoundation
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -207,6 +208,54 @@ struct AgentPortPublicationHistoryTests {
         #expect(newerPending)
         #expect(pendingStillPublishes)
         #expect(acknowledgedIsDeduplicated == false)
+    }
+}
+
+@MainActor
+@Suite("Port scanner visibility publication")
+struct PortScannerVisibilityPublicationTests {
+    @Test("Disabling scans preserves shared listening-port publications")
+    func disablingDoesNotPublishAuthoritativeEmptyPorts() {
+        let enabled = OSAllocatedUnfairLock(initialState: true)
+        let scanner = PortScanner(
+            portScanningEnabledProvider: { enabled.withLock { $0 } }
+        )
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let root = AgentPortRootIdentity(
+            pid: 100,
+            processIdentity: AgentPIDProcessIdentity(
+                pid: 100,
+                startSeconds: 1,
+                startMicroseconds: 0
+            )
+        )
+        let agentRevision = scanner.publicationState.replaceAgentLifecycle(
+            workspaceId: workspaceID,
+            roots: [root]
+        )
+        defer {
+            scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
+            scanner.unregisterAgentWorkspace(workspaceId: workspaceID)
+        }
+
+        scanner.registerTTY(
+            workspaceId: workspaceID,
+            panelId: panelID,
+            ttyName: "ttys001"
+        )
+        scanner.queue.sync {
+            scanner.trackedAgentWorkspaces.insert(workspaceID)
+            scanner.agentRevisionByWorkspace[workspaceID] = agentRevision
+        }
+
+        enabled.withLock { $0 = false }
+        scanner.portScanningSettingsDidChange()
+        let publication = scanner.queue.sync {
+            scanner.publicationBuffer.takePendingBatch()
+        }
+
+        #expect(publication?.isEmpty ?? true)
     }
 }
 

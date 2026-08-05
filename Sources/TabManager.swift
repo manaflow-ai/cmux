@@ -682,6 +682,7 @@ class TabManager: ObservableObject {
     private func sidebarMetadataSettingsDidChange() {
         sidebarGitMetadataService.sidebarGitMetadataWatchSettingsDidChange()
         pullRequestProbing.sidebarPullRequestPollingSettingsDidChange()
+        PortScanner.shared.portScanningSettingsDidChange()
         refreshRemotePortScanningEnablement()
     }
 

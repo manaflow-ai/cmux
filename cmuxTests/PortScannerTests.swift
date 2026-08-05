@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 import os
 import Testing
@@ -12,6 +13,153 @@ import Testing
 
 @Suite("Port scanner process capture")
 struct PortScannerProcessCaptureTests {
+    @Test("lsof avoids blocking kernel calls and suppresses warnings")
+    func lsofUsesNonblockingFlags() async {
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        ))
+
+        _ = await PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { true }
+        ).runLsof(pidsCsv: "123,456")
+
+        #expect(await runner.recordedInvocations() == [
+            StubCommandInvocation(
+                directory: "/",
+                executable: "/usr/sbin/lsof",
+                arguments: [
+                    "-nP", "-b", "-w", "-a", "-p", "123,456",
+                    "-iTCP", "-sTCP:LISTEN", "-Fpn",
+                ],
+                timeout: PortScanner.processScanTimeout
+            ),
+        ])
+    }
+
+    @Test("Hidden sidebar ports execute no scan subprocesses")
+    func hiddenSidebarPortsSkipScanSubprocesses() async {
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        ))
+        let scanner = PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { false }
+        )
+
+        _ = await scanner.runPS(ttyList: "ttys001")
+        _ = await scanner.runAllProcesses()
+        _ = await scanner.runLsof(pidsCsv: "123")
+
+        #expect(await runner.recordedInvocations().isEmpty)
+    }
+
+    @Test("Hot scan paths use the cached visibility state")
+    func scanHelpersDoNotReloadSidebarSettings() async {
+        let providerReads = OSAllocatedUnfairLock(initialState: 0)
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        ))
+        let scanner = PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: {
+                providerReads.withLock { $0 += 1 }
+                return true
+            }
+        )
+
+        _ = await scanner.runPS(ttyList: "ttys001")
+        _ = await scanner.runAllProcesses()
+        _ = await scanner.runLsof(pidsCsv: "123")
+
+        #expect(providerReads.withLock { $0 } == 1)
+    }
+
+    @Test("Hide all sidebar details suppresses scan subprocesses")
+    func hideAllSidebarDetailsSkipsScanSubprocesses() async {
+        let suiteName = "PortScannerProcessCaptureTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let sidebar = SidebarCatalogSection()
+        defaults.set(true, forKey: sidebar.showPorts.userDefaultsKey)
+        defaults.set(true, forKey: sidebar.hideAllDetails.userDefaultsKey)
+        let scanEnabled = SidebarWorkspaceDetailDefaults
+            .auxiliaryDetailVisibility(defaults: defaults)
+            .showsPorts
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        ))
+        let scanner = PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { scanEnabled }
+        )
+
+        _ = await scanner.runPS(ttyList: "ttys001")
+        _ = await scanner.runAllProcesses()
+        _ = await scanner.runLsof(pidsCsv: "123")
+
+        #expect(await runner.recordedInvocations().isEmpty)
+    }
+
+    @Test("Rapid port visibility transitions preserve the final enabled state")
+    func rapidPortVisibilityTransitionsRestoreScanning() async {
+        let enabled = OSAllocatedUnfairLock(initialState: true)
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        ))
+        let scanner = PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { enabled.withLock { $0 } }
+        )
+        let releaseQueue = DispatchSemaphore(value: 0)
+        scanner.queue.async {
+            releaseQueue.wait()
+        }
+
+        await MainActor.run {
+            scanner.registerTTY(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                ttyName: "ttys001"
+            )
+        }
+        enabled.withLock { $0 = false }
+        scanner.portScanningSettingsDidChange()
+        enabled.withLock { $0 = true }
+        scanner.portScanningSettingsDidChange()
+        releaseQueue.signal()
+
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await runner.recordedInvocations().isEmpty,
+              ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(await runner.recordedInvocations().contains {
+            $0.executable == "/bin/ps"
+        })
+    }
+
     @Test("Malformed ps rows preserve valid mappings but make the scan incomplete")
     func malformedPSRowsAreIncomplete() async {
         let runner = StubCommandRunner(result: CommandResult(
@@ -21,7 +169,10 @@ struct PortScannerProcessCaptureTests {
             timedOut: false,
             executionError: nil
         ))
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,ttys002")
+        let scan = await PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { true }
+        ).runPS(ttyList: "ttys001,ttys002")
 
         #expect(scan.values == [123: "ttys001"])
         #expect(scan.completeness == .incomplete)
@@ -40,7 +191,8 @@ struct PortScannerProcessCaptureTests {
             commandRunner: runner,
             processIdentityProvider: {
                 AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
-            }
+            },
+            portScanningEnabledProvider: { true }
         ).runLsof(pidsCsv: "123,456")
 
         #expect(scan.values == [123: [4200], 456: [4300]])
@@ -61,11 +213,37 @@ struct PortScannerProcessCaptureTests {
             commandRunner: runner,
             processIdentityProvider: {
                 AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
-            }
+            },
+            portScanningEnabledProvider: { true }
         ).runLsof(pidsCsv: "123")
 
         #expect(scan.values == [123: [4200]])
         #expect(scan.completeness == .complete)
+    }
+
+    @Test("A live PID with no listening sockets is complete negative evidence")
+    func livePIDWithoutLsofRowsIsComplete() async {
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "",
+            stderr: "",
+            exitStatus: 1,
+            timedOut: false,
+            executionError: nil
+        ))
+        let identity = AgentPIDProcessIdentity(
+            pid: 123,
+            startSeconds: 1,
+            startMicroseconds: 0
+        )
+        let scan = await PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: { $0 == identity.pid ? identity : nil },
+            processPresenceProvider: { $0 == identity.pid ? .present : .absent },
+            portScanningEnabledProvider: { true }
+        ).runLsof(pidsCsv: "123")
+
+        #expect(scan.values.isEmpty)
+        #expect(scan.completeness(for: [123]) == .complete)
     }
 
     @Test("lsof diagnostics preserve valid ports but make the scan incomplete")
@@ -77,7 +255,10 @@ struct PortScannerProcessCaptureTests {
             timedOut: false,
             executionError: nil
         ))
-        let scan = await PortScanner(commandRunner: runner).runLsof(pidsCsv: "123")
+        let scan = await PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { true }
+        ).runLsof(pidsCsv: "123")
 
         #expect(scan.values == [123: [4200]])
         #expect(scan.completeness == .incomplete)
@@ -100,7 +281,8 @@ struct PortScannerProcessCaptureTests {
         let scan = await PortScanner(
             commandRunner: runner,
             processIdentityProvider: { $0 == liveIdentity.pid ? liveIdentity : nil },
-            processPresenceProvider: { $0 == liveIdentity.pid ? .present : .absent }
+            processPresenceProvider: { $0 == liveIdentity.pid ? .present : .absent },
+            portScanningEnabledProvider: { true }
         ).runLsof(pidsCsv: "100,200")
 
         #expect(scan.values == [100: [4200]])
@@ -160,7 +342,10 @@ struct PortScannerProcessCaptureTests {
             timedOut: true,
             executionError: nil
         ))
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001")
+        let scan = await PortScanner(
+            commandRunner: runner,
+            portScanningEnabledProvider: { true }
+        ).runPS(ttyList: "ttys001")
         let timeout = await runner.lastTimeout
 
         #expect(scan.values.isEmpty)
@@ -193,7 +378,8 @@ struct AgentProcessIdentityValidationTests {
                 case secondIdentity.pid: secondIdentity
                 default: nil
                 }
-            }
+            },
+            portScanningEnabledProvider: { true }
         )
 
         let scan = await scanner.expandAgentProcessTree(
@@ -245,7 +431,8 @@ struct AgentProcessIdentityValidationTests {
             let scanner = PortScanner(
                 commandRunner: runner,
                 processIdentityProvider: { _ in identity.withLock { $0 } },
-                processPresenceProvider: { _ in .present }
+                processPresenceProvider: { _ in .present },
+                portScanningEnabledProvider: { true }
             )
 
             let scan = await scanner.expandAgentProcessTree(agentRootsByWorkspace: [workspaceID: [root]])
@@ -275,7 +462,8 @@ struct AgentProcessIdentityValidationTests {
         let scanner = PortScanner(
             commandRunner: runner,
             processIdentityProvider: { _ in nil },
-            processPresenceProvider: { _ in .present }
+            processPresenceProvider: { _ in .present },
+            portScanningEnabledProvider: { true }
         )
 
         let scan = await scanner.expandAgentProcessTree(agentRootsByWorkspace: [workspaceID: [root]])
@@ -472,10 +660,18 @@ struct ProcessTerminationGateTests {
     }
 }
 
+private struct StubCommandInvocation: Equatable, Sendable {
+    let directory: String
+    let executable: String
+    let arguments: [String]
+    let timeout: TimeInterval?
+}
+
 private actor StubCommandRunner: CommandRunning {
     let result: CommandResult
     let onRun: (@Sendable () -> Void)?
     private(set) var lastTimeout: TimeInterval?
+    private var invocations: [StubCommandInvocation] = []
 
     init(result: CommandResult, onRun: (@Sendable () -> Void)? = nil) {
         self.result = result
@@ -489,7 +685,17 @@ private actor StubCommandRunner: CommandRunning {
         timeout: TimeInterval?
     ) async -> CommandResult {
         lastTimeout = timeout
+        invocations.append(StubCommandInvocation(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout
+        ))
         onRun?()
         return result
+    }
+
+    func recordedInvocations() -> [StubCommandInvocation] {
+        invocations
     }
 }

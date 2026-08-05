@@ -53,6 +53,11 @@ struct PortScanCoordination {
         return next
     }
 
+    mutating func cancelPendingScans() {
+        panelScanPending = false
+        pendingAgentScan = nil
+    }
+
     mutating func newAgentWorkspaces(
         _ workspaceIds: Set<UUID>,
         eligibleWorkspaceIds: Set<UUID>,
