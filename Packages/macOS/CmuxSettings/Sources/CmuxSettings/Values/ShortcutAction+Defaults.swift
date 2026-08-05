@@ -101,6 +101,22 @@ extension ShortcutAction {
         case .resetWorkspaceTerminalFontSize:
             return ShortcutStroke(key: "0", command: true, control: true)
         case .equalizeSplits: return ShortcutStroke(key: "=", command: true, shift: true, control: true)
+        case .growPaneLeft:
+            return ShortcutStroke(key: "h", shift: true, control: true)
+        case .growPaneRight:
+            return ShortcutStroke(key: "l", shift: true, control: true)
+        case .growPaneUp:
+            return ShortcutStroke(key: "k", shift: true, control: true)
+        case .growPaneDown:
+            return ShortcutStroke(key: "j", shift: true, control: true)
+        case .setPaneWidthRatioByNumber:
+            return ShortcutStroke(key: "1", command: true, option: true)
+        case .setPaneHeightRatioByNumber:
+            return ShortcutStroke(key: "1", command: true, shift: true, option: true)
+        case .maximizePaneWidth:
+            return ShortcutStroke(key: "0", command: true, option: true)
+        case .maximizePaneHeight:
+            return ShortcutStroke(key: "0", command: true, shift: true, option: true)
         case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
         case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
         case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)

@@ -1,3 +1,5 @@
+import CmuxSettings
+
 extension KeyboardShortcutSettings.Action {
     var isSystemWideHotkey: Bool { self == .showHideAllWindows }
 
@@ -11,8 +13,16 @@ extension KeyboardShortcutSettings.Action {
         if shortcut.isUnbound {
             return shortcut.displayString
         }
-        if usesNumberedDigitMatching {
-            return shortcut.numberedDisplayString
+        if let numberedDigitRange {
+            let formatter = ShortcutDisplayFormatter()
+            let rangeHint = formatter.numberedDigitRangeHint(for: numberedDigitRange)
+            if let secondStroke = shortcut.secondStroke,
+               formatter.isNumberedDigitKey(secondStroke.key, in: numberedDigitRange) {
+                return shortcut.numberedDigitHintPrefix + rangeHint
+            }
+            if formatter.isNumberedDigitKey(shortcut.firstStroke.key, in: numberedDigitRange) {
+                return shortcut.firstStroke.modifierDisplayString + rangeHint
+            }
         }
         return shortcut.displayString
     }

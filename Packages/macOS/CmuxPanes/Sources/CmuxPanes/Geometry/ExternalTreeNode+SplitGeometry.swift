@@ -1,6 +1,6 @@
 public import Bonsplit
-import CoreGraphics
-import Foundation
+public import CoreGraphics
+public import Foundation
 
 /// Pure split-tree geometry over Bonsplit's external snapshot: equalize and
 /// resize planning, lifted one-for-one from the app-side `SplitEqualizer`
@@ -81,37 +81,132 @@ extension ExternalTreeNode {
     }
 
     /// Plans a keyboard resize of the pane's controlling divider: walks the
-    /// tree for the splits enclosing `targetPaneId` (innermost first, the
-    /// legacy candidate order), picks the first split matching the resize
-    /// direction's orientation and child side, and converts `amountPixels`
-    /// into a divider delta along that split's axis, clamped to 0.1-0.9.
-    /// Returns `nil` when the pane is absent or no enclosing split matches.
+    /// tree for the splits enclosing `targetPaneId` (innermost first), prefers
+    /// the nearest split matching the requested edge, and falls back to the
+    /// nearest compatible opposite edge at an outer boundary. Converts
+    /// `amountPixels` into a divider delta along that split's axis, clamped to
+    /// 0.1-0.9. Returns `nil` when the pane is absent, no enclosing split
+    /// matches the direction's orientation, or the selected split cannot be
+    /// addressed reliably.
     public func resizeDividerAdjustment(
         targetPaneId: String,
         direction: ResizeDirection,
         amountPixels: UInt16
     ) -> SplitDividerAdjustment? {
-        var candidates: [ResizeSplitCandidate] = []
-        let trace = collectResizeCandidates(targetPaneId: targetPaneId, candidates: &candidates)
-        guard trace.containsTarget else { return nil }
-
-        let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
-        guard !orientationMatches.isEmpty else { return nil }
-
-        guard let candidate = orientationMatches.first(where: {
-            $0.paneInFirstChild == direction.requiresPaneInFirstChild
-        }) else {
+        guard case .adjustment(let adjustment) = resizeDividerPlan(
+            targetPaneId: targetPaneId,
+            direction: direction,
+            amountPixels: amountPixels
+        ) else {
             return nil
         }
+        return adjustment
+    }
+
+    /// Produces a resize plan while retaining failures that the public
+    /// optional adjustment API cannot represent.
+    func resizeDividerPlan(
+        targetPaneId: String,
+        direction: ResizeDirection,
+        amountPixels: UInt16
+    ) -> SplitResizePlan {
+        var candidates: [ResizeSplitCandidate] = []
+        let trace = collectResizeCandidates(targetPaneId: targetPaneId, candidates: &candidates)
+        guard trace.containsTarget else { return .noMatchingSplit }
+
+        let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
+        guard !orientationMatches.isEmpty else { return .noMatchingSplit }
+
+        let directCandidate = orientationMatches.first {
+            $0.paneInFirstChild == direction.requiresPaneInFirstChild
+        }
+        let candidate = directCandidate ?? orientationMatches[0]
+        guard let splitId = candidate.splitId else {
+            return .invalidSplitIdentifier
+        }
+        let sign = direction.dividerDeltaSign
 
         let delta = CGFloat(amountPixels) / candidate.axisPixels
-        let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
+        let requested = candidate.dividerPosition + (sign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
-        return SplitDividerAdjustment(splitId: candidate.splitId, position: clamped)
+        let requestedShare = candidate.paneInFirstChild ? requested : 1 - requested
+        let actualShare = candidate.paneInFirstChild ? clamped : 1 - clamped
+        let initialShare = candidate.paneInFirstChild
+            ? candidate.dividerPosition
+            : 1 - candidate.dividerPosition
+        return .adjustment(SplitDividerAdjustment(
+            splitId: splitId,
+            position: clamped,
+            requestedFocusedBranchShare: requestedShare,
+            focusedBranchShare: actualShare,
+            initialFocusedBranchShare: initialShare,
+            focusedBranchIsFirst: candidate.paneInFirstChild
+        ))
+    }
+
+    /// Plans an exact share for the focused branch at the nearest enclosing
+    /// split on `axis`.
+    func focusedBranchShareDividerPlan(
+        targetPaneId: String,
+        axis: PaneAxis,
+        share: CGFloat
+    ) -> SplitResizePlan {
+        var candidates: [ResizeSplitCandidate] = []
+        let trace = collectResizeCandidates(targetPaneId: targetPaneId, candidates: &candidates)
+        guard trace.containsTarget,
+              let candidate = candidates.first(where: { $0.orientation == axis.splitOrientation }) else {
+            return .noMatchingSplit
+        }
+        guard let splitId = candidate.splitId else {
+            return .invalidSplitIdentifier
+        }
+
+        let clampedShare = min(max(share, 0.1), 0.9)
+        let dividerPosition = candidate.paneInFirstChild ? clampedShare : 1 - clampedShare
+        let initialShare = candidate.paneInFirstChild
+            ? candidate.dividerPosition
+            : 1 - candidate.dividerPosition
+        return .adjustment(SplitDividerAdjustment(
+            splitId: splitId,
+            position: dividerPosition,
+            requestedFocusedBranchShare: share,
+            focusedBranchShare: clampedShare,
+            initialFocusedBranchShare: initialShare,
+            focusedBranchIsFirst: candidate.paneInFirstChild
+        ))
+    }
+
+    func dividerPosition(forSplitId splitId: UUID) -> CGFloat? {
+        switch self {
+        case .pane:
+            return nil
+        case .split(let split):
+            if split.id == splitId.uuidString {
+                return split.dividerPosition
+            }
+            return split.first.dividerPosition(forSplitId: splitId)
+                ?? split.second.dividerPosition(forSplitId: splitId)
+        }
+    }
+
+    /// Returns every addressable split divider in the snapshot.  This is used
+    /// by reversible layout commands to restore the exact pre-command tree.
+    public func dividerPositions() -> [UUID: CGFloat] {
+        switch self {
+        case .pane:
+            return [:]
+        case .split(let split):
+            var positions = split.first.dividerPositions()
+            positions.merge(split.second.dividerPositions(), uniquingKeysWith: { first, _ in first })
+            if let splitId = UUID(uuidString: split.id) {
+                positions[splitId] = split.dividerPosition
+            }
+            return positions
+        }
     }
 
     private struct ResizeSplitCandidate {
-        let splitId: UUID
+        let splitId: UUID?
         let orientation: String
         let paneInFirstChild: Bool
         let dividerPosition: CGFloat
@@ -150,14 +245,13 @@ extension ExternalTreeNode {
             let combinedBounds = first.bounds.union(second.bounds)
             let containsTarget = first.containsTarget || second.containsTarget
 
-            if containsTarget,
-               let splitUUID = UUID(uuidString: split.id) {
+            if containsTarget {
                 let orientation = split.orientation.lowercased()
                 let axisPixels: CGFloat = orientation == "horizontal"
                     ? combinedBounds.width
                     : combinedBounds.height
                 candidates.append(ResizeSplitCandidate(
-                    splitId: splitUUID,
+                    splitId: UUID(uuidString: split.id),
                     orientation: orientation,
                     paneInFirstChild: first.containsTarget,
                     dividerPosition: CGFloat(split.dividerPosition),
@@ -168,4 +262,12 @@ extension ExternalTreeNode {
             return ResizeSplitTrace(containsTarget: containsTarget, bounds: combinedBounds)
         }
     }
+}
+
+/// Internal resize planning result used to distinguish absent geometry from
+/// an enclosing split whose identifier cannot be routed to Bonsplit safely.
+enum SplitResizePlan: Equatable {
+    case adjustment(SplitDividerAdjustment)
+    case noMatchingSplit
+    case invalidSplitIdentifier
 }

@@ -3,9 +3,9 @@ import CmuxSettings
 /// A complete runtime-overlap query for two stored shortcut bindings.
 struct ShortcutBindingConflict {
     let proposed: StoredShortcut
-    let proposedUsesNumberedDigitMatching: Bool
+    let proposedNumberedDigitRange: ClosedRange<Int>?
     let configured: StoredShortcut
-    let configuredUsesNumberedDigitMatching: Bool
+    let configuredNumberedDigitRange: ClosedRange<Int>?
 
     /// Whether the bindings can consume the same keystroke sequence.
     var exists: Bool {
@@ -15,35 +15,35 @@ struct ShortcutBindingConflict {
         case (nil, nil):
             return numberedAwareStrokesConflict(
                 proposed.first,
-                numbered: proposedUsesNumberedDigitMatching,
+                numberedRange: proposedNumberedDigitRange,
                 configured.first,
-                numbered: configuredUsesNumberedDigitMatching
+                numberedRange: configuredNumberedDigitRange
             )
         case let (proposedSecond?, configuredSecond?):
             return numberedAwareStrokesConflict(
                 proposed.first,
-                numbered: false,
+                numberedRange: nil,
                 configured.first,
-                numbered: false
+                numberedRange: nil
             ) && numberedAwareStrokesConflict(
                 proposedSecond,
-                numbered: proposedUsesNumberedDigitMatching,
+                numberedRange: proposedNumberedDigitRange,
                 configuredSecond,
-                numbered: configuredUsesNumberedDigitMatching
+                numberedRange: configuredNumberedDigitRange
             )
         case (_?, nil):
             return numberedAwareStrokesConflict(
                 proposed.first,
-                numbered: false,
+                numberedRange: nil,
                 configured.first,
-                numbered: configuredUsesNumberedDigitMatching
+                numberedRange: configuredNumberedDigitRange
             )
         case (nil, _?):
             return numberedAwareStrokesConflict(
                 proposed.first,
-                numbered: proposedUsesNumberedDigitMatching,
+                numberedRange: proposedNumberedDigitRange,
                 configured.first,
-                numbered: false
+                numberedRange: nil
             )
         }
     }

@@ -3,13 +3,21 @@ import Testing
 
 @Suite("ShortcutAction numbered digit matching")
 struct ShortcutActionNumberedDigitTests {
-    @Test func onlyNumberedSelectionActionsUseDigitMatching() {
+    @Test func numberedActionsExposeTheirSupportedDigitRanges() {
         for action in ShortcutAction.allCases {
-            let expected = action == .selectSurfaceByNumber || action == .selectWorkspaceByNumber
+            let expectedRange: ClosedRange<Int>? = switch action {
+            case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+                1...9
+            case .setPaneWidthRatioByNumber, .setPaneHeightRatioByNumber:
+                1...6
+            default:
+                nil
+            }
             #expect(
-                action.usesNumberedDigitMatching == expected,
-                "\(action) usesNumberedDigitMatching should be \(expected)"
+                action.numberedDigitRange == expectedRange,
+                "\(action) numberedDigitRange should be \(String(describing: expectedRange))"
             )
+            #expect(action.usesNumberedDigitMatching == (expectedRange != nil))
         }
     }
 

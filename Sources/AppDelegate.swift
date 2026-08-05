@@ -14476,6 +14476,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             performEqualizeSplitsShortcut()
             return true
         }
+        if handlePaneShareShortcut(event: event) { return true }
+        if handlePaneResizeShortcut(event: event) { return true }
         // Canvas layout actions share one executor with the palette, View
         // menu, and the canvas.* socket verbs.
         for action in KeyboardShortcutSettings.Action.canvasActions {
@@ -15875,6 +15877,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         if !shortcutWhenClauseAllows(action: action, event: event) { return false }
+        if action.numberedDigitRange != nil {
+            return numberedConfiguredShortcutDigit(event: event, action: action) != nil
+        }
         return matchConfiguredShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action))
     }
 
@@ -15920,16 +15925,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return nil }
+        guard !shortcut.isUnbound, let numberedDigitRange = action.numberedDigitRange else {
+            return nil
+        }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
                 return nil
             }
-            return numberedShortcutDigit(event: event, stroke: secondStroke)
+            return numberedShortcutDigit(event: event, stroke: secondStroke).flatMap { digit in
+                numberedDigitRange.contains(digit) ? digit : nil
+            }
         }
         guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke).flatMap { digit in
+            numberedDigitRange.contains(digit) ? digit : nil
+        }
     }
 
     func routableNumberedConfiguredShortcutDigit(
@@ -16288,8 +16299,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcut: StoredShortcut
     ) -> Bool {
         guard !shortcut.isUnbound else { return false }
-        if action.usesNumberedDigitMatching {
-            return numberedShortcutDigit(event: event, shortcut: shortcut) != nil
+        if let numberedDigitRange = action.numberedDigitRange,
+           let digit = numberedShortcutDigit(event: event, shortcut: shortcut) {
+            return numberedDigitRange.contains(digit)
         }
         guard !shortcut.hasChord else { return false }
         return matchShortcut(event: event, shortcut: shortcut)
@@ -16343,13 +16355,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: KeyboardShortcutSettings.Action
     ) -> Bool {
         let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
-        if action.usesNumberedDigitMatching {
-            return numberedShortcutDigit(event: event, shortcut: currentShortcut) != nil
+        if let numberedDigitRange = action.numberedDigitRange,
+           let digit = numberedShortcutDigit(event: event, shortcut: currentShortcut) {
+            return numberedDigitRange.contains(digit)
         }
         return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
     }
 
-    private func preferredMatchingShortcutAction(
+    func preferredMatchingShortcutAction(
         event: NSEvent,
         actions: [KeyboardShortcutSettings.Action]
     ) -> KeyboardShortcutSettings.Action? {
@@ -16361,7 +16374,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } ?? matchingActions.first
     }
 
-    private func explicitShortcutOverrideShouldPreemptImplicitDefault(
+    func explicitShortcutOverrideShouldPreemptImplicitDefault(
         event: NSEvent,
         matchedAction: KeyboardShortcutSettings.Action,
         actionFamily: [KeyboardShortcutSettings.Action]

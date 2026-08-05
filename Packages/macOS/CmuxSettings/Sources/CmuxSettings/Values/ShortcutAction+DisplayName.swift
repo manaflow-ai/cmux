@@ -116,6 +116,34 @@ extension ShortcutAction {
                 defaultValue: "Reset Font Size for Workspace Terminals"
             )
         case .equalizeSplits: return "Equalize Splits"
+        case .growPaneLeft:
+            return String(localized: "shortcut.growPaneLeft.label", defaultValue: "Resize Pane Left")
+        case .growPaneRight:
+            return String(localized: "shortcut.growPaneRight.label", defaultValue: "Resize Pane Right")
+        case .growPaneUp:
+            return String(localized: "shortcut.growPaneUp.label", defaultValue: "Resize Pane Up")
+        case .growPaneDown:
+            return String(localized: "shortcut.growPaneDown.label", defaultValue: "Resize Pane Down")
+        case .setPaneWidthRatioByNumber:
+            return String(
+                localized: "shortcut.setPaneWidthRatioByNumber.label",
+                defaultValue: "Set Pane Width: 1/3, 1/2, 2/3"
+            )
+        case .setPaneHeightRatioByNumber:
+            return String(
+                localized: "shortcut.setPaneHeightRatioByNumber.label",
+                defaultValue: "Set Pane Height: 1/3, 1/2, 2/3"
+            )
+        case .maximizePaneWidth:
+            return String(
+                localized: "shortcut.maximizePaneWidth.label",
+                defaultValue: "Maximize Pane Horizontally"
+            )
+        case .maximizePaneHeight:
+            return String(
+                localized: "shortcut.maximizePaneHeight.label",
+                defaultValue: "Toggle Pane Height Maximize"
+            )
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"

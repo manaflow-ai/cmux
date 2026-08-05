@@ -373,6 +373,9 @@ class TabManager: ObservableObject {
     }
     private var observers: [NSObjectProtocol] = []
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
+    /// Height-only maximize is global to the window: activating it in another
+    /// workspace first restores the prior workspace's layout.
+    private var paneHeightMaximizeSnapshot: PaneHeightMaximizeSnapshot?
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
         let panelId: UUID
@@ -4040,7 +4043,70 @@ class TabManager: ObservableObject {
         return moved
     }
 
-    /// Resize split - not directly supported by bonsplit, but we can adjust divider positions
+    /// Resizes the focused pane in the selected split workspace.
+    func resizeSelectedPane(
+        direction: ResizeDirection,
+        amountInPixels: CGFloat
+    ) -> PaneResizeResult {
+        guard amountInPixels.isFinite, amountInPixels > 0 else {
+            return .rejected(reason: "Resize amount must be a positive finite value.")
+        }
+        guard let workspace = selectedWorkspace else {
+            return .rejected(reason: "No workspace is selected.")
+        }
+        guard workspace.layoutMode != .canvas, !workspace.isRemoteTmuxMirror else {
+            return .unsupportedLayout
+        }
+        guard !workspace.bonsplitController.isSplitZoomed else {
+            return .rejected(reason: "Pane resizing is unavailable while a pane is zoomed.")
+        }
+        guard let panelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: panelId) else {
+            return .rejected(reason: "No pane is focused.")
+        }
+
+        let roundedAmount = max(1, min(amountInPixels.rounded(), CGFloat(UInt16.max)))
+        return paneLayout.resizeSplitResult(
+            in: workspace.bonsplitController.treeSnapshot(),
+            targetPaneId: paneId.id.uuidString,
+            direction: direction,
+            amountPixels: UInt16(roundedAmount),
+            controller: workspace.bonsplitController
+        )
+    }
+
+    /// Assigns an exact share of the nearest matching split to the focused pane.
+    func setSelectedPaneShare(
+        axis: PaneAxis,
+        share: CGFloat
+    ) -> PaneResizeResult {
+        guard share.isFinite, share > 0, share < 1 else {
+            return .rejected(reason: "Pane share must be a finite value between zero and one.")
+        }
+        guard let workspace = selectedWorkspace else {
+            return .rejected(reason: "No workspace is selected.")
+        }
+        guard workspace.layoutMode != .canvas, !workspace.isRemoteTmuxMirror else {
+            return .unsupportedLayout
+        }
+        guard !workspace.bonsplitController.isSplitZoomed else {
+            return .rejected(reason: "Pane sizing is unavailable while a pane is zoomed.")
+        }
+        guard let panelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: panelId) else {
+            return .rejected(reason: "No pane is focused.")
+        }
+
+        return paneLayout.setSplitShareResult(
+            in: workspace.bonsplitController.treeSnapshot(),
+            targetPaneId: paneId.id.uuidString,
+            axis: axis,
+            share: share,
+            controller: workspace.bonsplitController
+        )
+    }
+
+    /// Resize split - not directly supported by bonsplit, but we can adjust divider positions.
     func resizeSplit(tabId: UUID, surfaceId: UUID, direction: ResizeDirection, amount: UInt16) -> Bool {
         guard amount > 0,
               let tab = tabs.first(where: { $0.id == tabId }),
@@ -6494,4 +6560,87 @@ extension Notification.Name {
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = "pointerInitiated"
+}
+
+private struct PaneHeightMaximizeSnapshot {
+    let workspaceId: UUID
+    let paneId: UUID
+    let dividerPositions: [UUID: CGFloat]
+    let minimumPaneHeight: CGFloat
+    let dividerPositionRange: ClosedRange<CGFloat>
+}
+
+extension TabManager {
+    @discardableResult
+    func toggleSelectedPaneHeightMaximize() -> PaneResizeResult {
+        guard let workspace = selectedWorkspace else { return .rejected(reason: "No workspace is selected.") }
+        guard workspace.layoutMode != .canvas, !workspace.isRemoteTmuxMirror else { return .unsupportedLayout }
+        guard !workspace.bonsplitController.isSplitZoomed else {
+            return .rejected(reason: "Pane sizing is unavailable while a pane is zoomed.")
+        }
+        guard let panelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: panelId) else {
+            return .rejected(reason: "No pane is focused.")
+        }
+
+        if let snapshot = paneHeightMaximizeSnapshot,
+           snapshot.workspaceId == workspace.id,
+           snapshot.paneId == paneId.id {
+            restoreHeightMaximize(snapshot, in: workspace)
+            paneHeightMaximizeSnapshot = nil
+            return .applied(actualShare: 0)
+        }
+        if let snapshot = paneHeightMaximizeSnapshot {
+            if let previousWorkspace = tabs.first(where: { $0.id == snapshot.workspaceId }) {
+                restoreHeightMaximize(snapshot, in: previousWorkspace)
+            }
+            paneHeightMaximizeSnapshot = nil
+        }
+
+        let controller = workspace.bonsplitController
+        let tree = controller.treeSnapshot()
+        let configuration = controller.configuration
+        let planResult = tree.heightMaximizePlan(
+            targetPaneId: paneId.id.uuidString,
+            collapsedPaneHeight: configuration.appearance.tabBarHeight,
+            dividerThickness: configuration.appearance.dividerThickness
+        )
+        guard case .plan(let plan) = planResult else {
+            return .rejected(reason: "The focused pane has no height split to maximize.")
+        }
+
+        let snapshot = PaneHeightMaximizeSnapshot(
+            workspaceId: workspace.id,
+            paneId: paneId.id,
+            dividerPositions: tree.dividerPositions(),
+            minimumPaneHeight: configuration.appearance.minimumPaneHeight,
+            dividerPositionRange: configuration.dividerPositionRange
+        )
+        var expandedConfiguration = configuration
+        expandedConfiguration.appearance.minimumPaneHeight = configuration.appearance.tabBarHeight
+        expandedConfiguration.dividerPositionRange = 0...1
+        controller.configuration = expandedConfiguration
+        guard plan.adjustments.allSatisfy({ controller.setImposedFirstExtent($0.imposedFirstExtent, forSplit: $0.splitId, fromExternal: true) }) else {
+            restoreHeightMaximize(snapshot, in: workspace)
+            return .rejected(reason: "Unable to apply pane height maximize.")
+        }
+        paneHeightMaximizeSnapshot = snapshot
+        workspace.didProgrammaticallyChangeSplitGeometry()
+        return .applied(actualShare: 1)
+    }
+
+    private func restoreHeightMaximize(_ snapshot: PaneHeightMaximizeSnapshot, in workspace: Workspace) {
+        let controller = workspace.bonsplitController
+        for splitId in snapshot.dividerPositions.keys {
+            _ = controller.setImposedFirstExtent(nil, forSplit: splitId, fromExternal: true)
+        }
+        for (splitId, position) in snapshot.dividerPositions {
+            _ = controller.setDividerPosition(position, forSplit: splitId, fromExternal: true)
+        }
+        var configuration = controller.configuration
+        configuration.appearance.minimumPaneHeight = snapshot.minimumPaneHeight
+        configuration.dividerPositionRange = snapshot.dividerPositionRange
+        controller.configuration = configuration
+        workspace.didProgrammaticallyChangeSplitGeometry()
+    }
 }

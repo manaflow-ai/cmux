@@ -176,16 +176,22 @@ final class ShortcutListModel {
 
     /// The recorder placeholder text for `effective`: its display glyphs, or the
     /// localized "None" when unbound.
-    func formatPlaceholder(effective: StoredShortcut?, numbered: Bool) -> String {
+    func formatPlaceholder(
+        effective: StoredShortcut?,
+        numberedRange: ClosedRange<Int>?
+    ) -> String {
         let unboundLabel = String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
         guard let effective else { return unboundLabel }
         if effective.isUnbound { return unboundLabel }
-        return format(effective, numbered: numbered)
+        return format(effective, numberedRange: numberedRange)
     }
 
     /// Renders `shortcut` to its user-facing display string.
-    private func format(_ shortcut: StoredShortcut, numbered: Bool = false) -> String {
-        shortcutDisplayString(shortcut, numbered: numbered)
+    private func format(
+        _ shortcut: StoredShortcut,
+        numberedRange: ClosedRange<Int>? = nil
+    ) -> String {
+        shortcutDisplayString(shortcut, numberedRange: numberedRange)
     }
 
     /// Returns the action `stroke` would collide with under `action`'s effective
@@ -204,9 +210,9 @@ final class ShortcutListModel {
             guard let effective, !effective.isUnbound else { continue }
             if ShortcutBindingConflict(
                 proposed: stroke,
-                proposedUsesNumberedDigitMatching: action.usesNumberedDigitMatching,
+                proposedNumberedDigitRange: action.numberedDigitRange,
                 configured: effective,
-                configuredUsesNumberedDigitMatching: other.usesNumberedDigitMatching
+                configuredNumberedDigitRange: other.numberedDigitRange
             ).exists {
                 return other
             }
@@ -276,14 +282,14 @@ final class ShortcutListModel {
             markBareKeyRejected(action)
             return
         }
-        if action.usesNumberedDigitMatching {
-            guard isNumberedDigitKey(stroke.key) else {
+        if let numberedDigitRange = action.numberedDigitRange {
+            guard let digit = Int(stroke.key), numberedDigitRange.contains(digit) else {
                 clearRejections(for: action)
                 numberedDigitRejections.insert(action.rawValue)
                 return
             }
             stroke = ShortcutStroke(
-                key: "1",
+                key: String(numberedDigitRange.lowerBound),
                 command: stroke.command,
                 shift: stroke.shift,
                 option: stroke.option,

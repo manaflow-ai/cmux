@@ -27,9 +27,15 @@ extension ShortcutListModel {
             )
         }
         if numberedDigitRejections.contains(action.rawValue) {
-            return String(
-                localized: "shortcut.recorder.error.numberedShortcutRequiresDigit",
-                defaultValue: "Use a digit from 1 through 9."
+            let range = action.numberedDigitRange ?? 1...9
+            let format = String(
+                localized: "shortcut.recorder.error.numberedShortcutRequiresDigitRange",
+                defaultValue: "Use a digit from %lld through %lld."
+            )
+            return String.localizedStringWithFormat(
+                format,
+                Int64(range.lowerBound),
+                Int64(range.upperBound)
             )
         }
         if bareKeyRejections.contains(action.rawValue) {
@@ -41,7 +47,7 @@ extension ShortcutListModel {
         if let conflict = conflictRejections[action.rawValue] {
             let conflictEffective = effective(for: conflict)
             let conflictShortcutString = conflictEffective.map {
-                shortcutDisplayString($0, numbered: conflict.usesNumberedDigitMatching)
+                shortcutDisplayString($0, numberedRange: conflict.numberedDigitRange)
             } ?? ""
             let messageFormat = String(
                 localized: "shortcut.recorder.error.conflictsWithAction",
