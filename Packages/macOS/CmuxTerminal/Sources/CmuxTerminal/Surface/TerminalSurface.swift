@@ -220,7 +220,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Output delivered before the runtime surface exists. Flushed once the
     /// surface is created so background mirror output is not lost.
     var pendingRemoteOutput = Data()
-    let maxPendingRemoteOutputBytes = 4 * 1_048_576
+    /// Grid carried by the latest authoritative remote snapshot. It is applied
+    /// before `pendingRemoteOutput` so replay bytes wrap exactly as they did on
+    /// the PTY owner.
+    var pendingRemoteGrid: (columns: UInt16, rows: UInt16)?
+    // Match cmux-terminal-client's native render queue. A reset carries an
+    // authoritative VT replay, so truncating it would produce corrupt state.
+    let maxPendingRemoteOutputBytes = 32 * 1_048_576
 
     /// The explicit startup environment overrides replayed on respawn.
     public var respawnInitialEnvironmentOverrides: [String: String] {

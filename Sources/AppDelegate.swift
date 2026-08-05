@@ -7671,6 +7671,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         in: context
                     )
                     context.tabManager.setPinned(workspace, pinned: true)
+                case .deferred:
+                    let workspace = context.tabManager.addWorkspace(initialSurface: .deferred)
+                    closeInitialWorkspaceIfNeeded(
+                        initialWorkspaceId: initialWorkspace?.id,
+                        in: context
+                    )
+                    createdWorkspaceHandler?(workspace)
                 }
             }
             return true

@@ -32,6 +32,7 @@ struct ControlCommandExecutionPolicyTests {
             "feed.push", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
+            "tui.frontend.attach_terminal",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",

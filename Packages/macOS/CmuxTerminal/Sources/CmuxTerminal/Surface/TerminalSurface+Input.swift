@@ -555,6 +555,47 @@ extension TerminalSurface {
         ghostty_surface_refresh(surface)
     }
 
+    /// Applies an authoritative remote character grid without claiming local
+    /// PTY ownership. This is distinct from the tmux assigned-grid pin: the
+    /// remote terminal protocol can subsequently accept a local viewport resize.
+    @MainActor
+    public func applyRemoteGrid(columns: UInt16, rows: UInt16) {
+        let grid = (columns: max(1, columns), rows: max(1, rows))
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteGrid") else {
+            pendingRemoteGrid = grid
+            return
+        }
+        var resolved = ghostty_surface_size_s()
+        _ = ghostty_surface_set_grid_size(surface, grid.columns, grid.rows, &resolved)
+        ghostty_surface_refresh(surface)
+    }
+
+    /// Replaces a manual-I/O emulator with one authoritative snapshot.
+    ///
+    /// The `TerminalSurface`, hosted AppKit view, focus state, and panel identity
+    /// remain stable. Only libghostty's emulator/renderer lifetime is replaced,
+    /// then the snapshot grid and replay bytes are applied in order. No process
+    /// or PTY is created by this path.
+    @discardableResult
+    @MainActor
+    public func resetRemoteOutput(
+        columns: UInt16,
+        rows: UInt16,
+        replay: Data
+    ) -> Bool {
+        guard ioMode.usesManualIO, replay.count <= maxPendingRemoteOutputBytes else {
+            return false
+        }
+        pendingRemoteGrid = (columns: max(1, columns), rows: max(1, rows))
+        pendingRemoteOutput = replay
+
+        guard surface != nil else {
+            requestBackgroundSurfaceStartIfNeeded()
+            return true
+        }
+        return recreateManualRuntimeSurfaceForRemoteReset()
+    }
+
     @MainActor
     func flushPendingRemoteOutput(to surface: ghostty_surface_t) {
         guard !pendingRemoteOutput.isEmpty else { return }

@@ -1458,6 +1458,8 @@ class TerminalController {
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
         case "remote.tmux.pane_surfaces":
             return v2RemoteTmuxPaneSurfaces(id: request.id, params: request.params)
+        case "tui.frontend.attach_terminal":
+            return v2CmuxTUIAttachTerminal(id: request.id, params: request.params)
 #if DEBUG
         case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
         case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
@@ -2599,6 +2601,7 @@ class TerminalController {
             "workspace.remote.terminal_session_launching",
             "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
             "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+            "tui.frontend.attach_terminal",
             "session.restore_previous",
             "settings.open",
             "feedback.open",

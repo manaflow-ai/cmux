@@ -115,6 +115,44 @@ private func XCTFail(
 
 @MainActor
 @Suite(.serialized)
+struct CmuxTUIAttachSecurityTests {
+    @Test func cmuxTUIAttachAcceptsOnlyCanonicalPublicTerminalIDs() {
+        XCTAssertTrue(
+            TerminalController.isValidCmuxTUIPublicTerminalID(
+                "term_0123456789abcdef0123456789abcdef"
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.isValidCmuxTUIPublicTerminalID(
+                "term_0123456789ABCDEF0123456789ABCDEF"
+            )
+        )
+        XCTAssertFalse(TerminalController.isValidCmuxTUIPublicTerminalID("term_1234"))
+        XCTAssertFalse(
+            TerminalController.isValidCmuxTUIPublicTerminalID(
+                "surf_0123456789abcdef0123456789abcdef"
+            )
+        )
+    }
+
+    @Test func cmuxTUIAttachParticipatesInExplicitSocketFocusPolicy() {
+        XCTAssertTrue(
+            TerminalController.explicitFocusParamAllowsFocus(
+                commandKey: "tui.frontend.attach_terminal",
+                params: ["focus": true]
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.explicitFocusParamAllowsFocus(
+                commandKey: "tui.frontend.attach_terminal",
+                params: ["focus": false]
+            )
+        )
+    }
+}
+
+@MainActor
+@Suite(.serialized)
 final class TerminalControllerSocketSecurityTests {
     private var teardownBlocks: [() -> Void] = []
 

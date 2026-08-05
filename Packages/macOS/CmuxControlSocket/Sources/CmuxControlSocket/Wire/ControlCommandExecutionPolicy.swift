@@ -141,6 +141,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.detach",
         "remote.tmux.state",
         "remote.tmux.mirror", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+        // Enrollment and transport setup can wait on a remote broker. Keep
+        // that wait off the main actor; the handler enters MainActor only for
+        // the final window-local workspace and surface mutation.
+        "tui.frontend.attach_terminal",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",

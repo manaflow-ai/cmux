@@ -297,6 +297,50 @@ extension TerminalSurface {
         }
     }
 
+    /// Drops only the native emulator/renderer lifetime and immediately builds
+    /// a replacement against the same hosted view. Remote snapshot reset uses
+    /// this instead of `teardownSurface()`, which permanently closes the portal.
+    @discardableResult
+    @MainActor
+    func recreateManualRuntimeSurfaceForRemoteReset() -> Bool {
+        guard ioMode.usesManualIO,
+              allowsRuntimeSurfaceCreation() else { return false }
+        let view = attachedView ?? surfaceView
+
+        let callbackContext = surfaceCallbackContext
+        surfaceCallbackContext = nil
+        let manualIOContext = manualIOContext
+        self.manualIOContext = nil
+        let teeLease = mobileByteTeeLease
+        mobileByteTeeLease = nil
+        byteTee.dropSurface(surfaceID: id)
+
+        let surfaceToFree = surface
+        if let surfaceToFree {
+            registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
+        }
+        surface = nil
+
+        if let surfaceToFree {
+#if DEBUG
+            if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+                freeSurface(surfaceToFree)
+            } else {
+                ghostty_surface_free(surfaceToFree)
+            }
+#else
+            ghostty_surface_free(surfaceToFree)
+#endif
+        }
+        callbackContext?.release()
+        manualIOContext?.release()
+        teeLease?.release()
+
+        rendererPresentationPhase = .awaitingFirstPresentation
+        createSurface(for: view, source: .normal)
+        return surface != nil || configurationReloadDeferredRuntimeSurfaceCreation
+    }
+
     /// Frees the runtime surface while keeping the model alive for an
     /// agent-hibernation resume.
     ///
@@ -745,6 +789,17 @@ extension TerminalSurface {
             lastUncappedPixelHeight = hpx
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
+        }
+
+        if let grid = pendingRemoteGrid {
+            var resolved = ghostty_surface_size_s()
+            _ = ghostty_surface_set_grid_size(
+                createdSurface,
+                grid.columns,
+                grid.rows,
+                &resolved
+            )
+            pendingRemoteGrid = nil
         }
 
         // Flush remote-tmux output that arrived before the surface existed

@@ -11,4 +11,7 @@ public enum NewWorkspaceInitialSurface: Sendable {
     case browser
     /// A transient Cloud VM loading surface. It is swapped for a terminal once attach is ready.
     case cloudVMLoading
+    /// No initial surface. The caller must synchronously attach an externally
+    /// owned surface before yielding back to the UI.
+    case deferred
 }

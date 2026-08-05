@@ -356,6 +356,13 @@ extension Workspace {
         }
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
+        // A manual-I/O terminal's process and durable state belong to an
+        // external broker. Serializing it as an ordinary terminal causes
+        // restore to spawn a local PTY with the same panel identity.
+        if let terminalPanel = panel as? TerminalPanel,
+           terminalPanel.surface.ioMode != .exec {
+            return nil
+        }
 
         let indexedRestorableAgent = restorableAgentObservation?.snapshot
         let compatibleIndexedRestorableAgent = indexedRestorableAgent.flatMap {
@@ -3329,6 +3336,10 @@ final class Workspace: Identifiable, ObservableObject {
                 bindSurface(tabId, toPanelId: loadingPanel.id)
                 initialTabId = tabId
             }
+        } else if initialSurface == .deferred {
+            // The external-surface caller inserts the first panel before the
+            // main actor yields. Keeping this branch empty guarantees workspace
+            // creation cannot accidentally spawn a local Ghostty PTY.
         } else {
             // Create initial terminal panel
             let terminalPanel = TerminalPanel(
@@ -5586,6 +5597,15 @@ final class Workspace: Identifiable, ObservableObject {
         }) {
             return false
         }
+        // External-only workspaces are reconstructed from their owner's
+        // journal. Keeping them in the Swift snapshot would create a local
+        // terminal before that reattachment can occur. Mixed workspaces stay
+        // restorable; sessionPanelSnapshot omits only their external panels.
+        let hasSwiftOwnedPanel = panels.values.contains { panel in
+            guard let terminalPanel = panel as? TerminalPanel else { return true }
+            return terminalPanel.surface.ioMode == .exec
+        }
+        guard hasSwiftOwnedPanel else { return false }
         guard let remoteConfiguration else { return true }
         return remoteConfiguration.sessionSnapshot() != nil
     }
@@ -8109,46 +8129,97 @@ final class Workspace: Identifiable, ObservableObject {
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         onResize: (@MainActor @Sendable (_ columns: Int, _ rows: Int) -> Void)? = nil
     ) -> TerminalPanel? {
-        let newPanel = performRemoteTmuxMirrorMutation { () -> TerminalPanel? in
-            guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
-            else { return nil }
-
-            let title = customTitle ?? String(localized: "remoteTmux.tab.pane", defaultValue: "tmux pane")
-            let surface = TerminalSurface(
-                tabId: id,
-                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                configTemplate: inheritedTerminalFontSizeConfig(),
-                ioMode: .manualMirror,
-                manualInputHandler: onInput,
-                manualInputKeyNameResolver: keyNameResolver
-            )
-            if let onResize { surface.onManualSizeApplied = { onResize($0.columns, $0.rows) } }
-            let newPanel = TerminalPanel(workspaceId: id, surface: surface)
-            configureNewTerminalPanel(
-                newPanel,
-                allowTextBoxFocusDefault: focus && allowTextBoxFocusDefault
-            )
-            panels[newPanel.id] = newPanel
-            panelTitles[newPanel.id] = title
-
-            guard let newTabId = bonsplitController.createTab(
-                title: title,
+        let panel = performRemoteTmuxMirrorMutation {
+            addManualMirrorTerminalPanel(
+                title: customTitle ?? String(
+                    localized: "remoteTmux.tab.pane",
+                    defaultValue: "tmux pane"
+                ),
                 icon: "rectangle.connected.to.line.below",
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                focus: focus,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+                onInput: onInput,
+                keyNameResolver: keyNameResolver,
+                onResize: onResize
+            )
+        }
+        if focus, let panel {
+            // The focus-neutral mirror transaction restores the previous
+            // selection. Reassert explicit user focus after that boundary.
+            focusPanel(panel.id)
+        }
+        return panel
+    }
+
+    /// Adds a native Ghostty terminal whose PTY and durable state belong to an
+    /// external broker. This is the shared primitive used by remote tmux today
+    /// and cmux-tui sessions, without transport-specific terminal chrome.
+    @discardableResult
+    func addManualMirrorTerminalPanel(
+        id panelId: UUID = UUID(),
+        title: String,
+        icon: String = "terminal.fill",
+        context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
+        focus: Bool = false,
+        allowTextBoxFocusDefault: Bool = true,
+        publishOrigin: String? = nil,
+        onInput: @escaping @Sendable (TerminalManualInput) -> Void,
+        keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
+        onResize: (@MainActor @Sendable (_ columns: Int, _ rows: Int) -> Void)? = nil
+    ) -> TerminalPanel? {
+        guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
+        else { return nil }
+
+        let surface = TerminalSurface(
+            id: panelId,
+            tabId: id,
+            context: context,
+            configTemplate: inheritedTerminalFontSizeConfig(),
+            ioMode: .manualMirror,
+            manualInputHandler: onInput,
+            manualInputKeyNameResolver: keyNameResolver
+        )
+        if let onResize {
+            surface.onManualSizeApplied = { onResize($0.columns, $0.rows) }
+        }
+        let panel = TerminalPanel(workspaceId: id, surface: surface)
+        configureNewTerminalPanel(
+            panel,
+            allowTextBoxFocusDefault: focus && allowTextBoxFocusDefault
+        )
+        panels[panel.id] = panel
+        panelTitles[panel.id] = title
+
+        guard let tabId = bonsplitController.createTab(
+            title: title,
+            icon: icon,
+            kind: SurfaceKind.terminal.rawValue,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: panel.id)
+            panelTitles.removeValue(forKey: panel.id)
+            panel.close()
+            return nil
+        }
+        bindSurface(tabId, toPanelId: panel.id)
+        rememberTerminalConfigInheritanceSource(panel)
+        if let publishOrigin {
+            publishCmuxSurfaceCreated(
+                panel.id,
+                paneId: paneId,
                 kind: SurfaceKind.terminal.rawValue,
-                inPane: paneId
-            ) else {
-                panels.removeValue(forKey: newPanel.id)
-                panelTitles.removeValue(forKey: newPanel.id)
-                return nil
-            }
-            bindSurface(newTabId, toPanelId: newPanel.id)
-            rememberTerminalConfigInheritanceSource(newPanel)
-            return newPanel
+                origin: publishOrigin,
+                focused: focus
+            )
         }
-        if focus, let newPanel {
-            focusPanel(newPanel.id)
+        if focus {
+            focusPanel(panel.id)
+        } else {
+            panel.unfocus()
         }
-        return newPanel
+        scheduleTerminalGeometryReconcile()
+        return panel
     }
 
     /// Closes one pane of a mirrored multi-pane tmux window (the pane-header ✕),

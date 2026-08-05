@@ -22,6 +22,9 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The underlying terminal surface
     let surface: TerminalSurface
+    /// Native cmux-tui transport ownership for a PTY-less surface. Closing the
+    /// panel detaches this renderer while the Rust broker and PTY keep running.
+    var cmuxTUIBinding: CmuxTUITerminalBinding?
     var fontSizePanelTransfer:
         WorkspaceTerminalFontSizePanelTransfer?
 
@@ -641,6 +644,8 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        cmuxTUIBinding?.shutdown()
+        cmuxTUIBinding = nil
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id
