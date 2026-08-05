@@ -47,4 +47,25 @@ import Testing
             "Expected new terminal tab to inherit the selected source terminal's requested cwd when no reported cwd exists yet"
         )
     }
+
+    @Test func newTerminalSurfaceUsesPinnedWorkingDirectoryCapturedAtPinTime() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.tabs.first)
+        manager.selectWorkspace(workspace)
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        workspace.panelDirectories[sourcePanelId] = "/Users/cmux/project"
+        workspace.currentDirectory = "/Users/cmux/project"
+        manager.setPinned(workspace, pinned: true)
+
+        workspace.panelDirectories[sourcePanelId] = "/tmp/elsewhere"
+        workspace.currentDirectory = "/tmp/elsewhere"
+
+        let newTabPanel = try #require(
+            workspace.newTerminalSurfaceInFocusedPane(focus: false),
+            "Expected new terminal tab panel to be created"
+        )
+
+        #expect(newTabPanel.requestedWorkingDirectory == "/Users/cmux/project")
+    }
 }

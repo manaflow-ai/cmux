@@ -163,6 +163,7 @@ extension Workspace {
             customDescription: customDescription,
             customColor: customColor,
             isPinned: isPinned,
+            pinnedWorkingDirectory: pinnedWorkingDirectory,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
@@ -277,6 +278,12 @@ extension Workspace {
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
+        pinnedWorkingDirectory = isPinned
+            ? Self.normalizedTerminalWorkingDirectory(snapshot.pinnedWorkingDirectory)
+            : nil
+        if isPinned, pinnedWorkingDirectory == nil {
+            updatePinnedWorkingDirectoryForCurrentState()
+        }
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
 
@@ -2149,6 +2156,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @Published var isPinned: Bool = false
+    @Published var pinnedWorkingDirectory: String?
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
@@ -3863,10 +3871,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     func handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() -> Bool {
         guard remoteTmuxKeepWorkspaceOpenAfterSessionEnd else { return false }
+        let replacementWorkingDirectory = isPinned
+            ? Self.normalizedTerminalWorkingDirectory(pinnedWorkingDirectory)
+            : nil
         let panelIds = remoteTmuxKeepWorkspaceOpenTabIds.compactMap { panelIdFromSurfaceId($0) }
         remoteTmuxKeepWorkspaceOpenTabIds.removeAll(); detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded()
         for panelId in panelIds { _ = closePanel(panelId, force: true) }
-        if panels.isEmpty { _ = createReplacementTerminalPanel() }
+        if panels.isEmpty {
+            _ = createReplacementTerminalPanel(workingDirectory: replacementWorkingDirectory)
+        }
         return true
     }
     @discardableResult func detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded() -> Bool {
@@ -4393,6 +4406,11 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    func updatePinnedWorkingDirectoryForCurrentState() {
+        pinnedWorkingDirectory = isPinned
+            ? resolvedWorkingDirectory().flatMap(Self.normalizedTerminalWorkingDirectory)
+            : nil
+    }
     func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
         let trimmedFallback = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackTitle = trimmedFallback.isEmpty ? "Tab" : trimmedFallback
@@ -7095,6 +7113,9 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> String? {
         if let requested = TerminalWorkingDirectoryResolver.normalized(requestedWorkingDirectory) {
             return requested
+        }
+        if isPinned, let pinnedWorkingDirectory = Self.normalizedTerminalWorkingDirectory(pinnedWorkingDirectory) {
+            return pinnedWorkingDirectory
         }
         if let sourcePanelId,
            let rescued = resumedAgentPaneWorkingDirectoryRescue(panelId: sourcePanelId) {
@@ -10347,6 +10368,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Create a new terminal panel (used when replacing the last panel)
     @discardableResult
     func createReplacementTerminalPanel(
+        workingDirectory: String? = nil,
         remoteDisconnectSurfaceId: UUID? = nil,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel {
@@ -10379,6 +10401,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: replacementConfig,
+            workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: replacementInitialCommand,
             additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
@@ -12641,6 +12664,13 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
+        let replacementWorkingDirectory = [
+            isPinned ? pinnedWorkingDirectory : nil,
+            (panel as? TerminalPanel)?.requestedWorkingDirectory,
+            panelDirectories[panelId],
+            currentDirectory,
+        ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
+
         let closedRemoteCleanupConfiguration = discardClosedPanelLifecycleState(
             panelId: panelId,
             tabId: tabId,
@@ -12686,7 +12716,10 @@ extension Workspace: BonsplitDelegate {
             #if DEBUG
             dlog("replacement.remoteDisconnect.fire target=\(pendingRemoteDisconnectReplacementsBySurfaceId[panelId]?.target ?? "nil")")
             #endif
-            let replacement = createReplacementTerminalPanel(remoteDisconnectSurfaceId: panelId)
+            let replacement = createReplacementTerminalPanel(
+                workingDirectory: replacementWorkingDirectory,
+                remoteDisconnectSurfaceId: panelId
+            )
             if let replacementTabId = surfaceIdFromPanelId(replacement.id),
                let replacementPane = bonsplitController.allPaneIds.first {
                 bonsplitController.focusPane(replacementPane)
