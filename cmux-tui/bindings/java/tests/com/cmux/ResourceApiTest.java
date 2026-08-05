@@ -477,7 +477,6 @@ public final class ResourceApiTest {
 
         Snapshots.TerminalSnapshot terminal = Client.decodeTerminal(Map.of(
             "id", "term_" + HEX,
-            "tab_id", "tab_" + HEX,
             "tab_ids", List.of("tab_" + HEX),
             "title", "done",
             "cols", 80,
@@ -501,7 +500,6 @@ public final class ResourceApiTest {
             IllegalArgumentException.class,
             () -> Client.decodeTerminal(Map.of(
                 "id", "term_" + HEX,
-                "tab_id", "tab_" + HEX,
                 "title", "missing views",
                 "cols", 80,
                 "rows", 24,
@@ -512,20 +510,20 @@ public final class ResourceApiTest {
         Map<String, Object> missingDetachedViews = new LinkedHashMap<>();
         missingDetachedViews.put("id", "term_" + HEX);
         missingDetachedViews.put("tab_id", null);
+        missingDetachedViews.put("tab_ids", List.of());
         missingDetachedViews.put("title", "missing detached views");
         missingDetachedViews.put("cols", 80);
         missingDetachedViews.put("rows", 24);
         missingDetachedViews.put("running", true);
         missingDetachedViews.put("lifecycle", "running");
         expect(
-            IllegalArgumentException.class,
+            ProtocolError.class,
             () -> Client.decodeTerminal(missingDetachedViews)
         );
         expect(
             IllegalArgumentException.class,
             () -> Client.decodeTerminal(Map.of(
                 "id", "term_" + HEX,
-                "tab_id", "tab_" + HEX,
                 "tab_ids", List.of("tab_" + HEX),
                 "title", "bad",
                 "cols", 80,

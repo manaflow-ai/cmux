@@ -1750,7 +1750,7 @@ mod tests {
             .iter()
             .find(|terminal| terminal["id"] == terminal_id.as_str())
             .unwrap();
-        assert!(terminal["tab_id"].is_null());
+        assert!(terminal.get("tab_id").is_none());
         assert_eq!(terminal["tab_ids"], json!([]));
         assert!(mux.surface(original.id).is_some());
         assert!(

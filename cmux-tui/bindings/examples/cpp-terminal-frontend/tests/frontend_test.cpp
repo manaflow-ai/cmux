@@ -278,7 +278,6 @@ std::shared_ptr<FakeScenario> make_scenario() {
                     endpoint,
                     request,
                     "{\"id\":\"" + terminal_id +
-                        "\",\"tab_id\":\"" + tab_id +
                         "\",\"tab_ids\":[\"" + tab_id + "\"]" +
                         ",\"title\":\"build\",\"cols\":80,\"rows\":24,"
                         "\"running\":true,\"lifecycle\":\"running\"}");
@@ -287,7 +286,6 @@ std::shared_ptr<FakeScenario> make_scenario() {
                     endpoint,
                     request,
                     "{\"id\":\"" + terminal_id +
-                        "\",\"tab_id\":\"" + tab_id +
                         "\",\"tab_ids\":[\"" + tab_id + "\"]" +
                         ",\"title\":\"build\",\"cols\":100,\"rows\":30,"
                         "\"running\":false,\"lifecycle\":\"exited\","
@@ -451,9 +449,8 @@ void test_terminal_selection_prefers_focused_opaque_tab() {
     cmux::ResourceSnapshot snapshot;
     cmux::TerminalSnapshot other_terminal;
     other_terminal.id = other;
-    other_terminal.tab_id = parsed_id<cmux::TabId>(
-        "tab_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    other_terminal.tab_ids = {*other_terminal.tab_id};
+    other_terminal.tab_ids = {parsed_id<cmux::TabId>(
+        "tab_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")};
     other_terminal.title = "other";
     other_terminal.cols = 80;
     other_terminal.rows = 24;
@@ -463,8 +460,7 @@ void test_terminal_selection_prefers_focused_opaque_tab() {
 
     cmux::TerminalSnapshot focused_terminal = other_terminal;
     focused_terminal.id = focused;
-    focused_terminal.tab_id = parsed_id<cmux::TabId>(tab_id);
-    focused_terminal.tab_ids = {*focused_terminal.tab_id};
+    focused_terminal.tab_ids = {parsed_id<cmux::TabId>(tab_id)};
     snapshot.terminals.push_back(focused_terminal);
 
     cmux::TabSnapshot tab;

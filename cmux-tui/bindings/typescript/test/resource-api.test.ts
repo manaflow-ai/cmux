@@ -1892,7 +1892,6 @@ test("terminal snapshots expose lifecycle and durable exit details", async () =>
     refreshes += 1;
     const base = {
       id: TERMINAL,
-      tab_id: TAB,
       tab_ids: [TAB],
       title: "job",
       cols: 80,
@@ -1939,21 +1938,25 @@ test("terminal snapshots expose lifecycle and durable exit details", async () =>
 test("terminal snapshots require complete view ownership", async () => {
   let refreshes = 0;
   const transport = new FakeTransport((request, current) => {
-    current.ok(request, {
+    const value: Record<string, unknown> = {
       id: TERMINAL,
-      tab_id: refreshes++ === 0 ? TAB : null,
       title: "legacy",
       cols: 80,
       rows: 24,
       running: true,
       lifecycle: "running",
-    });
+    };
+    if (refreshes++ > 0) {
+      value.tab_id = null;
+      value.tab_ids = [];
+    }
+    current.ok(request, value);
   });
   const client = new Client({ transport });
   const terminal = client.session(SESSION).terminal(TERMINAL);
 
   await assert.rejects(() => terminal.refresh(), /tab_ids must be an array/);
-  await assert.rejects(() => terminal.refresh(), /tab_ids must be an array/);
+  await assert.rejects(() => terminal.refresh(), /unknown field "tab_id"/);
   client.close();
 });
 

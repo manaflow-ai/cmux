@@ -250,7 +250,6 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	if _, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
-				`"tab_id":"tab_00000000000000000000000000000006",`+
 				`"title":"legacy","cols":80,"rows":24,"running":true,`+
 				`"lifecycle":"running"}`,
 		),
@@ -261,7 +260,7 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	if _, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
-				`"tab_id":null,"title":"legacy","cols":80,"rows":24,`+
+				`"title":"legacy","cols":80,"rows":24,`+
 				`"running":true,"lifecycle":"running"}`,
 		),
 		"detached terminal snapshot missing tab_ids",
@@ -271,7 +270,6 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	terminal, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
-				`"tab_id":"tab_00000000000000000000000000000006",`+
 				`"tab_ids":["tab_00000000000000000000000000000006"],`+
 				`"title":"job","cols":80,"rows":24,"running":false,`+
 				`"lifecycle":"exited","exit":{`+
@@ -294,7 +292,6 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	if _, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
-				`"tab_id":"tab_00000000000000000000000000000006",`+
 				`"tab_ids":["tab_00000000000000000000000000000006"],`+
 				`"title":"job","cols":80,"rows":24,"running":true,`+
 				`"lifecycle":"exited","exit":{`+
@@ -409,19 +406,14 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	}
 }
 
-func TestTerminalSnapshotsRejectMalformedTabIdentities(t *testing.T) {
-	const tabID = "tab_00000000000000000000000000000006"
+func TestTerminalSnapshotsRejectMalformedViewIdentities(t *testing.T) {
 	tests := []struct {
-		name       string
-		selected   any
-		projected  []any
-		omitTabID  bool
-		omitTabIDs bool
+		name   string
+		fields map[string]any
 	}{
-		{name: "missing compatibility alias", projected: []any{}, omitTabID: true},
-		{name: "empty legacy compatibility alias", selected: "", omitTabIDs: true},
-		{name: "empty selected identity", selected: "", projected: []any{""}},
-		{name: "empty projected identity", selected: tabID, projected: []any{tabID, ""}},
+		{name: "missing tab_ids", fields: map[string]any{}},
+		{name: "empty projected identity", fields: map[string]any{"tab_ids": []any{""}}},
+		{name: "legacy alias", fields: map[string]any{"tab_id": nil, "tab_ids": []any{}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -433,11 +425,8 @@ func TestTerminalSnapshotsRejectMalformedTabIdentities(t *testing.T) {
 				"running":   true,
 				"lifecycle": "running",
 			}
-			if !test.omitTabID {
-				fields["tab_id"] = test.selected
-			}
-			if !test.omitTabIDs {
-				fields["tab_ids"] = test.projected
+			for key, value := range test.fields {
+				fields[key] = value
 			}
 			raw, err := json.Marshal(fields)
 			if err != nil {

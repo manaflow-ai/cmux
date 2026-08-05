@@ -1214,7 +1214,6 @@ class ResourceApiTests(unittest.TestCase):
     def test_terminal_snapshot_lifecycle_invariants_are_strict(self) -> None:
         base = {
             "id": str(TERMINAL),
-            "tab_id": str(TAB),
             "tab_ids": [str(TAB)],
             "title": "fixture",
             "cols": 80,
@@ -1266,7 +1265,6 @@ class ResourceApiTests(unittest.TestCase):
         responses = [
             {
                 "id": str(TERMINAL),
-                "tab_id": str(TAB),
                 "title": "attached",
                 "cols": 80,
                 "rows": 24,
@@ -1276,6 +1274,7 @@ class ResourceApiTests(unittest.TestCase):
             {
                 "id": str(TERMINAL),
                 "tab_id": None,
+                "tab_ids": [],
                 "title": "detached",
                 "cols": 80,
                 "rows": 24,
@@ -3567,7 +3566,6 @@ class ResourceApiTests(unittest.TestCase):
                                 "id": str(TERMINAL),
                                 "value": {
                                     "id": str(TERMINAL),
-                                    "tab_id": str(TAB),
                                     "tab_ids": [str(TAB)],
                                     "title": "typed",
                                     "cwd": "/tmp",

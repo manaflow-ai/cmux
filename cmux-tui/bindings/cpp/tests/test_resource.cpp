@@ -1430,7 +1430,7 @@ TEST("malformed wait cleanup preserves timeout and fail closes once") {
 TEST("terminal lifecycle and wait-exit unions decode strictly") {
     auto running = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
     CHECK(running);
     CHECK_EQ(
@@ -1440,42 +1440,28 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
 
     auto projected = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
     CHECK(projected);
     CHECK_EQ(projected.value().tab_ids.size(), 2U);
 
     auto missing_attached_views = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
     CHECK(!missing_attached_views);
     CHECK_EQ(missing_attached_views.error().code, cmux::ErrorCode::decode);
 
-    auto missing_detached_views = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+    auto legacy_alias = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"tab_ids":[],"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
-    CHECK(!missing_detached_views);
-    CHECK_EQ(missing_detached_views.error().code, cmux::ErrorCode::decode);
-
-    auto nonnull_empty = cmux::detail::decode_value<cmux::TerminalSnapshot>(
-        cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
-            .value());
-    CHECK(!nonnull_empty);
-    CHECK_EQ(nonnull_empty.error().code, cmux::ErrorCode::decode);
-
-    auto mismatched_primary = cmux::detail::decode_value<cmux::TerminalSnapshot>(
-        cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_11111111111111111111111111111111","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
-            .value());
-    CHECK(!mismatched_primary);
-    CHECK_EQ(mismatched_primary.error().code, cmux::ErrorCode::decode);
+    CHECK(!legacy_alias);
+    CHECK_EQ(legacy_alias.error().code, cmux::ErrorCode::decode);
 
     auto exited = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"tab_ids":[],"title":"done","cols":80,"rows":24,"running":false,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":0},"exited_at":"123","revision":"9"}})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"done","cols":80,"rows":24,"running":false,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":0},"exited_at":"123","revision":"9"}})")
             .value());
     CHECK(exited);
     CHECK(exited.value().exit.has_value());
@@ -1485,7 +1471,7 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
     auto inconsistent =
         cmux::detail::decode_value<cmux::TerminalSnapshot>(
             cmux::Json::parse(
-                R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"launching"})")
+                R"({"id":"term_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"launching"})")
                 .value());
     CHECK(!inconsistent);
     CHECK_EQ(inconsistent.error().code, cmux::ErrorCode::decode);

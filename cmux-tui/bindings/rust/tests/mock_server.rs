@@ -195,7 +195,6 @@ fn session_snapshot(revision: &str) -> Value {
 fn terminal_snapshot() -> Value {
     json!({
         "id": TERMINAL,
-        "tab_id": TAB,
         "tab_ids": [TAB],
         "title": "fixture",
         "cwd": "/tmp",
@@ -2370,7 +2369,6 @@ fn terminal_snapshot_lifecycle_invariants_are_strict() {
 
     let exited: TerminalSnapshot = serde_json::from_value(json!({
         "id": TERMINAL,
-        "tab_id": null,
         "tab_ids": [],
         "title": "finished",
         "cols": 80,
@@ -2396,8 +2394,11 @@ fn terminal_snapshot_requires_complete_view_ownership() {
 
     let mut detached = terminal_snapshot();
     detached.as_object_mut().unwrap().remove("tab_ids");
-    detached["tab_id"] = json!(null);
     assert!(serde_json::from_value::<TerminalSnapshot>(detached).is_err());
+
+    let mut legacy_alias = terminal_snapshot();
+    legacy_alias["tab_id"] = json!(TAB);
+    assert!(serde_json::from_value::<TerminalSnapshot>(legacy_alias).is_err());
 }
 
 #[test]
