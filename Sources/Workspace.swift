@@ -9921,6 +9921,7 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
             applyTabSelection(tabId: newTabId, inPane: paneId, focusIntent: focusIntent)
+            applyFocusedPanelTitle(panelId: detached.panelId)
         } else {
             scheduleFocusReconcile()
         }
