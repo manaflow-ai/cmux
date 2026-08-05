@@ -77,6 +77,24 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(state.globalSearchLookupCount == initialLookupCount + 2)
     }
 
+    @Test func detachedShortcutRefreshUsesPreparedKeyboardLayoutSnapshot() async {
+        let observer = KeyboardShortcutSettingsObserver(
+            notificationCenter: NotificationCenter(),
+            shortcutProvider: { action in
+                _ = KeyboardLayout.shortcutCharacterProvider()(0, [])
+                return action.defaultShortcut
+            }
+        )
+
+        observer.start()
+        await observer.waitUntilShortcutSnapshotIsIdle()
+
+        #expect(
+            observer.globalSearchShortcut
+                == KeyboardShortcutSettings.Action.globalSearch.defaultShortcut
+        )
+    }
+
     @Test func legacyMediaKeyGlobalSearchBindingFallsBackToDefault() throws {
         let action = KeyboardShortcutSettings.Action.globalSearch
         let defaults = UserDefaults.standard

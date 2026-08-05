@@ -36,6 +36,9 @@ enum KeyboardLayout {
             queue: .main
         ) { _ in
             MainActor.assumeIsolated {
+                snapshotCache.replaceSnapshotWithoutInstalling(
+                    snapshotCache.snapshot.replacingInputSourceID(nil)
+                )
                 snapshotCache.requestRefresh()
             }
         }
@@ -55,24 +58,20 @@ enum KeyboardLayout {
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> String? {
-        MainActor.assumeIsolated {
-            currentSnapshot().shortcutCharacter(
-                forKeyCode: keyCode,
-                modifierFlags: modifierFlags
-            )
-        }
+        currentSnapshot().shortcutCharacter(
+            forKeyCode: keyCode,
+            modifierFlags: modifierFlags
+        )
     }
 
     /// Captures one immutable snapshot for callers that scan many key codes.
     nonisolated static func shortcutCharacterProvider() -> (UInt16, NSEvent.ModifierFlags) -> String? {
-        MainActor.assumeIsolated {
-            let snapshot = currentSnapshot()
-            return { keyCode, modifierFlags in
-                snapshot.shortcutCharacter(
-                    forKeyCode: keyCode,
-                    modifierFlags: modifierFlags
-                )
-            }
+        let snapshot = currentSnapshot()
+        return { keyCode, modifierFlags in
+            snapshot.shortcutCharacter(
+                forKeyCode: keyCode,
+                modifierFlags: modifierFlags
+            )
         }
     }
 
@@ -82,12 +81,10 @@ enum KeyboardLayout {
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags
     ) -> String? {
-        MainActor.assumeIsolated {
-            currentSnapshot().textInputCharacter(
-                forKeyCode: keyCode,
-                modifierFlags: modifierFlags
-            )
-        }
+        currentSnapshot().textInputCharacter(
+            forKeyCode: keyCode,
+            modifierFlags: modifierFlags
+        )
     }
 
     #if DEBUG
@@ -119,7 +116,23 @@ enum KeyboardLayout {
         return raw
     }
 
-    private static func currentSnapshot() -> KeyboardLayoutSnapshot {
-        snapshotCache.snapshot
+    static func prepareOffMainSnapshotOperation<Output: Sendable>(
+        _ operation: @escaping @Sendable () -> Output
+    ) -> @Sendable () -> Output {
+        let snapshot = currentSnapshot()
+        return {
+            KeyboardLayoutTaskSnapshot.$current.withValue(snapshot) {
+                operation()
+            }
+        }
+    }
+
+    nonisolated private static func currentSnapshot() -> KeyboardLayoutSnapshot {
+        if let taskSnapshot = KeyboardLayoutTaskSnapshot.current {
+            return taskSnapshot
+        }
+        return MainActor.assumeIsolated {
+            snapshotCache.snapshot
+        }
     }
 }

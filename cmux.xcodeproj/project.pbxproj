@@ -1243,6 +1243,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D9A300020000000000000001 /* KeyboardLayoutSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A300020000000000000002 /* KeyboardLayoutSnapshotCache.swift */; };
 		F9417A000000000000000004 /* KeyboardLayoutSnapshotKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9417B000000000000000004 /* KeyboardLayoutSnapshotKey.swift */; };
 		F9417A000000000000000005 /* KeyboardLayoutSystemLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9417B000000000000000005 /* KeyboardLayoutSystemLoader.swift */; };
+		F9417A000000000000000023 /* KeyboardLayoutTaskSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9417B000000000000000023 /* KeyboardLayoutTaskSnapshot.swift */; };
 		C4A570020000000000000001 /* KeyboardShortcutActionContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A570020000000000000002 /* KeyboardShortcutActionContext.swift */; };
 		C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670030000000000000002 /* KeyboardShortcutContext.swift */; };
 		C34670050000000000000001 /* KeyboardShortcutContextSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670050000000000000002 /* KeyboardShortcutContextSwiftTests.swift */; };
@@ -3898,6 +3899,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D9A300020000000000000002 /* KeyboardLayoutSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutSnapshotCache.swift; sourceTree = "<group>"; };
 		F9417B000000000000000004 /* KeyboardLayoutSnapshotKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutSnapshotKey.swift; sourceTree = "<group>"; };
 		F9417B000000000000000005 /* KeyboardLayoutSystemLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutSystemLoader.swift; sourceTree = "<group>"; };
+		F9417B000000000000000023 /* KeyboardLayoutTaskSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutTaskSnapshot.swift; sourceTree = "<group>"; };
 		C4A570020000000000000002 /* KeyboardShortcutActionContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutActionContext.swift; sourceTree = "<group>"; };
 		C34670030000000000000002 /* KeyboardShortcutContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContext.swift; sourceTree = "<group>"; };
 		C34670050000000000000002 /* KeyboardShortcutContextSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextSwiftTests.swift; sourceTree = "<group>"; };
@@ -6115,6 +6117,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A50012F4 /* KeyboardLayout.swift */,
 				D9A300010000000000000002 /* KeyboardLayoutSnapshot.swift */,
 				D9A300020000000000000002 /* KeyboardLayoutSnapshotCache.swift */,
+				F9417B000000000000000023 /* KeyboardLayoutTaskSnapshot.swift */,
 				C06552010000000000000004 /* NotificationBurstCoalescer.swift */,
 				C06552010000000000000002 /* PanelTitleUpdateCoalescingSettings.swift */,
 				A5001013 /* TabManager.swift */,
@@ -9281,6 +9284,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D9A300020000000000000001 /* KeyboardLayoutSnapshotCache.swift in Sources */,
 				F9417A000000000000000004 /* KeyboardLayoutSnapshotKey.swift in Sources */,
 				F9417A000000000000000005 /* KeyboardLayoutSystemLoader.swift in Sources */,
+				F9417A000000000000000023 /* KeyboardLayoutTaskSnapshot.swift in Sources */,
 				C4A570020000000000000001 /* KeyboardShortcutActionContext.swift in Sources */,
 				C34670030000000000000001 /* KeyboardShortcutContext.swift in Sources */,
 				A50012F7 /* KeyboardShortcutRecorder.swift in Sources */,

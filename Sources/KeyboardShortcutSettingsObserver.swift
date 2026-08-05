@@ -27,8 +27,10 @@ final class KeyboardShortcutSettingsObserver {
     @ObservationIgnored
     private lazy var snapshotCache = GenerationCoalescingSnapshotCache(
         initialSnapshot: shortcutSnapshot,
-        loader: { [shortcutProvider] in
-            KeyboardShortcutSnapshot.load(using: shortcutProvider)
+        preparingLoader: { [shortcutProvider] in
+            KeyboardLayout.prepareOffMainSnapshotOperation {
+                Optional(KeyboardShortcutSnapshot.load(using: shortcutProvider))
+            }
         },
         installHandler: { [weak self] replacement in
             self?.install(replacement)

@@ -5,10 +5,11 @@ import Foundation
 @MainActor
 final class GenerationCoalescingSnapshotCache<Snapshot: Sendable> {
     typealias Loader = @Sendable () -> Snapshot?
+    typealias LoaderPreparation = @MainActor @Sendable () -> Loader
     typealias InstallHandler = @MainActor @Sendable (Snapshot) -> Void
 
     private(set) var snapshot: Snapshot
-    private let loader: Loader
+    private let prepareLoader: LoaderPreparation
     private let installHandler: InstallHandler?
     private var requestedGeneration: UInt64 = 0
     private var isLoading = false
@@ -22,7 +23,17 @@ final class GenerationCoalescingSnapshotCache<Snapshot: Sendable> {
         installHandler: InstallHandler? = nil
     ) {
         snapshot = initialSnapshot
-        self.loader = loader
+        prepareLoader = { loader }
+        self.installHandler = installHandler
+    }
+
+    init(
+        initialSnapshot: Snapshot,
+        preparingLoader: @escaping LoaderPreparation,
+        installHandler: InstallHandler? = nil
+    ) {
+        snapshot = initialSnapshot
+        prepareLoader = preparingLoader
         self.installHandler = installHandler
     }
 
@@ -61,9 +72,13 @@ final class GenerationCoalescingSnapshotCache<Snapshot: Sendable> {
         }
     }
 
+    func replaceSnapshotWithoutInstalling(_ replacement: Snapshot) {
+        snapshot = replacement
+    }
+
     private func beginLoad(generation: UInt64) {
         isLoading = true
-        let loader = self.loader
+        let loader = prepareLoader()
         let loadTask: Task<Snapshot?, Never> = Task.detached(priority: .utility) {
             guard !Task.isCancelled else { return nil }
             return loader()
