@@ -1,4 +1,5 @@
 use super::*;
+use crate::resource::FrontendProjectionPublicId;
 use std::sync::Arc;
 
 const TERMINAL_ONE: &str = "00000000000040008000000000000001";
@@ -3043,6 +3044,52 @@ fn schema_ten_journal_converges_with_terminal_multiview() {
         .unwrap();
     assert_eq!(live_views, 2);
     assert!(!migrated.session_journal_after(0, 10).unwrap().records.is_empty());
+    drop(migrated);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_thirteen_wraps_legacy_resource_api_frontend_projections() {
+    let root = temp_root("schema-thirteen-frontend-projection");
+    let projection_id =
+        FrontendProjectionPublicId::parse(format!("projection_{:032x}", 13)).unwrap();
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::new("legacy-projection", "resource-api").unwrap(),
+                "resource-api",
+                "session",
+                projection_id.as_str(),
+                1,
+                Some(0),
+                &json!({"selected_workspace":"alpha"}),
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE meta SET value = '13' WHERE key = 'schema_version'",
+                [],
+            )
+            .unwrap();
+    }
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        "14"
+    );
+    let projections = migrated.public_projections().unwrap().frontend_projections;
+    assert_eq!(projections.len(), 1);
+    assert_eq!(projections[0].schema_version, 2);
+    assert_eq!(projections[0].projection["frontend_id"], "legacy-resource-api");
+    assert_eq!(projections[0].projection["window_id"], projection_id.as_str());
+    assert_eq!(projections[0].projection["generation"], "legacy-schema-13");
+    assert_eq!(
+        projections[0].projection["projection"],
+        json!({"selected_workspace":"alpha"})
+    );
     drop(migrated);
     fs::remove_dir_all(root).unwrap();
 }
