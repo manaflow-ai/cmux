@@ -1,5 +1,5 @@
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use thiserror::Error;
@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::control_plane;
 use crate::oauth::{self, Provider};
 use crate::process;
-use crate::tui::{self, AddChoice};
+use crate::tui::{self, AddChoice, LoginChoice};
 
 const HELP: &str = "\
 CodeRouter — run Codex across your subscription pool
@@ -22,7 +22,7 @@ Usage:
   cr add codex                  Add ChatGPT Plus or Pro
   cr add opencode               Add OpenCode Go
   cr login | logout             Manage this machine's CodeRouter login
-  cr login --device-auth        Copy a code into coderouter.dev/authorize
+  cr login --code [code|URL]    Sign in without opening a local browser
   cr accounts                   List shared subscriptions and usage
   cr usage                      Show subscription usage
   cr doctor                     Diagnose CodeRouter
@@ -183,6 +183,27 @@ fn run_add(args: &[OsString]) -> Result<i32, Error> {
 }
 
 fn run_login(rest: &[OsString]) -> Result<i32, Error> {
+    if rest.is_empty() {
+        match tui::choose_login_action()? {
+            LoginChoice::Browser => control_plane::login(false)?,
+            LoginChoice::Code => control_plane::login_with_code(&prompt_login_code()?)?,
+            LoginChoice::Cancel => return Ok(0),
+        }
+        return Ok(0);
+    }
+    if rest.first().and_then(|arg| arg.to_str()) == Some("--code") {
+        if rest.len() > 2 {
+            return Err(Error::Usage(
+                "usage: cr login [--no-browser|--device-auth|--code [code-or-URL]]".into(),
+            ));
+        }
+        let code = match rest.get(1).and_then(|arg| arg.to_str()) {
+            Some(value) => value.to_owned(),
+            None => prompt_login_code()?,
+        };
+        control_plane::login_with_code(&code)?;
+        return Ok(0);
+    }
     let no_browser = rest.iter().any(|arg| {
         matches!(
             arg.to_str(),
@@ -196,11 +217,23 @@ fn run_login(rest: &[OsString]) -> Result<i32, Error> {
         )
     }) {
         return Err(Error::Usage(
-            "usage: cr login [--no-browser|--device-auth]".into(),
+            "usage: cr login [--no-browser|--device-auth|--code [code-or-URL]]".into(),
         ));
     }
     control_plane::login(no_browser)?;
     Ok(0)
+}
+
+fn prompt_login_code() -> Result<String, Error> {
+    print!("One-time code or magic link: ");
+    io::stdout().flush()?;
+    let mut value = String::new();
+    io::stdin().read_line(&mut value)?;
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(Error::Usage("a sign-in code is required".into()));
+    }
+    Ok(value.to_owned())
 }
 
 fn run_logout(rest: &[OsString]) -> Result<i32, Error> {

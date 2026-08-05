@@ -77,18 +77,7 @@ struct RouteSession {
 pub fn login(no_browser: bool) -> Result<(), Error> {
     let api_url = api_url()?;
     let client = client(REQUEST_TIMEOUT)?;
-    let public: PublicConfig = response_json(
-        client
-            .get(format!("{api_url}/api/cli/config"))
-            .send()
-            .map_err(network_error("load CodeRouter configuration"))?,
-        "load CodeRouter configuration",
-    )?;
-    if public.version < 3 {
-        return Err(Error::Backend(
-            "coderouter.dev does not support the direct Vercel data plane yet".into(),
-        ));
-    }
+    let public = load_public_config(&client, &api_url)?;
 
     let started: CliStart = stack_json(
         &client,
@@ -139,9 +128,37 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
         }
     };
 
-    let tokens = refresh_stack_tokens(&client, &public.auth, &refresh_token)?;
-    let teams: TeamEnvelope = stack_json(
+    complete_login(&api_url, &client, &public, &refresh_token)
+}
+
+pub fn login_with_code(value: &str) -> Result<(), Error> {
+    let api_url = api_url()?;
+    let client = client(REQUEST_TIMEOUT)?;
+    let public = load_public_config(&client, &api_url)?;
+    let code = code_from_value(value)?;
+    let tokens: StackTokens = stack_json(
         &client,
+        &public.auth,
+        "POST",
+        "/auth/otp/sign-in",
+        None,
+        Some(json!({ "code": code })),
+    )?;
+    let refresh_token = tokens.refresh_token.ok_or_else(|| {
+        Error::Backend("Stack accepted the code without returning a refresh token".into())
+    })?;
+    complete_login(&api_url, &client, &public, &refresh_token)
+}
+
+fn complete_login(
+    api_url: &str,
+    client: &Client,
+    public: &PublicConfig,
+    refresh_token: &str,
+) -> Result<(), Error> {
+    let tokens = refresh_stack_tokens(client, &public.auth, refresh_token)?;
+    let teams: TeamEnvelope = stack_json(
+        client,
         &public.auth,
         "GET",
         "/teams?user_id=me",
@@ -149,11 +166,15 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
         None,
     )?;
     let team = select_team(teams.items, &tokens.access_token)?;
+    let current_refresh_token = tokens
+        .refresh_token
+        .clone()
+        .unwrap_or_else(|| refresh_token.to_owned());
     let route: RouteSession = response_json(
         client
             .post(&public.coderouter.session_url)
             .header(AUTHORIZATION, format!("Bearer {}", tokens.access_token))
-            .header("x-stack-refresh-token", &refresh_token)
+            .header("x-stack-refresh-token", &current_refresh_token)
             .header("x-cmux-team-id", &team.id)
             .send()
             .map_err(network_error("create CodeRouter route session"))?,
@@ -161,24 +182,54 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
     )?;
 
     config::save(&Config {
-        api_url,
-        stack_api_url: public.auth.api_url,
-        stack_project_id: public.auth.project_id,
-        stack_publishable_client_key: public.auth.publishable_client_key,
+        api_url: api_url.to_owned(),
+        stack_api_url: public.auth.api_url.clone(),
+        stack_project_id: public.auth.project_id.clone(),
+        stack_publishable_client_key: public.auth.publishable_client_key.clone(),
         stack_access_token: tokens.access_token,
-        stack_refresh_token: tokens.refresh_token.unwrap_or(refresh_token),
+        stack_refresh_token: current_refresh_token,
         team_id: team.id,
         team_name: team.display_name,
         route_token: route.token,
         route_token_expires_at: route.expires_at,
         openai_base_url: if route.openai_base_url.is_empty() {
-            public.coderouter.openai_base_url
+            public.coderouter.openai_base_url.clone()
         } else {
             route.openai_base_url
         },
     })?;
     println!("Signed in to CodeRouter.");
     Ok(())
+}
+
+fn load_public_config(client: &Client, api_url: &str) -> Result<PublicConfig, Error> {
+    let public: PublicConfig = response_json(
+        client
+            .get(format!("{api_url}/api/cli/config"))
+            .send()
+            .map_err(network_error("load CodeRouter configuration"))?,
+        "load CodeRouter configuration",
+    )?;
+    if public.version < 3 {
+        return Err(Error::Backend(
+            "coderouter.dev does not support the direct Vercel data plane yet".into(),
+        ));
+    }
+    Ok(public)
+}
+
+fn code_from_value(value: &str) -> Result<String, Error> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(Error::Usage("a sign-in code is required".into()));
+    }
+    if let Ok(url) = reqwest::Url::parse(value) {
+        return url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "code").then(|| value.into_owned()))
+            .ok_or_else(|| Error::Usage("the pasted URL does not contain a `code`".into()));
+    }
+    Ok(value.to_owned())
 }
 
 pub fn logout() -> Result<(), Error> {

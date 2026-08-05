@@ -233,6 +233,54 @@ fn login_uses_native_stack_and_vercel_session_exchange() {
 }
 
 #[test]
+fn login_accepts_a_one_time_stack_code_without_a_browser() {
+    let server = MockServer::start(6, |path| match path {
+        "/api/cli/config" => json!({
+            "version": 3,
+            "auth": {
+                "apiUrl": "__BASE__/stack",
+                "projectId": "project",
+                "publishableClientKey": "publishable",
+                "confirmUrl": "__BASE__/confirm"
+            },
+            "coderouter": {
+                "sessionUrl": "__BASE__/api/coderouter/session",
+                "accountsUrl": "__BASE__/api/coderouter/accounts",
+                "openaiBaseUrl": "__BASE__/v1"
+            }
+        }),
+        "/stack/auth/otp/sign-in" => json!({
+            "access_token": "otp-access",
+            "refresh_token": "otp-refresh"
+        }),
+        "/stack/auth/oauth/token" => json!({
+            "access_token": jwt_with_selected_team("team-1"),
+            "refresh_token": "stack-refresh"
+        }),
+        "/stack/teams?user_id=me" => json!({
+            "items": [{ "id": "team-1", "display_name": "CodeRouter" }]
+        }),
+        "/api/coderouter/session" => json!({
+            "token": "route-secret",
+            "expiresAt": "2026-09-01T00:00:00Z",
+            "openaiBaseUrl": "__BASE__/v1"
+        }),
+        _ => panic!("unexpected path {path}"),
+    });
+    let root = TempDir::new().unwrap();
+
+    Command::cargo_bin("cr")
+        .unwrap()
+        .args(["login", "--code", "one-time-sign-in-code"])
+        .env("CODEROUTER_API_URL", &server.base_url)
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Signed in to CodeRouter"))
+        .stdout(predicate::str::contains("Authorize CodeRouter").not());
+}
+
+#[test]
 fn idempotent_logout_is_local_and_fast() {
     let root = TempDir::new().unwrap();
     let started = Instant::now();

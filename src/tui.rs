@@ -19,6 +19,13 @@ pub enum AddChoice {
     Cancel,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LoginChoice {
+    Browser,
+    Code,
+    Cancel,
+}
+
 const ITEMS: &[(AddChoice, &str, &str)] = &[
     (
         AddChoice::Provider(Provider::Codex),
@@ -52,6 +59,52 @@ pub fn choose_add_action() -> Result<AddChoice, Error> {
     println!();
     restore?;
     result
+}
+
+pub fn choose_login_action() -> Result<LoginChoice, Error> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return Ok(LoginChoice::Browser);
+    }
+    crossterm::terminal::enable_raw_mode()?;
+    let backend = CrosstermBackend::new(io::stdout());
+    let options = ratatui::TerminalOptions {
+        viewport: ratatui::Viewport::Inline(11),
+    };
+    let mut terminal = Terminal::with_options(backend, options)?;
+    let result = choose_login(&mut terminal);
+    let restore = crossterm::terminal::disable_raw_mode();
+    terminal.show_cursor()?;
+    println!();
+    restore?;
+    result
+}
+
+fn choose_login(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> Result<LoginChoice, Error> {
+    let choices = [LoginChoice::Browser, LoginChoice::Code, LoginChoice::Cancel];
+    let mut state = ListState::default().with_selected(Some(0));
+    loop {
+        terminal.draw(|frame| draw_login(frame, &mut state))?;
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        let selected = state.selected().unwrap_or(0);
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                state.select(Some(selected.checked_sub(1).unwrap_or(choices.len() - 1)));
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                state.select(Some((selected + 1) % choices.len()));
+            }
+            KeyCode::Enter => return Ok(choices[selected]),
+            KeyCode::Esc | KeyCode::Char('q') => return Ok(LoginChoice::Cancel),
+            _ => {}
+        }
+    }
 }
 
 fn choose(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<AddChoice, Error> {
@@ -131,6 +184,62 @@ fn draw_add(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
     );
 }
 
+fn draw_login(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
+    let [header, choices, footer] = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Length(6),
+        Constraint::Length(2),
+    ])
+    .areas(frame.area());
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                "Sign in to CodeRouter",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                "Choose the flow that works on this machine.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]),
+        header,
+    );
+    let rows = [
+        ("Open browser", "Authorize this terminal in your browser."),
+        (
+            "Enter a code",
+            "Paste a one-time Stack sign-in code or magic link.",
+        ),
+        ("Cancel", "Stay signed out."),
+    ]
+    .into_iter()
+    .map(|(title, detail)| {
+        ListItem::new(vec![
+            Line::from(title),
+            Line::from(Span::styled(
+                format!("  {detail}"),
+                Style::default().fg(Color::DarkGray),
+            )),
+        ])
+    });
+    frame.render_stateful_widget(
+        List::new(rows).highlight_symbol("› ").highlight_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        choices,
+        state,
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "↑/↓ move  enter select  esc cancel",
+            Style::default().fg(Color::DarkGray),
+        )),
+        footer,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,5 +256,18 @@ mod tests {
         assert!(screen.contains("OpenCode Go"));
         assert!(!screen.contains("Claude"));
         assert!(screen.contains("Stack vault"));
+    }
+
+    #[test]
+    fn login_screen_offers_browser_and_code_flows() {
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = ListState::default().with_selected(Some(0));
+        terminal
+            .draw(|frame| draw_login(frame, &mut state))
+            .unwrap();
+        let screen = terminal.backend().to_string();
+        assert!(screen.contains("Open browser"));
+        assert!(screen.contains("Enter a code"));
     }
 }
