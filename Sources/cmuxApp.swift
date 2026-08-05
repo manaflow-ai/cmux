@@ -26,6 +26,7 @@ import CmuxTerminal
 ///   AppKit/SwiftUI setup.
 @main
 enum CmuxMain {
+    @MainActor
     static func main() {
 #if DEBUG
         // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
@@ -37,7 +38,7 @@ enum CmuxMain {
 #endif
         CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
         SurfaceResumeApprovalStore.preloadSigningSecret()
-        cmuxApp.main()
+        cmuxApp.runNative()
     }
 }
 
@@ -65,12 +66,15 @@ struct cmuxApp: App {
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
     @StateObject var focusHistoryMenuInvalidator: FocusHistoryMenuInvalidator
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    private let appDelegate: AppDelegate
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
     }
 
     init() {
+        let appDelegate = AppDelegate()
+        self.appDelegate = appDelegate
+
         // Gather settings package dependencies once. The runtime itself
         // is assigned after the saved language override below, because
         // it owns localized search-index text for the process lifetime.
@@ -237,6 +241,16 @@ struct cmuxApp: App {
             auth: authComposition
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
+    }
+
+    @MainActor
+    static func runNative() {
+        let application = NSApplication.shared
+        let composition = Self()
+        application.delegate = composition.appDelegate
+        CmuxMainMenuController.shared.install(appDelegate: composition.appDelegate)
+        application.run()
+        withExtendedLifetime(composition) {}
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
@@ -1151,6 +1165,7 @@ struct cmuxApp: App {
     private func bootstrapMainWindowScene() {
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
+        CmuxMainMenuController.shared.install(appDelegate: appDelegate)
         applyAppearance()
     }
 
@@ -1577,7 +1592,7 @@ private enum DebugWindowConfigSnapshot {
 }
 
 #if DEBUG
-private final class DebugWindowControlsWindowController: ReleasingWindowController {
+final class DebugWindowControlsWindowController: ReleasingWindowController {
     static let shared = DebugWindowControlsWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -1848,7 +1863,7 @@ private struct DebugWindowControlsView: View {
 }
 #endif
 
-private final class BrowserImportHintDebugWindowController: ReleasingWindowController {
+final class BrowserImportHintDebugWindowController: ReleasingWindowController {
     static let shared = BrowserImportHintDebugWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -1874,7 +1889,7 @@ private final class BrowserImportHintDebugWindowController: ReleasingWindowContr
     }
 }
 
-private final class BrowserProfilePopoverDebugWindowController: ReleasingWindowController {
+final class BrowserProfilePopoverDebugWindowController: ReleasingWindowController {
     static let shared = BrowserProfilePopoverDebugWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -2237,7 +2252,7 @@ private struct BrowserImportHintDebugView: View {
     }
 }
 
-private final class AboutWindowController: ReleasingWindowController {
+final class AboutWindowController: ReleasingWindowController {
     static let shared = AboutWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -2263,7 +2278,7 @@ private final class AboutWindowController: ReleasingWindowController {
     }
 }
 
-private final class AcknowledgmentsWindowController: ReleasingWindowController {
+final class AcknowledgmentsWindowController: ReleasingWindowController {
     static let shared = AcknowledgmentsWindowController()
 
     private override init() {
@@ -2384,7 +2399,7 @@ extension Notification.Name {
     static let fileExplorerStyleDidChange = Notification.Name("fileExplorerStyleDidChange")
 }
 
-private final class FileExplorerStyleDebugWindowController: ReleasingWindowController {
+final class FileExplorerStyleDebugWindowController: ReleasingWindowController {
     static let shared = FileExplorerStyleDebugWindowController()
 
     private override init() {
@@ -2419,7 +2434,7 @@ private final class FileExplorerStyleDebugWindowController: ReleasingWindowContr
     }
 }
 
-private final class SidebarDebugWindowController: ReleasingWindowController {
+final class SidebarDebugWindowController: ReleasingWindowController {
     static let shared = SidebarDebugWindowController()
 
     private override init() {
@@ -3555,7 +3570,7 @@ private struct SidebarDebugView: View {
 
 // MARK: - Menu Bar Extra Debug Window
 
-private final class MenuBarExtraDebugWindowController: ReleasingWindowController {
+final class MenuBarExtraDebugWindowController: ReleasingWindowController {
     static let shared = MenuBarExtraDebugWindowController()
 
     private override init() {
@@ -3727,7 +3742,7 @@ private struct MenuBarExtraDebugView: View {
 #if DEBUG
 // MARK: - Split Button Layout Debug Window
 
-private final class SplitButtonLayoutDebugWindowController: ReleasingWindowController {
+final class SplitButtonLayoutDebugWindowController: ReleasingWindowController {
     static let shared = SplitButtonLayoutDebugWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -4051,7 +4066,7 @@ private struct SplitButtonLayoutDebugView: View {
 
 // MARK: - Tab Bar Backdrop Lab Window
 
-private final class TabBarBackdropLabWindowController: ReleasingWindowController {
+final class TabBarBackdropLabWindowController: ReleasingWindowController {
     static let shared = TabBarBackdropLabWindowController()
 
     override func makeWindow() -> NSWindow {
@@ -4684,7 +4699,7 @@ private struct TabBarBackdropLabTerminalPane: View {
 
 // MARK: - Background Debug Window
 
-private final class BackgroundDebugWindowController: ReleasingWindowController {
+final class BackgroundDebugWindowController: ReleasingWindowController {
     static let shared = BackgroundDebugWindowController()
 
     private override init() {
@@ -4833,7 +4848,7 @@ private struct BackgroundDebugView: View {
     }
 }
 
-private final class StartupAppearanceDebugWindowController: ReleasingWindowController {
+final class StartupAppearanceDebugWindowController: ReleasingWindowController {
     static let shared = StartupAppearanceDebugWindowController()
 
     private override init() {

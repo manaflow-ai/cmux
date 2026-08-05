@@ -12978,6 +12978,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func installReloadConfigurationMenuItemAction() {
+        if CmuxMainMenuController.shared.refreshIfInstalled() {
+            return
+        }
         guard let appMenu = NSApp.mainMenu?.items.first?.submenu else { return }
         appMenu.delegate = self
         configureReloadConfigurationMenuItem(in: appMenu)
@@ -12986,7 +12989,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func scheduleReloadConfigurationMenuItemRefresh() {
         guard !reloadConfigurationMenuItemRefreshScheduled else { return }
         reloadConfigurationMenuItemRefreshScheduled = true
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
+            await Task.yield()
             guard let self else { return }
             self.reloadConfigurationMenuItemRefreshScheduled = false
             self.installReloadConfigurationMenuItemAction()
