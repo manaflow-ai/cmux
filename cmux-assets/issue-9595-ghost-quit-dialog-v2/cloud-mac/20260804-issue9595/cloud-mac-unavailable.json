@@ -1,0 +1,11 @@
+{
+  "run_id": 30968244690,
+  "run_url": "https://github.com/manaflow-ai/cmux-loader/actions/runs/30968244690",
+  "expected_hostname": "cmux-loader-30968244690",
+  "poll_timeout_seconds": 900,
+  "result": "unreachable",
+  "reason": "The prepared VM reached the external CUA SSH hold stage but never appeared in local Tailscale status or DNS. The optional macfleet Admin API fallback had no stored login.",
+  "gui_reproduction_available": false,
+  "recording_available": false,
+  "cleanup": "The provisioning wrapper requested workflow cancellation after the bounded lookup timed out."
+}
