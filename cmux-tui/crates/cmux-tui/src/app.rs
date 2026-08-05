@@ -30765,7 +30765,13 @@ mod tests {
 
     #[test]
     fn selection_drag_retargets_to_the_animated_pane_geometry() {
-        let mux = Mux::new("selection-live-drag-geometry-test", SurfaceOptions::default());
+        let mux = Mux::new(
+            "selection-live-drag-geometry-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
         let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
         let pane = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         let mut app = test_app(Session::Local(mux.clone()));
