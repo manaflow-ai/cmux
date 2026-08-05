@@ -55,6 +55,7 @@ describe("CLI config route", () => {
     await withCliConfigEnvironment(testEnvironment, async () => {
       const response = GET(new Request("https://cmux.com/api/cli/config"));
       expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
       expect(await response.json()).toEqual({
         version: 2,
         auth: {
@@ -66,7 +67,7 @@ describe("CLI config route", () => {
         },
         subrouter: {
           url: testEnvironment.SUBROUTER_HOSTED_URL,
-          exchangeUrl: "https://cmux.com/api/subrouter/exchange",
+          exchangeUrl: "https://cmux.com/api/subrouter/tenant-exchange",
         },
       });
     });
@@ -84,7 +85,7 @@ describe("CLI config route", () => {
         "http://127.0.0.1:4152/handler/cli-auth-confirm",
       );
       expect(body.subrouter.exchangeUrl).toBe(
-        "http://127.0.0.1:4152/api/subrouter/exchange",
+        "http://127.0.0.1:4152/api/subrouter/tenant-exchange",
       );
     });
   });
