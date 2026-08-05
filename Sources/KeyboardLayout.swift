@@ -64,13 +64,15 @@ enum KeyboardLayout {
     }
 
     /// Captures one immutable snapshot for callers that scan many key codes.
-    static func shortcutCharacterProvider() -> (UInt16, NSEvent.ModifierFlags) -> String? {
-        let snapshot = currentSnapshot()
-        return { keyCode, modifierFlags in
-            snapshot.shortcutCharacter(
-                forKeyCode: keyCode,
-                modifierFlags: modifierFlags
-            )
+    nonisolated static func shortcutCharacterProvider() -> (UInt16, NSEvent.ModifierFlags) -> String? {
+        MainActor.assumeIsolated {
+            let snapshot = currentSnapshot()
+            return { keyCode, modifierFlags in
+                snapshot.shortcutCharacter(
+                    forKeyCode: keyCode,
+                    modifierFlags: modifierFlags
+                )
+            }
         }
     }
 
@@ -108,7 +110,7 @@ enum KeyboardLayout {
 
     /// Return the ASCII-normalized equivalent of an event's characters,
     /// falling back through the cached ASCII-capable layout translation.
-    static func normalizedCharacters(for event: NSEvent) -> String {
+    nonisolated static func normalizedCharacters(for event: NSEvent) -> String {
         let raw = (event.charactersIgnoringModifiers ?? "").lowercased()
         if raw.allSatisfy(\.isASCII) { return raw }
         if let layoutCharacter = character(forKeyCode: event.keyCode) {
