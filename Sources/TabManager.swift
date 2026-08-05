@@ -196,14 +196,14 @@ class TabManager: ObservableObject {
     private(set) var workspacesById: [UUID: Workspace] = [:]
 
     var tabs: [Workspace] {
-        get { workspaces.tabs }
+        get { workspaces.unobservedTabsSnapshot }
         set { workspaces.tabs = newValue }
     }
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
     /// Each member workspace stores its `groupId` on the `Workspace` model.
     var workspaceGroups: [WorkspaceGroup] {
-        get { workspaces.workspaceGroups }
+        get { workspaces.unobservedWorkspaceGroupsSnapshot }
         set { workspaces.workspaceGroups = newValue }
     }
 
@@ -235,7 +235,7 @@ class TabManager: ObservableObject {
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     static var nextPortOrdinal: Int = 0
     var selectedTabId: UUID? {
-        get { workspaces.selectedTabId }
+        get { workspaces.unobservedSelectedTabIdSnapshot }
         set { workspaces.selectedTabId = newValue }
     }
 

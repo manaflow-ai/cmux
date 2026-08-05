@@ -73,6 +73,7 @@ struct WorkspacesModelTests {
         #expect(host.events == ["tabs.willSet(1)", "tabs.willSet(2)"])
         // During the second assignment the storage still held [first].
         #expect(host.tabsSeenDuringWillSet == [[], [first.id]])
+        #expect(model.unobservedTabsSnapshot.map(\.id) == [first.id, second.id])
     }
 
     @Test
@@ -89,6 +90,7 @@ struct WorkspacesModelTests {
         // willSet observed the pre-change storage (nil).
         #expect(host.selectionSeenDuringWillSet == [nil])
         #expect(model.selectedTabId == id)
+        #expect(model.unobservedSelectedTabIdSnapshot == id)
     }
 
     @Test
@@ -124,6 +126,8 @@ struct WorkspacesModelTests {
 
         #expect(host.events.isEmpty)
         #expect(model.tabs.count == 1)
+        #expect(model.unobservedTabsSnapshot.map(\.id) == model.tabs.map(\.id))
+        #expect(model.unobservedSelectedTabIdSnapshot == model.selectedTabId)
     }
 
     @Test

@@ -2452,7 +2452,11 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredUnreadPanelIds: Set<UUID> { Set(restoredUnreadPanelIndicators.keys) }
 
     var hasAnyRestoredUnreadPanelIndicator: Bool { !restoredUnreadPanelIndicators.isEmpty }
-    @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
+    /// Latest Bonsplit geometry for the AppKit-owned pane overlay.
+    /// `splitTabBar(_:didChangeGeometry:)` posts the scoped geometry notification
+    /// consumed by that overlay, so publishing every frame through the whole
+    /// Workspace would only rebuild mounted pane content during relayouts.
+    private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
