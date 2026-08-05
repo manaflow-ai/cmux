@@ -830,7 +830,7 @@ mod tests {
 
         assert_eq!(
             ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, home),
-            vec!["mini", "duplicate", "quoted-host", "buildbox"]
+            vec!["buildbox", "duplicate", "mini", "quoted-host"]
         );
     }
 
@@ -845,7 +845,7 @@ mod tests {
 
         assert_eq!(
             ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, home),
-            vec!["nested", "root"]
+            vec!["root", "nested"]
         );
     }
 

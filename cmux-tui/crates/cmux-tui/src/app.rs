@@ -21111,6 +21111,31 @@ mod tests {
     }
 
     #[test]
+    fn status_message_has_a_visible_copy_control_and_hover_pins_it() {
+        let mux = Mux::new("status-message-copy-button-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.status_message = Some("SSH connection failed".to_string());
+        app.sync_layout((80, 25));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.lines().last().unwrap().contains("Copy"), "{rendered}");
+        let status = app.rendered_status_message.clone().expect("rendered status message");
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: status.rect.x,
+            row: status.rect.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT)).unwrap();
+
+        assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
+    }
+
+    #[test]
     fn viewport_columns_resize_with_shortcuts_and_mouse_drag() {
         let mux = Mux::new("viewport-pane-resize-test", SurfaceOptions::default());
         mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -22783,6 +22808,9 @@ mod tests {
         );
 
         assert_eq!(menu.actions().len(), 4_097);
+        assert_eq!(menu.levels[0].items[0].action(), Some(MenuAction::ConnectOtherMachine));
+        assert_eq!(menu.levels[0].items[1], MenuItem::Separator);
+        assert_eq!(menu.levels[0].items[2].label(), Some("cloud-mac-0000"));
         assert!(menu.insert_search_text("3999"));
         assert_eq!(menu.levels[0].items.len(), 3);
         assert_eq!(menu.levels[0].items[0].label(), Some("cloud-mac-3999"));
@@ -33053,6 +33081,7 @@ mod tests {
         update.connect_accepts_pairing_code = false;
         app.apply_machine_ui_update(update);
         app.commit_prompt();
+        assert!(app.prompt.is_some(), "connection prompt must become a loading dialog");
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
             Some(&MachineRequest::Connect {
@@ -33060,6 +33089,7 @@ mod tests {
                 route: MachineConnectRoute::Provider,
             })
         );
+        app.close_prompt();
 
         let machine = app.machine_ui.as_mut().unwrap();
         machine.request = None;
@@ -33076,6 +33106,7 @@ mod tests {
         update.connect_accepts_pairing_code = true;
         app.apply_machine_ui_update(update);
         app.commit_prompt();
+        assert!(app.prompt.is_some(), "connection prompt must become a loading dialog");
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
             Some(&MachineRequest::Connect {

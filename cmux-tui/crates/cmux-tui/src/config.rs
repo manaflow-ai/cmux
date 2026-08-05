@@ -4118,6 +4118,65 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_profiles_select_one_named_native_layout() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-sidebar-profiles-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "sidebar": {
+                    "profile": "focused",
+                    "profiles": [
+                        {
+                            "id": "full",
+                            "name": "Full",
+                            "views": [
+                                {"id": "machines", "levels": ["machines"]},
+                                {"id": "workspaces", "levels": ["workspaces"]},
+                                {"id": "tabs", "levels": ["tabs"]}
+                            ]
+                        },
+                        {
+                            "id": "focused",
+                            "name": "Focused",
+                            "views": [
+                                {"id": "machines", "levels": ["machines"]},
+                                {
+                                    "id": "workspace-tree",
+                                    "levels": ["workspaces", "agents"]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            config.sidebar.views.iter().map(|view| view.id.as_str()).collect::<Vec<_>>(),
+            vec!["machines", "workspace-tree"]
+        );
+        assert!(
+            config
+                .sidebar
+                .views
+                .iter()
+                .all(|view| !view.includes(SidebarResourceKind::Tabs))
+        );
+    }
+
+    #[test]
     fn sidebar_resources_are_hidden_when_their_view_is_omitted() {
         let sidebar = Sidebar::default();
         assert!(sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents)));
