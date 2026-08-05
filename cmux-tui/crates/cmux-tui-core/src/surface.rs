@@ -5060,8 +5060,9 @@ impl PtySurface {
                     }
                     return Ok(true);
                 }
-                PtyRuntime::ExitedHosted => return Ok(false),
-                PtyRuntime::Local { .. } => {}
+                // The host is gone, but its retained terminal snapshot still
+                // renders for attached clients and must adopt their metrics.
+                PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => {}
             }
         }
         let mut geometry = self.geometry.lock().unwrap();
@@ -5093,7 +5094,7 @@ impl PtySurface {
             #[cfg(unix)]
             PtyRuntime::Hosted(_) => None,
             #[cfg(unix)]
-            PtyRuntime::ExitedHosted => return Ok(false),
+            PtyRuntime::ExitedHosted => None,
         };
         let has_attach_taps = {
             let mut taps = self.taps.lock().unwrap();

@@ -13,6 +13,7 @@
 - [Mouse](docs/mouse.md)
 - [Configuration](docs/configuration.md)
 - [Machines and remote sessions](docs/machines.md)
+- [Fly Sprites](docs/sprites.md)
 - [Public CLI](spec/cli.md)
 - [SDK contract](spec/bindings.md)
 - [Public resource protocol](spec/resource-api-v1.md)
