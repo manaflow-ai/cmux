@@ -88,7 +88,10 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .gemini:
             "\(executable) --prompt-interactive \(quotedMessage)"
         case .kiro:
-            "\(executable) chat --agent cmux \(quotedMessage)"
+            // The cmux profile is optional and installed separately. Preserve
+            // interactive transfer for a plain Kiro installation while using
+            // hooks whenever that profile is available at launch time.
+            "if [[ -f \"${KIRO_HOME:-${HOME:-}/.kiro}/agents/cmux.json\" ]]; then \(executable) chat --agent cmux \(quotedMessage); else \(executable) chat \(quotedMessage); fi"
         case .antigravity:
             "\(executable) --prompt-interactive \(quotedMessage)"
         case .hermesAgent:

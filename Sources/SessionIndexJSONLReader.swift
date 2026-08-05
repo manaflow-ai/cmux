@@ -3,11 +3,6 @@ import Foundation
 
 /// Streaming, byte-bounded JSONL reader shared by Vault index and preview paths.
 struct SessionIndexJSONLReader: Sendable {
-    private enum VisitResult {
-        case malformed
-        case visited(shouldStop: Bool)
-    }
-
     private let chunkSize: Int
     private let maximumRecordBytes: Int
 
@@ -75,13 +70,11 @@ struct SessionIndexJSONLReader: Sendable {
             guard !lineData.isEmpty || isSkippingOversizedRecord else { return false }
             recordsVisited += 1
             guard !isSkippingOversizedRecord else { return false }
-            switch Self.visit(line: lineData, body: body) {
-            case .malformed:
+            guard let shouldStop = Self.visit(line: lineData, body: body) else {
                 didEncounterMalformedRecord = true
                 return false
-            case .visited(let shouldStop):
-                return shouldStop
             }
+            return shouldStop
         }
 
         while maximumBytes.map({ bytesRead < $0 }) != false, !Task.isCancelled {
@@ -196,13 +189,15 @@ struct SessionIndexJSONLReader: Sendable {
                 didSkipOversizedRecord = true
                 continue
             }
-            switch Self.visit(line: Data(payload[lineStart..<currentLineEnd]), body: body) {
-            case .malformed:
+            guard let shouldStop = Self.visit(
+                line: Data(payload[lineStart..<currentLineEnd]),
+                body: body
+            ) else {
                 didEncounterMalformedRecord = true
-            case .visited(let shouldStop):
-                if shouldStop {
-                    break recordLoop
-                }
+                continue
+            }
+            if shouldStop {
+                break recordLoop
             }
         }
 
@@ -304,12 +299,12 @@ struct SessionIndexJSONLReader: Sendable {
     private static func visit(
         line: Data,
         body: ([String: Any]) -> Bool
-    ) -> VisitResult {
+    ) -> Bool? {
         autoreleasepool {
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
-                return .malformed
+                return nil
             }
-            return .visited(shouldStop: body(object))
+            return body(object)
         }
     }
 }
