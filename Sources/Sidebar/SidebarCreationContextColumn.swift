@@ -208,7 +208,7 @@ struct SidebarCreationContextColumn: View {
             .contextMenu {
                 addSSHMachineButton
 
-                if tabManager.canAttachRemoteCmuxTUI(contextID: context.id) {
+                if context.capabilities.contains(.attachRemoteCmuxTUI) {
                     Button(attachLabel) {
                         _ = tabManager.attachRemoteCmuxTUI(contextID: context.id)
                     }
