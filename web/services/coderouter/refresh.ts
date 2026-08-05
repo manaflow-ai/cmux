@@ -173,11 +173,19 @@ async function providerJson(response: Response): Promise<Record<string, unknown>
     throw new ProviderRefreshError(
       response.status,
       optionalString(record, "code") ??
-        optionalString(record, "error") ??
+        providerErrorCode(record.error) ??
         "refresh_failed",
     );
   }
   return record;
+}
+
+function providerErrorCode(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (!isRecord(value)) return undefined;
+  return optionalString(value, "code") ??
+    optionalString(value, "type") ??
+    optionalString(value, "error");
 }
 
 function isTerminalRefreshError(error: unknown): boolean {

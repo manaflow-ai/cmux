@@ -446,6 +446,7 @@ export const coderouterAccounts = pgTable(
     credentialExpiresAt: timestamp("credential_expires_at", { withTimezone: true }),
     refreshLeaseId: uuid("refresh_lease_id"),
     refreshLeaseExpiresAt: timestamp("refresh_lease_expires_at", { withTimezone: true }),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     lastFailureCode: text("last_failure_code"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -465,6 +466,7 @@ export const coderouterAccounts = pgTable(
     index("coderouter_accounts_refresh_lease_expiry_idx").on(
       table.refreshLeaseExpiresAt,
     ),
+    index("coderouter_accounts_cooldown_idx").on(table.cooldownUntil),
   ],
 );
 

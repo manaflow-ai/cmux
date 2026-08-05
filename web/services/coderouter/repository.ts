@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, notInArray, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import {
   coderouterAccounts,
@@ -164,11 +164,26 @@ export async function findAccountByProviderIdentity(
 export async function selectAccountForRequest(
   teamId: string,
   provider: CodeRouterProvider,
+  excludedAccountIds: readonly string[] = [],
 ): Promise<{
   id: string;
   vaultRevision: number;
   credentialExpiresAt: Date | null;
 } | null> {
+  const now = new Date();
+  await cloudDb()
+    .update(coderouterAccounts)
+    .set({
+      state: "active",
+      refreshLeaseId: null,
+      refreshLeaseExpiresAt: null,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(coderouterAccounts.teamId, teamId),
+      eq(coderouterAccounts.state, "refreshing"),
+      lte(coderouterAccounts.refreshLeaseExpiresAt, now),
+    ));
   const [row] = await cloudDb()
     .select({
       id: coderouterAccounts.id,
@@ -180,6 +195,13 @@ export async function selectAccountForRequest(
       eq(coderouterAccounts.teamId, teamId),
       eq(coderouterAccounts.provider, provider),
       eq(coderouterAccounts.state, "active"),
+      or(
+        isNull(coderouterAccounts.cooldownUntil),
+        lte(coderouterAccounts.cooldownUntil, now),
+      ),
+      excludedAccountIds.length === 0
+        ? sql`true`
+        : notInArray(coderouterAccounts.id, [...excludedAccountIds]),
     ))
     .orderBy(sql`${coderouterAccounts.lastUsedAt} asc nulls first`, coderouterAccounts.createdAt)
     .limit(1);
@@ -189,6 +211,21 @@ export async function selectAccountForRequest(
     .set({ lastUsedAt: new Date() })
     .where(eq(coderouterAccounts.id, row.id));
   return row;
+}
+
+export async function markAccountCooldown(
+  accountId: string,
+  durationMs: number,
+): Promise<void> {
+  const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
+  await cloudDb()
+    .update(coderouterAccounts)
+    .set({
+      cooldownUntil: new Date(Date.now() + bounded),
+      lastFailureCode: "rate_limited",
+      updatedAt: new Date(),
+    })
+    .where(eq(coderouterAccounts.id, accountId));
 }
 
 export async function claimRefreshLease(
