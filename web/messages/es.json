@@ -3570,7 +3570,6 @@
     "title": "cmux para {platform}",
     "tagline": "Un navegador Chromium y un espacio de trabajo para agentes, creados como una sola experiencia.",
     "logoAlt": "Icono de la aplicación cmux",
-    "portableCta": "ZIP portátil",
     "featuresTitle": "Diseñado para el trabajo con agentes",
     "features": {
       "chromium": {
@@ -3592,7 +3591,7 @@
     },
     "installTitle": "Instalación",
     "releaseTitle": "Versiones y actualizaciones",
-    "releaseBody": "Estos enlaces siempre apuntan a la última versión estable en <github>GitHub Releases</github>. cmux verifica los manifiestos de actualización firmados antes de instalar una actualización.",
+    "releaseBody": "Estos enlaces siempre apuntan a la última versión nightly en <github>GitHub Releases</github>. cmux verifica los manifiestos de actualización firmados antes de instalar una actualización.",
     "sourceLink": "Ver el código fuente en GitHub",
     "otherPlatform": "cmux para {platform}",
     "macLink": "Terminal cmux para Mac",
@@ -3602,6 +3601,7 @@
       "metaDescription": "Descarga cmux para Windows x64: un navegador Chromium y espacio de trabajo para agentes, gratis y de código abierto, con pestañas por tarea y superficies de terminal.",
       "subtitle": "Una compilación nativa x64 con pestañas Chromium, espacios de trabajo cmux y las convenciones de teclado habituales de Windows.",
       "primaryCta": "Descargar instalador (.exe)",
+      "secondaryCta": "ZIP portátil",
       "requirements": "Windows 10 o posterior · x64",
       "installBody": "Ejecuta el instalador y sigue las indicaciones de Windows. Elige el ZIP portátil si prefieres conservar cmux en una carpeta sin instalarlo en todo el sistema."
     },
@@ -3610,9 +3610,10 @@
       "metaTitle": "Descargar cmux para Linux",
       "metaDescription": "Descarga cmux para Linux x64: un navegador Chromium y espacio de trabajo para agentes, gratis y de código abierto, con pestañas por tarea y superficies de terminal.",
       "subtitle": "Una compilación nativa x64 con pestañas Chromium, espacios de trabajo cmux y superficies de terminal integradas.",
-      "primaryCta": "Descargar .deb",
-      "requirements": "Debian o Ubuntu · x64",
-      "installBody": "Descarga el paquete de Debian e instálalo con tu gestor de paquetes. Elige el ZIP portátil para una instalación por usuario y actualizaciones dentro de la aplicación."
+      "primaryCta": "Descargar instalador con actualizaciones automáticas (.run)",
+      "secondaryCta": "Paquete de Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Ejecuta una vez el instalador por usuario. Se instala en ~/.local sin permisos de root y habilita las actualizaciones firmadas dentro de la aplicación. Si prefieres que tu gestor de paquetes administre las actualizaciones, elige en su lugar el paquete de Debian."
     }
   },
   "emails": {
