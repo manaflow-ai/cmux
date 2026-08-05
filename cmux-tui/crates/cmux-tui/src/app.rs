@@ -25901,7 +25901,7 @@ mod tests {
     }
 
     #[test]
-    fn attached_workspace_mouse_click_uses_both_rendered_rows_and_survives_routing_refresh() {
+    fn attached_workspace_mouse_down_uses_both_rendered_rows_and_survives_routing_refresh() {
         let mux = Mux::new(
             "attached-workspace-mouse-test",
             SurfaceOptions {
@@ -25954,10 +25954,15 @@ mod tests {
             };
 
             app.handle(event(MouseEventKind::Down(MouseButton::Left))).unwrap();
+            assert_eq!(
+                app.tree.active_workspace, 0,
+                "a sidebar workspace must activate on mouse-down"
+            );
             assert!(matches!(app.drag, Some(Drag::WorkspaceArm { .. })));
 
             // A concurrent frontend can invalidate routing after the press.
-            // The release still belongs to the armed stable workspace ID.
+            // The release still belongs to the reorder gesture, but does not
+            // own activation.
             app.pointer_route_phase = PointerRoutePhase::DrawPending;
             app.handle(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
             assert_eq!(app.tree.active_workspace, 0);
@@ -31455,7 +31460,51 @@ mod tests {
     }
 
     #[test]
-    fn recoverable_machine_is_rendered_and_mouse_restorable_or_purgeable() {
+    fn machine_switch_is_requested_on_mouse_down() {
+        let mux = Mux::new("machine-mouse-down-switch-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
+            machines: vec![
+                MachineDescriptor {
+                    key: MachineKey(41),
+                    id: "machine-41".into(),
+                    name: "active".into(),
+                    subtitle: "local".into(),
+                    status: MachineStatus::Running,
+                },
+                MachineDescriptor {
+                    key: MachineKey(42),
+                    id: "machine-42".into(),
+                    name: "remote".into(),
+                    subtitle: "ssh".into(),
+                    status: MachineStatus::Running,
+                },
+            ],
+            active: Some(MachineKey(41)),
+            capabilities: MachineCapabilities::default(),
+        }));
+        app.sync_layout((100, 14));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Machine { key: MachineKey(42), .. }).then_some(*rect)
+            })
+            .unwrap();
+
+        app.handle_left_down(hit.x, hit.y, KeyModifiers::NONE).unwrap();
+
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::Switch(MachineKey(42)))
+        );
+    }
+
+    #[test]
+    fn recoverable_machine_activates_on_mouse_down_and_remains_purgeable() {
         let mux = Mux::new("managed-machine-mouse-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
@@ -31476,6 +31525,13 @@ mod tests {
             .unwrap();
 
         app.handle_left_down(hit.x, hit.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RestoreManagedMachine {
+                machine: MachineKey(42),
+                expected_version: 12,
+            })
+        );
         app.handle_left_up(hit.x, hit.y).unwrap();
         assert_eq!(
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
@@ -32208,7 +32264,7 @@ mod tests {
     }
 
     #[test]
-    fn recoverable_workspace_is_mouse_visible_and_keyboard_restorable() {
+    fn recoverable_workspace_activates_on_mouse_down_and_keyboard() {
         let mux = Mux::new("recoverable-workspace-rail-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.tree = notify_tree(1, false);
@@ -32233,6 +32289,16 @@ mod tests {
         app.handle_left_down(hit.x, hit.y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.workspace_rail_selection, WorkspaceRailSelection::Recoverable);
         assert_eq!(app.focus, FocusTarget::Pane);
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RestoreManagedWorkspace {
+                machine: MachineKey(41),
+                workspace_id: "00000000-0000-4000-8000-000000000099".into(),
+                expected_version: 12,
+            })
+        );
+
+        app.machine_ui.as_mut().unwrap().request = None;
         let header = app
             .hits
             .iter()
