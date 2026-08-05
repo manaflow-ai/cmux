@@ -6,7 +6,7 @@ The files sidebar view (`sidebar.view = "files"`) shows the focused pane's cwd, 
 
 The workspaces view shows a `workspaces` header, two rows per workspace, and `+ new workspace`. Click either row of a workspace to select it. Click `+ new workspace` to create one. Its terminal-style scrollbar appears one column inside the resize divider only when workspace rows overflow. Wheel over the rail, click the scrollbar's invisible track, or drag its thumb to scroll the workspace list. Drag the sidebar's right border in either built-in view to set a session-local width override. Configured `sidebar.max_width` limits the drag width when it is greater than zero, and the TUI still leaves at least 40 columns for panes.
 
-When configured, the machine rail uses the same header, two-line entry, active marker, and selected-row treatment as the built-in workspace list. Press and release on the same non-active machine entry to connect to it. Click `+ Connect machine` to open the native SSH host picker, then filter a discovered alias or choose `Add SSH host…` for a process-local target. Provider-owned connection flows may use the same row for a host address or pairing code. Click `+ new machine` to run a provider create action or choose among configured prototype sources. The prototype picker adds only a local catalog row and never invokes Docker or a cloud API.
+When configured, the machine rail uses the same header, two-line entry, active marker, and selected-row treatment as the built-in workspace list. Press a non-active machine entry to connect to it. Click `+ Connect machine` to open the native SSH host picker, then filter a discovered alias or choose `Add SSH host…` for a process-local target. Provider-owned connection flows may use the same row for a host address or pairing code. Click `+ new machine` to run a provider create action or choose among configured prototype sources. The prototype picker adds only a local catalog row and never invokes Docker or a cloud API.
 
 An ordered `tabs` column shows every tab in the highlighted workspace. Clicking a row activates its workspace, screen, pane, and tab. Wheel input scrolls long tab lists. Drag any native column's right divider to set its independent session-local width.
 
@@ -16,12 +16,12 @@ The status bar lists screens for the active workspace. Click a screen segment to
 
 When a screen overflows horizontally, the open space in the status bar becomes a continuous viewport track. Click it to animate to that position, or drag it for direct movement. Horizontal wheel events over the pane region pan by one sixth of the viewport. Screens without horizontal overflow continue forwarding those events to the active surface.
 
-A workspace-row or tab-chip press arms the stable identity from the hit target
-that was actually rendered. Its matching release completes that same action
-even if another frontend changes selection and triggers a routing refresh
-between the two events. A release without a corresponding armed press is a
-no-op; it cannot select whichever workspace or tab happens to occupy that
-coordinate later.
+Every native sidebar row activates on left press. Workspace presses also arm
+the rendered stable identity for reorder, while release only finishes that
+gesture. Pane tab chips still arm their rendered stable identity on press and
+activate or move it on release. A release without a corresponding armed press
+is a no-op; it cannot select whichever workspace or tab later occupies that
+coordinate.
 
 ## Drag Reorder
 

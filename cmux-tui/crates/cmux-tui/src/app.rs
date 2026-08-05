@@ -2965,10 +2965,9 @@ impl RenderAction {
 }
 
 enum MachineRailCommand {
-    Switch(MachineKey),
+    Activate(MachineKey),
     Rename(MachineKey),
     Delete(MachineKey),
-    Restore(MachineKey),
     Purge(MachineKey),
     OpenScopes,
     OpenActions,
@@ -4461,13 +4460,11 @@ enum PaneResizeDragTarget {
 
 /// Mouse drag in progress.
 enum Drag {
-    /// Left press on a machine entry; switching occurs on release.
-    MachineArm { target: MachinePointerTarget, at: (u16, u16) },
     /// Left press on a tab chip; becomes `Tab` after moving cells.
     TabArm { surface: SurfaceId, at: (u16, u16) },
     /// Tab drag with the current drop target.
     Tab { surface: SurfaceId, target: Option<(PaneId, usize)> },
-    /// Left press on a workspace entry; becomes `Workspace` after moving cells.
+    /// Workspace reorder gesture armed after the entry activated on press.
     WorkspaceArm { workspace: WorkspaceId, at: (u16, u16) },
     /// Workspace drag with the current insertion index.
     Workspace { workspace: WorkspaceId, target: Option<usize> },
@@ -7860,15 +7857,19 @@ impl App {
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
     }
 
+    fn activate_workspace(&mut self, index: usize) {
+        if index >= self.tree.workspaces.len() || !self.prepare_pty_input_before_mutation() {
+            return;
+        }
+        self.follow_sidebar_workspace(index);
+        self.tree.active_workspace = index;
+        self.select_workspace_for_client(Some(index), None);
+    }
+
     fn activate_projection_target(&mut self, target: ProjectionTarget) -> anyhow::Result<()> {
         match target {
             ProjectionTarget::Workspace { index, .. } => {
-                if !self.prepare_pty_input_before_mutation() {
-                    return Ok(());
-                }
-                self.follow_sidebar_workspace(index);
-                self.tree.active_workspace = index;
-                self.session.select_workspace(Some(index), None);
+                self.activate_workspace(index);
             }
             ProjectionTarget::Pane { workspace, screen, pane } => {
                 if !self.prepare_pty_input_before_mutation() {
@@ -8861,12 +8862,6 @@ impl App {
             }));
         }
         self.machine_pointer_context_cache.clone()
-    }
-
-    fn machine_pointer_target(&mut self, machine: MachineKey) -> Option<MachinePointerTarget> {
-        let context = self.refresh_machine_pointer_context()?;
-        let managed = self.machine_ui.as_ref().and_then(|ui| ui.managed_machine(machine)).cloned();
-        Some(MachinePointerTarget { context, machine, managed })
     }
 
     fn pointer_hit_identity(
@@ -11911,7 +11906,14 @@ impl App {
                     kind: MouseEventKind::Up(MouseButton::Left),
                     ..
                 }),
-                Some(Drag::WorkspaceArm { .. } | Drag::TabArm { .. })
+                Some(Drag::TabArm { .. })
+            ) | (
+                TerminalInput::Mouse(MouseEvent {
+                    kind: MouseEventKind::Drag(MouseButton::Left)
+                        | MouseEventKind::Up(MouseButton::Left),
+                    ..
+                }),
+                Some(Drag::WorkspaceArm { .. } | Drag::Workspace { .. })
             )
         )
     }
@@ -12918,6 +12920,18 @@ impl App {
         }
     }
 
+    fn activate_machine(&mut self, key: MachineKey) {
+        if self.managed_machine(key).is_some_and(|machine| {
+            machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.restore
+        }) {
+            self.request_restore_managed_machine(key);
+        } else if let Some(ui) = self.machine_ui.as_mut()
+            && ui.snapshot.active != Some(key)
+        {
+            ui.request = Some(MachineRequest::Switch(key));
+        }
+    }
+
     fn request_purge_managed_machine(&mut self, key: MachineKey) {
         let Some(machine) = self.managed_machine(key).filter(|machine| {
             machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.purge
@@ -13403,15 +13417,13 @@ impl App {
                         Some(MachineRailCommand::Purge(machine_key))
                     }
                     KeyCode::Enter
-                        if managed.is_some_and(|managed| {
-                            managed.status == ManagedMachineStatus::Recoverable
-                                && managed.capabilities.restore
-                        }) =>
+                        if Some(machine_key) != machine.snapshot.active
+                            || managed.is_some_and(|managed| {
+                                managed.status == ManagedMachineStatus::Recoverable
+                                    && managed.capabilities.restore
+                            }) =>
                     {
-                        Some(MachineRailCommand::Restore(machine_key))
-                    }
-                    KeyCode::Enter if Some(machine_key) != machine.snapshot.active => {
-                        Some(MachineRailCommand::Switch(machine_key))
+                        Some(MachineRailCommand::Activate(machine_key))
                     }
                     _ => None,
                 }
@@ -13428,19 +13440,12 @@ impl App {
             }
         };
         match command {
-            Some(MachineRailCommand::Switch(machine)) => {
-                if let Some(ui) = self.machine_ui.as_mut() {
-                    ui.request = Some(MachineRequest::Switch(machine));
-                }
-            }
+            Some(MachineRailCommand::Activate(machine)) => self.activate_machine(machine),
             Some(MachineRailCommand::Rename(machine)) => {
                 self.open_rename_machine_prompt(machine);
             }
             Some(MachineRailCommand::Delete(machine)) => {
                 self.open_delete_managed_machine_prompt(machine);
-            }
-            Some(MachineRailCommand::Restore(machine)) => {
-                self.request_restore_managed_machine(machine);
             }
             Some(MachineRailCommand::Purge(machine)) => {
                 self.open_purge_managed_machine_prompt(machine);
@@ -13836,7 +13841,7 @@ impl App {
                             if let Some(index) =
                                 self.tree.workspaces.iter().position(|workspace| workspace.id == id)
                             {
-                                self.select_workspace_for_client(Some(index), None);
+                                self.activate_workspace(index);
                             }
                         }
                         Some(WorkspaceRailTarget::Action(action)) => {
@@ -15561,10 +15566,6 @@ impl App {
             })
     }
 
-    fn workspace_index(&self, workspace: WorkspaceId) -> Option<usize> {
-        self.tree.workspaces.iter().position(|ws| ws.id == workspace)
-    }
-
     #[cfg(test)]
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<RenderAction> {
         self.handle_mouse_with_sequence(mouse, None, None)
@@ -16185,8 +16186,7 @@ impl App {
             }
             Some(Drag::ResizeSplit { .. }) => self.session.settle_split_ratio(),
             Some(
-                Drag::MachineArm { .. }
-                | Drag::TabArm { .. }
+                Drag::TabArm { .. }
                 | Drag::Tab { .. }
                 | Drag::WorkspaceArm { .. }
                 | Drag::Workspace { .. }
@@ -17003,9 +17003,8 @@ impl App {
                         machine.selection = index;
                         machine.rail_selection = MachineRailSelection::Machine;
                     }
-                    self.drag = self
-                        .machine_pointer_target(key)
-                        .map(|target| Drag::MachineArm { target, at: (x, y) });
+                    self.focus = FocusTarget::Pane;
+                    self.activate_machine(key);
                 }
                 Hit::NewVm => {
                     self.machine_rail_follow_selection = true;
@@ -17037,12 +17036,8 @@ impl App {
                 }
                 Hit::Workspace { index, id } => {
                     self.workspace_rail_follow_selection = true;
-                    if self.sidebar_workspace_selection != index {
-                        self.tabs_rail_selection = 0;
-                        self.tabs_rail_scroll = 0;
-                    }
-                    self.sidebar_workspace_selection = index;
-                    self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+                    self.focus = FocusTarget::Pane;
+                    self.activate_workspace(index);
                     self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
                 }
                 Hit::SidebarTab { surface, .. } => {
@@ -17098,6 +17093,15 @@ impl App {
                     self.workspace_rail_follow_selection = true;
                     self.sidebar_recoverable_workspace_selection = index;
                     self.workspace_rail_selection = WorkspaceRailSelection::Recoverable;
+                    self.focus = FocusTarget::Pane;
+                    let workspace_id = self
+                        .machine_ui
+                        .as_ref()
+                        .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
+                        .map(|workspace| workspace.id.clone());
+                    if let Some(workspace_id) = workspace_id {
+                        self.request_restore_managed_workspace(&workspace_id);
+                    }
                 }
                 Hit::CreateWorkspace { mode } => {
                     self.workspace_rail_follow_selection = true;
@@ -17250,7 +17254,6 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         match &self.drag {
-            Some(Drag::MachineArm { .. }) => Ok(RenderAction::Draw),
             Some(Drag::TabArm { surface, at }) => {
                 let (surface, at) = (*surface, *at);
                 if (x, y) != at {
@@ -17444,29 +17447,6 @@ impl App {
             self.hover = Some((x, y));
             return Ok(RenderAction::Draw);
         }
-        if matches!(self.drag, Some(Drag::MachineArm { .. })) {
-            let Some(Drag::MachineArm { target, at }) = self.drag.take() else {
-                unreachable!("machine arm matched before take");
-            };
-            if (x, y) == at
-                && self.machine_pointer_target(target.machine).as_ref() == Some(&target)
-                && let Some(ui) = self.machine_ui.as_mut()
-            {
-                self.focus = FocusTarget::Pane;
-                if let Some(managed) = target.managed.as_ref().filter(|managed| {
-                    managed.status == ManagedMachineStatus::Recoverable
-                        && managed.capabilities.restore
-                }) {
-                    ui.request = Some(MachineRequest::RestoreManagedMachine {
-                        machine: target.machine,
-                        expected_version: managed.version,
-                    });
-                } else if target.context.snapshot.active != Some(target.machine) {
-                    ui.request = Some(MachineRequest::Switch(target.machine));
-                }
-            }
-            return Ok(RenderAction::Draw);
-        }
         if let Some(Drag::TabArm { surface, .. }) = self.drag {
             self.drag = None;
             if let Some((pane, index)) = self.tab_location(surface) {
@@ -17486,14 +17466,8 @@ impl App {
             }
             return Ok(RenderAction::Draw);
         }
-        if let Some(Drag::WorkspaceArm { workspace, .. }) = self.drag {
+        if matches!(self.drag, Some(Drag::WorkspaceArm { .. })) {
             self.drag = None;
-            if let Some(index) = self.workspace_index(workspace)
-                && self.prepare_pty_input_before_mutation()
-            {
-                self.focus = FocusTarget::Pane;
-                self.select_workspace_for_client(Some(index), None);
-            }
             return Ok(RenderAction::Draw);
         }
         if let Some(Drag::Workspace { workspace, .. }) = self.drag {
@@ -31615,13 +31589,13 @@ mod tests {
         app.replay_deferred_input().unwrap();
 
         assert!(
-            !matches!(app.drag, Some(Drag::MachineArm { .. })),
-            "a press must not arm a machine row whose provider semantics changed"
+            app.machine_ui.as_ref().unwrap().request.is_none(),
+            "a deferred press must not activate a row whose provider semantics changed"
         );
     }
 
     #[test]
-    fn held_machine_release_cannot_retarget_changed_provider_semantics() {
+    fn machine_release_does_not_reactivate_after_provider_update() {
         let mux = Mux::new("managed-machine-held-identity-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
@@ -31643,7 +31617,13 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         })))
         .unwrap();
-        assert!(matches!(app.drag, Some(Drag::MachineArm { .. })));
+        assert_eq!(
+            app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
+            Some(&MachineRequest::RestoreManagedMachine {
+                machine: MachineKey(42),
+                expected_version: 12,
+            })
+        );
 
         let action = app
             .handle(AppEvent::MachineUiUpdated(Box::new(
@@ -31668,17 +31648,22 @@ mod tests {
         let mux = Mux::new("replayed-machine-action-submit-test", SurfaceOptions::default());
         let (mut app, _events) = test_app_with_events(Session::Local(mux));
         app.machine_ui = Some(provider_machine_ui_with_machine_lifecycle());
-        let at = (4, 4);
-        let target = app.machine_pointer_target(MachineKey(42)).unwrap();
-        app.drag = Some(Drag::MachineArm { target, at });
-        app.active_pointer_buttons.insert(MouseButton::Left);
+        let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Machine { key: MachineKey(42), .. }).then_some(*rect)
+            })
+            .unwrap();
         let (controller, _requests) = fake_controller(FakeMachineAction::Fail("expected failure"));
         install_machine_controller(&mut app, controller);
         app.deferred_input.push_back(DeferredInput {
             event: TerminalInput::Mouse(MouseEvent {
-                kind: MouseEventKind::Up(MouseButton::Left),
-                column: at.0,
-                row: at.1,
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: hit.x,
+                row: hit.y,
                 modifiers: KeyModifiers::NONE,
             }),
             destination: None,
@@ -33518,12 +33503,74 @@ mod tests {
             matches!(hit, super::Hit::SidebarTab { surface, .. } if *surface == first.id)
         }));
 
+        let first_row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarTab { surface, .. } if *surface == first.id)
+                    .then_some(*rect)
+            })
+            .unwrap();
+        app.handle_left_down(first_row.x, first_row.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.tree.active_surface(), Some(first.id));
+        assert_eq!(app.focus, FocusTarget::Pane);
+
         app.focus = FocusTarget::WorkspaceRail;
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.focus, FocusTarget::TabsRail);
         app.tabs_rail_selection = 0;
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.tree.active_surface(), Some(first.id));
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn projection_workspace_row_activates_on_mouse_down() {
+        let mux = Mux::new("projection-workspace-mouse-down-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(app.tree.active_workspace, 1);
+        let first_row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::ProjectionRow {
+                        target: crate::sidebar_projection::ProjectionTarget::Workspace {
+                            index: 0,
+                            ..
+                        },
+                        ..
+                    }
+                )
+                .then_some(*rect)
+            })
+            .unwrap();
+
+        app.handle_left_down(first_row.x, first_row.y, KeyModifiers::NONE).unwrap();
+
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.focus, FocusTarget::Pane);
 
         for surface in [first.id, second.id] {
             mux.close_surface(surface).unwrap();
