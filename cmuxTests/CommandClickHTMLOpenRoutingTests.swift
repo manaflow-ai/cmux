@@ -734,6 +734,81 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func fileOnlyBrowserReloadRevalidatesTheCurrentFile() async throws {
+        _ = NSApplication.shared
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-only-reload-\(UUID().uuidString)", isDirectory: true)
+        let fileURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>before reload</title>".write(
+            to: fileURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let browser = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: fileURL,
+            localFileReadAccessPolicy: .fileOnly
+        )
+        defer { browser.close() }
+
+        #expect(await waitForDocumentTitle("before reload", in: browser))
+        try "<!doctype html><title>after reload</title>".write(
+            to: fileURL,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        browser.reload()
+
+        #expect(await waitForDocumentTitle("after reload", in: browser))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func fileOnlyBrowserBackAndForwardRevalidateNativeHistoryTargets() async throws {
+        _ = NSApplication.shared
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-only-history-\(UUID().uuidString)", isDirectory: true)
+        let firstURL = fixtureDirectory.appendingPathComponent("first.html")
+        let secondURL = fixtureDirectory.appendingPathComponent("second.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>history first</title>".write(
+            to: firstURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<!doctype html><title>history second</title>".write(
+            to: secondURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let browser = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: firstURL,
+            localFileReadAccessPolicy: .fileOnly
+        )
+        defer { browser.close() }
+
+        #expect(await waitForDocumentTitle("history first", in: browser))
+        browser.navigate(to: secondURL)
+        #expect(await waitForDocumentTitle("history second", in: browser))
+        #expect(await waitForHistoryAvailability(in: browser, back: true, forward: false))
+
+        browser.goBack()
+        #expect(await waitForDocumentTitle("history first", in: browser))
+        #expect(await waitForHistoryAvailability(in: browser, back: false, forward: true))
+
+        browser.goForward()
+        #expect(await waitForDocumentTitle("history second", in: browser))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func fileOnlyPopupRejectsUnvalidatedFileNavigation() async throws {
         _ = NSApplication.shared
 
@@ -1733,6 +1808,20 @@ struct CommandClickHTMLOpenRoutingTests {
     private func waitForNavigationRecovery(in browser: BrowserPanel) async -> Bool {
         for _ in 0..<100 {
             if browser.hasRecoverableNavigationFailure {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
+    private func waitForHistoryAvailability(
+        in browser: BrowserPanel,
+        back: Bool,
+        forward: Bool
+    ) async -> Bool {
+        for _ in 0..<100 {
+            if browser.canGoBack == back, browser.canGoForward == forward {
                 return true
             }
             try? await Task.sleep(for: .milliseconds(50))
