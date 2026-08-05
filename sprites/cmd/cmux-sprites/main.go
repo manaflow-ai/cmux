@@ -662,18 +662,22 @@ func customCARootTransport(path string) (http.RoundTripper, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, errors.New("could not read CMUX_SPRITES_CA_FILE")
+		return nil, errors.New(
+			"could not read the custom certificate authority file; verify its path and permissions",
+		)
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(data) {
-		return nil, errors.New("CMUX_SPRITES_CA_FILE contains no certificates")
+		return nil, errors.New(
+			"the custom certificate authority file contains no valid PEM certificates",
+		)
 	}
-	return &http.Transport{
-		TLSClientConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			RootCAs:    roots,
-		},
-	}, nil
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    roots,
+	}
+	return transport, nil
 }
 
 func normalizedAPIBase(raw string, credentialed bool) (string, error) {

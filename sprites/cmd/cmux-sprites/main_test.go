@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -222,6 +224,36 @@ func TestCredentialedClientRequiresHTTPSEvenOnLoopback(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "credentialed cmux API requests require HTTPS") {
 		t.Fatalf("credentialed loopback HTTP error = %v", err)
 	}
+}
+
+func TestCustomCertificateErrorsAreActionableAndProductSafe(t *testing.T) {
+	t.Run("unreadable file", func(t *testing.T) {
+		t.Setenv("CMUX_SPRITES_CA_FILE", filepath.Join(t.TempDir(), "missing.pem"))
+		client := newClient("https://cmux.example", nil)
+		err := client.request(context.Background(), http.MethodGet, "/api/vm", nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "verify its path and permissions") {
+			t.Fatalf("certificate read error = %v", err)
+		}
+		if strings.Contains(err.Error(), "CMUX_SPRITES_CA_FILE") {
+			t.Fatalf("certificate read error exposed environment internals: %v", err)
+		}
+	})
+
+	t.Run("invalid file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "invalid.pem")
+		if err := os.WriteFile(path, []byte("not a certificate"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("CMUX_SPRITES_CA_FILE", path)
+		client := newClient("https://cmux.example", nil)
+		err := client.request(context.Background(), http.MethodGet, "/api/vm", nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "no valid PEM certificates") {
+			t.Fatalf("invalid certificate error = %v", err)
+		}
+		if strings.Contains(err.Error(), "CMUX_SPRITES_CA_FILE") {
+			t.Fatalf("invalid certificate error exposed environment internals: %v", err)
+		}
+	})
 }
 
 func TestAPIClientDoesNotExposeRawErrorBodies(t *testing.T) {
