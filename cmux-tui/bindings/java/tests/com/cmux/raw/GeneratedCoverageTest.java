@@ -90,7 +90,9 @@ public final class GeneratedCoverageTest {
                 .ttlMs(UInt64.of(5000))
                 .build();
         check(
-            request.toWire().equals(Map.of("terminal", terminal, "ttl_ms", UInt64.of(5000))),
+            request.toWire().equals(
+                Map.of("terminal", terminal, "ttl_ms", UInt64.of(5000).toBigInteger())
+            ),
             "renderer-by-terminal wire fields"
         );
 
