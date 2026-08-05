@@ -26,6 +26,11 @@ const MAX_HANDSHAKE_PAYLOAD: usize = 4096;
 pub struct TerminalId([u8; TERMINAL_ID_LEN]);
 
 impl TerminalId {
+    /// Sentinel used by capability-authenticated renderer clients that do not
+    /// possess the terminal host's private process identity. A successful
+    /// handshake returns the concrete identity in `HostHello`.
+    pub const UNSPECIFIED: Self = Self([0; TERMINAL_ID_LEN]);
+
     pub fn random() -> Result<Self, HostHandshakeError> {
         Ok(Self(random_uuid_v4()?))
     }
@@ -36,6 +41,11 @@ impl TerminalId {
 
     pub const fn as_bytes(&self) -> &[u8; TERMINAL_ID_LEN] {
         &self.0
+    }
+
+    /// Whether this identity is the public-renderer sentinel.
+    pub fn is_unspecified(self) -> bool {
+        self == Self::UNSPECIFIED
     }
 
     /// Parse the canonical registry representation: lowercase UUIDv4 bytes

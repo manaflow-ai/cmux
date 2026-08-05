@@ -74,6 +74,13 @@ sequence boundary.
 `RESIZE` was granted. Daemon adoption applies a two-second read and write
 handshake timeout.
 
+A renderer using a public `terminal.renderer_grant.create` capability sends
+an all-zero `terminal_id`. The one-use capability remains bound to exactly one
+terminal host, and `HostHello` returns that host's concrete terminal id and
+incarnation. Owner/admin clients and renderers that already possess a host id
+send the exact id. A nonzero mismatch is denied. A matching one-use token is
+consumed before role, rights, or terminal-id rejection.
+
 For a newly launched v4 host, the first authenticated owner `HostHello` also
 sets `FLAG_LAUNCH_ACTIVATION_REQUIRED`. The PTY reader remains behind a launch
 barrier until that owner sends `Activate`. The launcher sends it only after the
@@ -296,7 +303,16 @@ Missing means already acknowledged; any mismatch remains for recovery.
 
 ## Discovery and authority
 
-The mux control command `mint-terminal-renderer` returns the terminal-host endpoint, stable terminal id, incarnation, one-use capability, rights bits, and TTL. Renderers must not receive the daemon's durable owner capability. `resolve-terminal`, `list-terminals`, and `terminal-events` provide the control-plane mapping from stable identities to the current daemon generation.
+The private mux control command `mint-terminal-renderer` returns the
+terminal-host endpoint, stable host terminal id, incarnation, one-use
+capability, rights bits, and TTL. The public
+`terminal.renderer_grant.create` operation returns the endpoint, opaque
+resource terminal id, one-use capability, named rights, and TTL; its renderer
+uses the unspecified-id handshake above so host lifecycle identity stays out
+of the public resource model. Renderers must not receive the daemon's durable
+owner capability. `resolve-terminal`, `list-terminals`, and `terminal-events`
+provide the private control-plane mapping from stable identities to the
+current daemon generation.
 
 Terminal-host protocol changes use their own version and do not change `identify.protocol`.
 
