@@ -482,7 +482,7 @@ class TabManager: ObservableObject {
     init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
-        initialTerminalCommand: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
@@ -577,7 +577,7 @@ class TabManager: ObservableObject {
             title: initialWorkspaceTitle,
             titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
-            initialTerminalCommand: initialTerminalCommand,
+            initialSurface: initialSurface,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
         )

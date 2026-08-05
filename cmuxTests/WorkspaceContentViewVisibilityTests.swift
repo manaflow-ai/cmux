@@ -15,8 +15,6 @@ import Bonsplit
 
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
-    private static let quietTerminalCommand = "/bin/sleep 30"
-
     private final class MinimalModeBodyProbeCounts {
         var contentViewBody = 0
         var workspaceContentBody = 0
@@ -270,12 +268,12 @@ final class WorkspaceContentViewVisibilityTests {
         )
 
         let tabManager = TabManager(
-            initialTerminalCommand: Self.quietTerminalCommand,
+            initialSurface: .cloudVMLoading,
             autoWelcomeIfNeeded: false
         )
         for _ in 0..<6 {
             tabManager.addWorkspace(
-                initialTerminalCommand: Self.quietTerminalCommand,
+                initialSurface: .cloudVMLoading,
                 autoWelcomeIfNeeded: false
             )
         }
@@ -314,7 +312,7 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        try await Self.waitForSelectedTerminalRuntime(in: tabManager, window: window)
+        try await Self.waitForInitialRender(in: tabManager, window: window, counts: counts)
         #expect(counts.contentViewBody > 0)
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
@@ -378,7 +376,7 @@ final class WorkspaceContentViewVisibilityTests {
         )
 
         let tabManager = TabManager(
-            initialTerminalCommand: Self.quietTerminalCommand,
+            initialSurface: .cloudVMLoading,
             autoWelcomeIfNeeded: false
         )
         let counts = MinimalModeBodyProbeCounts()
@@ -416,11 +414,11 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        try await Self.waitForSelectedTerminalRuntime(in: tabManager, window: window)
+        try await Self.waitForInitialRender(in: tabManager, window: window, counts: counts)
         counts.reset()
 
         tabManager.addWorkspace(
-            initialTerminalCommand: Self.quietTerminalCommand,
+            initialSurface: .cloudVMLoading,
             select: false,
             autoWelcomeIfNeeded: false
         )
@@ -462,12 +460,12 @@ final class WorkspaceContentViewVisibilityTests {
         )
 
         let tabManager = TabManager(
-            initialTerminalCommand: Self.quietTerminalCommand,
+            initialSurface: .cloudVMLoading,
             autoWelcomeIfNeeded: false
         )
         let workspaceId = try #require(tabManager.selectedTabId)
         let unaffectedWorkspace = tabManager.addWorkspace(
-            initialTerminalCommand: Self.quietTerminalCommand,
+            initialSurface: .cloudVMLoading,
             select: false,
             autoWelcomeIfNeeded: false
         )
@@ -508,7 +506,7 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        try await Self.waitForSelectedTerminalRuntime(in: tabManager, window: window)
+        try await Self.waitForInitialRender(in: tabManager, window: window, counts: counts)
         let workspaceCell = try #require(
             window.contentView.flatMap { root in
                 Self.descendants(of: root)
@@ -696,24 +694,35 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @MainActor
-    private static func waitForSelectedTerminalRuntime(
+    private static func waitForInitialRender(
         in tabManager: TabManager,
-        window: NSWindow
+        window: NSWindow,
+        counts: MinimalModeBodyProbeCounts
     ) async throws {
-        let workspace = try #require(tabManager.selectedWorkspace)
-        let panel = try #require(workspace.focusedTerminalPanel)
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
 
-        while panel.surface.surface == nil, clock.now < deadline {
+        func isMounted() -> Bool {
+            let workspaceRowCount = window.contentView.map { root in
+                descendants(of: root)
+                    .compactMap { $0 as? SidebarWorkspaceRowTableCellView }
+                    .count
+            } ?? 0
+            return counts.contentViewBody > 0
+                && counts.workspaceContentBody > 0
+                && counts.verticalTabsSidebarBody > 0
+                && workspaceRowCount == tabManager.tabs.count
+        }
+
+        while !isMounted(), clock.now < deadline {
             window.contentView?.layoutSubtreeIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             await Task.yield()
         }
 
-        #expect(
-            panel.surface.surface != nil,
-            "The mounted terminal runtime must be ready before measuring unrelated view invalidations."
+        try #require(
+            isMounted(),
+            "The content and every sidebar row must render before measuring unrelated invalidations."
         )
         await drainMainRunLoop(for: window)
     }
