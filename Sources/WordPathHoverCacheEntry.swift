@@ -27,4 +27,16 @@ struct WordPathHoverCacheEntry {
         let age = now - storedAt
         return age >= 0 && age < maximumAge
     }
+
+    func canReuseAcrossRenderedFrame(
+        for identity: WordPathHoverResolutionIdentity,
+        at now: TimeInterval,
+        maximumNegativeAge: TimeInterval
+    ) -> Bool {
+        guard request.identity == identity else { return false }
+        return resolution?.source == .quicklook || hasFreshNegativeResult(
+            at: now,
+            maximumAge: maximumNegativeAge
+        )
+    }
 }

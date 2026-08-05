@@ -662,32 +662,27 @@ struct CommandClickHTMLOpenRoutingTests {
 
     @Test
     func fileOnlyUserNewTabIntentPrecedesUnvalidatedFileRejection() {
-        var consumedAllowance = false
-        let commandClick = browserRestrictedFileNavigationDisposition(
+        var routed = false
+        let handledCommandClick = browserRouteRestrictedFileNewTabIntent(
             isFileOnly: true,
             isFileURL: true,
             shouldOpenInNewTab: true,
-            consumeValidatedAllowance: {
-                consumedAllowance = true
-                return false
-            }
+            route: { routed = true }
         )
 
-        #expect(commandClick == .openInNewTab)
-        #expect(!consumedAllowance)
+        #expect(handledCommandClick)
+        #expect(routed)
 
-        let plainClick = browserRestrictedFileNavigationDisposition(
+        routed = false
+        let handledPlainClick = browserRouteRestrictedFileNewTabIntent(
             isFileOnly: true,
             isFileURL: true,
             shouldOpenInNewTab: false,
-            consumeValidatedAllowance: {
-                consumedAllowance = true
-                return false
-            }
+            route: { routed = true }
         )
 
-        #expect(plainClick == .reject)
-        #expect(consumedAllowance)
+        #expect(!handledPlainClick)
+        #expect(!routed)
     }
 
     @Test

@@ -8745,7 +8745,8 @@ final class Workspace: Identifiable, ObservableObject {
         for (existingId, panel) in panels {
             guard let md = panel as? MarkdownPanel else { continue }
             let existingCanonical = resolvedFileURL != nil
-                ? URL(fileURLWithPath: md.filePath).standardizedFileURL.path
+                ? md.resolvedFilePath
+                    ?? URL(fileURLWithPath: md.filePath).standardizedFileURL.path
                 : (md.filePath as NSString).resolvingSymlinksInPath
             if existingCanonical == canonical {
                 focusPanel(existingId)
@@ -8754,7 +8755,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newMarkdownSurface(inPane: targetPane, filePath: routedFilePath, focus: true)
+            return newMarkdownSurface(
+                inPane: targetPane,
+                filePath: routedFilePath,
+                focus: true,
+                resolvedFileURL: resolvedFileURL
+            )
         }
 
         return newMarkdownSplit(
@@ -8762,7 +8768,8 @@ final class Workspace: Identifiable, ObservableObject {
             orientation: .horizontal,
             insertFirst: false,
             filePath: routedFilePath,
-            focus: true
+            focus: true,
+            resolvedFileURL: resolvedFileURL
         )
     }
 
@@ -8772,7 +8779,8 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         filePath: String,
         focus: Bool = true,
-        fontSize: Double? = nil
+        fontSize: Double? = nil,
+        resolvedFileURL: URL? = nil
     ) -> MarkdownPanel? {
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -8786,7 +8794,12 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
+        let markdownPanel = MarkdownPanel(
+            workspaceId: id,
+            filePath: filePath,
+            fontSize: fontSize,
+            resolvedFileURL: resolvedFileURL
+        )
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -8835,13 +8848,18 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         filePath: String,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        resolvedFileURL: URL? = nil
     ) -> MarkdownPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = MarkdownPanel(
+            workspaceId: id,
+            filePath: filePath,
+            resolvedFileURL: resolvedFileURL
+        )
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -8949,7 +8967,12 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return newMarkdownSurface(
+            inPane: paneId,
+            filePath: filePath,
+            focus: focus,
+            resolvedFileURL: URL(fileURLWithPath: canonical)
+        )
     }
 
     @discardableResult
@@ -9010,7 +9033,12 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return newFilePreviewSurface(
+            inPane: paneId,
+            filePath: filePath,
+            focus: focus,
+            resolvedFileURL: URL(fileURLWithPath: canonical)
+        )
     }
 
     @discardableResult
@@ -9026,7 +9054,8 @@ final class Workspace: Identifiable, ObservableObject {
         for (existingId, panel) in panels {
             guard let preview = panel as? FilePreviewPanel else { continue }
             let existingCanonical = resolvedFileURL != nil
-                ? URL(fileURLWithPath: preview.filePath).standardizedFileURL.path
+                ? preview.resolvedFilePath
+                    ?? URL(fileURLWithPath: preview.filePath).standardizedFileURL.path
                 : (preview.filePath as NSString).resolvingSymlinksInPath
             if existingCanonical == canonical {
                 focusPanel(existingId)
@@ -9035,7 +9064,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newFilePreviewSurface(inPane: targetPane, filePath: routedFilePath, focus: true)
+            return newFilePreviewSurface(
+                inPane: targetPane,
+                filePath: routedFilePath,
+                focus: true,
+                resolvedFileURL: resolvedFileURL
+            )
         }
 
         guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
@@ -9043,7 +9077,8 @@ final class Workspace: Identifiable, ObservableObject {
             targetPane: sourcePaneId,
             orientation: .horizontal,
             insertFirst: false,
-            filePath: routedFilePath
+            filePath: routedFilePath,
+            resolvedFileURL: resolvedFileURL
         )
     }
 
@@ -9052,13 +9087,18 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         filePath: String,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        resolvedFileURL: URL? = nil
     ) -> FilePreviewPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            resolvedFileURL: resolvedFileURL
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -9250,9 +9290,14 @@ final class Workspace: Identifiable, ObservableObject {
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
-        filePath: String
+        filePath: String,
+        resolvedFileURL: URL? = nil
     ) -> FilePreviewPanel? {
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            resolvedFileURL: resolvedFileURL
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 

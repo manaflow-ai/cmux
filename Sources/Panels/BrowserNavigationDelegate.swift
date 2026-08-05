@@ -350,18 +350,44 @@ import WebKit
         )
 #endif
 
-        if let fileURL = navigationAction.request.url,
+        let requestURL = navigationAction.request.url
+        if browserRouteRestrictedFileNewTabIntent(
+            isFileOnly: owner?.localFileReadAccessPolicy == .fileOnly,
+            isFileURL: requestURL?.isFileURL == true,
+            shouldOpenInNewTab: shouldOpenInNewTab,
+            route: {
+                guard let requestURL else { return }
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.nav.decidePolicy.action kind=openRestrictedFileInNewTab " +
+                        "url=\(browserNavigationDebugURL(requestURL))"
+                )
+#endif
+                clearAttemptedRequest(discardPendingBypasses: true)
+                let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                    navigationAction,
+                    webView
+                ) ?? {}
+                openRequestInNewTab(navigationAction.request)
+                reportTerminalCancellation()
+            }
+        ) {
+            decisionHandler(.cancel)
+            return
+        }
+
+        if let requestURL,
            owner?.localFileReadAccessPolicy == .fileOnly,
-           fileURL.isFileURL {
+           requestURL.isFileURL {
             guard validatedFileOnlyNavigationAllowance.consumeIfMatches(
-                fileURL,
+                requestURL,
                 targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
             ) else {
                 clearAttemptedRequest(discardPendingBypasses: true)
 #if DEBUG
                 cmuxDebugLog(
                     "browser.nav.decidePolicy.action kind=cancelFileOnly " +
-                        "reason=missingValidatedAppNavigation url=\(browserNavigationDebugURL(fileURL))"
+                        "reason=missingValidatedAppNavigation url=\(browserNavigationDebugURL(requestURL))"
                 )
 #endif
                 decisionHandler(.cancel)

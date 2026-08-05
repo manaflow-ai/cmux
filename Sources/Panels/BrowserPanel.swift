@@ -4903,6 +4903,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserProfileStore.shared.noteUsed(resolvedProfileID)
             return false
         }
+        cancelPendingFileOnlyNavigation()
 
         let previousWebView = webView
         let wasRenderable = shouldRenderWebView
@@ -5444,6 +5445,7 @@ final class BrowserPanel: Panel, ObservableObject {
         waitForManualRecovery: Bool = false
     ) {
         guard oldWebView === webView else { return }
+        cancelPendingFileOnlyNavigation()
 
         let wasRenderable = shouldRenderWebView
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)

@@ -6904,12 +6904,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return nil
         }
         if let cachedWordPathHover,
-           cachedWordPathHover.request.identity == identity,
-           cachedWordPathHover.resolution?.source == .quicklook
-               || cachedWordPathHover.hasFreshNegativeResult(
-                   at: now,
-                   maximumAge: Self.wordPathNegativeHoverCacheMaximumAge
-               ) {
+           cachedWordPathHover.canReuseAcrossRenderedFrame(
+               for: identity,
+               at: now,
+               maximumNegativeAge: Self.wordPathNegativeHoverCacheMaximumAge
+           ) {
             let request = cachedWordPathHover.request
                 .updatingRenderedFrameGeneration(wordPathHoverRenderedFrameGeneration)
             self.cachedWordPathHover = cachedWordPathHover.updatingRequest(request)
