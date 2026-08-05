@@ -274,6 +274,16 @@ describe("Iroh enrollment database behavior", () => {
     if (!sql) {
       const databaseURL = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
       if (!databaseURL) throw new Error("DATABASE_URL is required when CMUX_DB_TEST=1");
+      // This suite truncates tables. Refuse a non-local target so a shared or
+      // production DATABASE_URL can never be wiped by running the tests.
+      const host = new URL(databaseURL).hostname;
+      const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+      if (!isLocal && process.env.CMUX_DB_TEST_ALLOW_REMOTE !== "1") {
+        throw new Error(
+          "CMUX_DB_TEST=1 refuses to truncate a non-local database; " +
+            "set CMUX_DB_TEST_ALLOW_REMOTE=1 only for a disposable remote database",
+        );
+      }
       sql = postgres(databaseURL, { max: 1 });
     }
     await sql`truncate iroh_enrollment_tokens, account_deletion_tombstones restart identity cascade`;
