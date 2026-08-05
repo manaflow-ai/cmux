@@ -3683,11 +3683,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverResolutionCancellation: AtomicBooleanGate?
     private var wordPathHoverResolutionTaskIdentity: WordPathHoverResolutionIdentity?
     private var wordPathHoverResolutionTaskRequest: WordPathHoverResolutionRequest?
-    #if DEBUG
-    private var automatedCommandHoverResolutionJobID: UUID?
-    private var automatedCommandHoverCompletion:
-        (@MainActor @Sendable ([String: Any]) -> Void)?
-    #endif
     private static let wordPathNegativeHoverCacheMaximumAge: TimeInterval = 1
     private var wordPathClickResolutionJobs: [
         UUID: (
@@ -7052,13 +7047,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               let point = wordPathHoverRefreshPoint,
               let latestKey = wordPathHoverCacheKey(at: point),
               let latestIdentity = wordPathHoverResolutionIdentity(key: latestKey) else {
-            #if DEBUG
-            completeAutomatedCommandHover(
-                jobID: jobID,
-                resolution: nil,
-                error: "Command hover resolution became stale"
-            )
-            #endif
             return
         }
         let frameIsCurrent = request.renderedFrameGeneration
@@ -7068,13 +7056,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cachedWordPathHover = nil
             setWordPathHoverActive(false)
             scheduleWordPathHoverRefreshAfterRenderedFrame()
-            #if DEBUG
-            completeAutomatedCommandHover(
-                jobID: jobID,
-                resolution: nil,
-                error: "Command hover frame changed before resolution completed"
-            )
-            #endif
             return
         }
 
@@ -7085,9 +7066,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             resolution: resolution
         )
         setWordPathHoverActive(resolution != nil)
-        #if DEBUG
-        completeAutomatedCommandHover(jobID: jobID, resolution: resolution)
-        #endif
     }
 
     private func discardWordPathHoverResolution(jobID: UUID) {
@@ -7098,26 +7076,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         wordPathHoverResolutionTaskRequest = nil
         cachedWordPathHover = nil
         setWordPathHoverActive(false)
-        #if DEBUG
-        completeAutomatedCommandHover(
-            jobID: jobID,
-            resolution: nil,
-            error: "Command hover resolution was discarded"
-        )
-        #endif
     }
 
     private func cancelWordPathHoverResolution() {
         guard let jobID = wordPathHoverResolutionJobID else { return }
         wordPathHoverResolutionCancellation?.storeRelease(true)
         wordPathFilesystemResolutionCoordinator.cancelPending(id: jobID)
-        #if DEBUG
-        completeAutomatedCommandHover(
-            jobID: jobID,
-            resolution: nil,
-            error: "Command hover resolution was cancelled"
-        )
-        #endif
         wordPathHoverResolutionJobID = nil
         wordPathHoverResolutionCancellation = nil
         wordPathHoverResolutionTaskIdentity = nil
@@ -7635,13 +7599,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return suppressCommandPathHover
     }
 
-    func debugSimulateCommandHoverDetails(
-        at point: NSPoint,
-        completion: @escaping @MainActor @Sendable ([String: Any]) -> Void
-    ) {
+    func debugSimulateCommandHoverDetails(at point: NSPoint) -> [String: Any] {
         guard let surface else {
-            completion(["error": "Missing surface"])
-            return
+            return ["error": "Missing surface"]
         }
 
         let clampedPoint = clampedDebugPoint(point)
@@ -7658,78 +7618,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         )
 
+        let resolution = suppressCommandPathHover
+            ? nil
+            : cachedWordPathHoverResolution(at: clampedPoint)
         updateWordPathHover(
             at: clampedPoint,
             cmdHeld: true,
             suppressPathHover: suppressCommandPathHover
         )
 
-        if suppressCommandPathHover {
-            completion(debugCommandHoverPayload(resolution: nil, suppressed: true))
-            return
-        }
-        if let resolution = cachedWordPathHoverResolution(at: clampedPoint) {
-            completion(debugCommandHoverPayload(resolution: resolution, suppressed: false))
-            return
-        }
-        guard let jobID = wordPathHoverResolutionJobID else {
-            completion(debugCommandHoverPayload(
-                resolution: nil,
-                suppressed: false,
-                error: "Command hover did not enqueue filesystem resolution"
-            ))
-            return
-        }
-
-        if let previousCompletion = automatedCommandHoverCompletion {
-            automatedCommandHoverResolutionJobID = nil
-            automatedCommandHoverCompletion = nil
-            previousCompletion([
-                "error": "Command hover was superseded by a newer automation request",
-                "hoverActive": "0",
-                "suppressed": "0"
-            ])
-        }
-        automatedCommandHoverResolutionJobID = jobID
-        automatedCommandHoverCompletion = completion
-    }
-
-    private func debugCommandHoverPayload(
-        resolution: WordPathResolution?,
-        suppressed: Bool,
-        error: String? = nil
-    ) -> [String: Any] {
         var payload: [String: Any] = [
             "hoverActive": wordPathHoverActive ? "1" : "0",
-            "suppressed": suppressed ? "1" : "0"
+            "suppressed": suppressCommandPathHover ? "1" : "0"
         ]
         if let resolution {
             payload["resolvedPath"] = resolution.path
             payload["resolutionSource"] = resolution.source.rawValue
             payload["rawToken"] = resolution.rawToken
         }
-        if let error {
-            payload["error"] = error
-        }
         return payload
-    }
-
-    private func completeAutomatedCommandHover(
-        jobID: UUID,
-        resolution: WordPathResolution?,
-        error: String? = nil
-    ) {
-        guard automatedCommandHoverResolutionJobID == jobID,
-              let completion = automatedCommandHoverCompletion else {
-            return
-        }
-        automatedCommandHoverResolutionJobID = nil
-        automatedCommandHoverCompletion = nil
-        completion(debugCommandHoverPayload(
-            resolution: resolution,
-            suppressed: false,
-            error: error
-        ))
     }
 
     func performAutomatedCommandClick(
@@ -9012,14 +8919,8 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugSimulateCommandHover(at: debugPointInSurface(point))
     }
 
-    func debugSimulateCommandHoverDetails(
-        at point: NSPoint,
-        completion: @escaping @MainActor @Sendable ([String: Any]) -> Void
-    ) {
-        surfaceView.debugSimulateCommandHoverDetails(
-            at: debugPointInSurface(point),
-            completion: completion
-        )
+    func debugSimulateCommandHoverDetails(at point: NSPoint) -> [String: Any] {
+        surfaceView.debugSimulateCommandHoverDetails(at: debugPointInSurface(point))
     }
 
     func performAutomatedCommandClick(

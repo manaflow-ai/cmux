@@ -376,6 +376,7 @@ import WebKit
                 && browserNavigationShouldFallbackNilTargetToNewTab(
                     navigationType: navigationAction.navigationType
                 ),
+            hasUserActivation: hasUserActivation,
             route: {
                 guard let requestURL else { return }
 #if DEBUG

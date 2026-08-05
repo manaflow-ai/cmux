@@ -10,11 +10,12 @@ struct BrowserValidatedFileNavigationAllowance {
         isFileURL: Bool,
         hasExplicitNewTabIntent: Bool,
         hasNilTargetNewTabIntent: Bool,
+        hasUserActivation: Bool,
         route: () -> Void
     ) -> Bool {
         guard isFileOnly,
               isFileURL,
-              hasExplicitNewTabIntent || hasNilTargetNewTabIntent else {
+              hasExplicitNewTabIntent || (hasNilTargetNewTabIntent && hasUserActivation) else {
             return false
         }
         route()
