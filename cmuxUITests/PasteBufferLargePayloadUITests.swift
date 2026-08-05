@@ -64,22 +64,28 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
             .joined(separator: "\n") + "\n"
         XCTAssertEqual(payload.utf8.count, 4_640)
 
+        let createParams = try JSONSerialization.data(withJSONObject: [
+            "title": "paste-buffer-regression",
+            "cwd": "/tmp",
+            "initial_command": "exec /bin/cat",
+            "focus": true,
+        ])
         let create = runCLI(
             cliPath: cliPath,
             socketPath: socketPath,
             arguments: [
-                "workspace", "create",
-                "--name", "paste-buffer-regression",
-                "--cwd", "/tmp",
-                "--command", "cat; exec /bin/sleep 60",
-                "--focus", "true",
+                "rpc", "workspace.create",
+                String(decoding: createParams, as: UTF8.self),
             ]
         )
         XCTAssertEqual(create.status, 0, create.diagnostic)
+        let createResponse = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(create.stdout.utf8)) as? [String: Any],
+            "Expected workspace.create to return a JSON object. \(create.diagnostic)"
+        )
         let workspace = try XCTUnwrap(
-            create.stdout.split(whereSeparator: \.isWhitespace)
-                .map(String.init)
-                .first(where: { $0.hasPrefix("workspace:") }),
+            (createResponse["workspace_ref"] as? String)
+                ?? (createResponse["workspace_id"] as? String),
             "Expected workspace.create to return a workspace ref. \(create.diagnostic)"
         )
         print("Cat workspace created: \(workspace)")
