@@ -48,6 +48,21 @@ struct MobileInjectedAttachStartupTests {
 
     @Test
     @MainActor
+    func awaitingUserApprovalConsumesStartupWithoutFallback() throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+        let attempt = try #require(coordinator.claimInjectedAttach())
+
+        let shouldFallBack = coordinator.finishInjectedAttach(attempt, outcome: .awaitingUserApproval)
+
+        #expect(!shouldFallBack)
+        #expect(!coordinator.shouldFallBackFromInjectedAttach)
+        // Approval is pending on the user, not on startup: the saved-Mac
+        // reconnect must not dial underneath the pending dialog.
+        #expect(coordinator.claimStoredReconnect() == nil)
+    }
+
+    @Test
+    @MainActor
     func failedInjectedAttachReleasesStartupToStoredReconnect() throws {
         let coordinator = MobileStartupConnectionCoordinator()
         let attempt = try #require(coordinator.claimInjectedAttach())
