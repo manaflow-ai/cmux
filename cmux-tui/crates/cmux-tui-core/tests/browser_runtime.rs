@@ -1445,15 +1445,19 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     assert_eq!(screencast["params"]["maxWidth"], 100);
     assert_eq!(screencast["params"]["maxHeight"], 100);
 
-    let frame_seq = wait_for(
+    let (frame, frame_seq) = wait_for(
         || {
-            matches!(surface.browser_status(), Some(BrowserStatus::Live))
-                .then(|| surface.browser_frame_seq())
-                .flatten()
+            if !matches!(surface.browser_status(), Some(BrowserStatus::Live)) {
+                return None;
+            }
+            let frame = surface.browser_frame()?;
+            let frame_seq = surface.browser_frame_seq()?;
+            (frame.seq == frame_seq).then_some((frame, frame_seq))
         },
         test_duration(Duration::from_secs(10)),
     )
     .expect("browser produced a pointer-authoritative frame");
+    assert_eq!(frame.data_b64, "c2NhbGU=");
     surface
         .browser_mouse_event_for_frame(
             "mousePressed",

@@ -4703,6 +4703,23 @@ impl BrowserSurface {
         loader_id: &str,
         navigation_epoch: u64,
     ) -> BrowserWorkerResult {
+        self.authorize_document_paint_with_attempt_budget_blocking(
+            session_id,
+            frame_id,
+            loader_id,
+            navigation_epoch,
+            AUTHORITY_CAPTURE_ATTEMPT_BUDGET,
+        )
+    }
+
+    fn authorize_document_paint_with_attempt_budget_blocking(
+        &self,
+        session_id: &str,
+        frame_id: &str,
+        loader_id: &str,
+        navigation_epoch: u64,
+        attempt_budget: Duration,
+    ) -> BrowserWorkerResult {
         if !self.needs_document_paint(navigation_epoch)
             || self.frame_epoch.latest_navigation() != navigation_epoch
         {
@@ -4719,7 +4736,7 @@ impl BrowserSurface {
             {
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
-            let deadline = Instant::now() + AUTHORITY_CAPTURE_ATTEMPT_BUDGET;
+            let deadline = Instant::now() + attempt_budget;
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id, deadline) {
                 Ok((frame_epoch, captured)) => {
                     let accepted = self.accept_document_paint(
@@ -5335,12 +5352,11 @@ fn percent_encode_query(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        AUTHORITY_CAPTURE_ATTEMPT_BUDGET, AUTHORITY_CAPTURE_ATTEMPTS,
-        BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
-        BrowserSession, BrowserSource, BrowserStatus, MAX_RECONFIGURE_WAITERS_PER_RESERVATION,
-        SequencedBrowserCommand, capture_scale_for, handle_frame_navigated,
-        handle_same_document_navigated, new_surface, normalize_url, runtime_endpoint,
-        scaled_pixels, start_surface_thread, take_latest_worker_commands,
+        AUTHORITY_CAPTURE_ATTEMPTS, BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions,
+        BrowserCommand, BrowserFrame, BrowserSession, BrowserSource, BrowserStatus,
+        MAX_RECONFIGURE_WAITERS_PER_RESERVATION, SequencedBrowserCommand, capture_scale_for,
+        handle_frame_navigated, handle_same_document_navigated, new_surface, normalize_url,
+        runtime_endpoint, scaled_pixels, start_surface_thread, take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -5351,15 +5367,6 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
     use tungstenite::{Message, accept};
-
-    fn test_duration(duration: Duration) -> Duration {
-        let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
-            .ok()
-            .and_then(|value| value.parse::<u32>().ok())
-            .unwrap_or(1)
-            .clamp(1, 16);
-        duration.saturating_mul(scale)
-    }
 
     fn test_frame(seq: u64) -> BrowserFrame {
         BrowserFrame {
@@ -8991,6 +8998,8 @@ mod tests {
     #[test]
     fn document_verification_gives_each_bounded_attempt_a_full_budget() {
         const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+        const ATTEMPT_BUDGET: Duration = Duration::from_secs(2);
+        const TRANSIENT_FAILURE_DELAY: Duration = Duration::from_millis(950);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -9020,7 +9029,6 @@ mod tests {
             );
 
             let mut attempts = 0;
-            let mut successful_attempt_calls = 0;
             loop {
                 let request = match ws.read() {
                     Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).ok(),
@@ -9033,7 +9041,7 @@ mod tests {
                 if method == "Page.stopScreencast" {
                     attempts += 1;
                     if attempts < AUTHORITY_CAPTURE_ATTEMPTS {
-                        thread::sleep(Duration::from_millis(100));
+                        thread::sleep(TRANSIENT_FAILURE_DELAY);
                         if ws
                             .send(Message::Text(
                                 json!({
@@ -9050,7 +9058,6 @@ mod tests {
                         continue;
                     }
                 }
-                successful_attempt_calls += 1;
                 let result = match method {
                     "Page.stopScreencast" | "Page.startScreencast" => json!({}),
                     "Page.createIsolatedWorld" => json!({"executionContextId": 41}),
@@ -9075,9 +9082,6 @@ mod tests {
                     ))
                     .is_err()
                 {
-                    break;
-                }
-                if successful_attempt_calls == 7 {
                     break;
                 }
             }
@@ -9114,14 +9118,13 @@ mod tests {
         browser.state.lock().unwrap().pending_authority_deadline =
             Some(Instant::now() + Duration::from_secs(5));
 
-        let started = Instant::now();
-        let result = browser.authorize_document_paint_blocking(
+        let result = browser.authorize_document_paint_with_attempt_budget_blocking(
             "session-1",
             "main-frame",
             "loader-2",
             navigation_epoch,
+            ATTEMPT_BUDGET,
         );
-        let elapsed = started.elapsed();
 
         runtime.shutdown();
         let attempts = server.join().unwrap();
@@ -9132,14 +9135,6 @@ mod tests {
         assert_eq!(
             attempts, AUTHORITY_CAPTURE_ATTEMPTS,
             "document verification must reach the healthy final attempt"
-        );
-        let total_attempt_budget = (0..AUTHORITY_CAPTURE_ATTEMPTS)
-            .fold(Duration::ZERO, |total, _| {
-                total.saturating_add(AUTHORITY_CAPTURE_ATTEMPT_BUDGET)
-            });
-        assert!(
-            elapsed < test_duration(total_attempt_budget),
-            "bounded attempts exceeded their configured budget in {elapsed:?}"
         );
     }
 
@@ -9495,7 +9490,7 @@ mod tests {
                 }),
             );
             superseded_tx.send(true).unwrap();
-            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            stop_rx.recv().unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),

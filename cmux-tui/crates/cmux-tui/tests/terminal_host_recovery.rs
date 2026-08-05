@@ -1994,9 +1994,10 @@ fn stalled_renderer_is_disconnected_without_freezing_the_host() {
             "cmd": "send",
             "surface": surface,
             // A finite burst can fit in Darwin's dynamically sized socket
-            // buffers under some scheduler interleavings. Keep producing
-            // until the bounded host tap closes this unread renderer.
-            "text": "while :; do /usr/bin/head -c 1048576 /dev/zero; done\n",
+            // buffers under some scheduler interleavings. One streaming
+            // process fills the bounded host tap without per-megabyte process
+            // launches competing with the parallel recovery suite.
+            "text": "/bin/cat /dev/zero\n",
         }),
     );
     assert!(
