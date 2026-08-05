@@ -13,7 +13,7 @@ if [[ $# -gt 1 || "$REMOTE_HOST" == -* \
   exit 2
 fi
 
-for command in codesign jq open openssl pgrep scp shasum ssh; do
+for command in codesign jq open openssl perl pgrep scp shasum ssh; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Remote NativeMuxDemo needs $command on PATH." >&2
     exit 1
@@ -52,36 +52,65 @@ REMOTE_MUX_STATE="$REMOTE_ROOT/mux-state"
 REMOTE_ADMIN_SOCKET="$REMOTE_ROOT/admin.sock"
 REMOTE_LINK_SOCKET="$REMOTE_ROOT/link.sock"
 REMOTE_STATE="$REMOTE_ROOT/remote-state"
+REMOTE_DAEMON_PID_FILE="$REMOTE_ROOT/daemon.pid"
 SSH_OPTIONS=(-o BatchMode=yes -o ConnectTimeout=8)
 SSH_DAEMON_PID=""
+REMOTE_DAEMON_PID=""
 OPEN_PID=""
 APP_PID=""
 REMOTE_CREATED=0
 CLEANUP_STARTED=0
 
-quote_remote_command() {
-  local rendered=""
-  local quoted
-  local argument
-  for argument in "$@"; do
-    printf -v quoted '%q' "$argument"
-    rendered="${rendered:+$rendered }$quoted"
-  done
-  printf '%s\n' "$rendered"
-}
+# shellcheck source=remote-command.sh
+source "$SCRIPT_DIR/remote-command.sh"
+CMUX_REMOTE_SSH_OPTIONS=("${SSH_OPTIONS[@]}")
+CMUX_REMOTE_HOST="$REMOTE_HOST"
+CMUX_REMOTE_RUN_ID="$RUN_ID"
+CMUX_REMOTE_TEMP_ROOT="$LOCAL_ROOT"
 
 remote_command() {
-  local rendered
-  rendered="$(quote_remote_command "$@")"
-  # shellcheck disable=SC2029  # Arguments are escaped by quote_remote_command.
-  ssh "${SSH_OPTIONS[@]}" "$REMOTE_HOST" "$rendered"
+  cmux_remote_run "$@"
+}
+
+remote_daemon_alive() {
+  [[ "$REMOTE_DAEMON_PID" =~ ^[1-9][0-9]*$ ]] \
+    && remote_command /bin/kill -0 "$REMOTE_DAEMON_PID" >/dev/null 2>&1
+}
+
+read_remote_daemon_pid() {
+  local candidate
+  candidate="$(remote_command /bin/cat "$REMOTE_DAEMON_PID_FILE" 2>/dev/null || true)"
+  if [[ "$candidate" =~ ^[1-9][0-9]*$ ]]; then
+    REMOTE_DAEMON_PID="$candidate"
+    return 0
+  fi
+  return 1
+}
+
+wait_for_remote_daemon_exit() {
+  local attempts="$1"
+  # shellcheck disable=SC2016  # The inner shell expands these positional parameters remotely.
+  local command='pid=$1; attempts=$2; while kill -0 "$pid" 2>/dev/null && [ "$attempts" -gt 0 ]; do attempts=$((attempts - 1)); sleep 0.1; done; ! kill -0 "$pid" 2>/dev/null'
+  remote_command /bin/sh -c "$command" sh "$REMOTE_DAEMON_PID" "$attempts" \
+    >/dev/null 2>&1
+}
+
+signal_remote_daemon() {
+  local signal="$1"
+  local command
+  command="$(remote_command /bin/ps -p "$REMOTE_DAEMON_PID" -o command= 2>/dev/null || true)"
+  if [[ "$command" != "$REMOTE_BIN daemon --session $SESSION "* ]]; then
+    echo "Refusing to signal unexpected remote process $REMOTE_DAEMON_PID: $command" >&2
+    return 1
+  fi
+  remote_command /bin/kill "-$signal" "$REMOTE_DAEMON_PID" >/dev/null 2>&1
 }
 
 report_remote_owner_state() {
-  if kill -0 "$SSH_DAEMON_PID" 2>/dev/null; then
-    echo "The SSH daemon owner is still running." >&2
+  if remote_daemon_alive; then
+    echo "The remote daemon process is still running." >&2
   else
-    echo "The SSH daemon owner exited." >&2
+    echo "The remote daemon process exited." >&2
   fi
   if remote_command /bin/test -S "$REMOTE_MUX_SOCKET" >/dev/null 2>&1; then
     echo "The remote mux socket still exists." >&2
@@ -183,12 +212,23 @@ cleanup() {
     wait "$OPEN_PID" 2>/dev/null
   fi
   if [[ "$REMOTE_CREATED" == "1" ]]; then
+    if [[ -z "$REMOTE_DAEMON_PID" ]]; then
+      read_remote_daemon_pid || true
+    fi
     local host_pids
     host_pids="$(remote_host_pids)"
     close_remote_terminals
     stop_remote_hosts "$host_pids"
     remote_command "$REMOTE_BIN" --socket "$REMOTE_MUX_SOCKET" \
       session current shutdown --force --json >/dev/null 2>&1 || true
+    if remote_daemon_alive && ! wait_for_remote_daemon_exit 100; then
+      signal_remote_daemon TERM || true
+      wait_for_remote_daemon_exit 50 || true
+    fi
+    if remote_daemon_alive; then
+      signal_remote_daemon KILL || true
+      wait_for_remote_daemon_exit 20 || true
+    fi
   fi
   if [[ -n "$SSH_DAEMON_PID" ]] && kill -0 "$SSH_DAEMON_PID" 2>/dev/null; then
     kill "$SSH_DAEMON_PID" 2>/dev/null
@@ -196,7 +236,12 @@ cleanup() {
   fi
   if [[ "$REMOTE_CREATED" == "1" \
     && "$REMOTE_ROOT" == /tmp/cmux-native-remote-demo.* ]]; then
-    remote_command /bin/rm -rf -- "$REMOTE_ROOT" >/dev/null 2>&1 || true
+    if remote_daemon_alive; then
+      echo "Refusing to remove remote state while daemon $REMOTE_DAEMON_PID is alive." >&2
+      exit_status=1
+    else
+      remote_command /bin/rm -rf -- "$REMOTE_ROOT" >/dev/null 2>&1 || exit_status=1
+    fi
   fi
   if (( exit_status != 0 )) && [[ -s "$DAEMON_LOG" ]]; then
     echo "Remote daemon log from the failed run:" >&2
@@ -248,7 +293,7 @@ if [[ "$REMOTE_HASH" != "$LOCAL_HASH" ]]; then
 fi
 
 echo "Starting the PTY-owning Iroh daemon on $REMOTE_HOST..."
-DAEMON_COMMAND="$(quote_remote_command \
+DAEMON_COMMAND="$(cmux_remote_quote_command \
   "$REMOTE_BIN" daemon \
   --session "$SESSION" \
   --socket "$REMOTE_MUX_SOCKET" \
@@ -257,8 +302,10 @@ DAEMON_COMMAND="$(quote_remote_command \
   --remote-state-dir "$REMOTE_STATE" \
   --remote-link-socket "$REMOTE_LINK_SOCKET" \
   --remote-admin-socket "$REMOTE_ADMIN_SOCKET")"
-# shellcheck disable=SC2029  # Arguments are escaped by quote_remote_command.
-ssh -n "${SSH_OPTIONS[@]}" "$REMOTE_HOST" "$DAEMON_COMMAND" >"$DAEMON_LOG" 2>&1 &
+printf -v REMOTE_DAEMON_PID_FILE_QUOTED '%q' "$REMOTE_DAEMON_PID_FILE"
+DAEMON_OWNER_COMMAND="printf '%s\\n' \$\$ > $REMOTE_DAEMON_PID_FILE_QUOTED; exec $DAEMON_COMMAND"
+# shellcheck disable=SC2029  # Arguments are escaped above.
+ssh -n "${SSH_OPTIONS[@]}" "$REMOTE_HOST" "$DAEMON_OWNER_COMMAND" >"$DAEMON_LOG" 2>&1 &
 SSH_DAEMON_PID=$!
 
 ready=0
@@ -268,7 +315,15 @@ for _ in $(seq 1 120); do
     sed -n '1,220p' "$DAEMON_LOG" >&2
     exit 1
   fi
-  if remote_command /bin/test -S "$REMOTE_MUX_SOCKET" >/dev/null 2>&1 \
+  if [[ -z "$REMOTE_DAEMON_PID" ]]; then
+    read_remote_daemon_pid || true
+  elif ! remote_daemon_alive; then
+    echo "The remote daemon process exited during startup:" >&2
+    sed -n '1,220p' "$DAEMON_LOG" >&2
+    exit 1
+  fi
+  if [[ -n "$REMOTE_DAEMON_PID" ]] \
+    && remote_command /bin/test -S "$REMOTE_MUX_SOCKET" >/dev/null 2>&1 \
     && remote_command /bin/test -S "$REMOTE_ADMIN_SOCKET" >/dev/null 2>&1 \
     && remote_command "$REMOTE_BIN" --socket "$REMOTE_MUX_SOCKET" \
       session current ping >/dev/null 2>&1; then

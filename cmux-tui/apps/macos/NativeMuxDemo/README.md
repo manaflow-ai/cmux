@@ -75,4 +75,12 @@ processes. The local app claims the invitation and the remote owner socket
 approves that exact invitation. Closing the app closes the remote terminal and
 removes both sides' temporary state. Closing its last window does the same,
 even though macOS normally leaves a windowless app process alive. The launcher
-does not replace the remote host's installed `cmux-tui`.
+does not replace the remote host's installed `cmux-tui`. It carries each remote
+command's exit status in a framed stderr record because some SSH account
+wrappers report success regardless of the command's real status.
+
+Run three complete remote launch and cleanup cycles with:
+
+```bash
+worktrees/feat-cmux-tui-swift-frontend/cmux-tui/apps/macos/NativeMuxDemo/verify-remote-demo-lifecycle.sh cmux-lawrence 3
+```
