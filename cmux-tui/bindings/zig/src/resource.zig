@@ -8205,18 +8205,27 @@ fn decodeTerminalSnapshot(
         return error.InvalidTerminalState;
     }
     const tab_id = try requiredNullableId(TabId, object, "tab_id");
-    const raw_tab_ids = switch (object.get("tab_ids") orelse
-        return error.MissingField) {
-        .array => |items| items.items,
-        else => return error.ExpectedArray,
-    };
-    const tab_ids = try allocator.alloc(TabId, raw_tab_ids.len);
+    const raw_tab_ids: ?[]const raw.wire.Value = if (object.get("tab_ids")) |raw_value|
+        switch (raw_value) {
+            .array => |items| items.items,
+            else => return error.ExpectedArray,
+        }
+    else
+        null;
+    const tab_ids = try allocator.alloc(
+        TabId,
+        if (raw_tab_ids) |items| items.len else if (tab_id != null) 1 else 0,
+    );
     errdefer allocator.free(tab_ids);
-    for (raw_tab_ids, 0..) |item, index| {
-        tab_ids[index] = switch (item) {
-            .string => |text| try TabId.parse(text),
-            else => return error.ExpectedString,
-        };
+    if (raw_tab_ids) |items| {
+        for (items, 0..) |item, index| {
+            tab_ids[index] = switch (item) {
+                .string => |text| try TabId.parse(text),
+                else => return error.ExpectedString,
+            };
+        }
+    } else if (tab_id) |legacy_tab_id| {
+        tab_ids[0] = legacy_tab_id;
     }
     if ((tab_id == null) != (tab_ids.len == 0) or
         (tab_id != null and !std.meta.eql(tab_id.?, tab_ids[0])))

@@ -420,9 +420,11 @@ func (s TabSnapshot) MarshalJSON() ([]byte, error) {
 }
 
 type TerminalSnapshot struct {
-	ID        TerminalID           `json:"id"`
-	TabID     *TabID               `json:"tab_id"`
-	TabIDs    []TabID              `json:"tab_ids"`
+	ID    TerminalID `json:"id"`
+	TabID *TabID     `json:"tab_id"`
+	// legacyoptional lets protocol-1 decoders synthesize this field while
+	// encoding/json continues to emit it for current peers.
+	TabIDs    []TabID              `json:"tab_ids,legacyoptional"`
 	Title     string               `json:"title"`
 	CWD       *string              `json:"cwd,omitempty"`
 	Cols      uint16               `json:"cols"`
@@ -1324,7 +1326,7 @@ func validateRequiredJSON(
 			}
 			optional := false
 			for _, option := range parts[1:] {
-				if option == "omitempty" || option == "omitzero" {
+				if option == "omitempty" || option == "omitzero" || option == "legacyoptional" {
 					optional = true
 				}
 			}
