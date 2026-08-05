@@ -31,6 +31,7 @@ private struct DockPaneCloseConfirmationPrompt: Sendable {
 
 extension DockSplitStore {
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        stageClosedBrowserRestoreSnapshotIfEligible(for: tab, inPane: pane)
         if forceCloseDockTabIds.contains(tab.id) {
             return true
         }
@@ -47,7 +48,10 @@ extension DockSplitStore {
         guard !pendingCloseConfirmDockTabIds.contains(tab.id) else { return false }
 
         let confirmationManager = dockCloseConfirmationManager()
-        if confirmationManager?.isCloseConfirmationInFlight == true { return false }
+        if confirmationManager?.isCloseConfirmationInFlight == true {
+            clearClosedBrowserHistoryState(for: tab.id)
+            return false
+        }
 
         pendingCloseConfirmDockTabIds.insert(tab.id)
         let tabId = tab.id
@@ -58,13 +62,20 @@ extension DockSplitStore {
             defer {
                 self.pendingCloseConfirmDockTabIds.remove(tabId)
             }
-            guard let panel = self.panel(for: tabId) else { return }
-            guard self.confirmCloseDockPanel(panel, confirmationManager: confirmationManager) else { return }
+            guard let panel = self.panel(for: tabId) else {
+                self.clearClosedBrowserHistoryState(for: tabId)
+                return
+            }
+            guard self.confirmCloseDockPanel(panel, confirmationManager: confirmationManager) else {
+                self.clearClosedBrowserHistoryState(for: tabId)
+                return
+            }
 
             self.forceCloseDockTabIds.insert(tabId)
             let closed = self.bonsplitController.closeTab(tabId)
             if !closed {
                 self.forceCloseDockTabIds.remove(tabId)
+                self.clearClosedBrowserHistoryState(for: tabId)
             }
         }
         return false
@@ -109,6 +120,7 @@ extension DockSplitStore {
         forceCloseDockTabIds.remove(tabId)
         pendingCloseConfirmDockTabIds.remove(tabId)
         tabCloseButtonCloseDockTabIds.remove(tabId)
+        commitClosedBrowserRestoreSnapshot(for: tabId)
         reconcilePanels()
     }
 

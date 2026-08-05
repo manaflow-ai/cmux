@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxAppKitSupportUI
+import CmuxBrowser
 import CmuxCore
 import CmuxFoundation
 import CmuxSettings
@@ -85,6 +86,9 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
+    @ObservationIgnored let closedBrowserModel = BrowserModel<CmuxBrowser.ClosedBrowserPanelRestoreSnapshot>()
+    @ObservationIgnored var closedBrowserHistoryEligibleDockTabIds: Set<TabID> = []
+    @ObservationIgnored var pendingClosedBrowserRestoreSnapshots: [TabID: CmuxBrowser.ClosedBrowserPanelRestoreSnapshot] = [:]
     @ObservationIgnored var terminalViewReattachCoalescingDepth = 0
     @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
     @ObservationIgnored let focusHistoryNavigation: any FocusHistoryNavigating
@@ -266,8 +270,7 @@ final class DockSplitStore: BonsplitDelegate {
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
         self.bonsplitController.delegate = self
         self.bonsplitController.onTabCloseRequest = { [weak self] tabId, _, source in
-            guard source == .closeButton else { return }
-            self?.tabCloseButtonCloseDockTabIds.insert(tabId)
+            self?.markExplicitBrowserCloseFromTabStrip(tabId: tabId, source: source)
         }
         self.bonsplitController.onTabZoomToggleRequest = { [weak self] _, paneId in
             self?.toggleDockPaneZoom(inPane: paneId) ?? false

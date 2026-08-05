@@ -480,7 +480,7 @@ extension TerminalController {
             if windowDockMismatchesExplicitWindow(routing, dock: windowDock) {
                 return .surfaceNotFound(surfaceId)
             }
-            guard windowDock.closePanel(surfaceId, force: true) else {
+            guard windowDock.closePanelRecordingBrowserHistory(surfaceId, force: true) else {
                 return .closeFailed(surfaceId)
             }
             AppDelegate.shared?.notificationStore?.clearNotifications(
@@ -493,7 +493,10 @@ extension TerminalController {
                 surfaceID: surfaceId
             )
         } else if ws.containsDockPanel(surfaceId) {
-            guard ws.closeDockPanelAndClearNotifications(surfaceId, force: true) else {
+            guard ws.closeDockPanelRecordingBrowserHistoryAndClearNotifications(
+                surfaceId,
+                force: true
+            ) else {
                 return .closeFailed(surfaceId)
             }
             return .closed(

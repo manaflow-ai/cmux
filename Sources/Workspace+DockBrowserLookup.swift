@@ -40,6 +40,21 @@ extension Workspace {
         return true
     }
 
+    @discardableResult
+    func closeDockPanelRecordingBrowserHistoryAndClearNotifications(
+        _ panelId: UUID,
+        force: Bool = false
+    ) -> Bool {
+        guard _dockSplit?.closePanelRecordingBrowserHistory(panelId, force: force) == true else {
+            return false
+        }
+        AppDelegate.shared?.notificationStore?.clearNotifications(
+            forTabId: id,
+            surfaceId: panelId
+        )
+        return true
+    }
+
     func openDockBrowserLinkInNewTab(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
         guard let dock = _dockSplit, let paneId = dock.paneId(forPanelId: panel.id) else { return false }
         return dock.newSurface(
@@ -83,14 +98,17 @@ extension AppDelegate {
         guard context.keyboardFocusCoordinator.activeRightSidebarMode == .dock else { return false }
         if let windowDock = existingWindowDock(forWindowId: context.windowId) {
             guard let panelId = windowDock.focusedPanelId else { return true }
-            if windowDock.closePanel(panelId, force: false) {
+            if windowDock.closePanelRecordingBrowserHistory(panelId, force: false) {
                 notificationStore?.clearNotifications(forTabId: windowDock.workspaceId, surfaceId: panelId)
             }
             return true
         }
         guard let workspace = context.tabManager.selectedWorkspace,
               let panelId = workspace.focusedDockPanelId else { return true }
-        _ = workspace.closeDockPanelAndClearNotifications(panelId, force: false)
+        _ = workspace.closeDockPanelRecordingBrowserHistoryAndClearNotifications(
+            panelId,
+            force: false
+        )
         return true
     }
 }

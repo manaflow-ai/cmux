@@ -58,6 +58,54 @@ extension AppDelegate {
         return panelId
     }
 
+    /// Focuses the selected Dock browser's address bar, or creates a browser in
+    /// the focused Dock pane when another panel type is selected. Once the Dock
+    /// owns focus the shortcut is consumed even when no browser can be opened,
+    /// so it never mutates the main split tree.
+    func routeFocusBrowserAddressBarToFocusedDock(
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        guard let store = focusedDockStoreForShortcut(
+            preferredWindow: preferredWindow
+        ) else {
+            return false
+        }
+
+        if let panelId = store.focusedPanelId,
+           let browser = store.browserPanel(for: panelId) {
+            store.focusPanel(panelId)
+            focusBrowserAddressBar(in: browser)
+            return true
+        }
+
+        guard store.isBrowserAvailable(),
+              let pane = store.resolvePane(requestedPaneID: nil),
+              let panelId = store.newSurface(
+                  kind: .browser,
+                  inPane: pane,
+                  focus: true
+              ), let browser = store.browserPanel(for: panelId) else {
+            return true
+        }
+        focusBrowserAddressBar(in: browser)
+        return true
+    }
+
+    /// Reopens Dock browser history when the Dock owns keyboard focus. The
+    /// shortcut is consumed even when the Dock history is empty so the main
+    /// area's closed-item stack is never changed from a Dock-focused command.
+    func routeReopenClosedBrowserPanelToFocusedDock(
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        guard let store = focusedDockStoreForShortcut(
+            preferredWindow: preferredWindow
+        ) else {
+            return false
+        }
+        _ = store.reopenMostRecentlyClosedBrowserPanel()
+        return true
+    }
+
     /// Splits the focused Dock pane (terminal or browser). Returns `true` when
     /// handled, or `false` to fall through to the main-area split path. Reuses the
     /// main area's `SplitDirection` → orientation/insert mapping so Dock splits

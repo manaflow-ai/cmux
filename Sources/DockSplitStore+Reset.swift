@@ -5,6 +5,7 @@ extension DockSplitStore {
         let tabIds = Set(bonsplitController.allTabIds)
         pendingCloseConfirmDockTabIds.removeAll()
         tabCloseButtonCloseDockTabIds.removeAll()
+        clearPendingClosedBrowserHistoryState()
         forceCloseDockTabIds.formUnion(tabIds)
         defer { forceCloseDockTabIds.subtract(tabIds) }
         for tabId in tabIds { _ = bonsplitController.closeTab(tabId) }
