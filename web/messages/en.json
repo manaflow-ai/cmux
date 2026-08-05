@@ -2407,6 +2407,7 @@
       "flagDesc": "Description",
       "flagNameVal": "Set the workspace title",
       "flagCommand": "Run command text once in the initial remote terminal after shell startup",
+      "flagCwd": "Start the remote shell in this directory instead of the login default; combines with --command",
       "flagPort": "SSH port (default 22)",
       "flagIdentity": "Path to identity file",
       "flagSshOption": "Pass arbitrary SSH options (e.g. -o StrictHostKeyChecking=no)",

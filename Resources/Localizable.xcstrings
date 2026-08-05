@@ -37982,6 +37982,57 @@
         }
       }
     },
+    "cli.help.ssh.workingDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote working directory:\n  --cwd <path>            Start the remote shell in path instead of the login default\n\nThe path is resolved on the remote host, so `~` expands there. It combines\nwith --command: cmux changes directory first, then runs the command there.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート作業ディレクトリ:\n  --cwd <path>            ログイン既定のディレクトリではなく path でリモートシェルを開始します\n\nパスはリモートホスト側で解決されるため、`~` はリモートで展開されます。--command と併用でき、cmux は先にディレクトリを移動してからコマンドを実行します。\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        }
+      }
+    },
+    "cli.ssh.error.cwdInvalidPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd must be a remote directory path without control characters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd には制御文字を含まないリモートディレクトリのパスを指定してください"
+          }
+        }
+      }
+    },
+    "cli.ssh.error.cwdRequiresPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd requires a remote directory path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd にはリモートディレクトリのパスが必要です"
+          }
+        }
+      }
+    },
     "cli.help.ssh.initialCommand": {
       "extractionState": "manual",
       "localizations": {

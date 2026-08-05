@@ -6,6 +6,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         remoteRelayPort: Int,
         shellFeatures: String,
         initialCommand: String? = nil,
+        initialWorkingDirectory: String? = nil,
         configuredRemoteCommand: String? = nil,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
@@ -78,6 +79,12 @@ enum RemoteInteractiveShellBootstrapBuilder {
         outerLines += [
             "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
             "if [ -z \"${CMUX_PERSISTENT_PTY_EXEC_HELPER:-}\" ] || [ ! -x \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" ]; then exit 126; fi",
+        ]
+        // The interactive shell is exec'd from this POSIX script, so changing
+        // directory here lands every login shell (zsh, bash, fish, and the
+        // fallbacks) in the requested directory without shell-specific syntax.
+        outerLines.append(contentsOf: changeDirectoryLines(initialWorkingDirectory))
+        outerLines += [
             "case \"${CMUX_LOGIN_SHELL##*/}\" in",
             "  zsh)",
             "    cat > \"$cmux_shell_dir/.zshenv\" <<'CMUXZSHENV'",
@@ -177,6 +184,31 @@ enum RemoteInteractiveShellBootstrapBuilder {
         ]
 
         return outerLines.joined(separator: "\n")
+    }
+
+    /// POSIX `cd` into the caller's `--cwd`, quoted so the path is never
+    /// interpreted as shell syntax. A leading `~` expands against the remote
+    /// `$HOME` because the local shell never saw the value to expand it.
+    /// A failed `cd` warns and keeps the session in the default directory
+    /// rather than dropping the user's connection.
+    static func changeDirectoryLines(_ initialWorkingDirectory: String?) -> [String] {
+        guard let path = initialWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return []
+        }
+        let target: String
+        if path == "~" {
+            target = "\"$HOME\""
+        } else if path.hasPrefix("~/") {
+            target = "\"$HOME\"/" + shellQuote(String(path.dropFirst(2)))
+        } else {
+            target = shellQuote(path)
+        }
+        return [
+            "if ! cd -- \(target) 2>/dev/null; then",
+            "  printf 'cmux: --cwd: cannot change to %s\\n' \(shellQuote(path)) >&2",
+            "fi",
+        ]
     }
 
     private static func terminalLaunchLine(
