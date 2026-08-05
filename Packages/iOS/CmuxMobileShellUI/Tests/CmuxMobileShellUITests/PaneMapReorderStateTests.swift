@@ -78,4 +78,90 @@ import Testing
         #expect(state.visiblePaneIDs == ["a", "b", "c"])
         #expect(!state.isMutationPending)
     }
+
+    @Test func failureRollsBackToTheLatestAuthoritativeOrder() throws {
+        var state = PaneMapReorderState(
+            authoritativePaneIDs: ["left", "middle", "right"],
+            authoritativeRevision: 10
+        )
+
+        let pendingRequest = state.beginMove(from: 0, to: 2)
+        let request = try #require(pendingRequest)
+        #expect(state.visiblePaneIDs == ["middle", "right", "left"])
+
+        state.reconcile(
+            authoritativePaneIDs: ["left", "right", "middle"],
+            authoritativeRevision: 11
+        )
+        #expect(
+            state.visiblePaneIDs == ["middle", "right", "left"],
+            "An in-flight optimistic move must remain stable while the Mac refresh arrives"
+        )
+
+        #expect(state.complete(requestID: request.id, succeeded: false) == .rolledBack)
+        #expect(state.visiblePaneIDs == ["left", "right", "middle"])
+        #expect(!state.isMutationPending)
+    }
+
+    @Test func successWaitsForAndThenUsesTheAuthoritativeMacOrder() throws {
+        var state = PaneMapReorderState(
+            authoritativePaneIDs: ["one", "two", "three"],
+            authoritativeRevision: 20
+        )
+
+        let pendingRequest = state.beginMove(from: 2, to: 0)
+        let request = try #require(pendingRequest)
+        #expect(request.orderedPaneIDs == ["three", "one", "two"])
+
+        state.reconcile(
+            authoritativePaneIDs: ["one", "two", "three"],
+            authoritativeRevision: 20
+        )
+        #expect(state.complete(requestID: request.id, succeeded: true) == .awaitingAuthority)
+        #expect(state.visiblePaneIDs == ["three", "one", "two"])
+        #expect(state.isMutationPending)
+
+        state.reconcile(
+            authoritativePaneIDs: ["one", "two", "three"],
+            authoritativeRevision: 21
+        )
+        #expect(state.visiblePaneIDs == ["one", "two", "three"])
+        #expect(!state.isMutationPending)
+    }
+
+    @Test func authoritativeRevisionCanArriveBeforeTheRequestCompletion() throws {
+        var state = PaneMapReorderState(
+            authoritativePaneIDs: ["left", "right"],
+            authoritativeRevision: 30
+        )
+
+        let pendingRequest = state.beginMove(from: 0, to: 1)
+        let request = try #require(pendingRequest)
+        state.reconcile(
+            authoritativePaneIDs: ["left", "right"],
+            authoritativeRevision: 31
+        )
+
+        #expect(state.isMutationPending)
+        #expect(state.complete(requestID: request.id, succeeded: true) == .awaitingAuthority)
+        #expect(state.visiblePaneIDs == ["left", "right"])
+        #expect(!state.isMutationPending)
+    }
+
+    @Test func staleCompletionCannotOverwriteANewerMove() throws {
+        var state = PaneMapReorderState(
+            authoritativePaneIDs: ["a", "b", "c"],
+            authoritativeRevision: 40
+        )
+
+        let firstPendingRequest = state.beginMove(from: 0, to: 1)
+        let first = try #require(firstPendingRequest)
+        #expect(state.complete(requestID: first.id, succeeded: false) == .rolledBack)
+
+        let secondPendingRequest = state.beginMove(from: 2, to: 0)
+        let second = try #require(secondPendingRequest)
+        #expect(state.complete(requestID: first.id, succeeded: true) == .ignored)
+        #expect(state.visiblePaneIDs == second.orderedPaneIDs)
+        #expect(state.isMutationPending)
+    }
 }
