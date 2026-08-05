@@ -973,10 +973,10 @@ mod tests {
 
     #[test]
     fn cancellable_connect_reuses_one_socket_across_poll_slices() {
-        let probe = crate::codec::ForcedPendingConnectProbe::install();
+        let probe = crate::codec::ForcedPendingConnectProbe::install_with_poll_limit(3);
         let cancellation = super::super::options::CancellationToken::new();
         let options = RequestOptions::new()
-            .with_timeout(Duration::from_millis(35))
+            .with_timeout(Duration::from_secs(1))
             .unwrap()
             .with_cancellation(cancellation);
         let budget = CallBudget::new(options, Duration::from_secs(1)).unwrap();
@@ -986,7 +986,7 @@ mod tests {
             connect_with_budget(&config, ops::SESSION_LIST, &budget),
             Err(Error::Timeout(_))
         ));
-        assert!(probe.polls() >= 2, "the connect should span several cancellation polls");
+        assert_eq!(probe.polls(), 3, "the connect should span the configured poll slices");
         assert_eq!(
             probe.attempts(),
             1,
