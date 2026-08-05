@@ -5,9 +5,12 @@ public import Foundation
 /// dictionaries + `v2EnsureHandleRef`/`v2ResolveHandleRef` on
 /// `TerminalController`).
 ///
-/// A plain value type; the owner provides isolation (legacy: main-actor
-/// state on the controller).
-public struct ControlHandleRegistry: Sendable {
+/// A shared reference type. Callers reach it from more than one lane (the
+/// main-actor dispatch path and the socket worker's resolution hop) under an
+/// unenforced "owner provides isolation" invariant; a missed hop races the
+/// three dictionaries and corrupts their buffers (SIGSEGV/SIGABRT in
+/// `ensureRef`).
+public final class ControlHandleRegistry: @unchecked Sendable {
     private var nextOrdinal: [ControlHandleKind: Int]
     private var refByUUID: [ControlHandleKind: [UUID: String]]
     private var uuidByRef: [ControlHandleKind: [String: UUID]]
@@ -34,7 +37,7 @@ public struct ControlHandleRegistry: Sendable {
     ///   - kind: The handle kind.
     ///   - uuid: The object identity.
     /// - Returns: The stable ref string.
-    public mutating func ensureRef(kind: ControlHandleKind, uuid: UUID) -> String {
+    public func ensureRef(kind: ControlHandleKind, uuid: UUID) -> String {
         if let existing = refByUUID[kind]?[uuid] {
             return existing
         }
@@ -54,7 +57,7 @@ public struct ControlHandleRegistry: Sendable {
     /// - Parameters:
     ///   - kind: The handle kind.
     ///   - uuid: The object identity to forget.
-    public mutating func removeRef(kind: ControlHandleKind, uuid: UUID) {
+    public func removeRef(kind: ControlHandleKind, uuid: UUID) {
         if let ref = refByUUID[kind]?[uuid] {
             uuidByRef[kind]?.removeValue(forKey: ref)
         }
