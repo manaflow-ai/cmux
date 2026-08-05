@@ -6736,6 +6736,10 @@ class TerminalController {
                         timeout: timeout,
                         world: .page
                     )
+                    // WebKit rejects Promise completion values from evaluateJavaScript
+                    // with javaScriptResultTypeIsUnsupported.
+                    // A success here is therefore already a settled, bridgeable
+                    // statement completion value; unsupported values stay failures.
                     if case .success = directResult {
                         usedDirectPageEvaluation = true
                     }

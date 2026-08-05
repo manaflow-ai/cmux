@@ -253,6 +253,28 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
             "strict-CSP recovery must preserve JavaScript statement completion values: \(statementResult)"
         )
 
+        let statementPromiseEnvelope = try XCTUnwrap(
+            socketEnvelope(
+                method: "browser.eval",
+                params: [
+                    "surface_id": strictCSPSurfaceID,
+                    "script": "let statementPromise = Promise.resolve(44); statementPromise",
+                ],
+                responseTimeout: 15.0
+            ),
+            "Expected a socket response for the promise-valued statement completion"
+        )
+        XCTAssertEqual(
+            statementPromiseEnvelope["ok"] as? Bool,
+            false,
+            "strict-CSP statement fallback must not report an unresolved promise as a value: \(statementPromiseEnvelope)"
+        )
+        let statementPromiseError = try XCTUnwrap(
+            statementPromiseEnvelope["error"] as? [String: Any],
+            "Expected js_error for the promise-valued statement completion: \(statementPromiseEnvelope)"
+        )
+        XCTAssertEqual(statementPromiseError["code"] as? String, "js_error")
+
         let undefinedResult = try socketResult(
             method: "browser.eval",
             params: ["surface_id": strictCSPSurfaceID, "script": "void 0"],
