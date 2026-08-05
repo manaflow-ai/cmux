@@ -90,6 +90,9 @@ export class FreestyleProvider implements VMProvider {
     if (!image) {
       throw new ProviderError("freestyle", "create requires a resolved image");
     }
+    if (options.volumes?.length || options.envVars) {
+      throw new ProviderError("freestyle", "create: persistent volumes and custom env are Daytona-only");
+    }
     const signedAdmin = freestyleAdminSigningConfig();
     if (options.bakedFreestyleSignedAdmin === true && !signedAdmin) {
       throw new ProviderError(

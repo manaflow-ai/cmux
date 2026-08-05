@@ -19,6 +19,27 @@ export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
   providerMetadata?: Record<string, unknown>;
   bakedFreestyleSignedAdmin?: boolean;
+  /**
+   * Provider-persistent volumes to mount into the VM at create. Only Daytona
+   * supports this today; drivers without volume support must fail closed
+   * rather than silently provisioning without the mount.
+   */
+  volumes?: ReadonlyArray<VolumeMountSpec>;
+  /**
+   * Extra environment baked into the VM at create, merged over the driver's
+   * defaults. Drivers that cannot honor it must fail closed.
+   */
+  envVars?: Readonly<Record<string, string>>;
+};
+
+export type VolumeMountSpec = {
+  readonly volumeId: string;
+  readonly mountPath: string;
+};
+
+export type VolumeHandle = {
+  readonly id: string;
+  readonly name: string;
 };
 
 export type SSHEndpoint = {

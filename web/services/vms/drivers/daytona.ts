@@ -12,6 +12,7 @@ import {
   type VMHandle,
   type VMProvider,
   type VMStatus,
+  type VolumeHandle,
 } from "./types";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
@@ -116,10 +117,18 @@ export class DaytonaProvider implements VMProvider {
           const sandbox = await client().create(
             {
               snapshot: image,
-              envVars: DEFAULT_SANDBOX_ENVS,
+              envVars: { ...DEFAULT_SANDBOX_ENVS, ...(options.envVars ?? {}) },
               // Persistent cloud computer shape: never auto-stop. Pause/resume is an explicit
               // cmux workflow, mapped onto Daytona stop/start below.
               autoStopInterval: 0,
+              ...(options.volumes?.length
+                ? {
+                  volumes: options.volumes.map((volume) => ({
+                    volumeId: volume.volumeId,
+                    mountPath: volume.mountPath,
+                  })),
+                }
+                : {}),
             },
             { timeout: CREATE_TIMEOUT_SECONDS },
           );
@@ -442,6 +451,27 @@ export class DaytonaProvider implements VMProvider {
     }
     throw lastError;
   }
+}
+
+/**
+ * Get-or-create a Daytona Volume by name. Volumes are S3-backed shared storage that
+ * survives sandbox destroy/recreate; the devbox product mounts one per user so data
+ * outlives the VM itself. `get(name, true)` is the SDK's atomic get-or-create.
+ */
+export async function ensureDaytonaVolume(name: string): Promise<VolumeHandle> {
+  return withVmSpan(
+    "cmux.vm.provider.ensure_volume",
+    { "cmux.vm.provider": "daytona", "cmux.vm.operation": "ensure_volume" },
+    async (span) => {
+      try {
+        const volume = await client().volume.get(name, true);
+        setSpanAttributes(span, { "cmux.volume.id": volume.id });
+        return { id: volume.id, name: volume.name };
+      } catch (err) {
+        throw new ProviderError("daytona", `ensureVolume(${name})`, err);
+      }
+    },
+  );
 }
 
 function httpsToWss(url: string): string {

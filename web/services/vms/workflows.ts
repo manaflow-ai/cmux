@@ -198,6 +198,8 @@ export function createVm(input: {
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
   readonly bakedFreestyleSignedAdmin?: boolean;
+  readonly volumes?: ReadonlyArray<{ readonly volumeId: string; readonly mountPath: string }>;
+  readonly envVars?: Readonly<Record<string, string>>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -235,6 +237,8 @@ export function createVm(input: {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
         bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
+        volumes: input.volumes,
+        envVars: input.envVars,
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -932,7 +936,7 @@ function boundedVmStatusReconcileLimit(limit: number | undefined): number {
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
 const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
-type VmResumeSource = "exec" | "attach" | "ssh" | "fork";
+type VmResumeSource = "exec" | "attach" | "ssh" | "fork" | "api";
 
 // resume() can legitimately return a not-yet-running handle (Freestyle maps a
 // post-start "starting" state to "creating"), so poll briefly until the VM is
@@ -1277,6 +1281,73 @@ export function destroyVm(input: {
       provider: vm.provider,
       imageId: vm.imageId,
     }).pipe(Effect.catchAll(() => Effect.void));
+  });
+}
+
+export function pauseVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly provider?: ProviderId;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input);
+    if (vm.status === "paused") return vmEntryFromRow(vm);
+    const providerVmId = vm.providerVmId ?? input.providerVmId;
+    const pause = providers.pause;
+    if (!pause) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: `pause(${providerVmId})`,
+          cause: new Error("provider does not support pause"),
+        }),
+      );
+    }
+    yield* pause(vm.provider, providerVmId);
+    const recorded = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: "paused",
+    });
+    if (!recorded) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+    }
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.paused",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { source: "api" },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return vmEntryFromRow({ ...vm, status: "paused" });
+  });
+}
+
+export function resumeVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly provider?: ProviderId;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input);
+    const providerVmId = vm.providerVmId ?? input.providerVmId;
+    // Same limit-gated, compensated path the implicit exec/attach resume uses:
+    // reserve the active slot in Postgres first, roll back to paused if the
+    // provider start fails, and record the vm.resumed usage event once.
+    yield* preflightResumeIfSuspended(repo, providers, vm, providerVmId, "api");
+    const refreshed = yield* requireUserVm(input);
+    return vmEntryFromRow(refreshed);
   });
 }
 

@@ -40,6 +40,9 @@ export class E2BProvider implements VMProvider {
     if (!image) {
       throw new ProviderError("e2b", "create requires a resolved image");
     }
+    if (options.volumes?.length || options.envVars) {
+      throw new ProviderError("e2b", "create: persistent volumes and custom env are Daytona-only");
+    }
     return withVmSpan(
       "cmux.vm.provider.create",
       {
