@@ -13,7 +13,7 @@ if [[ $# -gt 1 || "$REMOTE_HOST" == -* \
   exit 2
 fi
 
-for command in codesign jq open openssl perl pgrep scp shasum ssh; do
+for command in codesign jq mkfifo open openssl perl pgrep scp shasum ssh; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Remote NativeMuxDemo needs $command on PATH." >&2
     exit 1
@@ -24,7 +24,8 @@ DEMO_BUILD_ROOT="$TUI_ROOT/target/native-mux-demo"
 CMUX_TUI="$DEMO_BUILD_ROOT/rust-build/debug/cmux-tui"
 APP_BUNDLE="$DEMO_BUILD_ROOT/NativeMuxDemo.app"
 APP_EXECUTABLE="$APP_BUNDLE/Contents/MacOS/NativeMuxDemo"
-for artifact in "$CMUX_TUI" "$APP_EXECUTABLE"; do
+REMOTE_DAEMON_OWNER_SOURCE="$SCRIPT_DIR/remote-daemon-owner.sh"
+for artifact in "$CMUX_TUI" "$APP_EXECUTABLE" "$REMOTE_DAEMON_OWNER_SOURCE"; do
   if [[ ! -x "$artifact" ]]; then
     echo "Reusable demo artifact is missing: $artifact" >&2
     echo "Run run-demo.sh without --reuse-build once, then retry." >&2
@@ -53,9 +54,12 @@ REMOTE_ADMIN_SOCKET="$REMOTE_ROOT/admin.sock"
 REMOTE_LINK_SOCKET="$REMOTE_ROOT/link.sock"
 REMOTE_STATE="$REMOTE_ROOT/remote-state"
 REMOTE_DAEMON_PID_FILE="$REMOTE_ROOT/daemon.pid"
+REMOTE_DAEMON_OWNER="$REMOTE_ROOT/remote-daemon-owner.sh"
+DAEMON_OWNER_PIPE="$LOCAL_ROOT/daemon-owner.pipe"
 SSH_OPTIONS=(-o BatchMode=yes -o ConnectTimeout=8)
 SSH_DAEMON_PID=""
 REMOTE_DAEMON_PID=""
+DAEMON_OWNER_FD_OPEN=0
 OPEN_PID=""
 APP_PID=""
 REMOTE_CREATED=0
@@ -121,6 +125,13 @@ report_remote_owner_state() {
     echo "The remote admin socket still exists." >&2
   else
     echo "The remote admin socket disappeared." >&2
+  fi
+}
+
+close_daemon_owner_channel() {
+  if [[ "$DAEMON_OWNER_FD_OPEN" == "1" ]]; then
+    exec 9>&-
+    DAEMON_OWNER_FD_OPEN=0
   fi
 }
 
@@ -231,9 +242,17 @@ cleanup() {
     fi
   fi
   if [[ -n "$SSH_DAEMON_PID" ]] && kill -0 "$SSH_DAEMON_PID" 2>/dev/null; then
-    kill "$SSH_DAEMON_PID" 2>/dev/null
+    close_daemon_owner_channel
+    for _ in $(seq 1 20); do
+      kill -0 "$SSH_DAEMON_PID" 2>/dev/null || break
+      sleep 0.1
+    done
+    if kill -0 "$SSH_DAEMON_PID" 2>/dev/null; then
+      kill "$SSH_DAEMON_PID" 2>/dev/null
+    fi
     wait "$SSH_DAEMON_PID" 2>/dev/null
   fi
+  close_daemon_owner_channel
   if [[ "$REMOTE_CREATED" == "1" \
     && "$REMOTE_ROOT" == /tmp/cmux-native-remote-demo.* ]]; then
     if remote_daemon_alive; then
@@ -283,8 +302,9 @@ fi
 echo "Installing this PR's exact cmux-tui in an isolated directory on $REMOTE_HOST..."
 remote_command /bin/mkdir -m 700 "$REMOTE_ROOT"
 REMOTE_CREATED=1
-scp -q "${SSH_OPTIONS[@]}" "$CMUX_TUI" "$REMOTE_HOST:$REMOTE_BIN"
-remote_command /bin/chmod 700 "$REMOTE_BIN"
+scp -q "${SSH_OPTIONS[@]}" "$CMUX_TUI" "$REMOTE_DAEMON_OWNER_SOURCE" \
+  "$REMOTE_HOST:$REMOTE_ROOT/"
+remote_command /bin/chmod 700 "$REMOTE_BIN" "$REMOTE_DAEMON_OWNER"
 LOCAL_HASH="$(shasum -a 256 "$CMUX_TUI" | awk '{print $1}')"
 REMOTE_HASH="$(remote_command /usr/bin/shasum -a 256 "$REMOTE_BIN" | awk '{print $1}')"
 if [[ "$REMOTE_HASH" != "$LOCAL_HASH" ]]; then
@@ -293,7 +313,13 @@ if [[ "$REMOTE_HASH" != "$LOCAL_HASH" ]]; then
 fi
 
 echo "Starting the PTY-owning Iroh daemon on $REMOTE_HOST..."
-DAEMON_COMMAND="$(cmux_remote_quote_command \
+DAEMON_OWNER_COMMAND="$(cmux_remote_quote_command \
+  "$REMOTE_DAEMON_OWNER" \
+  "$REMOTE_DAEMON_PID_FILE" \
+  "$REMOTE_ROOT" \
+  "$REMOTE_BIN" \
+  "$REMOTE_MUX_SOCKET" \
+  -- \
   "$REMOTE_BIN" daemon \
   --session "$SESSION" \
   --socket "$REMOTE_MUX_SOCKET" \
@@ -302,11 +328,15 @@ DAEMON_COMMAND="$(cmux_remote_quote_command \
   --remote-state-dir "$REMOTE_STATE" \
   --remote-link-socket "$REMOTE_LINK_SOCKET" \
   --remote-admin-socket "$REMOTE_ADMIN_SOCKET")"
-printf -v REMOTE_DAEMON_PID_FILE_QUOTED '%q' "$REMOTE_DAEMON_PID_FILE"
-DAEMON_OWNER_COMMAND="printf '%s\\n' \$\$ > $REMOTE_DAEMON_PID_FILE_QUOTED; exec $DAEMON_COMMAND"
+/usr/bin/mkfifo "$DAEMON_OWNER_PIPE"
+# Only this launcher keeps the FIFO's write end open. The remote owner receives
+# EOF and reaps the daemon if this process disappears before its EXIT trap runs.
 # shellcheck disable=SC2029  # Arguments are escaped above.
-ssh -n "${SSH_OPTIONS[@]}" "$REMOTE_HOST" "$DAEMON_OWNER_COMMAND" >"$DAEMON_LOG" 2>&1 &
+ssh "${SSH_OPTIONS[@]}" "$REMOTE_HOST" "$DAEMON_OWNER_COMMAND" \
+  <"$DAEMON_OWNER_PIPE" >"$DAEMON_LOG" 2>&1 &
 SSH_DAEMON_PID=$!
+exec 9>"$DAEMON_OWNER_PIPE"
+DAEMON_OWNER_FD_OPEN=1
 
 ready=0
 for _ in $(seq 1 120); do
@@ -375,7 +405,7 @@ echo "Launching the local Swift/GhosttyKit frontend..."
 open -n -W \
   --env "CMUX_NATIVE_INVITATION_FILE=$INVITATION_FILE" \
   --env CMUX_NATIVE_AUTOCONNECT=1 \
-  "$RUN_APP_BUNDLE" &
+  "$RUN_APP_BUNDLE" 9>&- &
 OPEN_PID=$!
 
 for _ in $(seq 1 200); do
