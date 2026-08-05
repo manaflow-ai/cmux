@@ -29,6 +29,15 @@ use ghostty_vt::{Rgb, TerminalColorOverrides};
 
 const KITTY_REPLAY_STATE_ENCODED_LEN: usize = 52;
 
+fn test_timeout(timeout: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(1)
+        .clamp(1, 16);
+    timeout.saturating_mul(scale)
+}
+
 struct RecoveryHarness {
     child: Option<Child>,
     dir: PathBuf,
@@ -3106,7 +3115,7 @@ fn resource_request(
 }
 
 fn wait_for_socket(path: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
     while Instant::now() < deadline {
         if transport::connect(path).is_ok() {
             return;

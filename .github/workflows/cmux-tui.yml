@@ -121,7 +121,18 @@ jobs:
           while IFS= read -r bin; do
             [ -n "$bin" ] || continue
             echo "Running valgrind for $bin"
+            valgrind_args=()
+            case "$(basename "$bin")" in
+              relay_wss_diagnostic-*)
+                # ring's AES-GCM backend exposes initialized output through a
+                # partially initialized SIMD buffer. Valgrind reports its
+                # padding at Rustls writev. Keep leak and address checks for
+                # this binary while scoping undefined-value suppression to it.
+                valgrind_args+=(--undef-value-errors=no)
+                ;;
+            esac
             if ! valgrind \
+              "${valgrind_args[@]}" \
               --error-exitcode=1 \
               --leak-check=full \
               --show-leak-kinds=definite \
