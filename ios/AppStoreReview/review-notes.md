@@ -1,5 +1,9 @@
 # cmux iOS Review Notes
 
+This file is reference-only background for the team. The single canonical App
+Store Connect notes template is the pasteable notes block in
+`reviewer-setup.md`; do not paste this file into App Store Connect.
+
 cmux for iOS is a companion app for the cmux macOS terminal. It lets a signed-in
 user pair with their Mac, view workspaces, receive terminal notifications, and
 send input to an active terminal session from iPhone or iPad.

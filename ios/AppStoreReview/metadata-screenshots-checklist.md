@@ -18,9 +18,10 @@ complete in App Store Connect or in the submitted binary.
 - [ ] ASC notes explain the Mailinator one-time-code flow when a Mailinator demo
       account is used. The exact demo email and public inbox URL live only in
       ASC.
-- [ ] `review-notes.md` is pasted into ASC notes and edited with the exact
-      review Mac route, automatic-discovery status, or manual pairing fallback
-      for this build.
+- [ ] The canonical pasteable notes block in `reviewer-setup.md` is pasted into
+      ASC notes with every placeholder replaced, keeping the manual pairing
+      fallback section whenever automatic discovery can fail. `review-notes.md`
+      is reference-only and is not pasted into ASC.
 - [ ] Backend services needed by the demo account are live before submission.
 - [ ] Account deletion is available in app or the submission is blocked until the account lifecycle satisfies App Review Guideline 5.1.1(v).
 
