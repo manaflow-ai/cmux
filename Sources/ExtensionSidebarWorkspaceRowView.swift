@@ -1,5 +1,6 @@
 import CmuxFoundation
 import AppKit
+import CmuxSettings
 import CmuxSidebarProviderKit
 import SwiftUI
 import WebKit
@@ -132,13 +133,19 @@ struct CmuxExtensionWorkspaceInspectorDraft: Equatable {
         workspace: CmuxSidebarProviderWorkspace,
         selectedTab: CmuxSidebarProviderWorkspacePopoverTab = .notes
     ) -> CmuxExtensionWorkspaceInspectorDraft {
-        let initialAddress = workspace.pullRequestURLs.first ?? "https://github.com/"
+        let initialAddress = Self.initialAddress(for: workspace)
         return CmuxExtensionWorkspaceInspectorDraft(
             selectedTab: selectedTab,
             notes: "",
             address: initialAddress,
             committedAddress: initialAddress
         )
+    }
+
+    private static func initialAddress(for workspace: CmuxSidebarProviderWorkspace) -> String {
+        guard let rawURL = workspace.pullRequestURLs.first else { return "https://github.com/" }
+        guard let url = URL(string: rawURL) else { return rawURL }
+        return PullRequestLinkSettingsStore().currentConfiguration.resolvedURL(for: url).absoluteString
     }
 }
 

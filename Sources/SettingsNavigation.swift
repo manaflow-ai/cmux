@@ -540,6 +540,8 @@ enum SettingsSearchIndex {
         "sidebar.watchGitStatus": settingID(for: .sidebarAppearance, idSuffix: "watch-git-status"),
         "sidebar.makePullRequestsClickable": settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"),
         "sidebar.openPullRequestLinksInCmuxBrowser": settingID(for: .sidebarAppearance, idSuffix: "open-pr-links"),
+        "sidebar.pullRequestLinkDestination": settingID(for: .sidebarAppearance, idSuffix: "pr-link-destination"),
+        "sidebar.customPullRequestLinkURLTemplate": settingID(for: .sidebarAppearance, idSuffix: "pr-link-destination"),
         "sidebar.openPortLinksInCmuxBrowser": settingID(for: .sidebarAppearance, idSuffix: "open-port-links"),
         "sidebar.showSSH": settingID(for: .sidebarAppearance, idSuffix: "show-ssh"),
         "sidebar.showPorts": settingID(for: .sidebarAppearance, idSuffix: "show-ports"),

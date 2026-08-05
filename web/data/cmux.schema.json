@@ -1069,6 +1069,17 @@
           "default": true,
           "description": "Open sidebar pull request links in the embedded cmux browser."
         },
+        "pullRequestLinkDestination": {
+          "type": "string",
+          "enum": ["github", "graphite", "custom"],
+          "default": "github",
+          "description": "Where sidebar pull request links go. github keeps the pull request's own URL, graphite opens it in Graphite's review UI, and custom renders customPullRequestLinkURLTemplate."
+        },
+        "customPullRequestLinkURLTemplate": {
+          "type": "string",
+          "default": "",
+          "description": "Pull request URL used when pullRequestLinkDestination is custom. Include {owner}, {repo}, and {number}; {number} is required. Leave empty to open the pull request's own page."
+        },
         "openPortLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,

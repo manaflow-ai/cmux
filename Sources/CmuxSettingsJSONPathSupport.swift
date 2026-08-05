@@ -286,6 +286,14 @@ enum SidebarSettingsFileMapping {
             defaultsKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey
         ),
         .init(
+            jsonKey: "pullRequestLinkDestination",
+            defaultsKey: sidebar.pullRequestLinkDestination.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "customPullRequestLinkURLTemplate",
+            defaultsKey: sidebar.customPullRequestLinkURLTemplate.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openPortLinksInCmuxBrowser",
             defaultsKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey
         ),
@@ -461,6 +469,8 @@ extension CmuxSettingsFileStore {
         "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPullRequestLinksInCmuxBrowser",
+        "sidebar.pullRequestLinkDestination",
+        "sidebar.customPullRequestLinkURLTemplate",
         "sidebar.openPortLinksInCmuxBrowser",
         "sidebar.showSSH",
         "sidebar.showPorts",

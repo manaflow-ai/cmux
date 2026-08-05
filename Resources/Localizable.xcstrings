@@ -148733,6 +148733,40 @@
         }
       }
     },
+    "settings.app.customPullRequestLinkURLTemplate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom PR URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムPR URL"
+          }
+        }
+      }
+    },
+    "settings.app.customPullRequestLinkURLTemplate.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use {owner}, {repo}, and {number} for the pull request. Leave empty to open the PR's own page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プルリクエストの指定には {owner}、{repo}、{number} を使います。空欄の場合はPR本来のページを開きます。"
+          }
+        }
+      }
+    },
     "settings.app.defaultTerminal": {
       "extractionState": "manual",
       "localizations": {
@@ -154039,6 +154073,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cmd+クリックのファイルプレビューが無効な場合、またはファイルが未対応の場合に使うコマンドです。空欄のままにするとシステムの既定で開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.pullRequestLinkDestination": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open PR Links At"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクの遷移先"
+          }
+        }
+      }
+    },
+    "settings.app.pullRequestLinkDestination.subtitleCustom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR links go to your own review URL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクは指定したレビューURLを開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.pullRequestLinkDestination.subtitleGitHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR links go to the pull request's own page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクはプルリクエスト本来のページを開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.pullRequestLinkDestination.subtitleGraphite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR links go to Graphite's review UI."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクはGraphiteのレビュー画面を開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.pullRequestLinkDestination.subtitleHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable sidebar PR visibility to choose where PR links go."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRリンクの遷移先を選ぶには、サイドバーのPR表示を有効にしてください。"
           }
         }
       }
@@ -191356,6 +191475,23 @@
         }
       }
     },
+    "settings.search.alias.setting.sidebarAppearance.pr-link-destination": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.pullRequestLinkDestination sidebar.customPullRequestLinkURLTemplate pr links destination github graphite stacked review host custom url template where"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.pullRequestLinkDestination sidebar.customPullRequestLinkURLTemplate pr links destination github graphite stacked review host custom url template where PRリンク 遷移先 プルリクエスト レビュー カスタム URL テンプレート"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.sidebarAppearance.reset-tint": {
       "extractionState": "manual",
       "localizations": {
@@ -194633,6 +194769,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cmd または Control を押し続けるとショートカットヒントのチップを表示します。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.pullRequestLinkDestination.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム"
+          }
+        }
+      }
+    },
+    "settings.sidebar.pullRequestLinkDestination.github": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub"
+          }
+        }
+      }
+    },
+    "settings.sidebar.pullRequestLinkDestination.graphite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Graphite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Graphite"
           }
         }
       }
