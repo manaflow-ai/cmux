@@ -362,6 +362,77 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func reorderDragPreviewsRowOrderAndRestoresItOnExit() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let ids = (0..<4).map { _ in UUID() }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let actions = makeTableActions(
+            updateWorkspaceDrag: { _, _, _ in
+                SidebarWorkspaceTableReorderDropUpdate(
+                    indicator: SidebarDropIndicator(tabId: ids[3], edge: .top),
+                    scope: .raw,
+                    draggedWorkspaceId: ids[1],
+                    indicatorRowIds: ids,
+                    plan: SidebarWorkspaceReorderDropPlan(
+                        draggedWorkspaceId: ids[1],
+                        indicator: SidebarDropIndicator(tabId: ids[3], edge: .top),
+                        action: .reorder(
+                            targetIndex: 2,
+                            usesTopLevelRows: false,
+                            explicitGroupId: nil
+                        )
+                    )
+                )
+            }
+        )
+        controller.apply(
+            rows: ids.map { makeRowConfiguration(workspaceId: $0) },
+            actions: actions,
+            workspaceIds: ids,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        func displayedWorkspaceIds() throws -> [UUID] {
+            try (0..<controller.numberOfRows(in: container.tableView)).map { row in
+                let item = try #require(
+                    controller.tableView(container.tableView, pasteboardWriterForRow: row)
+                        as? NSPasteboardItem
+                )
+                let type = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+                return try #require(
+                    SidebarTabDragPayload.workspaceId(
+                        fromPasteboardString: item.string(forType: type)
+                    )
+                )
+            }
+        }
+
+        #expect(try displayedWorkspaceIds() == ids)
+        #expect(controller.updateReorderDrag(windowPoint: NSPoint(x: 40, y: 120)))
+        #expect(try displayedWorkspaceIds() == [ids[0], ids[2], ids[1], ids[3]])
+
+        controller.reorderDropDragExited()
+        #expect(try displayedWorkspaceIds() == ids)
+    }
+
+    @Test
+    @MainActor
     func heightChangingReorderPreservesVisibleRowOffset() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
