@@ -6,7 +6,8 @@ extension BrowserControlService {
     ///
     /// The wrapper awaits promise-like results, converts DOM rectangles and
     /// JSON containers before they cross WebKit, duplicates repeated aliases,
-    /// and emits a deterministic error envelope for a true circular reference.
+    /// and emits deterministic error envelopes for cycles or results whose
+    /// normalization would exceed bounded work.
     ///
     /// - Parameters:
     ///   - script: User or automation JavaScript to execute.
@@ -47,6 +48,11 @@ extension BrowserControlService {
         let errorMessageKey = jsonLiteral(evalEnvelope.errorMessageKey)
         let circularReferenceCode = jsonLiteral(evalEnvelope.circularReferenceCode)
         let circularReferenceMessage = jsonLiteral(evalEnvelope.circularReferenceMessage)
+        let resultTooComplexCode = jsonLiteral("result_too_complex")
+        let resultTooComplexMessage = jsonLiteral(String(
+            localized: "cli.browser.error.operationFailed",
+            defaultValue: "Browser operation failed"
+        ))
 
         return """
         \(framePrelude)
@@ -59,7 +65,18 @@ extension BrowserControlService {
         };
 
         const __cmuxCircularReference = Symbol('cmux.circularReference');
-        const __cmuxBridgeSafeValue = (__value, __ancestors = new WeakSet()) => {
+        const __cmuxResultTooComplex = Symbol('cmux.resultTooComplex');
+        const __cmuxBridgeSafeValue = (
+          __value,
+          __ancestors = new WeakSet(),
+          __budget = {remaining: 10000},
+          __depth = 0
+        ) => {
+          if (__budget.remaining <= 0 || __depth > 100) {
+            throw __cmuxResultTooComplex;
+          }
+          __budget.remaining -= 1;
+
           if (__value === null || typeof __value === 'undefined') {
             return __value;
           }
@@ -94,14 +111,14 @@ extension BrowserControlService {
             __ancestors.add(__value);
             try {
               return {
-                x: __cmuxBridgeSafeValue(__value.x, __ancestors),
-                y: __cmuxBridgeSafeValue(__value.y, __ancestors),
-                width: __cmuxBridgeSafeValue(__value.width, __ancestors),
-                height: __cmuxBridgeSafeValue(__value.height, __ancestors),
-                top: __cmuxBridgeSafeValue(__value.top, __ancestors),
-                right: __cmuxBridgeSafeValue(__value.right, __ancestors),
-                bottom: __cmuxBridgeSafeValue(__value.bottom, __ancestors),
-                left: __cmuxBridgeSafeValue(__value.left, __ancestors)
+                x: __cmuxBridgeSafeValue(__value.x, __ancestors, __budget, __depth + 1),
+                y: __cmuxBridgeSafeValue(__value.y, __ancestors, __budget, __depth + 1),
+                width: __cmuxBridgeSafeValue(__value.width, __ancestors, __budget, __depth + 1),
+                height: __cmuxBridgeSafeValue(__value.height, __ancestors, __budget, __depth + 1),
+                top: __cmuxBridgeSafeValue(__value.top, __ancestors, __budget, __depth + 1),
+                right: __cmuxBridgeSafeValue(__value.right, __ancestors, __budget, __depth + 1),
+                bottom: __cmuxBridgeSafeValue(__value.bottom, __ancestors, __budget, __depth + 1),
+                left: __cmuxBridgeSafeValue(__value.left, __ancestors, __budget, __depth + 1)
               };
             } finally {
               __ancestors.delete(__value);
@@ -113,7 +130,7 @@ extension BrowserControlService {
             try {
               const __copy = [];
               for (const __item of __value) {
-                __copy.push(__cmuxBridgeSafeValue(__item, __ancestors));
+                __copy.push(__cmuxBridgeSafeValue(__item, __ancestors, __budget, __depth + 1));
               }
               return __copy;
             } finally {
@@ -126,7 +143,12 @@ extension BrowserControlService {
             const __copy = {};
             for (const __key of Object.keys(__value)) {
               Object.defineProperty(__copy, __key, {
-                value: __cmuxBridgeSafeValue(__value[__key], __ancestors),
+                value: __cmuxBridgeSafeValue(
+                  __value[__key],
+                  __ancestors,
+                  __budget,
+                  __depth + 1
+                ),
                 enumerable: true,
                 configurable: true,
                 writable: true
@@ -151,6 +173,13 @@ extension BrowserControlService {
                 [\(typeKey)]: \(typeError),
                 [\(errorCodeKey)]: \(circularReferenceCode),
                 [\(errorMessageKey)]: \(circularReferenceMessage)
+              };
+            }
+            if (__error === __cmuxResultTooComplex) {
+              return {
+                [\(typeKey)]: \(typeError),
+                [\(errorCodeKey)]: \(resultTooComplexCode),
+                [\(errorMessageKey)]: \(resultTooComplexMessage)
               };
             }
             throw __error;

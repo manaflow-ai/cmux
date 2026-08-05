@@ -11221,7 +11221,7 @@ extension DefaultWorkspaceSidebarView {
             .sidebarPointerEventHost(pointerInteractionMonitor)
             .background(
                 SidebarScrollViewResolver { scrollView in
-                    configureSidebarOverlayScrollView(scrollView)
+                    scrollView?.applySidebarOverlayScrollerConfiguration()
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
                 .frame(width: 0, height: 0)
@@ -12066,7 +12066,7 @@ extension VerticalTabsSidebar {
             }
             .background(
                 SidebarScrollViewResolver { scrollView in
-                    configureSidebarOverlayScrollView(scrollView)
+                    scrollView?.applySidebarOverlayScrollerConfiguration()
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
                 .frame(width: 0, height: 0)

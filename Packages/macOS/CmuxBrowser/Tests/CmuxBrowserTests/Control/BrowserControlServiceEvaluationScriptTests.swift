@@ -114,14 +114,10 @@ struct BrowserControlServiceEvaluationScriptTests {
         let envelope = try evaluate(
             """
             (() => {
-              class Payload {
-                constructor() {
-                  this.answer = 42;
-                }
-                toJSON() {
-                  return 'prototype-hook';
-                }
+              function Payload() {
+                this.answer = 42;
               }
+              Payload.prototype.toJSON = function() { return 'prototype-hook'; };
               return new Payload();
             })()
             """
