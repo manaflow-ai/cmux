@@ -16,7 +16,7 @@ struct CommandClickHTMLOpenRoutingTests {
     @Test
     func filesystemProbeUsesDeadlineAndPreservesCandidateOrder() async throws {
         let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
-            stdout: "1\n",
+            stdout: "1\0/private/tmp/second.html\n",
             stderr: "",
             exitStatus: 0,
             timedOut: false,
@@ -28,7 +28,9 @@ struct CommandClickHTMLOpenRoutingTests {
         )
         let paths = ["/tmp/first.html", "/tmp/second.html"]
 
-        #expect(await probe.firstExistingPathIndex(in: paths) == 1)
+        let resolution = await probe.firstExistingPath(in: paths)
+        #expect(resolution?.index == 1)
+        #expect(resolution?.resolvedPath == "/private/tmp/second.html")
         let invocation = try #require(await runner.lastInvocation())
         #expect(invocation.directory == "/")
         #expect(invocation.executable == "/bin/sh")
@@ -47,7 +49,7 @@ struct CommandClickHTMLOpenRoutingTests {
         ))
         let probe = WordPathFilesystemProbe(commands: runner, timeout: 0.25)
 
-        #expect(await probe.firstExistingPathIndex(in: ["/tmp/index.html"]) == nil)
+        #expect(await probe.firstExistingPath(in: ["/tmp/index.html"]) == nil)
     }
 
     @Test
@@ -103,6 +105,82 @@ struct CommandClickHTMLOpenRoutingTests {
         releaseFirst.continuation.finish()
         secondDiscarded.continuation.finish()
         thirdFinished.continuation.finish()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func filesystemProbePoolPreservesDistinctPendingClicks() async {
+        let pool = WordPathFilesystemResolutionCoordinator()
+        let hoverStarted = AsyncStream<Void>.makeStream()
+        let releaseHover = AsyncStream<Void>.makeStream()
+        let clicksFinished = AsyncStream<Int>.makeStream()
+
+        pool.submit(
+            id: UUID(),
+            isUserInitiated: false,
+            work: {
+                hoverStarted.continuation.yield()
+                var releaseIterator = releaseHover.stream.makeAsyncIterator()
+                _ = await releaseIterator.next()
+                return { @MainActor in }
+            },
+            discarded: {}
+        )
+        var hoverStartedIterator = hoverStarted.stream.makeAsyncIterator()
+        _ = await hoverStartedIterator.next()
+
+        for click in 1...2 {
+            pool.submit(
+                id: UUID(),
+                isUserInitiated: true,
+                work: {
+                    return { @MainActor in clicksFinished.continuation.yield(click) }
+                },
+                discarded: {}
+            )
+        }
+        releaseHover.continuation.yield()
+
+        var clickIterator = clicksFinished.stream.makeAsyncIterator()
+        let firstClick = await clickIterator.next()
+        let secondClick = await clickIterator.next()
+        let completedClicks = [firstClick, secondClick].compactMap { $0 }
+        #expect(completedClicks == [1, 2])
+
+        hoverStarted.continuation.finish()
+        releaseHover.continuation.finish()
+        clicksFinished.continuation.finish()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func filesystemProbePoolRateLimitsConsecutiveHovers() async {
+        let pool = WordPathFilesystemResolutionCoordinator(
+            minimumHoverInterval: .milliseconds(80)
+        )
+        let firstFinished = AsyncStream<Void>.makeStream()
+        let secondFinished = AsyncStream<Void>.makeStream()
+
+        pool.submit(
+            id: UUID(),
+            isUserInitiated: false,
+            work: { return { @MainActor in firstFinished.continuation.yield() } },
+            discarded: {}
+        )
+        var firstIterator = firstFinished.stream.makeAsyncIterator()
+        _ = await firstIterator.next()
+
+        let submittedAt = ContinuousClock.now
+        pool.submit(
+            id: UUID(),
+            isUserInitiated: false,
+            work: { return { @MainActor in secondFinished.continuation.yield() } },
+            discarded: {}
+        )
+        var secondIterator = secondFinished.stream.makeAsyncIterator()
+        _ = await secondIterator.next()
+
+        #expect(submittedAt.duration(to: .now) >= .milliseconds(50))
+        firstFinished.continuation.finish()
+        secondFinished.continuation.finish()
     }
 
     @Test
