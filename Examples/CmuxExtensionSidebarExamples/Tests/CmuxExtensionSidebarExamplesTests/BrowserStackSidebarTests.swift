@@ -1,6 +1,7 @@
 import CmuxSidebarProviderKit
 @testable import CmuxExtensionSidebarExamples
 import XCTest
+import os
 
 final class BrowserStackSidebarTests: XCTestCase {
     func testGroupingAndOrderPersistAcrossProviderInstances() throws {
@@ -159,6 +160,53 @@ final class BrowserStackSidebarTests: XCTestCase {
         XCTAssertEqual(persistedState.sections.first { $0.id == "group:reading-list" }?.workspaceIds.first, movedWorkspace.id)
         XCTAssertEqual(secondScopedState.sections.first { $0.id == "group:reading-list" }?.workspaceIds.first, secondMovedWorkspace.id)
         XCTAssertFalse(secondScopedState.sections.flatMap(\.workspaceIds).contains(movedWorkspace.id))
+    }
+
+    func testRapidMutationsPersistLatestGeneration() throws {
+        let stateURL = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: stateURL.deletingLastPathComponent()) }
+
+        let windowId = UUID()
+        let snapshot = snapshot(
+            titles: ["First", "Second", "Third", "Fourth", "Fifth"],
+            windowId: windowId
+        )
+        let store = BrowserStackSidebarStore(stateURL: stateURL)
+        let provider = BrowserStackSidebar(store: store)
+        _ = provider.render(snapshot: snapshot)
+
+        let fourth = snapshot.workspaces[3]
+        let fifth = snapshot.workspaces[4]
+        XCTAssertTrue(try provider.handle(
+            .moveWorkspace(CmuxSidebarProviderWorkspaceMove(
+                workspaceId: fourth.id,
+                sourceSectionId: "loose",
+                targetSectionId: "group:reading-list",
+                targetIndex: 0
+            )),
+            snapshot: snapshot
+        ).ok)
+        XCTAssertTrue(try provider.handle(
+            .moveWorkspace(CmuxSidebarProviderWorkspaceMove(
+                workspaceId: fifth.id,
+                sourceSectionId: "loose",
+                targetSectionId: "group:reading-list",
+                targetIndex: 0
+            )),
+            snapshot: snapshot
+        ).ok)
+
+        let expectedOrder = [fifth.id, fourth.id]
+        let persistedState = try waitForPersistedState(
+            store: store,
+            scopeKey: scopeKey(for: windowId)
+        ) { state in
+            state.sections.first { $0.id == "group:reading-list" }?.workspaceIds == expectedOrder
+        }
+        XCTAssertEqual(
+            persistedState.sections.first { $0.id == "group:reading-list" }?.workspaceIds,
+            expectedOrder
+        )
     }
 
     func testWindowScopedStateFallsBackToMatchingRelaunchScope() throws {
@@ -378,14 +426,14 @@ final class BrowserStackSidebarTests: XCTestCase {
     }
 }
 
-private final class AsyncStateLoadProbe: @unchecked Sendable {
-    private let expectation: XCTestExpectation
+private final class AsyncStateLoadProbe: Sendable {
+    private let expectation: OSAllocatedUnfairLock<XCTestExpectation>
 
     init(_ expectation: XCTestExpectation) {
-        self.expectation = expectation
+        self.expectation = OSAllocatedUnfairLock(initialState: expectation)
     }
 
     func fulfill() {
-        expectation.fulfill()
+        expectation.withLock { $0.fulfill() }
     }
 }

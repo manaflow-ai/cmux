@@ -1,5 +1,6 @@
 import CmuxSidebarProviderKit
 import Foundation
+import os
 
 public struct BrowserStackSidebar: CmuxMutableSidebarProvider {
     public static let stateDidLoadNotification = Notification.Name("CmuxBrowserStackSidebarStateDidLoad")
@@ -123,30 +124,67 @@ public struct BrowserStackSidebar: CmuxMutableSidebarProvider {
     }
 }
 
-private final class BrowserStackSidebarStateCache: @unchecked Sendable {
-    private struct ScopedState {
+private actor BrowserStackSidebarPersistence {
+    private let store: BrowserStackSidebarStore
+    private var latestSavedGenerationByScope: [String: UInt64] = [:]
+
+    init(store: BrowserStackSidebarStore) {
+        self.store = store
+    }
+
+    func load(
+        scopeKey: String,
+        snapshot: CmuxSidebarProviderSnapshot
+    ) throws -> BrowserStackSidebarState {
+        try store.load(scopeKey: scopeKey, snapshot: snapshot)
+    }
+
+    func save(
+        _ state: BrowserStackSidebarState,
+        scopeKey: String,
+        generation: UInt64
+    ) {
+        guard generation >= latestSavedGenerationByScope[scopeKey, default: 0] else {
+            return
+        }
+        latestSavedGenerationByScope[scopeKey] = generation
+        do {
+            try store.save(state, scopeKey: scopeKey)
+        } catch {
+            // A later mutation will retry with a newer generation. Rendering
+            // always uses the in-memory state, so a transient disk failure
+            // must not roll the provider back.
+        }
+    }
+}
+
+private final class BrowserStackSidebarStateCache: Sendable {
+    private struct ScopedState: Sendable {
         var state: BrowserStackSidebarState?
         var didStartLoad: Bool
         var mutationGeneration: UInt64
     }
 
+    private struct Storage: Sendable {
+        var statesByScope: [String: ScopedState]
+    }
+
     private static let legacyScopeKey = "legacy"
 
-    private let store: BrowserStackSidebarStore
+    private let persistence: BrowserStackSidebarPersistence
     private let onAsyncStateLoaded: (@Sendable () -> Void)?
-    private let lock = NSLock()
-    private let persistenceQueue = DispatchQueue(label: "cmux.browser-stack-sidebar.persistence")
     private let initialState: BrowserStackSidebarState?
-    private var statesByScope: [String: ScopedState] = [:]
+    private let storage: OSAllocatedUnfairLock<Storage>
 
     init(
         store: BrowserStackSidebarStore,
         initialState: BrowserStackSidebarState?,
         onAsyncStateLoaded: (@Sendable () -> Void)?
     ) {
-        self.store = store
+        persistence = BrowserStackSidebarPersistence(store: store)
         self.onAsyncStateLoaded = onAsyncStateLoaded
         self.initialState = initialState
+        var statesByScope: [String: ScopedState] = [:]
         if initialState != nil {
             statesByScope[Self.legacyScopeKey] = ScopedState(
                 state: initialState,
@@ -154,19 +192,24 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
                 mutationGeneration: 0
             )
         }
+        storage = OSAllocatedUnfairLock(initialState: Storage(statesByScope: statesByScope))
     }
 
     func state(for snapshot: CmuxSidebarProviderSnapshot) -> BrowserStackSidebarState {
         let scopeKey = Self.scopeKey(for: snapshot)
         startLoadIfNeeded(scopeKey: scopeKey, snapshot: snapshot)
-        lock.lock()
-        var scopedState = scopedState(for: scopeKey)
-        let base = scopedState.state ?? BrowserStackSidebarState.initial(snapshot: snapshot)
-        let reconciled = base.reconciled(with: snapshot)
-        scopedState.state = reconciled
-        statesByScope[scopeKey] = scopedState
-        lock.unlock()
-        return reconciled
+        return storage.withLock { storage in
+            var scopedState = Self.scopedState(
+                for: scopeKey,
+                in: storage,
+                initialState: initialState
+            )
+            let base = scopedState.state ?? BrowserStackSidebarState.initial(snapshot: snapshot)
+            let reconciled = base.reconciled(with: snapshot)
+            scopedState.state = reconciled
+            storage.statesByScope[scopeKey] = scopedState
+            return reconciled
+        }
     }
 
     func moveWorkspace(
@@ -174,65 +217,87 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
         snapshot: CmuxSidebarProviderSnapshot
     ) {
         let scopeKey = Self.scopeKey(for: snapshot)
-        let updated: BrowserStackSidebarState
-        lock.lock()
-        var scopedState = scopedState(for: scopeKey)
-        scopedState.mutationGeneration &+= 1
-        var next = (scopedState.state ?? BrowserStackSidebarState.initial(snapshot: snapshot)).reconciled(with: snapshot)
-        next.moveWorkspace(move)
-        updated = next.reconciled(with: snapshot)
-        scopedState.state = updated
-        scopedState.didStartLoad = true
-        statesByScope[scopeKey] = scopedState
-        lock.unlock()
-        persist(updated, scopeKey: scopeKey)
+        let mutation = storage.withLock { storage -> (BrowserStackSidebarState, UInt64) in
+            var scopedState = Self.scopedState(
+                for: scopeKey,
+                in: storage,
+                initialState: initialState
+            )
+            scopedState.mutationGeneration &+= 1
+            var next = (
+                scopedState.state ?? BrowserStackSidebarState.initial(snapshot: snapshot)
+            ).reconciled(with: snapshot)
+            next.moveWorkspace(move)
+            let updated = next.reconciled(with: snapshot)
+            scopedState.state = updated
+            scopedState.didStartLoad = true
+            storage.statesByScope[scopeKey] = scopedState
+            return (updated, scopedState.mutationGeneration)
+        }
+        persist(mutation.0, scopeKey: scopeKey, generation: mutation.1)
     }
 
     private func startLoadIfNeeded(scopeKey: String, snapshot: CmuxSidebarProviderSnapshot) {
-        let generation: UInt64
-        lock.lock()
-        var scopedState = scopedState(for: scopeKey)
-        if scopedState.didStartLoad {
-            lock.unlock()
-            return
+        let generation = storage.withLock { storage -> UInt64? in
+            var scopedState = Self.scopedState(
+                for: scopeKey,
+                in: storage,
+                initialState: initialState
+            )
+            guard !scopedState.didStartLoad else { return nil }
+            scopedState.didStartLoad = true
+            storage.statesByScope[scopeKey] = scopedState
+            return scopedState.mutationGeneration
         }
-        scopedState.didStartLoad = true
-        generation = scopedState.mutationGeneration
-        statesByScope[scopeKey] = scopedState
-        lock.unlock()
+        guard let generation else { return }
 
-        Task.detached(priority: .utility) { [store, scopeKey, snapshot] in
-            guard let loaded = try? store.load(scopeKey: scopeKey, snapshot: snapshot) else { return }
+        Task { [persistence, scopeKey, snapshot] in
+            guard let loaded = try? await persistence.load(
+                scopeKey: scopeKey,
+                snapshot: snapshot
+            ) else { return }
             self.applyLoadedState(loaded, scopeKey: scopeKey, generation: generation)
         }
     }
 
     private func applyLoadedState(_ loaded: BrowserStackSidebarState, scopeKey: String, generation: UInt64) {
-        let shouldNotify: Bool
-        lock.lock()
-        var scopedState = scopedState(for: scopeKey)
-        if scopedState.mutationGeneration == generation {
+        let shouldNotify = storage.withLock { storage in
+            var scopedState = Self.scopedState(
+                for: scopeKey,
+                in: storage,
+                initialState: initialState
+            )
+            guard scopedState.mutationGeneration == generation else { return false }
             scopedState.state = loaded
-            statesByScope[scopeKey] = scopedState
-            shouldNotify = true
-        } else {
-            shouldNotify = false
+            storage.statesByScope[scopeKey] = scopedState
+            return true
         }
-        lock.unlock()
         if shouldNotify {
             onAsyncStateLoaded?()
         }
     }
 
-    private func persist(_ state: BrowserStackSidebarState, scopeKey: String) {
-        persistenceQueue.async { [store, scopeKey] in
-            try? store.save(state, scopeKey: scopeKey)
+    private func persist(
+        _ state: BrowserStackSidebarState,
+        scopeKey: String,
+        generation: UInt64
+    ) {
+        Task { [persistence, state, scopeKey] in
+            await persistence.save(
+                state,
+                scopeKey: scopeKey,
+                generation: generation
+            )
         }
     }
 
-    private func scopedState(for scopeKey: String) -> ScopedState {
+    private static func scopedState(
+        for scopeKey: String,
+        in storage: Storage,
+        initialState: BrowserStackSidebarState?
+    ) -> ScopedState {
         let scopedInitialState = scopeKey == Self.legacyScopeKey ? initialState : nil
-        return statesByScope[scopeKey] ?? ScopedState(
+        return storage.statesByScope[scopeKey] ?? ScopedState(
             state: scopedInitialState,
             didStartLoad: scopedInitialState != nil,
             mutationGeneration: 0
