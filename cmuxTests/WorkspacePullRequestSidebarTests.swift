@@ -1,5 +1,6 @@
-import Testing
 import Darwin
+import Foundation
+import Testing
 import CmuxFoundation
 import CmuxGit
 import CmuxSettings

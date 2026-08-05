@@ -155,10 +155,16 @@ final class TerminalPanel: Panel, ObservableObject {
             .sink { draftCache.updateIsActive($0) }
             .store(in: &cancellables)
         $textBoxContent
-            .sink { draftCache.updateText($0) }
+            .sink { [weak self] text in
+                guard self?.textBoxInputView == nil else { return }
+                draftCache.updateFlattenedText(text)
+            }
             .store(in: &cancellables)
         $textBoxAttachments
-            .sink { draftCache.updateAttachments($0) }
+            .sink { [weak self] attachments in
+                guard self?.textBoxInputView == nil else { return }
+                draftCache.updateFlattenedAttachments(attachments)
+            }
             .store(in: &cancellables)
         // Subscribe to surface's search state changes
         surface.$searchState
@@ -391,8 +397,9 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func preserveTextBoxContentForUnmount(from textBoxInputView: TextBoxInputTextView) {
-        // Dismantle can run while AttributeGraph is destroying this subtree. Cache only
-        // non-published draft state here; normal editing keeps the published bindings current.
+        // Dismantle can run while AttributeGraph is destroying this subtree. Cache the
+        // editor's ordered snapshot without publishing through SwiftUI; its flat bindings
+        // cannot preserve whether boundary text sits before or after an attachment.
         if isClosingPanel {
             assert(
                 didDiscardTextBoxContentForClose,
@@ -433,6 +440,7 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         restoredTextBoxDraft = nil
         preservedTextBoxAttributedContent = nil
+        textBoxDraftCache.recordExactSnapshot(nil)
         textBoxContent = ""
         textBoxAttachments = []
         isTextBoxActive = false
@@ -462,6 +470,7 @@ final class TerminalPanel: Panel, ObservableObject {
               !draft.parts.isEmpty else {
             restoredTextBoxDraft = nil
             preservedTextBoxAttributedContent = nil
+            textBoxDraftCache.recordExactSnapshot(nil)
             textBoxContent = ""
             textBoxAttachments = []
             isTextBoxActive = false

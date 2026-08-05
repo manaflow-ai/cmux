@@ -139,7 +139,7 @@ import Testing
         #expect(textView.plainText() == "before  after")
     }
 
-    @Test func exactDraftSnapshotDoesNotDuplicateTrailingText() throws {
+    @Test func liveDraftSnapshotDoesNotDuplicateTrailingText() throws {
         let attachment = TextBoxAttachment(
             displayName: "first.txt",
             submissionText: "/tmp/first.txt",
@@ -151,15 +151,17 @@ import Testing
             .attachment(attachmentSnapshot),
             .text("describe this"),
         ]
-        let cache = TerminalPanelTextBoxDraftCache()
+        let snapshot = try preservedDraft(initialParts: expectedParts) { textView in
+            textView.textStorage?.replaceCharacters(
+                in: NSRange(location: textView.attributedString().length, length: 0),
+                with: "!"
+            )
+        }
 
-        cache.recordExactSnapshot(SessionTextBoxInputDraftSnapshot(
-            isActive: true,
-            parts: expectedParts
-        ))
-        cache.updateText("describe this")
-
-        #expect(try #require(cache.currentSnapshot()).parts == expectedParts)
+        #expect(snapshot.parts == [
+            .attachment(attachmentSnapshot),
+            .text("describe this!"),
+        ])
     }
 
     @Test func textEditPreservesInterleavedAttachmentPosition() throws {
@@ -172,16 +174,17 @@ import Testing
         let attachmentPart = SessionTextBoxInputDraftPart.attachment(
             SessionTextBoxInputAttachmentSnapshot(attachment)
         )
-        let cache = TerminalPanelTextBoxDraftCache()
-
-        cache.recordExactSnapshot(SessionTextBoxInputDraftSnapshot(
-            isActive: true,
-            parts: [.text("before "), attachmentPart, .text(" after")]
-        ))
-        cache.updateText("before  after edited")
+        let snapshot = try preservedDraft(
+            initialParts: [.text("before "), attachmentPart, .text(" after")]
+        ) { textView in
+            textView.textStorage?.replaceCharacters(
+                in: NSRange(location: textView.attributedString().length, length: 0),
+                with: " edited"
+            )
+        }
 
         #expect(
-            try #require(cache.currentSnapshot()).parts
+            snapshot.parts
                 == [.text("before "), attachmentPart, .text(" after edited")]
         )
     }
@@ -196,16 +199,18 @@ import Testing
         let attachmentPart = SessionTextBoxInputDraftPart.attachment(
             SessionTextBoxInputAttachmentSnapshot(attachment)
         )
-        let cache = TerminalPanelTextBoxDraftCache()
-
-        cache.recordExactSnapshot(SessionTextBoxInputDraftSnapshot(
-            isActive: true,
-            parts: [.text("before"), attachmentPart, .text("after")]
-        ))
-        cache.updateText("before inserted after")
+        let snapshot = try preservedDraft(
+            initialParts: [.text("before"), attachmentPart, .text("after")]
+        ) { textView in
+            let locationAfterAttachment = ("before" as NSString).length + 1
+            textView.textStorage?.replaceCharacters(
+                in: NSRange(location: locationAfterAttachment, length: 0),
+                with: " inserted "
+            )
+        }
 
         #expect(
-            try #require(cache.currentSnapshot()).parts
+            snapshot.parts
                 == [.text("before"), attachmentPart, .text(" inserted after")]
         )
     }
@@ -238,18 +243,68 @@ import Testing
         let addedPart = SessionTextBoxInputDraftPart.attachment(
             SessionTextBoxInputAttachmentSnapshot(added)
         )
-        let cache = TerminalPanelTextBoxDraftCache()
-
-        cache.recordExactSnapshot(SessionTextBoxInputDraftSnapshot(
-            isActive: true,
-            parts: [firstPart, .text("compare"), secondPart]
-        ))
-        cache.updateAttachments([first, second, added])
+        let snapshot = try preservedDraft(
+            initialParts: [firstPart, .text("compare"), secondPart]
+        ) { textView in
+            textView.installSessionDraft(SessionTextBoxInputDraftSnapshot(
+                isActive: true,
+                parts: [firstPart, .text("compare"), secondPart, addedPart]
+            ))
+        }
 
         #expect(
-            try #require(cache.currentSnapshot()).parts
+            snapshot.parts
                 == [firstPart, .text("compare"), secondPart, addedPart]
         )
+    }
+
+    @Test func exactDraftSnapshotRejectsAmbiguousFlattenedUpdates() throws {
+        let attachment = TextBoxAttachment(
+            displayName: "first.txt",
+            submissionText: "/tmp/first.txt",
+            submissionPath: "/tmp/first.txt",
+            localURL: nil
+        )
+        let attachmentSnapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+        let expectedParts: [SessionTextBoxInputDraftPart] = [
+            .text("before"),
+            .attachment(attachmentSnapshot),
+            .text("after"),
+        ]
+        let cache = TerminalPanelTextBoxDraftCache()
+        cache.recordExactSnapshot(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: expectedParts
+        ))
+
+        cache.updateFlattenedText("before inserted after")
+        cache.updateFlattenedAttachments([attachment])
+
+        #expect(try #require(cache.currentSnapshot()).parts == expectedParts)
+    }
+
+    private func preservedDraft(
+        initialParts: [SessionTextBoxInputDraftPart],
+        mutation: (TextBoxInputTextView) -> Void
+    ) throws -> SessionTextBoxInputDraftSnapshot {
+        let initialDraft = SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: initialParts
+        )
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.installSessionDraft(initialDraft, notifyingTextChange: false)
+
+        mutation(textView)
+        textView.didChangeText()
+
+        let snapshot = try #require(textView.sessionDraftSnapshot(isActive: true))
+        let cache = TerminalPanelTextBoxDraftCache()
+        cache.recordExactSnapshot(snapshot)
+        return try #require(cache.currentSnapshot())
     }
 
     private func inlineAttachmentCellCount(in textView: TextBoxInputTextView) -> Int {
