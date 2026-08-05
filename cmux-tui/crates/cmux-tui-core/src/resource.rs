@@ -1651,6 +1651,11 @@ mod tests {
     }
 
     #[test]
+    fn unshipped_terminal_multiview_stays_in_the_single_public_protocol() {
+        assert_eq!(PROTOCOL, "cmux.protocol/1");
+    }
+
+    #[test]
     fn requests_enforce_envelope_and_idempotency_rules() {
         let read: RequestEnvelope = serde_json::from_value(json!({
             "protocol": PROTOCOL,
