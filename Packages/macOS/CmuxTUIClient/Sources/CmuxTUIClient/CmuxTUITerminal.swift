@@ -54,6 +54,10 @@ public actor CmuxTUITerminal {
 
     public func drainRenderEvents() throws -> [CmuxTUIRenderEvent] {
         guard let raw else { return [] }
+        // Carry the opaque handle across Data's closure as a plain value.
+        // Swift 6.2 otherwise treats the actor-isolated pointer capture as a
+        // potential concurrent access even though this method never suspends.
+        let rawAddress = UInt(bitPattern: raw)
         var result: [CmuxTUIRenderEvent] = []
         while true {
             var descriptor = CmuxTUIRenderEventDescriptor()
@@ -80,7 +84,7 @@ public actor CmuxTUITerminal {
                 payload = Data(count: descriptor.payloadLength)
                 let copied = payload.withUnsafeMutableBytes { bytes in
                     library.copyNextRenderEvent(
-                        terminal: raw,
+                        terminal: OpaquePointer(bitPattern: rawAddress),
                         descriptor: &descriptor,
                         buffer: bytes.bindMemory(to: UInt8.self).baseAddress,
                         capacity: bytes.count
