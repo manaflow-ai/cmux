@@ -5639,6 +5639,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         cancelHiddenWebViewDiscard()
+        cancelPendingFileOnlyNavigation()
         isClosingWebViewLifecycle = true
         automationNavigationCoordinator.invalidate()
         navigationDelegate?.cancelPendingAuthenticationPrompts()
@@ -6677,6 +6678,7 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible ||
         hasRecoverableWebContentTermination ||
         pendingWebContentRecoveryURL != nil ||
+        pendingFileOnlyNavigation != nil ||
         webView.cmuxBrowserViewportAttachmentSuperview != nil
     }
 
@@ -6684,7 +6686,9 @@ extension BrowserPanel {
         reason: String,
         forceWebViewReplacement: Bool = false
     ) {
-        guard forceWebViewReplacement || needsWorkspaceContextReset else {
+        let shouldReset = forceWebViewReplacement || needsWorkspaceContextReset
+        cancelPendingFileOnlyNavigation()
+        guard shouldReset else {
             resetWebViewLifecycleMetadata()
 #if DEBUG
             cmuxDebugLog(
@@ -6802,6 +6806,7 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 
 extension BrowserPanel {
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
+        cancelPendingFileOnlyNavigation()
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
@@ -7164,6 +7169,7 @@ extension BrowserPanel {
     func stopLoading() {
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
         userStoppedLoadSinceWebViewReplacement = true
+        cancelPendingFileOnlyNavigation()
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }
