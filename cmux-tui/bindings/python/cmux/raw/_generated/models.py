@@ -525,6 +525,7 @@ class MintTerminalRendererResult:
     terminal_id: str
     endpoint: str
     incarnation: str
+    protocol_version: int
     rights: int
     token: str
     ttl_ms: int
@@ -727,12 +728,16 @@ class ResolveTerminalResult:
 @dataclass(frozen=True)
 class RunResult:
     __cmux_schema_path__: ClassVar[str] = 'types/RunResult'
-    surface: Id
-    pane: Id
-    screen: Id
-    workspace: Id
-    terminal_id: Union[str, None]
+    surface: Union[Id, None]
+    pane: Union[Id, None]
+    screen: Union[Id, None]
+    workspace: Union[Id, None]
+    terminal_id: str
+    already_exited: bool
+    exit: Union[JsonValue, None]
+    lifecycle: TerminalLifecycle
     terminal_incarnation: Union[str, None]
+    terminal_revision: int
 
 
 @dataclass(frozen=True)
@@ -858,14 +863,16 @@ class TerminalModifiers:
 @dataclass(frozen=True)
 class TerminalPlacement:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalPlacement'
-    surface: Id
-    pane: Id
-    screen: Id
-    workspace: Id
-    terminal_id: Union[str, None]
+    surface: Union[Id, None]
+    pane: Union[Id, None]
+    screen: Union[Id, None]
+    workspace: Union[Id, None]
+    terminal_id: str
+    already_exited: bool
+    exit: Union[JsonValue, None]
     generation: str
     key: str
-    lifecycle: Union[Literal['running'], None]
+    lifecycle: TerminalLifecycle
     registry_id: str
     replayed: bool
     terminal_incarnation: Union[str, None]

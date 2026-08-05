@@ -71,8 +71,10 @@ func TestCommandMapPreservesExplicitNull(t *testing.T) {
 	}
 }
 
-func TestTerminalPlacementLifecycleIsExactLiteral(t *testing.T) {
+func TestTerminalPlacementPreservesRunningAndEarlyExitLifecycles(t *testing.T) {
 	valid := `{
+		"already_exited":false,
+		"exit":null,
 		"generation":"g",
 		"key":"k",
 		"lifecycle":"running",
@@ -81,7 +83,7 @@ func TestTerminalPlacementLifecycleIsExactLiteral(t *testing.T) {
 		"replayed":false,
 		"screen":2,
 		"surface":3,
-		"terminal_id":null,
+		"terminal_id":"term_0123456789abcdef0123456789abcdef",
 		"terminal_incarnation":null,
 		"terminal_revision":4,
 		"workspace":5
@@ -90,27 +92,35 @@ func TestTerminalPlacementLifecycleIsExactLiteral(t *testing.T) {
 	if err := json.Unmarshal([]byte(valid), &placement); err != nil {
 		t.Fatal(err)
 	}
-	lifecycle, ok := placement.Lifecycle.Get()
-	if !ok || lifecycle != TerminalPlacementLifecycleRunning {
-		t.Fatalf("lifecycle = %q, %t", lifecycle, ok)
+	if placement.Lifecycle != TerminalLifecycleRunning || placement.AlreadyExited {
+		t.Fatalf("placement = %#v", placement)
 	}
 
-	invalid := []byte(`{
+	exited := []byte(`{
+		"already_exited":true,
+		"exit":{"outcome":{"kind":"exit","code":23}},
 		"generation":"g",
 		"key":"k",
 		"lifecycle":"exited",
-		"pane":1,
+		"pane":null,
 		"registry_id":"r",
 		"replayed":false,
-		"screen":2,
-		"surface":3,
-		"terminal_id":null,
+		"screen":null,
+		"surface":null,
+		"terminal_id":"term_0123456789abcdef0123456789abcdef",
 		"terminal_incarnation":null,
 		"terminal_revision":4,
-		"workspace":5
+		"workspace":null
 	}`)
-	if err := json.Unmarshal(invalid, &placement); err == nil {
-		t.Fatal("invalid TerminalPlacement lifecycle decoded successfully")
+	if err := json.Unmarshal(exited, &placement); err != nil {
+		t.Fatal(err)
+	}
+	if placement.Lifecycle != TerminalLifecycleExited || !placement.AlreadyExited {
+		t.Fatalf("early-exit placement = %#v", placement)
+	}
+	_, hasExit := placement.Exit.Get()
+	if !placement.Surface.IsNull() || !hasExit {
+		t.Fatalf("early-exit presence = %#v", placement)
 	}
 }
 

@@ -1,5 +1,6 @@
 #include "test.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -71,6 +72,12 @@ static_assert(std::is_same_v<
               decltype(std::declval<cmux::raw::Client&>().undo_layout(
                   std::declval<const cmux::raw::UndoLayoutRequest&>())),
               cmux::raw::Result<cmux::raw::LayoutUndoResult>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<cmux::raw::Client&>()
+                           .mint_terminal_renderer_by_terminal(
+                               std::declval<const cmux::raw::
+                                                MintTerminalRendererByTerminalRequest&>())),
+              cmux::raw::Result<cmux::raw::MintTerminalRendererResult>>);
 static_assert(
     std::variant_size_v<cmux::raw::LayoutUndoResult::Variant> == 2U);
 static_assert(std::is_same_v<
@@ -218,6 +225,35 @@ TEST("generated guarded browser requests preserve exact fields") {
     CHECK_EQ(decoded_wheel.value(), wheel);
 }
 
+TEST("renderer-by-terminal metadata and request round trip are exact") {
+    const auto commands = cmux::raw::command_metadata();
+    const auto command = std::find_if(
+        commands.begin(),
+        commands.end(),
+        [](const auto& candidate) {
+            return candidate.name == "mint-terminal-renderer-by-terminal";
+        });
+    CHECK(command != commands.end());
+    CHECK_EQ(command->authority, "frontend");
+    CHECK_EQ(command->since, 10U);
+    CHECK(command->field_requirements.empty());
+
+    cmux::raw::MintTerminalRendererByTerminalRequest request;
+    request.terminal = "term_0123456789abcdef0123456789abcdef";
+    request.ttl_ms = 5000U;
+    const auto encoded = cmux::raw::encode_value(request);
+    CHECK(encoded);
+    const auto object = encoded.value().as_object();
+    CHECK(object);
+    CHECK_EQ(object.value()->at("terminal").as_string().value(), request.terminal);
+    CHECK_EQ(object.value()->at("ttl_ms").as_uint64().value(), 5000U);
+    const auto decoded =
+        cmux::raw::decode_value<cmux::raw::MintTerminalRendererByTerminalRequest>(
+            encoded.value());
+    CHECK(decoded);
+    CHECK_EQ(decoded.value(), request);
+}
+
 TEST("layout undo result variants round trip without losing their branch") {
     cmux::raw::LayoutUndoUndone undone;
     undone.confirmation_required = false;
@@ -294,37 +330,33 @@ TEST("generated optional nullable request fields preserve absent and null") {
     CHECK(explicit_null.value().find("fg")->is_null());
 }
 
-TEST("required nullable literal fields round trip null and their literal value") {
-    auto legacy = cmux::raw::Json::parse(
-        R"({"surface":1,"terminal_id":null,"terminal_incarnation":null,"pane":2,"screen":3,"workspace":4,"key":"legacy","lifecycle":null,"terminal_revision":5,"replayed":false,"registry_id":"registry","generation":"boot"})");
-    CHECK(legacy);
-    auto legacy_placement =
-        cmux::raw::decode_value<cmux::raw::TerminalPlacement>(legacy.value());
-    CHECK(legacy_placement);
-    CHECK(!legacy_placement.value().lifecycle.has_value());
-    auto legacy_round_trip = cmux::raw::encode_value(legacy_placement.value());
-    CHECK(legacy_round_trip);
-    CHECK(legacy_round_trip.value().find("lifecycle")->is_null());
-
-    auto current = cmux::raw::Json::parse(
-        R"({"surface":1,"terminal_id":"terminal","terminal_incarnation":"incarnation","pane":2,"screen":3,"workspace":4,"key":"current","lifecycle":"running","terminal_revision":6,"replayed":true,"registry_id":"registry","generation":"boot"})");
-    CHECK(current);
-    auto current_placement =
-        cmux::raw::decode_value<cmux::raw::TerminalPlacement>(current.value());
-    CHECK(current_placement);
+TEST("terminal placements preserve running and early-exit lifecycle shapes") {
+    auto running = cmux::raw::Json::parse(
+        R"({"already_exited":false,"exit":null,"surface":1,"terminal_id":"term_0123456789abcdef0123456789abcdef","terminal_incarnation":null,"pane":2,"screen":3,"workspace":4,"key":"current","lifecycle":"running","terminal_revision":6,"replayed":true,"registry_id":"registry","generation":"boot"})");
+    CHECK(running);
+    auto running_placement =
+        cmux::raw::decode_value<cmux::raw::TerminalPlacement>(running.value());
+    CHECK(running_placement);
     CHECK_EQ(
-        current_placement.value().lifecycle,
-        std::optional<std::string>("running"));
-    auto current_round_trip = cmux::raw::encode_value(current_placement.value());
-    CHECK(current_round_trip);
-    CHECK_EQ(
-        current_round_trip.value().find("lifecycle")->as_string().value(),
-        std::string_view("running"));
+        running_placement.value().lifecycle,
+        cmux::raw::TerminalLifecycle::running);
+    CHECK(!running_placement.value().already_exited);
+    auto running_round_trip = cmux::raw::encode_value(running_placement.value());
+    CHECK(running_round_trip);
+    CHECK(running_round_trip.value().find("exit")->is_null());
 
-    current_placement.value().lifecycle = "exited";
-    auto invalid = cmux::raw::encode_value(current_placement.value());
-    CHECK(!invalid);
-    CHECK_EQ(invalid.error().code, cmux::raw::ErrorCode::invalid_argument);
+    auto exited = cmux::raw::Json::parse(
+        R"({"already_exited":true,"exit":{"outcome":{"kind":"exit","code":23}},"surface":null,"terminal_id":"term_0123456789abcdef0123456789abcdef","terminal_incarnation":null,"pane":null,"screen":null,"workspace":null,"key":"finished","lifecycle":"exited","terminal_revision":7,"replayed":false,"registry_id":"registry","generation":"boot"})");
+    CHECK(exited);
+    auto exited_placement =
+        cmux::raw::decode_value<cmux::raw::TerminalPlacement>(exited.value());
+    CHECK(exited_placement);
+    CHECK_EQ(
+        exited_placement.value().lifecycle,
+        cmux::raw::TerminalLifecycle::exited);
+    CHECK(exited_placement.value().already_exited);
+    CHECK(!exited_placement.value().surface.has_value());
+    CHECK(exited_placement.value().exit.has_value());
 }
 
 TEST("known events decode to typed variants") {

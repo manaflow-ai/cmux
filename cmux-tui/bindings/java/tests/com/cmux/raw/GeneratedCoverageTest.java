@@ -64,6 +64,7 @@ public final class GeneratedCoverageTest {
         verifyLayoutCommandRequests();
         verifyLayoutUndoVariants();
         verifyBrowserInputCommandRequests();
+        verifyTerminalRendererByTerminalDispatch();
 
         for (EventMetadata event : Events.ALL.values()) {
             check(event.since() <= Protocol.VERSION, "future event version " + event.wireName());
@@ -79,6 +80,56 @@ public final class GeneratedCoverageTest {
             ((UnknownEvent) decoded).raw().get("uint64").equals(UInt64.MAX_VALUE.toBigInteger()),
             "unknown event lossless payload"
         );
+    }
+
+    private static void verifyTerminalRendererByTerminalDispatch() throws Exception {
+        String terminal = "term_0123456789abcdef0123456789abcdef";
+        MintTerminalRendererByTerminalRequest request =
+            MintTerminalRendererByTerminalRequest.builder()
+                .terminal(terminal)
+                .ttlMs(UInt64.of(5000))
+                .build();
+        check(
+            request.toWire().equals(Map.of("terminal", terminal, "ttl_ms", UInt64.of(5000))),
+            "renderer-by-terminal wire fields"
+        );
+
+        final class RecordingClient extends GeneratedCmuxClient {
+            CommandMetadata command;
+            Map<String, Object> params;
+
+            @Override
+            protected Object execute(CommandMetadata command, Map<String, Object> params) {
+                this.command = command;
+                this.params = params;
+                return Map.of(
+                    "endpoint", "/tmp/terminal.sock",
+                    "terminal_id", "0123456789abcdef0123456789abcdef",
+                    "incarnation", "fedcba9876543210fedcba9876543210",
+                    "token", "00".repeat(32),
+                    "rights", 7,
+                    "protocol_version", 3,
+                    "ttl_ms", 5000
+                );
+            }
+
+            @Override
+            protected CmuxStream<ProtocolEvent> openStream(
+                CommandMetadata command,
+                Map<String, Object> params
+            ) {
+                throw new AssertionError("unexpected stream command");
+            }
+        }
+
+        RecordingClient client = new RecordingClient();
+        MintTerminalRendererResult result = client.mintTerminalRendererByTerminal(request);
+        check(
+            client.command == Commands.MINT_TERMINAL_RENDERER_BY_TERMINAL,
+            "renderer-by-terminal command dispatch"
+        );
+        check(client.params.equals(request.toWire()), "renderer-by-terminal dispatch fields");
+        check(result.protocolVersion() == 3, "renderer protocol version decode");
     }
 
     private static void verifyLayoutCommandRequests() {

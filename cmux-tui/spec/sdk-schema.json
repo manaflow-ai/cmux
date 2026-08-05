@@ -2673,7 +2673,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "terminal_id": {
           "type": {
@@ -2681,7 +2681,7 @@
             "name": "string"
           },
           "presence": "required",
-          "nullable": true
+          "nullable": false
         },
         "terminal_incarnation": {
           "type": {
@@ -2697,7 +2697,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "screen": {
           "type": {
@@ -2705,7 +2705,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "workspace": {
           "type": {
@@ -2713,7 +2713,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "key": {
           "type": {
@@ -2725,11 +2725,20 @@
         },
         "lifecycle": {
           "type": {
-            "kind": "literal",
-            "value": "running"
+            "kind": "ref",
+            "name": "TerminalLifecycle"
           },
           "presence": "required",
-          "nullable": true
+          "nullable": false
+        },
+        "exit": {
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "presence": "required",
+          "nullable": true,
+          "since": 10
         },
         "terminal_revision": {
           "type": {
@@ -2738,6 +2747,15 @@
           },
           "presence": "required",
           "nullable": false
+        },
+        "already_exited": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
         },
         "replayed": {
           "type": {
@@ -3064,6 +3082,15 @@
               "current_value": 7
             }
           ]
+        },
+        "protocol_version": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
         },
         "ttl_ms": {
           "type": {
@@ -3392,7 +3419,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "terminal_id": {
           "type": {
@@ -3400,7 +3427,7 @@
             "name": "string"
           },
           "presence": "required",
-          "nullable": true,
+          "nullable": false,
           "since": 9
         },
         "terminal_incarnation": {
@@ -3418,7 +3445,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "screen": {
           "type": {
@@ -3426,7 +3453,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "workspace": {
           "type": {
@@ -3434,7 +3461,43 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
+        },
+        "lifecycle": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalLifecycle"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
+        },
+        "exit": {
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "presence": "required",
+          "nullable": true,
+          "since": 10
+        },
+        "terminal_revision": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
+        },
+        "already_exited": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
         }
       },
       "additional_properties": false

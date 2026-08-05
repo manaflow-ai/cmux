@@ -614,19 +614,40 @@ impl DaemonServices {
         stream: ServiceStream,
         metadata: BTreeMap<String, String>,
     ) -> Result<(), ServicesError> {
-        let terminal_id = terminal_bytes_metadata(&metadata)?;
-        let mux_path = mux_socket.as_ref().ok_or_else(|| {
-            ServicesError::Unavailable("mux control socket is not configured".into())
-        })?;
+        let stream = Arc::new(stream);
+        let terminal_id = match terminal_bytes_metadata(&metadata) {
+            Ok(terminal_id) => terminal_id,
+            Err(error) => {
+                stream.reject("invalid-argument".into(), error.to_string()).await?;
+                return Ok(());
+            }
+        };
+        let Some(mux_path) = mux_socket.as_ref() else {
+            stream
+                .reject("unavailable".into(), "mux control socket is not configured".into())
+                .await?;
+            return Ok(());
+        };
 
-        let terminal = tokio::time::timeout(
+        let terminal = match tokio::time::timeout(
             TERMINAL_BYTES_HANDSHAKE_TIMEOUT,
             Self::negotiate_terminal_bytes(mux_path, terminal_id),
         )
         .await
-        .map_err(|_| ServicesError::Remote("terminal renderer handshake timed out".into()))??;
+        {
+            Ok(Ok(terminal)) => terminal,
+            Ok(Err(error)) => {
+                stream.reject("terminal-unavailable".into(), error.to_string()).await?;
+                return Ok(());
+            }
+            Err(_) => {
+                stream
+                    .reject("timeout".into(), "terminal renderer handshake timed out".into())
+                    .await?;
+                return Ok(());
+            }
+        };
 
-        let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = terminal.into_split();
         pump_stream(stream, reader, writer).await
@@ -1997,6 +2018,70 @@ mod tests {
         handler.await.unwrap().unwrap();
         client_mux.shutdown().await;
         daemon_mux.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    async fn assert_terminal_bytes_open_rejected(
+        mux_socket: Option<PathBuf>,
+        metadata: BTreeMap<String, String>,
+        expected_code: &str,
+        expected_message: &str,
+    ) {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream =
+            client.open(Service::TerminalBytes, metadata).await.expect("open terminal byte stream");
+        let incoming = daemon
+            .accept()
+            .await
+            .expect("accept terminal byte stream")
+            .expect("terminal byte stream was not delivered");
+        let handler = tokio::spawn(DaemonServices::serve_terminal_bytes(
+            mux_socket,
+            incoming.stream,
+            incoming.metadata,
+        ));
+
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(2), client_stream.receive())
+                .await
+                .expect("terminal byte rejection timed out")
+                .expect("terminal byte rejection became a transport error")
+                .expect("terminal byte stream closed without a rejection");
+        assert_eq!(response.lane, Lane::Control);
+        assert_eq!(
+            serde_json::from_slice::<ServiceControl>(&response.payload).unwrap(),
+            ServiceControl::Rejected {
+                code: expected_code.into(),
+                message: expected_message.into(),
+            }
+        );
+        handler
+            .await
+            .expect("terminal byte handler panicked")
+            .expect("terminal byte handler returned an error after rejecting the open");
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn terminal_bytes_pre_open_failures_are_explicitly_rejected() {
+        assert_terminal_bytes_open_rejected(
+            None,
+            BTreeMap::new(),
+            "invalid-argument",
+            "invalid service metadata: terminal byte stream requires terminal",
+        )
+        .await;
+        assert_terminal_bytes_open_rejected(
+            None,
+            BTreeMap::from([("terminal".into(), "term_0123456789abcdef0123456789abcdef".into())]),
+            "unavailable",
+            "mux control socket is not configured",
+        )
+        .await;
     }
 
     async fn assert_process_stream_open_rejected(

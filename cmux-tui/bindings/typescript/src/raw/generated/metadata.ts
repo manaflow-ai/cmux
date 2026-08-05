@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 7d775cd56329214bdb845d631e9f93c7375f39d3dc08fdd12b54490c5e8c2091. */
+/* cmux-tui mux protocol 10, IR 9083c63ed7af91655f907c7fecc8b30d711e97e1cb62c1a6594b1534ddf47bbf. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "7d775cd56329214bdb845d631e9f93c7375f39d3dc08fdd12b54490c5e8c2091" as const;
+export const SDK_IR_SHA256 = "9083c63ed7af91655f907c7fecc8b30d711e97e1cb62c1a6594b1534ddf47bbf" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2990,6 +2990,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "protocol_version": {
+        "nullable": false,
+        "presence": "required",
+        "since": 10,
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
       "rights": {
         "constraints": [
           {
@@ -4012,8 +4021,35 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "RunResult": {
     "additional_properties": false,
     "fields": {
-      "pane": {
+      "already_exited": {
         "nullable": false,
+        "presence": "required",
+        "since": 10,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "exit": {
+        "nullable": true,
+        "presence": "required",
+        "since": 10,
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "lifecycle": {
+        "nullable": false,
+        "presence": "required",
+        "since": 10,
+        "type": {
+          "kind": "ref",
+          "name": "TerminalLifecycle"
+        }
+      },
+      "pane": {
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
@@ -4021,7 +4057,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "screen": {
-        "nullable": false,
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
@@ -4029,7 +4065,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "surface": {
-        "nullable": false,
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
@@ -4037,7 +4073,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "terminal_id": {
-        "nullable": true,
+        "nullable": false,
         "presence": "required",
         "since": 9,
         "type": {
@@ -4054,8 +4090,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
-      "workspace": {
+      "terminal_revision": {
         "nullable": false,
+        "presence": "required",
+        "since": 10,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "workspace": {
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
@@ -4885,6 +4930,24 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "TerminalPlacement": {
     "additional_properties": false,
     "fields": {
+      "already_exited": {
+        "nullable": false,
+        "presence": "required",
+        "since": 10,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "exit": {
+        "nullable": true,
+        "presence": "required",
+        "since": 10,
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
       "generation": {
         "nullable": false,
         "presence": "required",
@@ -4902,15 +4965,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "lifecycle": {
-        "nullable": true,
+        "nullable": false,
         "presence": "required",
         "type": {
-          "kind": "literal",
-          "value": "running"
+          "kind": "ref",
+          "name": "TerminalLifecycle"
         }
       },
       "pane": {
-        "nullable": false,
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
@@ -4934,7 +4997,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "screen": {
-        "nullable": false,
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
@@ -4942,7 +5005,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "surface": {
-        "nullable": false,
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
@@ -4950,7 +5013,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "terminal_id": {
-        "nullable": true,
+        "nullable": false,
         "presence": "required",
         "type": {
           "kind": "scalar",
@@ -4974,7 +5037,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "workspace": {
-        "nullable": false,
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",

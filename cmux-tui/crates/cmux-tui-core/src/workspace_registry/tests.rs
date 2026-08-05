@@ -727,6 +727,43 @@ fn resource_tab_detach_preserves_exited_terminal_identity_and_outcome() {
 }
 
 #[test]
+fn resource_tab_close_tombstones_terminal_content_without_an_explicit_terminal_change() {
+    let mut registry = WorkspaceRegistry::in_memory("terminal-tab-close").unwrap();
+    commit_terminal_topology(&mut registry, "create-terminal-tab-close");
+
+    registry
+        .commit_resource_patch(
+            &WorkspaceMutation::new("close-terminal-tab", "cmux-tui-runtime").unwrap(),
+            "tab.close",
+            &json!({"tab":tab_id(1)}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: None,
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::TombstoneTab { tab_id: tab_id(1), close_content: true },
+                    ResourceChange::SetTabOrder { pane_id: pane_id(1), tab_ids: Vec::new() },
+                ],
+            },
+            &json!({"closed":true}),
+            &json!([]),
+        )
+        .unwrap();
+
+    assert!(registry.resource_topology_snapshot().unwrap().tabs.is_empty());
+    assert_eq!(registry.terminal_resource_id(TERMINAL_ONE).unwrap(), None);
+    let transaction = registry.connection.unchecked_transaction().unwrap();
+    validate_resource_invariants(&transaction).unwrap();
+    transaction.commit().unwrap();
+}
+
+#[test]
 fn resource_patch_replay_precedes_revision_and_rejects_changed_input() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     let first = commit_terminal_topology(&mut registry, "same-key");

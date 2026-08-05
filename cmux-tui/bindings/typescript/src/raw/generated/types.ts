@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 7d775cd56329214bdb845d631e9f93c7375f39d3dc08fdd12b54490c5e8c2091. */
+/* cmux-tui mux protocol 10, IR 9083c63ed7af91655f907c7fecc8b30d711e97e1cb62c1a6594b1534ddf47bbf. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -253,6 +253,7 @@ export type LivePane = {
 export type MintTerminalRendererResult = {
   "endpoint": string;
   "incarnation": string;
+  "protocol_version": number;
   "rights": number;
   "terminal_id": string;
   "token": string;
@@ -426,12 +427,16 @@ export type ResolveTerminalResult = {
 };
 
 export type RunResult = {
-  "pane": Id;
-  "screen": Id;
-  "surface": Id;
-  "terminal_id": (string) | null;
+  "already_exited": boolean;
+  "exit": (JsonValue) | null;
+  "lifecycle": TerminalLifecycle;
+  "pane": (Id) | null;
+  "screen": (Id) | null;
+  "surface": (Id) | null;
+  "terminal_id": string;
   "terminal_incarnation": (string) | null;
-  "workspace": Id;
+  "terminal_revision": bigint;
+  "workspace": (Id) | null;
 };
 
 export type Screen = {
@@ -541,18 +546,20 @@ export type TerminalModifiers = {
 };
 
 export type TerminalPlacement = {
+  "already_exited": boolean;
+  "exit": (JsonValue) | null;
   "generation": string;
   "key": string;
-  "lifecycle": ("running") | null;
-  "pane": Id;
+  "lifecycle": TerminalLifecycle;
+  "pane": (Id) | null;
   "registry_id": string;
   "replayed": boolean;
-  "screen": Id;
-  "surface": Id;
-  "terminal_id": (string) | null;
+  "screen": (Id) | null;
+  "surface": (Id) | null;
+  "terminal_id": string;
   "terminal_incarnation": (string) | null;
   "terminal_revision": bigint;
-  "workspace": Id;
+  "workspace": (Id) | null;
 };
 
 export type TerminalRecord = {

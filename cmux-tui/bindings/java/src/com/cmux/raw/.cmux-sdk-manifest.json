@@ -587,8 +587,8 @@
     },
     {
       "path": "MintTerminalRendererResult.java",
-      "sha256": "4d9615ffcc645d10be5fc191a63a2b5777e37a158bfba47eb6642d70a17780bb",
-      "size": 5608
+      "sha256": "61c148590d00f2e31a79d3911ced3f0963da72f3e15afe2f1d71c98bf512cf21",
+      "size": 6460
     },
     {
       "path": "MoveTabRequest.java",
@@ -742,7 +742,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "da8b0b4f72b373552efc86f0bf98e523d4bdb6fe3776905fc8c58ac27e6aa657",
+      "sha256": "c6987f5f0ef0b4ce46b3b7583271afe24493bcd446407338a96a6640c81cb501",
       "size": 3967
     },
     {
@@ -927,8 +927,8 @@
     },
     {
       "path": "RunResult.java",
-      "sha256": "4ede60c281e3c74767c285c296d8da0736f4172800f245f1c15c7a3d5faac929",
-      "size": 5636
+      "sha256": "ea9d01357c0bfcde9febd3b71500c1fc25b90c7a4479ff810b1b1109562a775f",
+      "size": 8778
     },
     {
       "path": "Screen.java",
@@ -1197,8 +1197,8 @@
     },
     {
       "path": "TerminalPlacement.java",
-      "sha256": "37abab2cbc353197b903617b52b8e6d37911c18112a59f59f2798703381f46c6",
-      "size": 10363
+      "sha256": "ba555bde755c2c2cc581e32f9675359549da9dff282584b92a282e202cec9135",
+      "size": 11740
     },
     {
       "path": "TerminalRecord.java",
@@ -1317,7 +1317,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "7d775cd56329214bdb845d631e9f93c7375f39d3dc08fdd12b54490c5e8c2091",
+  "ir_sha256": "9083c63ed7af91655f907c7fecc8b30d711e97e1cb62c1a6594b1534ddf47bbf",
   "language": "java",
   "mux_protocol": 10,
   "schema_version": 2

@@ -2217,6 +2217,8 @@ impl Surface {
         if !initial_color_delta.is_empty() {
             term.vt_write(&initial_color_delta);
         }
+        let initial_color_revision = term.color_revision();
+        let initial_cursor_activity = term.cursor_activity().ok();
         let title = term.title().unwrap_or_default();
         let pwd = term.pwd();
         let mut mouse_encoders = MouseEncoders::new()?;
@@ -2304,6 +2306,9 @@ impl Surface {
             move || {
                 let mut sequence_boundary = sequence_boundary;
                 let mut protocol_version = protocol_version;
+                let mut smart_renderer = smart_renderer;
+                let mut applied_color_revision = initial_color_revision;
+                let mut applied_cursor_activity = initial_cursor_activity;
                 'connection: loop {
                     let mut stager = HostedFrameStager::new_for_version(
                         sequence_boundary,
@@ -2393,8 +2398,18 @@ impl Surface {
                                             term.vt_write(&delta);
                                         }
                                         applied_color_overrides = colors.clone();
+                                        applied_color_revision = term.color_revision();
+                                        applied_cursor_activity = term.cursor_activity().ok();
                                     } else if smart_renderer {
-                                        applied_color_overrides = term.color_overrides();
+                                        let color_revision = term.color_revision();
+                                        let cursor_activity = term.cursor_activity().ok();
+                                        if color_revision != applied_color_revision
+                                            || cursor_activity != applied_cursor_activity
+                                        {
+                                            applied_color_overrides = term.color_overrides();
+                                            applied_color_revision = color_revision;
+                                            applied_cursor_activity = cursor_activity;
+                                        }
                                     } else if !terminal_color_overrides_match_applied(
                                         term.color_overrides(),
                                         &applied_color_overrides,
@@ -2560,6 +2575,8 @@ impl Surface {
                                     *pty.pwd.lock().unwrap() = pwd;
                                     *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
                                     applied_color_overrides = colors;
+                                    applied_color_revision = term.color_revision();
+                                    applied_cursor_activity = term.cursor_activity().ok();
                                     let after = terminal_scroll_position(&term);
                                     if before != after {
                                         scroll_changed = Some(after);
@@ -2727,6 +2744,7 @@ impl Surface {
                             }
                         };
                         let replacement_protocol_version = replacement.protocol_version();
+                        let replacement_smart_renderer = replacement.is_smart_renderer();
                         let replacement_snapshot = replacement.snapshot.clone();
                         let replacement_control_responses = replacement.control_responses();
                         let installed = {
@@ -2865,6 +2883,8 @@ impl Surface {
                             *pty.kitty_graphics_limits.lock().unwrap() =
                                 replacement_snapshot.kitty_state.limits;
                             applied_color_overrides = replacement_snapshot.colors;
+                            applied_color_revision = term.color_revision();
+                            applied_cursor_activity = term.cursor_activity().ok();
                             pty.broadcast_attach_frame(AttachFrame::ResizedWithColors {
                                 cols: replacement_snapshot.cols,
                                 rows: replacement_snapshot.rows,
@@ -2923,6 +2943,7 @@ impl Surface {
                         control_responses = replacement_control_responses;
                         sequence_boundary = replacement_snapshot.sequence_boundary;
                         protocol_version = replacement_protocol_version;
+                        smart_renderer = replacement_smart_renderer;
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Connected as u8, Ordering::Release);
                         continue 'connection;

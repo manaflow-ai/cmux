@@ -2090,7 +2090,10 @@ impl RemoteSession {
             }
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
-                    self.surface_overflow_recovery.lock().unwrap().remove(&id);
+                    // Retire the mirror immediately. The authoritative tree
+                    // refresh may lag this event, but input and reattach must
+                    // already fail closed for a known-exited surface.
+                    self.drop_surface(id);
                     self.tree_stale.store(true, Ordering::Release);
                     self.emit(MuxEvent::SurfaceExited(id));
                 }
@@ -7247,6 +7250,25 @@ mod tests {
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_exit_event_retires_the_mirror_before_tree_refresh() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        session.surfaces.lock().unwrap().insert(7, test_remote_surface(7));
+
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+
+        assert!(!session.has_surface(7));
+        assert!(session.surface_is_exited(7));
+        assert!(session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::SurfaceExited(7))
+        ));
     }
 
     #[cfg(unix)]

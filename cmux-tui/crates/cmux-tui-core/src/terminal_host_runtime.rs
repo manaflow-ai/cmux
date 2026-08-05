@@ -3402,6 +3402,11 @@ mod unix {
         ) -> anyhow::Result<bool> {
             let Some((cols, rows)) = desired else { return Ok(true) };
             let (cols, rows) = normalize_terminal_geometry(cols, rows)?;
+            // Geometry transitions share one source order. Keep this ahead of
+            // size and cell_pixels, matching the other geometry mutation
+            // paths, so concurrent viewer and cell-metric updates cannot
+            // acquire the locks in opposite orders.
+            let _source_order = self.source_order_lock.lock().unwrap();
             let mut size = self.size.lock().unwrap();
             let cell_pixels = self.cell_pixels.lock().unwrap();
             let changed = *size != (cols, rows);
@@ -3425,7 +3430,6 @@ mod unix {
             // it, then wait for the FIFO parser worker before admitting a
             // later source byte. Legacy clients keep their replay-bearing
             // Resized transition on the parser side of the same barrier.
-            let _source_order = self.source_order_lock.lock().unwrap();
             let source_cursor = changed.then(|| {
                 let mut payload = Vec::with_capacity(4);
                 payload.extend_from_slice(&cols.to_le_bytes());

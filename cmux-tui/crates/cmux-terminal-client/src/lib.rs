@@ -118,6 +118,7 @@ struct ClientState {
     snapshot_bytes: u64,
     bootstrap_frames: u64,
     ready: bool,
+    exited: bool,
     raw_bytes: u64,
     raw_frames: u64,
     local_parser_cursor: u64,
@@ -181,6 +182,7 @@ impl ClientState {
             snapshot_bytes: 0,
             bootstrap_frames: 0,
             ready: false,
+            exited: false,
             raw_bytes: 0,
             raw_frames: 0,
             local_parser_cursor: 0,
@@ -204,6 +206,7 @@ impl ClientState {
         self.snapshot_bytes = 0;
         self.bootstrap_frames = 0;
         self.ready = false;
+        self.exited = false;
         self.expected_sequence = None;
         self.cols = 0;
         self.rows = 0;
@@ -329,6 +332,7 @@ impl ClientState {
                 self.require_sequence(frame.sequence)?;
                 self.local_parser_cursor = frame.sequence;
                 self.ready = false;
+                self.exited = true;
                 self.status = "exited".into();
                 FrameEffect::Stop
             }
@@ -359,7 +363,10 @@ impl ClientState {
     }
 
     fn materialize_frame(&mut self) -> Result<(), String> {
-        if !self.render_dirty {
+        // Snapshot and Colors are one bootstrap transaction. Do not expose
+        // their renderable result until the host commits the same boundary
+        // with Ready.
+        if !self.ready || !self.render_dirty {
             return Ok(());
         }
         let terminal =
@@ -810,12 +817,21 @@ impl CmuxTerminalClient {
             .as_ref()
             .map(|path| format!("{:?}", path.kind).to_lowercase())
             .unwrap_or_else(|| snapshot.transport.route.clone());
-        *self.state.lock().unwrap() = ClientState::new(
+        let next_state = match ClientState::new(
             snapshot.transport.provider,
             path,
             snapshot.generation,
             terminal_id.clone(),
-        )?;
+        ) {
+            Ok(state) => state,
+            Err(error) => {
+                self.runtime.block_on(async {
+                    let _ = stream.close().await;
+                });
+                return Err(error);
+            }
+        };
+        *self.state.lock().unwrap() = next_state;
         self.updates.notify();
         *terminal = Some(start_terminal_tasks(
             &self.runtime,
@@ -835,6 +851,7 @@ impl CmuxTerminalClient {
         }
         let mut state = self.state.lock().unwrap();
         state.ready = false;
+        state.exited = false;
         state.status = "detached".into();
         drop(state);
         self.updates.notify();
@@ -1336,7 +1353,7 @@ pub unsafe extern "C" fn cmux_terminal_client_has_exited(
     client: *const CmuxTerminalClient,
 ) -> bool {
     let Some(client) = (unsafe { client.as_ref() }) else { return false };
-    client.state.lock().unwrap().status == "exited"
+    client.state.lock().unwrap().exited
 }
 
 #[cfg(test)]
@@ -1569,6 +1586,46 @@ mod tests {
         assert_eq!(state.apply(ready).unwrap_err(), "unexpected smart terminal frame Ready");
         assert!(!state.ready);
         assert!(!state.snapshot_applied);
+    }
+
+    #[test]
+    fn snapshot_render_is_published_only_after_same_boundary_ready() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        let boundary = 7;
+        let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"prompt> "));
+        snapshot.sequence = boundary;
+        state.apply(snapshot).unwrap();
+
+        state.materialize_frame().unwrap();
+        assert!(state.frame_text.is_empty());
+        assert!(state.render_dirty);
+
+        let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+        ready.sequence = boundary;
+        state.apply(ready).unwrap();
+        state.materialize_frame().unwrap();
+        assert!(state.frame_text.contains("prompt>"));
+        assert!(!state.render_dirty);
+    }
+
+    #[test]
+    fn terminal_exit_survives_later_diagnostic_status_updates() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        let boundary = 3;
+        let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"done"));
+        snapshot.sequence = boundary;
+        state.apply(snapshot).unwrap();
+        let mut ready = Frame::new(MessageKind::Ready, Vec::new());
+        ready.sequence = boundary;
+        state.apply(ready).unwrap();
+        let mut exit = Frame::new(MessageKind::Exit, Vec::new());
+        exit.sequence = boundary + 1;
+        assert_eq!(state.apply(exit).unwrap(), FrameEffect::Stop);
+
+        state.status = "stream-closed".into();
+        assert!(state.exited);
     }
 
     #[test]
