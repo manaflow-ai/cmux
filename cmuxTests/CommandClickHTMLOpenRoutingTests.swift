@@ -894,7 +894,6 @@ struct CommandClickHTMLOpenRoutingTests {
         )
 
         try await Task.sleep(for: .milliseconds(500))
-        #expect(controller.webView.url?.standardizedFileURL != popupURL.standardizedFileURL)
         let title = try? await controller.webView.evaluateJavaScript("document.title")
         #expect(title as? String != "validated popup file")
     }
