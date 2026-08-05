@@ -30,6 +30,7 @@ struct MarkdownPanelView: View {
     @State private var copyConfirmation: CopyConfirmation? = nil
     @State private var copyConfirmationGeneration: Int = 0
     @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
+    @AppStorage(MarkdownWikiLinksSettings.key) private var wikiLinksEnabled = MarkdownWikiLinksSettings.defaultEnabled
 
     private enum CopyConfirmation: Equatable {
         case markdown
@@ -84,6 +85,7 @@ struct MarkdownPanelView: View {
                 fontSize: panel.fontSize,
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,
+                wikiLinksEnabled: wikiLinksEnabled,
                 session: panel.rendererSession,
                 onRequestPanelFocus: onRequestPanelFocus
             )

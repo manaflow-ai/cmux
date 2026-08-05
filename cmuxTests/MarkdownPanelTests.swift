@@ -385,6 +385,7 @@ final class MarkdownPanelTests: XCTestCase {
             fontSize: 15,
             fontFamily: MarkdownFontFamily.systemDefault,
             maxContentWidth: MarkdownMaxWidthSettings.defaultCSSPixels,
+            wikiLinksEnabled: false,
             session: session,
             onRequestPanelFocus: {}
         )
@@ -401,6 +402,7 @@ final class MarkdownPanelTests: XCTestCase {
             fontSize: 15,
             fontFamily: MarkdownFontFamily.systemDefault,
             maxContentWidth: MarkdownMaxWidthSettings.defaultCSSPixels,
+            wikiLinksEnabled: false,
             session: session,
             onRequestPanelFocus: {}
         )

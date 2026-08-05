@@ -1532,6 +1532,12 @@
           "default": 980,
           "description": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers.",
           "descriptionKey": "schemaDescriptions.markdown.maxWidth"
+        },
+        "wikiLinks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Parse wiki-style links ([[Note]], [[Note|Label]]) in the markdown viewer as links to sibling markdown files. Off by default so ordinary markdown containing [[...]] renders it as literal text; enable it to work inside an Obsidian-style vault.",
+          "descriptionKey": "schemaDescriptions.markdown.wikiLinks"
         }
       }
     },
