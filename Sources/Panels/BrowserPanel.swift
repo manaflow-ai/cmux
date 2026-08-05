@@ -3192,16 +3192,12 @@ final class BrowserPanel: Panel, ObservableObject {
         preserveRestoredSessionHistory: Bool,
         onNavigationStarted: ((WKNavigation?) -> Void)?
     )?
-    private enum FileOnlyNativeNavigationAction {
-        case goBack
-        case goForward
-        case reload
-        case reloadFromOrigin
-    }
     private var pendingFileOnlyNativeNavigation: (
         id: UUID,
         targetURL: URL,
-        action: FileOnlyNativeNavigationAction
+        reportsFailureAsRecovery: Bool,
+        isTargetCurrent: () -> Bool,
+        perform: () -> WKNavigation?
     )?
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
@@ -5579,11 +5575,6 @@ final class BrowserPanel: Panel, ObservableObject {
         return true
     }
 
-    private func clearNavigationRecovery() {
-        pendingNavigationRecoveryURL = nil
-        hasRecoverableNavigationFailure = false
-    }
-
 #if DEBUG
     func debugSimulateWebContentProcessTermination() {
         replaceWebViewAfterContentProcessTermination(for: webView)
@@ -6309,6 +6300,11 @@ final class BrowserPanel: Panel, ObservableObject {
         reevaluateHiddenWebViewDiscardScheduling(reason: "file_only_navigation_failed")
     }
 
+    private func clearNavigationRecovery() {
+        pendingNavigationRecoveryURL = nil
+        hasRecoverableNavigationFailure = false
+    }
+
     private func cancelPendingFileOnlyNavigation() {
         if let pendingFileOnlyNavigation {
             self.pendingFileOnlyNavigation = nil
@@ -6327,15 +6323,26 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func enqueueFileOnlyNativeNavigation(
         to targetURL: URL,
-        action: FileOnlyNativeNavigationAction
+        reportsFailureAsRecovery: Bool,
+        isTargetCurrent: @escaping () -> Bool,
+        perform: @escaping () -> WKNavigation?
     ) {
         guard targetURL.browserIsLocalFileURL else {
-            finishRejectedFileOnlyNativeNavigation(targetURL: targetURL, action: action)
+            finishRejectedFileOnlyNativeNavigation(
+                targetURL: targetURL,
+                reportsFailureAsRecovery: reportsFailureAsRecovery
+            )
             return
         }
         cancelPendingFileOnlyNavigation()
         let id = UUID()
-        pendingFileOnlyNativeNavigation = (id, targetURL, action)
+        pendingFileOnlyNativeNavigation = (
+            id,
+            targetURL,
+            reportsFailureAsRecovery,
+            isTargetCurrent,
+            perform
+        )
         filesystemResolutionCoordinator.submitCoalesced(
             id: id,
             coalescingKey: self.id,
@@ -6372,20 +6379,27 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         self.pendingFileOnlyNativeNavigation = nil
         let targetURL = pendingFileOnlyNativeNavigation.targetURL
-        let action = pendingFileOnlyNativeNavigation.action
         guard navigationURL?.absoluteString == targetURL.absoluteString else {
-            finishRejectedFileOnlyNativeNavigation(targetURL: targetURL, action: action)
+            finishRejectedFileOnlyNativeNavigation(
+                targetURL: targetURL,
+                reportsFailureAsRecovery:
+                    pendingFileOnlyNativeNavigation.reportsFailureAsRecovery
+            )
             return
         }
-        guard currentNativeNavigationTarget(for: action)?.absoluteString == targetURL.absoluteString,
+        guard pendingFileOnlyNativeNavigation.isTargetCurrent(),
               navigationDelegate?.authorizeValidatedFileOnlyNavigation(targetURL) == true else {
             refreshNavigationAvailability()
             return
         }
         webView.applyBrowserUserAgentPolicy(for: targetURL)
-        if performNativeNavigation(action) == nil {
+        if pendingFileOnlyNativeNavigation.perform() == nil {
             navigationDelegate?.cancelValidatedFileOnlyNavigationAllowance()
-            finishRejectedFileOnlyNativeNavigation(targetURL: targetURL, action: action)
+            finishRejectedFileOnlyNativeNavigation(
+                targetURL: targetURL,
+                reportsFailureAsRecovery:
+                    pendingFileOnlyNativeNavigation.reportsFailureAsRecovery
+            )
         }
     }
 
@@ -6397,42 +6411,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func finishRejectedFileOnlyNativeNavigation(
         targetURL: URL,
-        action: FileOnlyNativeNavigationAction
+        reportsFailureAsRecovery: Bool
     ) {
-        switch action {
-        case .reload, .reloadFromOrigin:
+        if reportsFailureAsRecovery {
             noteFileOnlyNavigationResolutionFailure(request: URLRequest(url: targetURL))
-        case .goBack, .goForward:
+        } else {
             refreshNavigationAvailability()
-        }
-    }
-
-    private func currentNativeNavigationTarget(
-        for action: FileOnlyNativeNavigationAction
-    ) -> URL? {
-        switch action {
-        case .goBack:
-            return webView.backForwardList.backItem?.url
-        case .goForward:
-            return webView.backForwardList.forwardItem?.url
-        case .reload, .reloadFromOrigin:
-            return webView.url
-        }
-    }
-
-    @discardableResult
-    private func performNativeNavigation(
-        _ action: FileOnlyNativeNavigationAction
-    ) -> WKNavigation? {
-        switch action {
-        case .goBack:
-            return webView.goBack()
-        case .goForward:
-            return webView.goForward()
-        case .reload:
-            return webView.reload()
-        case .reloadFromOrigin:
-            return webView.reloadFromOrigin()
         }
     }
 
@@ -7049,14 +7033,14 @@ extension BrowserPanel {
                     preserveRestoredSessionHistory: true
                 )
             case .nativeGoBack:
-                performHistoryNavigation(.goBack)
+                performBackNavigation()
             case .nativeGoForward, .refreshOnly:
                 refreshNavigationAvailability()
             }
             return
         }
 
-        performHistoryNavigation(.goBack)
+        performBackNavigation()
     }
 
     /// Go forward in history
@@ -7074,7 +7058,7 @@ extension BrowserPanel {
             )
             switch decision {
             case .nativeGoForward:
-                performHistoryNavigation(.goForward)
+                performForwardNavigation()
             case .navigate(let targetURL):
                 refreshNavigationAvailability()
                 navigateWithoutInsecureHTTPPrompt(
@@ -7088,20 +7072,55 @@ extension BrowserPanel {
             return
         }
 
-        performHistoryNavigation(.goForward)
+        performForwardNavigation()
     }
 
-    private func performHistoryNavigation(_ action: FileOnlyNativeNavigationAction) {
-        guard let targetURL = currentNativeNavigationTarget(for: action) else {
+    private func performBackNavigation() {
+        guard let targetURL = webView.backForwardList.backItem?.url else {
             refreshNavigationAvailability()
             return
         }
+        let targetURLString = targetURL.absoluteString
+        performHistoryNavigation(
+            to: targetURL,
+            isTargetCurrent: { [weak self] in
+                self?.webView.backForwardList.backItem?.url.absoluteString == targetURLString
+            },
+            perform: { [weak self] in self?.webView.goBack() }
+        )
+    }
+
+    private func performForwardNavigation() {
+        guard let targetURL = webView.backForwardList.forwardItem?.url else {
+            refreshNavigationAvailability()
+            return
+        }
+        let targetURLString = targetURL.absoluteString
+        performHistoryNavigation(
+            to: targetURL,
+            isTargetCurrent: { [weak self] in
+                self?.webView.backForwardList.forwardItem?.url.absoluteString == targetURLString
+            },
+            perform: { [weak self] in self?.webView.goForward() }
+        )
+    }
+
+    private func performHistoryNavigation(
+        to targetURL: URL,
+        isTargetCurrent: @escaping () -> Bool,
+        perform: @escaping () -> WKNavigation?
+    ) {
         if localFileReadAccessPolicy == .fileOnly, targetURL.isFileURL {
-            enqueueFileOnlyNativeNavigation(to: targetURL, action: action)
+            enqueueFileOnlyNativeNavigation(
+                to: targetURL,
+                reportsFailureAsRecovery: false,
+                isTargetCurrent: isTargetCurrent,
+                perform: perform
+            )
             return
         }
         webView.applyBrowserUserAgentPolicy(for: targetURL)
-        _ = performNativeNavigation(action)
+        _ = perform()
     }
 
     /// Open a link in a new browser surface in the same pane
@@ -7370,13 +7389,21 @@ extension BrowserPanel {
         if prepareForReload(reason: "reload", mode: .soft) {
             return nil
         }
-        if let targetURL = currentNativeNavigationTarget(for: .reload),
+        if let targetURL = webView.url,
            localFileReadAccessPolicy == .fileOnly,
            targetURL.isFileURL {
-            enqueueFileOnlyNativeNavigation(to: targetURL, action: .reload)
+            let targetURLString = targetURL.absoluteString
+            enqueueFileOnlyNativeNavigation(
+                to: targetURL,
+                reportsFailureAsRecovery: true,
+                isTargetCurrent: { [weak self] in
+                    self?.webView.url?.absoluteString == targetURLString
+                },
+                perform: { [weak self] in self?.webView.reload() }
+            )
             return nil
         }
-        return performNativeNavigation(.reload)
+        return webView.reload()
     }
 
     /// Reload the current page, bypassing WebKit's cache.
@@ -7384,13 +7411,21 @@ extension BrowserPanel {
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }
-        if let targetURL = currentNativeNavigationTarget(for: .reloadFromOrigin),
+        if let targetURL = webView.url,
            localFileReadAccessPolicy == .fileOnly,
            targetURL.isFileURL {
-            enqueueFileOnlyNativeNavigation(to: targetURL, action: .reloadFromOrigin)
+            let targetURLString = targetURL.absoluteString
+            enqueueFileOnlyNativeNavigation(
+                to: targetURL,
+                reportsFailureAsRecovery: true,
+                isTargetCurrent: { [weak self] in
+                    self?.webView.url?.absoluteString == targetURLString
+                },
+                perform: { [weak self] in self?.webView.reloadFromOrigin() }
+            )
             return
         }
-        _ = performNativeNavigation(.reloadFromOrigin)
+        webView.reloadFromOrigin()
     }
 
     /// Stop loading
