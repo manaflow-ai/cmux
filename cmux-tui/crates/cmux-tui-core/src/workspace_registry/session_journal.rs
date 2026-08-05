@@ -3,7 +3,7 @@ use base64::Engine;
 use flate2::read::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Read;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1531,6 +1531,47 @@ pub(super) fn expand_topology_subjects(
         .collect::<Result<Vec<_>, _>>()?;
     subjects.extend(expanded);
     Ok(())
+}
+
+pub(super) fn terminal_topology_subjects_batch(
+    transaction: &Transaction<'_>,
+    terminal_ids: impl IntoIterator<Item = String>,
+) -> anyhow::Result<HashMap<String, Vec<JournalSubject>>> {
+    let terminal_ids = terminal_ids.into_iter().collect::<BTreeSet<_>>();
+    if terminal_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let ids_json = canonical_json(&serde_json::to_value(&terminal_ids)?)?;
+    let mut statement = transaction.prepare(
+        "WITH seeds(terminal_id) AS (
+           SELECT value FROM json_each(?1)
+         ),
+         paths(terminal_id, tab_id, pane_id, screen_id, workspace_id) AS (
+           SELECT seed.terminal_id, tab.public_id, tab.pane_id,
+                  pane.screen_id, screen.workspace_id
+           FROM seeds AS seed
+           JOIN resource_tabs AS tab ON tab.content_id = seed.terminal_id
+           JOIN resource_panes AS pane ON pane.public_id = tab.pane_id
+           JOIN resource_screens AS screen ON screen.public_id = pane.screen_id
+         )
+         SELECT terminal_id, 'tab', tab_id FROM paths
+         UNION SELECT terminal_id, 'pane', pane_id FROM paths
+         UNION SELECT terminal_id, 'screen', screen_id FROM paths
+         UNION SELECT terminal_id, 'workspace', workspace_id FROM paths",
+    )?;
+    let expanded = statement
+        .query_map([ids_json], |row| {
+            Ok((row.get::<_, String>(0)?, JournalSubject { kind: row.get(1)?, id: row.get(2)? }))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut by_terminal = HashMap::<String, BTreeSet<JournalSubject>>::new();
+    for (terminal_id, subject) in expanded {
+        by_terminal.entry(terminal_id).or_default().insert(subject);
+    }
+    Ok(by_terminal
+        .into_iter()
+        .map(|(terminal_id, subjects)| (terminal_id, subjects.into_iter().collect()))
+        .collect())
 }
 
 fn public_id_kind(value: &str) -> Option<&'static str> {

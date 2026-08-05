@@ -4754,7 +4754,9 @@ impl Mux {
         Ok(commit)
     }
 
-    pub(crate) fn journal_checkpoints(&self) -> anyhow::Result<Vec<crate::JournalCheckpoint>> {
+    pub(crate) fn journal_checkpoints(
+        &self,
+    ) -> anyhow::Result<Vec<crate::workspace_registry::JournalCheckpointSummary>> {
         self.workspace_registry.lock().unwrap().journal_checkpoints()
     }
 

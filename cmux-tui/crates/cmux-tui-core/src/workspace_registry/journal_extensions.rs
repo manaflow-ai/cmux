@@ -2,7 +2,8 @@ use super::*;
 use crate::resource::WireDecimal;
 use crate::workspace_registry::session_journal::{
     JournalAppend, MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES, append_journal_record,
-    expand_topology_subjects, query_session_journal_sequences, unix_epoch_ms,
+    expand_topology_subjects, query_session_journal_sequences, terminal_topology_subjects_batch,
+    unix_epoch_ms,
 };
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -188,6 +189,16 @@ pub struct JournalCheckpoint {
     pub content_refs: Vec<JournalContentRef>,
     pub sha256: String,
     #[serde(serialize_with = "serialize_decimal", deserialize_with = "deserialize_decimal")]
+    pub created_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct JournalCheckpointSummary {
+    pub checkpoint_id: String,
+    pub source_sequence: u64,
+    pub reducer_version: u32,
+    pub content_refs: Vec<JournalContentRef>,
+    pub sha256: String,
     pub created_at_ms: u64,
 }
 
@@ -652,29 +663,30 @@ impl WorkspaceRegistry {
         }
         let tx = self.connection.transaction()?;
         let session_id = transaction_session_id(&tx)?;
-        let mut subjects_by_terminal = HashMap::<&str, Vec<JournalSubject>>::new();
-        for event in events {
-            let terminal_id = match *event {
+        let terminal_ids = events
+            .iter()
+            .filter_map(|event| match *event {
                 crate::journal_ingress::JournalIngressEvent::TerminalOutput {
                     terminal_id, ..
                 }
                 | crate::journal_ingress::JournalIngressEvent::TerminalResize {
                     terminal_id, ..
-                } => terminal_id,
+                } => Some(terminal_id.as_str().to_string()),
                 crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                 | crate::journal_ingress::JournalIngressEvent::Producer { .. }
-                | crate::journal_ingress::JournalIngressEvent::Barrier => continue,
-            };
-            if subjects_by_terminal.contains_key(terminal_id.as_str()) {
-                continue;
-            }
+                | crate::journal_ingress::JournalIngressEvent::Barrier => None,
+            })
+            .collect::<HashSet<_>>();
+        let mut expanded_by_terminal =
+            terminal_topology_subjects_batch(&tx, terminal_ids.iter().cloned())?;
+        let mut subjects_by_terminal = HashMap::<String, Vec<JournalSubject>>::new();
+        for terminal_id in terminal_ids {
             let mut subjects = BTreeSet::from([
                 JournalSubject { kind: "session".into(), id: session_id.clone() },
-                JournalSubject { kind: "terminal".into(), id: terminal_id.as_str().into() },
+                JournalSubject { kind: "terminal".into(), id: terminal_id.clone() },
             ]);
-            expand_topology_subjects(&tx, &mut subjects)?;
-            subjects_by_terminal
-                .insert(terminal_id.as_str(), subjects.into_iter().collect::<Vec<_>>());
+            subjects.extend(expanded_by_terminal.remove(&terminal_id).unwrap_or_default());
+            subjects_by_terminal.insert(terminal_id, subjects.into_iter().collect::<Vec<_>>());
         }
         let mut terminal_offsets = HashMap::<(&str, &str), u64>::new();
         let mut commits = Vec::with_capacity(events.len());
@@ -1907,19 +1919,51 @@ impl WorkspaceRegistry {
         })
     }
 
-    pub(crate) fn journal_checkpoints(&self) -> anyhow::Result<Vec<JournalCheckpoint>> {
+    pub(crate) fn journal_checkpoints(&self) -> anyhow::Result<Vec<JournalCheckpointSummary>> {
         let mut statement = self.connection.prepare(
-            "SELECT checkpoint_id FROM journal_checkpoints
+            "SELECT checkpoint_id, source_sequence, reducer_version, content_refs_json,
+                    sha256, created_at_ms
+             FROM journal_checkpoints
              ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC",
         )?;
-        let ids = statement
-            .query_map([], |row| row.get::<_, String>(0))?
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Vec<u8>>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
-        ids.into_iter()
-            .map(|id| {
-                query_journal_checkpoint(&self.connection, &id)?
-                    .context("listed checkpoint disappeared")
-            })
+        rows.into_iter()
+            .map(
+                |(
+                    checkpoint_id,
+                    source_sequence,
+                    reducer_version,
+                    content_refs,
+                    digest,
+                    created_at_ms,
+                )| {
+                    anyhow::ensure!(digest.len() == 32, "checkpoint digest is invalid");
+                    let digest_hex = encode_hex(&digest);
+                    anyhow::ensure!(
+                        checkpoint_id == format!("checkpoint_{digest_hex}"),
+                        "checkpoint id does not match its digest"
+                    );
+                    Ok(JournalCheckpointSummary {
+                        checkpoint_id,
+                        source_sequence: u64::try_from(source_sequence)?,
+                        reducer_version: u32::try_from(reducer_version)?,
+                        content_refs: serde_json::from_str(&content_refs)?,
+                        sha256: digest_hex,
+                        created_at_ms: u64::try_from(created_at_ms)?,
+                    })
+                },
+            )
             .collect()
     }
 
