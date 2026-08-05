@@ -273,9 +273,16 @@ struct TerminalLinkOpenCoordinatorTests {
         )
         let terminal = try #require(store.panels[terminalPanelId] as? TerminalPanel)
 
+        let surfaceView = terminal.hostedView.surfaceView
+        let terminalSurface = try #require(surfaceView.terminalSurface)
+        let container = try #require(
+            surfaceView.terminalLinkOpenContainer(for: terminalSurface)
+        )
         #expect(
-            terminal.hostedView.surfaceView.debugWordPathSnapshotTerminalPanelID()
-                == terminalPanelId
+            surfaceView.wordPathSnapshotTerminalPanel(
+                container: container,
+                sourcePanelId: terminalSurface.id
+            )?.id == terminalPanelId
         )
     }
 

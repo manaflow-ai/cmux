@@ -494,11 +494,17 @@ struct CommandClickHTMLOpenRoutingTests {
 
     @Test(.timeLimit(.minutes(1)))
     func filesystemProbePoolRateLimitsConsecutiveHovers() async {
+        let scheduler = ManualWordPathHoverScheduler()
         let pool = WordPathFilesystemResolutionCoordinator(
-            minimumHoverInterval: .milliseconds(80)
+            minimumHoverInterval: .milliseconds(80),
+            hoverClockNow: { scheduler.now },
+            scheduleHoverStart: { deadline, action in
+                scheduler.schedule(at: deadline, action: action)
+            }
         )
         let firstFinished = AsyncStream<Void>.makeStream()
         let secondFinished = AsyncStream<Void>.makeStream()
+        let secondRan = AtomicBooleanGate(false)
 
         pool.submit(
             id: UUID(),
@@ -509,17 +515,24 @@ struct CommandClickHTMLOpenRoutingTests {
         var firstIterator = firstFinished.stream.makeAsyncIterator()
         _ = await firstIterator.next()
 
-        let submittedAt = ContinuousClock.now
         pool.submit(
             id: UUID(),
             isUserInitiated: false,
-            work: { return { @MainActor in secondFinished.continuation.yield() } },
+            work: {
+                secondRan.storeRelease(true)
+                return { @MainActor in secondFinished.continuation.yield() }
+            },
             discarded: {}
         )
+
+        #expect(!secondRan.loadAcquire())
+        scheduler.advance(by: .milliseconds(79))
+        #expect(!secondRan.loadAcquire())
+        scheduler.advance(by: .milliseconds(1))
         var secondIterator = secondFinished.stream.makeAsyncIterator()
         _ = await secondIterator.next()
 
-        #expect(submittedAt.duration(to: .now) >= .milliseconds(50))
+        #expect(secondRan.loadAcquire())
         firstFinished.continuation.finish()
         secondFinished.continuation.finish()
     }
@@ -1386,10 +1399,7 @@ struct CommandClickHTMLOpenRoutingTests {
         ))
 
         let browser = try #require(workspace.panels.values.compactMap { $0 as? BrowserPanel }.first)
-        let readAccessPolicy = Mirror(reflecting: browser).children
-            .first(where: { $0.label == "localFileReadAccessPolicy" })
-            .map { String(describing: $0.value) }
-        #expect(readAccessPolicy == "fileOnly")
+        #expect(browser.localFileReadAccessPolicy == .fileOnly)
         #expect(browser.bypassesRemoteWorkspaceProxyForTabDuplication)
         #expect(
             browser.webView.configuration.websiteDataStore ===
@@ -1643,10 +1653,7 @@ struct CommandClickHTMLOpenRoutingTests {
             localFileReadAccessPolicy: .fileOnly
         ))
 
-        let popupPolicy = Mirror(reflecting: browser.popupBrowserContext).children
-            .first(where: { $0.label == "localFileReadAccessPolicy" })
-            .map { String(describing: $0.value) }
-        #expect(popupPolicy == "fileOnly")
+        #expect(browser.popupBrowserContext.localFileReadAccessPolicy == .fileOnly)
     }
 
     @Test
@@ -2024,6 +2031,35 @@ struct CommandClickHTMLOpenRoutingTests {
             try? await Task.sleep(for: .milliseconds(10))
         }
         return false
+    }
+}
+
+@MainActor
+private final class ManualWordPathHoverScheduler {
+    private(set) var now = DispatchTime(uptimeNanoseconds: 1)
+    private var scheduled: (
+        id: UUID,
+        deadline: DispatchTime,
+        action: @MainActor @Sendable () -> Void
+    )?
+
+    func schedule(
+        at deadline: DispatchTime,
+        action: @escaping @MainActor @Sendable () -> Void
+    ) -> (@MainActor @Sendable () -> Void) {
+        let id = UUID()
+        scheduled = (id, deadline, action)
+        return { [weak self] in
+            guard self?.scheduled?.id == id else { return }
+            self?.scheduled = nil
+        }
+    }
+
+    func advance(by interval: DispatchTimeInterval) {
+        now = now + interval
+        guard let scheduled, scheduled.deadline <= now else { return }
+        self.scheduled = nil
+        scheduled.action()
     }
 }
 
