@@ -3068,28 +3068,19 @@ fn schema_thirteen_wraps_legacy_resource_api_frontend_projections() {
             .unwrap();
         registry
             .connection
-            .execute(
-                "UPDATE meta SET value = '13' WHERE key = 'schema_version'",
-                [],
-            )
+            .execute("UPDATE meta SET value = '13' WHERE key = 'schema_version'", [])
             .unwrap();
     }
 
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
-    assert_eq!(
-        required_meta(&migrated.connection, "schema_version").unwrap(),
-        "14"
-    );
+    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "14");
     let projections = migrated.public_projections().unwrap().frontend_projections;
     assert_eq!(projections.len(), 1);
     assert_eq!(projections[0].schema_version, 2);
     assert_eq!(projections[0].projection["frontend_id"], "legacy-resource-api");
     assert_eq!(projections[0].projection["window_id"], projection_id.as_str());
     assert_eq!(projections[0].projection["generation"], "legacy-schema-13");
-    assert_eq!(
-        projections[0].projection["projection"],
-        json!({"selected_workspace":"alpha"})
-    );
+    assert_eq!(projections[0].projection["projection"], json!({"selected_workspace":"alpha"}));
     drop(migrated);
     fs::remove_dir_all(root).unwrap();
 }

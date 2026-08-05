@@ -413,7 +413,8 @@ impl WorkspaceRegistry {
                 validate_identifier("projection scope", &scope)?;
                 FrontendProjectionPublicId::parse(subject_key.clone())?;
                 anyhow::ensure!(
-                    schema_version == 1,
+                    schema_version
+                        == i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION),
                     "frontend projection {subject_key} has unsupported schema version {schema_version}"
                 );
                 anyhow::ensure!(
@@ -755,7 +756,7 @@ mod tests {
                 "resource-api",
                 "session",
                 projection.as_str(),
-                1,
+                RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
                 None,
                 &json!({
                     "frontend_id":"cmux-test",

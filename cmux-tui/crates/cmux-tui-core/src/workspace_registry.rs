@@ -22,8 +22,9 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::platform;
 use crate::resource::{
-    BrowserPublicId, ContentPublicId, MachinePublicId, PanePublicId, ScreenPublicId,
-    SessionPublicId, SplitPublicId, TabPublicId, TerminalPublicId, WorkspacePublicId,
+    BrowserPublicId, ContentPublicId, FrontendProjectionPublicId, MachinePublicId, PanePublicId,
+    ScreenPublicId, SessionPublicId, SplitPublicId, TabPublicId, TerminalPublicId,
+    WorkspacePublicId,
 };
 
 mod effect_store;
@@ -86,8 +87,10 @@ pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 // schema that requires both, and its migration probes the actual table/index
 // shape instead of assuming that a colliding development version identifies
 // one branch. Version 12 scopes receipts by origin. Version 13 adds immutable
-// binary content to journal rows.
-const SCHEMA_VERSION: i64 = 13;
+// binary content to journal rows. Version 14 gives resource API frontend
+// projections one owned envelope instead of storing anonymous projection JSON.
+const SCHEMA_VERSION: i64 = 14;
+pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -516,7 +519,7 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(9..=12) => {
+            Some(9..=13) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;
@@ -1873,6 +1876,60 @@ fn normalize_journal_multiview_schema(transaction: &Transaction<'_>) -> anyhow::
     }
     migrate_resource_events_to_session_journal(transaction)?;
     create_journal_extensions_schema(transaction)?;
+    migrate_resource_api_frontend_projection_envelopes(transaction)?;
+    Ok(())
+}
+
+fn migrate_resource_api_frontend_projection_envelopes(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let rows = {
+        let mut statement = transaction.prepare(
+            "SELECT subject_key, schema_version, payload
+             FROM frontend_projections
+             WHERE frontend = 'resource-api' AND scope = 'session'
+             ORDER BY subject_key",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (subject_key, schema_version, payload) in rows {
+        FrontendProjectionPublicId::parse(subject_key.clone())?;
+        if schema_version == i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION) {
+            continue;
+        }
+        anyhow::ensure!(
+            schema_version == 1,
+            "resource API frontend projection {subject_key} has unsupported schema version {schema_version}"
+        );
+        let projection: Value = serde_json::from_str(&payload).with_context(|| {
+            format!("resource API frontend projection {subject_key} contains invalid JSON")
+        })?;
+        let envelope = serde_json::json!({
+            "frontend_id":"legacy-resource-api",
+            "window_id":subject_key,
+            "generation":"legacy-schema-13",
+            "projection":projection,
+        });
+        let payload = canonical_json(&envelope)?;
+        anyhow::ensure!(
+            payload.len() <= MAX_PROJECTION_BYTES,
+            "migrated resource API frontend projection exceeds {MAX_PROJECTION_BYTES} bytes"
+        );
+        transaction.execute(
+            "UPDATE frontend_projections
+             SET schema_version = ?1, payload = ?2
+             WHERE frontend = 'resource-api' AND scope = 'session' AND subject_key = ?3",
+            params![
+                i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION),
+                payload,
+                subject_key,
+            ],
+        )?;
+    }
     Ok(())
 }
 

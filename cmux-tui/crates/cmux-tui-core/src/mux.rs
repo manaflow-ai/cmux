@@ -52,11 +52,12 @@ use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
-    FrontendProjection, ProjectionCommit, RegistryBrowser, RegistryBrowserReconnect,
-    RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
-    RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
-    ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
-    TerminalLifecycle, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+    FrontendProjection, ProjectionCommit, RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
+    RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
+    RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
+    ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
+    ResourcePatchCommit, ResourceTopologySnapshot, TerminalLifecycle, TerminalRegistrySnapshot,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -4999,7 +5000,7 @@ impl Mux {
             "resource-api",
             "session",
             projection_id.as_str(),
-            1,
+            RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
             projection,
             &value,
             &deltas,
