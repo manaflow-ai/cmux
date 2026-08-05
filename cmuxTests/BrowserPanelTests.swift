@@ -2949,6 +2949,63 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         advanceAnimations()
         XCTAssertEqual(slot.layer?.masksToBounds, true)
     }
+
+    private func inactiveDimOverlayView(in slot: WindowBrowserSlotView) throws -> NSView {
+        try XCTUnwrap(
+            slot.subviews.first { $0 is BrowserInactiveDimOverlayView },
+            "Expected the slot to contain the inactive-dim overlay"
+        )
+    }
+
+    func testInactiveDimOverlayTracksConfiguration() throws {
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let dimView = try inactiveDimOverlayView(in: slot)
+
+        XCTAssertTrue(dimView.isHidden, "No dim before a configuration is applied")
+
+        slot.setInactiveDim(BrowserPortalInactiveDimConfiguration(color: .black, opacity: 0.6))
+        XCTAssertFalse(dimView.isHidden)
+        let alpha = dimView.layer?.backgroundColor
+            .flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+        XCTAssertEqual(alpha, 0.6, accuracy: 0.001)
+
+        slot.setInactiveDim(BrowserPortalInactiveDimConfiguration(color: .black, opacity: 0))
+        XCTAssertTrue(dimView.isHidden, "Zero opacity must not paint a dim")
+
+        slot.setInactiveDim(BrowserPortalInactiveDimConfiguration(color: .black, opacity: -0.2))
+        XCTAssertTrue(dimView.isHidden, "Negative opacity clamps to zero and must not paint a dim")
+
+        slot.setInactiveDim(BrowserPortalInactiveDimConfiguration(color: .black, opacity: 1.2))
+        XCTAssertFalse(dimView.isHidden)
+        let clampedAlpha = dimView.layer?.backgroundColor
+            .flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+        XCTAssertEqual(clampedAlpha, 1.0, accuracy: 0.001, "Opacity above 1 clamps to fully opaque")
+
+        slot.setInactiveDim(nil)
+        XCTAssertTrue(dimView.isHidden, "Clearing the configuration must clear the dim")
+    }
+
+    // The dim is only visible if it stays above the hosted web view, which is
+    // (re)attached to the slot after the dim view (and sortSubviews is ignored
+    // during didAddSubview). Layout is where the ordering is enforced, matching
+    // the production attach path, which ends in layoutSubtreeIfNeeded().
+    func testInactiveDimOverlayStaysAboveLaterAttachedContent() throws {
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        slot.setInactiveDim(BrowserPortalInactiveDimConfiguration(color: .black, opacity: 0.6))
+
+        let hostedContent = NSView(frame: slot.bounds)
+        slot.addSubview(hostedContent, positioned: .above, relativeTo: nil)
+        slot.needsLayout = true
+        slot.layoutSubtreeIfNeeded()
+
+        let dimView = try inactiveDimOverlayView(in: slot)
+        guard let dimIndex = slot.subviews.firstIndex(of: dimView),
+              let contentIndex = slot.subviews.firstIndex(of: hostedContent) else {
+            XCTFail("Expected both the dim overlay and hosted content in the slot")
+            return
+        }
+        XCTAssertGreaterThan(dimIndex, contentIndex, "Dim overlay must remain above hosted content")
+    }
 }
 
 
