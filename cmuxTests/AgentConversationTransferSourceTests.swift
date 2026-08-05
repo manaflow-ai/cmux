@@ -553,6 +553,31 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
+    func hookDetectedOpenCodeWithoutExactDatabasePathFailsClosed() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "hook-opencode-without-database-path",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: nil,
+                environment: [
+                    "HOME": "/tmp/captured-opencode-home",
+                    "XDG_DATA_HOME": "/tmp/captured-opencode-data",
+                ],
+                capturedAt: 123,
+                source: "environment"
+            ),
+            sessionIDProvenance: .authoritative
+        )
+        let source = AgentConversationSource(snapshot: snapshot)
+
+        #expect(source.openCodeDatabasePath == nil)
+        #expect(!source.hasDeterministicTranscriptSource)
+    }
+
+    @Test
     func openCodeTransferUsesCapturedXDGDataHome() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

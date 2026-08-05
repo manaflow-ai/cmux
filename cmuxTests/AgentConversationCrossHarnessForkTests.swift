@@ -36,11 +36,79 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(commands[.kiro]?.contains("kiro-cli chat --agent cmux ") == true)
         #expect(commands[.kiro]?.contains("; else kiro-cli chat ") == true)
         #expect(commands[.antigravity]?.hasPrefix("agy --prompt-interactive ") == true)
-        #expect(commands[.hermesAgent]?.hasPrefix("hermes chat --tui --query ") == true)
+        let hermesCommand = try #require(commands[.hermesAgent])
+        #expect(hermesCommand.contains("hermes chat --query "))
+        #expect(hermesCommand.contains(" --quiet "))
+        #expect(hermesCommand.contains("session_id:"))
+        #expect(hermesCommand.contains("hermes chat --tui --resume "))
+        #expect(!hermesCommand.contains("chat --tui --query"))
         #expect(commands[.copilot]?.hasPrefix("copilot --interactive ") == true)
         #expect(commands[.codebuddy]?.hasPrefix("codebuddy ") == true)
         #expect(commands[.factory]?.hasPrefix("droid ") == true)
         #expect(commands.values.allSatisfy { $0.contains("don'\\''t drop this") })
+    }
+
+    @Test
+    func hermesTransferSeedsThenResumesInteractiveSession() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("fake hermes", isDirectory: false)
+        let invocationLog = directory.appendingPathComponent("invocations.log", isDirectory: false)
+        let script = """
+        #!/bin/zsh
+        if [[ "${1:-}" == "chat" && "${2:-}" == "--query" && "${3:-}" == "$CMUX_HERMES_EXPECTED_MESSAGE" && "${4:-}" == "--quiet" ]]; then
+          /usr/bin/printf 'seed\n' >> "$CMUX_HERMES_TEST_LOG"
+          /usr/bin/printf 'seeded response\n'
+          /usr/bin/printf '\nsession_id: seeded-session\n' >&2
+          exit 0
+        fi
+        if [[ "${1:-}" == "chat" && "${2:-}" == "--tui" && "${3:-}" == "--resume" && "${4:-}" == "seeded-session" ]]; then
+          /usr/bin/printf 'resume\n' >> "$CMUX_HERMES_TEST_LOG"
+          exit 0
+        fi
+        exit 2
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+
+        let message = "User: preserve this\nAssistant: kept"
+        let command = try #require(AgentConversationForkTargetHarness.hermesAgent.startupCommand(
+            handoffMessage: message,
+            executablePath: executable.path
+        ))
+        let process = Process()
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_HERMES_EXPECTED_MESSAGE": message,
+            "CMUX_HERMES_TEST_LOG": invocationLog.path,
+        ]) { _, override in override }
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+
+        try process.run()
+        process.waitUntilExit()
+        let output = String(
+            decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+        let errorOutput = String(
+            decoding: standardError.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+
+        #expect(process.terminationStatus == 0, Comment(rawValue: errorOutput))
+        #expect(output == "seeded response\n")
+        #expect(errorOutput.contains("session_id: seeded-session"))
+        #expect(
+            String(decoding: try Data(contentsOf: invocationLog), as: UTF8.self)
+                == "seed\nresume\n"
+        )
     }
 
     @Test

@@ -119,7 +119,7 @@ import Testing
     }
 
     @Test
-    func openCodeHookCapturesTranscriptStorageWithoutReplayingIt() throws {
+    func openCodeHookCapturesStorageEnvironmentWithoutAssumingDatabasePath() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-opencode-storage-\(UUID().uuidString)", isDirectory: true)
@@ -195,10 +195,7 @@ import Testing
             sessionIDProvenance: .authoritative
         )
         let source = AgentConversationSource(snapshot: snapshot)
-        #expect(
-            source.openCodeDatabasePath
-                == dataHome.appendingPathComponent("opencode/opencode.db").path
-        )
+        #expect(source.openCodeDatabasePath == nil)
         let resumeCommand = try #require(snapshot.resumeCommand)
         #expect(!resumeCommand.contains("HOME="))
         #expect(!resumeCommand.contains("XDG_DATA_HOME="))
