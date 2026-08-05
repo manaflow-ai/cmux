@@ -61,8 +61,8 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
         let bufferName = "issue-5138-\(UUID().uuidString)"
         let expectedMarkers = (1...80).map { String(format: "MARK%04d", $0) }
         let payload = expectedMarkers.map { "\($0) \(String(repeating: "x", count: 48))" }
-            .joined(separator: "\n")
-        XCTAssertEqual(payload.utf8.count, 4_639)
+            .joined(separator: "\n") + "\n"
+        XCTAssertEqual(payload.utf8.count, 4_640)
 
         let create = runCLI(
             cliPath: cliPath,
@@ -71,8 +71,8 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
                 "workspace", "create",
                 "--name", "paste-buffer-regression",
                 "--cwd", "/tmp",
-                "--command", "/bin/cat </dev/tty",
-                "--focus", "false",
+                "--command", "cat",
+                "--focus", "true",
             ]
         )
         XCTAssertEqual(create.status, 0, create.diagnostic)
@@ -83,6 +83,24 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
             "Expected workspace.create to return a workspace ref. \(create.diagnostic)"
         )
         print("Cat workspace created: \(workspace)")
+
+        let readinessMarker = "PASTE_BUFFER_READY_\(UUID().uuidString)"
+        let readinessSend = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["send", "--workspace", workspace, "--", readinessMarker + "\n"]
+        )
+        XCTAssertEqual(readinessSend.status, 0, readinessSend.diagnostic)
+        let readinessScreen = waitForScreenMarker(
+            readinessMarker,
+            cliPath: cliPath,
+            socketPath: socketPath,
+            workspace: workspace
+        )
+        XCTAssertTrue(
+            readinessScreen.contains(readinessMarker),
+            "Expected the focused cat workspace to echo its readiness marker"
+        )
 
         let setBuffer = runCLI(
             cliPath: cliPath,
@@ -126,6 +144,29 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
             expectedMarkers,
             markerFailureMessage(expected: expectedMarkers, actual: actualMarkers)
         )
+    }
+
+    private func waitForScreenMarker(
+        _ marker: String,
+        cliPath: String,
+        socketPath: String,
+        workspace: String,
+        timeout: TimeInterval = 12.0
+    ) -> String {
+        var captured = ""
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let readScreen = runCLI(
+                cliPath: cliPath,
+                socketPath: socketPath,
+                arguments: ["read-screen", "--workspace", workspace, "--scrollback"]
+            )
+            XCTAssertEqual(readScreen.status, 0, readScreen.diagnostic)
+            captured = readScreen.stdout
+            if captured.contains(marker) { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        } while Date() < deadline
+        return captured
     }
 
     private func launchAppProcess() throws -> Process {
@@ -212,7 +253,7 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
         return "appPid=\(process.processIdentifier) appRunning=\(process.isRunning) appStatus=\(status)"
     }
 
-    private func tailOfAppLog(maximumLength: Int = 4_000) -> String {
+    private func tailOfAppLog(maximumLength: Int = 20_000) -> String {
         guard let contents = try? String(contentsOfFile: appLogPath, encoding: .utf8) else {
             return "<missing>"
         }
