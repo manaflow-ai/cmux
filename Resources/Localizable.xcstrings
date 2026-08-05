@@ -50378,6 +50378,57 @@
         }
       }
     },
+    "agent.codePuppy.displayName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.defaultCodePuppyTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        }
+      }
+    },
+    "command.cmuxCLI.hooks.agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex、grok、opencode、pi、omp、campfire、amp、cursor、gemini、kiro、antigravity（エイリアス: agy）、rovodev（エイリアス: rovo）、hermes-agent、copilot、codebuddy、factory、qoder、code-puppy（エイリアス: pup）"
+          }
+        }
+      }
+    },
     "command.cmuxConfig.defaultClaudeCodeTitle": {
       "extractionState": "manual",
       "localizations": {

@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -228,22 +229,23 @@ extension CMUXCLI {
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
-            name: "code-puppy", displayName: "Code Puppy", statusKey: "code-puppy",
-            configDir: ".code_puppy", configFile: "hooks.json",
+            name: CodePuppyAgentRegistration.standard.id,
+            displayName: String(localized: "agent.codePuppy.displayName", defaultValue: "Code Puppy"),
+            statusKey: CodePuppyAgentRegistration.standard.id,
+            configDir: CodePuppyAgentRegistration.standard.hookConfigDirectory,
+            configFile: CodePuppyAgentRegistration.standard.hookConfigFile,
             createConfigDirIfMissing: true,
-            binaryName: "code-puppy",
-            sessionStoreSuffix: "code-puppy", disableEnvVar: "CMUX_CODE_PUPPY_HOOKS_DISABLED",
-            hookMarker: "cmux hooks code-puppy", format: .nested(timeoutMs: 5000),
-            events: [
-                .init(agentEvent: "SessionStart",     cmuxSubcommand: "session-start"),
-                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
-                .init(agentEvent: "Stop",             cmuxSubcommand: "stop"),
-                .init(agentEvent: "Notification",     cmuxSubcommand: "notification"),
-                .init(agentEvent: "SessionEnd",       cmuxSubcommand: "session-end"),
-            ],
-            aliases: ["pup"],
-            nestedGroupMatcher: "*",
-            feedHookEvents: ["PreToolUse", "PostToolUse"]
+            binaryName: CodePuppyAgentRegistration.standard.binaryName,
+            sessionStoreSuffix: CodePuppyAgentRegistration.standard.sessionStoreSuffix,
+            disableEnvVar: CodePuppyAgentRegistration.standard.disableHooksEnvironmentVariable,
+            hookMarker: CodePuppyAgentRegistration.standard.hookMarker,
+            format: .nested(timeoutMs: CodePuppyAgentRegistration.standard.hookTimeoutMilliseconds),
+            events: CodePuppyAgentRegistration.standard.lifecycleEvents.map {
+                .init(agentEvent: $0.agentEvent, cmuxSubcommand: $0.cmuxSubcommand)
+            },
+            aliases: Set(CodePuppyAgentRegistration.standard.hookAliases),
+            nestedGroupMatcher: CodePuppyAgentRegistration.standard.nestedGroupMatcher,
+            feedHookEvents: CodePuppyAgentRegistration.standard.feedEvents
         ),
         AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
