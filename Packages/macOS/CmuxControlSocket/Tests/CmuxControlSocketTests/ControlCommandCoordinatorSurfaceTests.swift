@@ -13,6 +13,66 @@ struct ControlCommandCoordinatorSurfaceTests {
         return (ControlCommandCoordinator(context: context), context)
     }
 
+    private func capturedInitialCommand(
+        method: String,
+        initialCommand: JSONValue?
+    ) -> String? {
+        let context = FakeSurfaceControlCommandContext()
+        context.paneCreateResolution = .createFailed
+        context.splitResolution = .createFailed
+        context.createResolution = .createFailed
+        let coordinator = ControlCommandCoordinator(context: context)
+        var params: [String: JSONValue] = [:]
+        if method != "surface.create" {
+            params["direction"] = .string("right")
+        }
+        if let initialCommand {
+            params["initial_command"] = initialCommand
+        }
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: method,
+            params: params
+        ))
+
+        switch method {
+        case "surface.split":
+            return context.splitInputs?.initialCommand
+        case "pane.create":
+            return context.paneCreateInputs?.initialCommand
+        case "surface.create":
+            return context.createInputs?.initialCommand
+        default:
+            Issue.record("unexpected creation method \(method)")
+            return nil
+        }
+    }
+
+    @Test(
+        "terminal creation RPCs preserve initial-command quoting",
+        arguments: ["surface.split", "pane.create", "surface.create"]
+    )
+    func terminalCreationPreservesInitialCommandQuoting(method: String) {
+        let command = #"printf '%s\n' "spaces 'single' \"double\" $HOME $(printf nested) \\tail 日本語"#
+
+        #expect(capturedInitialCommand(
+            method: method,
+            initialCommand: .string(command)
+        ) == command)
+    }
+
+    @Test(
+        "terminal creation RPCs preserve plain-shell behavior when initial_command is omitted",
+        arguments: ["surface.split", "pane.create", "surface.create"]
+    )
+    func terminalCreationOmitsInitialCommand(method: String) {
+        #expect(capturedInitialCommand(
+            method: method,
+            initialCommand: nil
+        ) == nil)
+    }
+
     @Test func surfaceCreateDockPayloadUsesDockScopedIDs() throws {
         let windowID = UUID()
         let workspaceID = UUID()

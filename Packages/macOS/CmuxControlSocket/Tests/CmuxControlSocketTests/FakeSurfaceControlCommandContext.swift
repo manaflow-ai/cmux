@@ -4,7 +4,11 @@ import Foundation
 @MainActor
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
+    var paneCreateInputs: ControlPaneCreateInputs?
+    var splitResolution: ControlSurfaceSplitResolution = .tabManagerUnavailable
+    var splitInputs: ControlSurfaceSplitInputs?
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var createInputs: ControlSurfaceCreateInputs?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
@@ -40,14 +44,24 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         inputs: ControlPaneCreateInputs
     ) -> ControlPaneCreateResolution {
-        paneCreateResolution
+        paneCreateInputs = inputs
+        return paneCreateResolution
+    }
+
+    func controlSurfaceSplit(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceSplitInputs
+    ) -> ControlSurfaceSplitResolution {
+        splitInputs = inputs
+        return splitResolution
     }
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
-        createResolution
+        createInputs = inputs
+        return createResolution
     }
 
     func controlSurfaceResumeSet(
