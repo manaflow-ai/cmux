@@ -265,6 +265,32 @@ fn validate_remote_word(value: &str) -> Result<(), ProviderError> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn close_lets_the_remote_command_observe_eof_before_reaping_ssh() {
+        let directory = tempfile::tempdir().unwrap();
+        let outcome = directory.path().join("outcome");
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "cat >/dev/null; printf graceful > \"$CMUX_TEST_OUTCOME\""])
+            .env("CMUX_TEST_OUTCOME", &outcome)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let mut child = command.spawn().unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let link = SshProcessLink {
+            inner: LengthDelimitedLink::new("ssh://test", 1024, stdout, stdin),
+            child: Mutex::new(Some(child)),
+        };
+
+        link.close().await.unwrap();
+
+        assert_eq!(std::fs::read_to_string(outcome).unwrap(), "graceful");
+    }
+
     #[test]
     fn destination_preserves_user_for_dial_but_description_redacts_it() {
         let endpoint = url::Url::parse("ssh://alice@example.com:2222").unwrap();
