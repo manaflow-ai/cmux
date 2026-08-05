@@ -381,8 +381,9 @@ struct SidebarWorkspaceTableTests {
         }
 
         let actions = makeTableActions(
-            updateWorkspaceDrag: { _, _, _ in
-                SidebarWorkspaceTableReorderDropUpdate(
+            updateWorkspaceDrag: { _, _, payloadWorkspaceId in
+                guard payloadWorkspaceId == ids[1] else { return nil }
+                return SidebarWorkspaceTableReorderDropUpdate(
                     indicator: SidebarDropIndicator(tabId: ids[3], edge: .top),
                     scope: .raw,
                     draggedWorkspaceId: ids[1],
@@ -411,10 +412,15 @@ struct SidebarWorkspaceTableTests {
         container.tableView.layoutSubtreeIfNeeded()
 
         #expect(controller.displayedWorkspaceIdsForTesting == ids)
+        #expect(
+            controller.tableView(container.tableView, pasteboardWriterForRow: 1)
+                != nil
+        )
         #expect(controller.updateReorderDrag(windowPoint: NSPoint(x: 40, y: 120)))
         #expect(controller.displayedWorkspaceIdsForTesting == [ids[0], ids[2], ids[1], ids[3]])
 
         controller.reorderDropDragExited()
+        controller.workspaceDragSessionDidEnd()
         #expect(controller.displayedWorkspaceIdsForTesting == ids)
     }
 
