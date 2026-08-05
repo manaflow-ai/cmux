@@ -6314,8 +6314,9 @@ mod unix {
                 .unwrap()
                 .insert(1, HostTap::new(renderer_tx, Arc::new(renderer_socket), usize::MAX));
             let (target_socket, _target_peer) = UnixStream::pair().unwrap();
-            let (target_tx, target_rx) = sync_channel(1);
+            let (target_tx, target_rx) = sync_channel(4);
             let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+            host.smart.taps.lock().unwrap().insert(2, target.clone());
 
             assert!(host.set_cell_pixel_size(9, 18, 42, &target).unwrap());
 
@@ -6326,6 +6327,11 @@ mod unix {
             let colors = renderer_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(colors.kind, MessageKind::Colors);
             assert!(colors.sequence > resized.sequence);
+
+            let smart_resize = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(smart_resize.kind, MessageKind::Resized);
+            assert_eq!(smart_resize.payload, [80, 0, 24, 0, 9, 0, 18, 0]);
+            assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), smart_resize.sequence);
             let ack = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(ack.kind, MessageKind::CellPixelSizeAck);
             assert_eq!(ack.request_id, 42);

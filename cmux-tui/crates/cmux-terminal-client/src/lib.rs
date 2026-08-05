@@ -1532,6 +1532,23 @@ mod tests {
     }
 
     #[test]
+    fn smart_resize_updates_authoritative_cell_metrics() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        let mut snapshot = Frame::new(MessageKind::Snapshot, test_snapshot_payload(b"ready"));
+        snapshot.sequence = 7;
+        state.apply(snapshot).unwrap();
+
+        let mut resized = Frame::new(MessageKind::Resized, vec![100, 0, 30, 0, 9, 0, 18, 0]);
+        resized.sequence = 8;
+        state.apply(resized).unwrap();
+
+        assert_eq!((state.cols, state.rows), (100, 30));
+        assert_eq!(state.cell_pixels, (9, 18));
+        assert_eq!(state.local_parser_cursor, 8);
+    }
+
+    #[test]
     fn owning_multiplexer_keeps_frames_flowing_after_open_helper_returns() {
         let runtime = Runtime::new().unwrap();
         runtime.block_on(async {
