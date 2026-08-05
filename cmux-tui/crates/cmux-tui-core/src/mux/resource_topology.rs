@@ -150,6 +150,14 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn set_resource_close_cleanup_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.resource_close_cleanup.lock().unwrap() = hook;
+    }
+
+    #[cfg(test)]
     pub(crate) fn resource_terminal_lifecycle_for_test(
         &self,
         terminal_id: &str,
@@ -2386,6 +2394,10 @@ impl Mux {
             self.notify_terminal_exit_waiters(Some(terminal_id));
         }
 
+        #[cfg(test)]
+        if let Some(hook) = self.resource_close_cleanup.lock().unwrap().clone() {
+            hook();
+        }
         self.publish_resource_event();
         for surface in plan.removed {
             self.purge_surface_side_tables(surface.id);

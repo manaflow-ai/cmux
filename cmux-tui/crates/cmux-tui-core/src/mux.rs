@@ -1726,6 +1726,8 @@ pub struct Mux {
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
     deadline_fanout_pool: DeadlineFanoutPool,
@@ -2055,6 +2057,8 @@ impl Mux {
             resource_projection_before_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
+            #[cfg(test)]
+            resource_close_cleanup: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
             deadline_fanout_pool: DeadlineFanoutPool::new(),
@@ -16790,6 +16794,51 @@ mod tests {
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn terminal_close_runs_runtime_cleanup_outside_creation_fence() {
+        let mux = test_mux();
+        let created = public_request(
+            &mux,
+            "create-terminal-workspace",
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "name":"close fence",
+                "initial_content":"terminal",
+            }),
+            Some("create-terminal-workspace"),
+        );
+        let terminal = created["result"]["value"]["terminal_id"].clone();
+        let cleanup_held_creation_fence = Arc::new(AtomicBool::new(false));
+        mux.set_resource_close_cleanup_hook_for_test(Some(Arc::new({
+            let cleanup_held_creation_fence = cleanup_held_creation_fence.clone();
+            let mux = Arc::downgrade(&mux);
+            move || {
+                cleanup_held_creation_fence.store(
+                    mux.upgrade()
+                        .is_some_and(|mux| mux.resource_creation_execution.try_lock().is_err()),
+                    Ordering::Release,
+                );
+            }
+        })));
+        public_request(
+            &mux,
+            "close-terminal",
+            "terminal.close",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal,
+            }),
+            Some("close-terminal"),
+        );
+        assert!(
+            !cleanup_held_creation_fence.load(Ordering::Acquire),
+            "terminal cleanup ran while holding the global creation fence"
+        );
     }
 
     #[test]
