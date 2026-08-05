@@ -425,7 +425,7 @@ mod unix {
     const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
-    const HOST_EXIT_STREAM_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+    const HOST_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
     const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
     const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
     const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
@@ -2393,6 +2393,21 @@ mod unix {
         fn close(&self) {
             let _ = self.shutdown.shutdown(std::net::Shutdown::Both);
         }
+
+        fn close_and_wake_writer(&self) {
+            self.close();
+            // The receiver cannot observe channel disconnection while the
+            // writer's local HostTap still owns a sender. Reserve one private
+            // sentinel and wait for channel capacity so an input-side EOF
+            // always releases an otherwise-idle writer. Socket shutdown keeps
+            // this bounded even when the writer was blocked in write_frame.
+            let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
+            let retained = crate::terminal_host_protocol::HEADER_LEN;
+            self.queued_bytes.fetch_add(retained, Ordering::AcqRel);
+            if self.sender.send(wake).is_err() {
+                self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
+            }
+        }
     }
 
     fn wait_for_pty_readable_or_forced_drain(
@@ -2482,7 +2497,7 @@ mod unix {
         dead: AtomicBool,
         launch_owner_claimed: AtomicBool,
         launch_owner_stream_ready: AtomicBool,
-        launch_owner_completed: AtomicBool,
+        active_client_streams: AtomicUsize,
         child_exit: (Mutex<Option<TerminalExit>>, Condvar),
         child_waitable: AtomicBool,
         pty_drained: AtomicBool,
@@ -2531,8 +2546,49 @@ mod unix {
             // failure, while the independently hosted process can still
             // publish or clean up its terminal exit.
             self.host.launch_owner_stream_ready.store(true, Ordering::Release);
-            self.host.launch_owner_completed.store(true, Ordering::Release);
             self.host.publish_exit_if_drained();
+        }
+    }
+
+    struct ActiveClientStream {
+        host: Arc<HostShared>,
+    }
+
+    impl ActiveClientStream {
+        fn register(host: Arc<HostShared>) -> Self {
+            host.active_client_streams.fetch_add(1, Ordering::AcqRel);
+            Self { host }
+        }
+    }
+
+    impl Drop for ActiveClientStream {
+        fn drop(&mut self) {
+            let previous = self.host.active_client_streams.fetch_sub(1, Ordering::AcqRel);
+            debug_assert!(previous > 0, "active terminal-host stream underflow");
+        }
+    }
+
+    struct ClientSetupRollback {
+        host: Arc<HostShared>,
+        client: u64,
+        armed: bool,
+    }
+
+    impl ClientSetupRollback {
+        fn new(host: Arc<HostShared>, client: u64) -> Self {
+            Self { host, client, armed: true }
+        }
+
+        fn disarm(&mut self) {
+            self.armed = false;
+        }
+    }
+
+    impl Drop for ClientSetupRollback {
+        fn drop(&mut self) {
+            if self.armed {
+                self.host.remove_client(self.client);
+            }
         }
     }
 
@@ -3534,7 +3590,6 @@ mod unix {
         let _ = write_frame(writer, &response);
 
         let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
-        let mut exit_drain_deadline = None;
         loop {
             let now = Instant::now();
             if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -3548,18 +3603,12 @@ mod unix {
                 // retain an already-exited host forever. A live PTY remains
                 // adoptable; only its eventual exit is now unblocked.
                 shared.launch_owner_stream_ready.store(true, Ordering::Release);
-                shared.launch_owner_completed.store(true, Ordering::Release);
                 shared.publish_exit_if_drained();
             }
-            if shared.dead.load(Ordering::Acquire) {
-                let deadline =
-                    *exit_drain_deadline.get_or_insert(now + HOST_EXIT_STREAM_DRAIN_TIMEOUT);
-                let clients_drained = shared.taps.lock().unwrap().is_empty();
-                if (shared.launch_owner_completed.load(Ordering::Acquire) && clients_drained)
-                    || now >= deadline
-                {
-                    break;
-                }
+            if shared.dead.load(Ordering::Acquire)
+                && shared.active_client_streams.load(Ordering::Acquire) == 0
+            {
+                break;
             }
             match listener.accept() {
                 Ok((stream, _)) => {
@@ -3673,7 +3722,7 @@ mod unix {
             dead: AtomicBool::new(false),
             launch_owner_claimed: AtomicBool::new(false),
             launch_owner_stream_ready: AtomicBool::new(false),
-            launch_owner_completed: AtomicBool::new(false),
+            active_client_streams: AtomicUsize::new(0),
             child_exit: (Mutex::new(None), Condvar::new()),
             child_waitable: AtomicBool::new(false),
             pty_drained: AtomicBool::new(false),
@@ -3817,6 +3866,10 @@ mod unix {
     }
 
     fn serve_client(host: Arc<HostShared>, mut stream: UnixStream) -> anyhow::Result<()> {
+        // A client that stops reading must not retain an exited host forever.
+        // Bound the actual stalled resource instead of imposing a wall-clock
+        // deadline on healthy clients that are still draining sequenced bytes.
+        stream.set_write_timeout(Some(HOST_CLIENT_WRITE_TIMEOUT))?;
         let hello_frame = read_required_frame(&mut stream, "client hello")?;
         if hello_frame.kind != MessageKind::ClientHello
             || hello_frame.sequence != 0
@@ -3847,7 +3900,7 @@ mod unix {
         let (sender, receiver) = sync_channel(256);
         let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
         let command_sender = tap.clone();
-        let (snapshot, colors, snapshot_sequence) = {
+        let (snapshot, colors, snapshot_sequence, _active_client_stream) = {
             // Match resize's viewer -> size -> cell metrics -> parser ->
             // broadcast lock order so a snapshot contains one atomic
             // logical and pixel geometry.
@@ -3864,6 +3917,7 @@ mod unix {
             if host.dead.load(Ordering::Acquire) {
                 anyhow::bail!("terminal host exited before snapshot");
             }
+            let active_client_stream = ActiveClientStream::register(host.clone());
             // A renderer needs an initial reservation until it reports its
             // measured grid. Admin and read-only mirror connections are
             // management/observation channels and must never pin the PTY to
@@ -3890,25 +3944,21 @@ mod unix {
                 },
                 colors,
                 host.sequence.load(Ordering::Acquire),
+                active_client_stream,
             )
         };
+        let mut client_setup = ClientSetupRollback::new(host.clone(), client);
         // The tap and snapshot boundary are now atomic members of the live
         // stream. Releasing a deferred fast-exit event here places Exit after
         // that boundary even if the PTY finished before this connection.
         launch_owner.stream_ready();
         let mut snapshot_frame = Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
         snapshot_frame.sequence = snapshot_sequence;
-        if let Err(error) = write_frame(&mut stream, &snapshot_frame) {
-            host.remove_client(client);
-            return Err(error.into());
-        }
+        write_frame(&mut stream, &snapshot_frame)?;
         let mut colors_frame =
             Frame::new(MessageKind::Colors, encode_terminal_color_overrides(&colors));
         colors_frame.sequence = snapshot_sequence;
-        if let Err(error) = write_frame(&mut stream, &colors_frame) {
-            host.remove_client(client);
-            return Err(error.into());
-        }
+        write_frame(&mut stream, &colors_frame)?;
 
         let mut command_stream = stream.try_clone()?;
         let command_host = host.clone();
@@ -4084,12 +4134,16 @@ mod unix {
             // Wake a writer that is waiting on an otherwise-empty live-frame
             // channel. The socket is shut down first, so this private wakeup
             // frame can never be mistaken for a sequenced host transition.
-            command_sender.close();
-            let _ = command_sender.try_send(Frame::new(MessageKind::ResyncRequired, Vec::new()));
+            command_sender.close_and_wake_writer();
             command_host.remove_client(client);
         })?;
+        client_setup.disarm();
 
         while let Ok(frame) = receiver.recv() {
+            if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+                tap.release(&frame);
+                break;
+            }
             let write_result = write_frame(&mut stream, &frame);
             tap.release(&frame);
             if write_result.is_err() {
@@ -4711,7 +4765,7 @@ mod unix {
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(true),
                 launch_owner_stream_ready: AtomicBool::new(true),
-                launch_owner_completed: AtomicBool::new(false),
+                active_client_streams: AtomicUsize::new(0),
                 child_exit: (
                     Mutex::new(Some(TerminalExit {
                         outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit {
@@ -4768,7 +4822,7 @@ mod unix {
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(false),
                 launch_owner_stream_ready: AtomicBool::new(false),
-                launch_owner_completed: AtomicBool::new(false),
+                active_client_streams: AtomicUsize::new(0),
                 child_exit: (Mutex::new(None), Condvar::new()),
                 child_waitable: AtomicBool::new(false),
                 pty_drained: AtomicBool::new(false),
@@ -6250,10 +6304,8 @@ mod unix {
             let (written_tx, written_rx) = std::sync::mpsc::channel();
             let (release_tx, release_rx) = std::sync::mpsc::channel();
             let worker = thread::spawn(move || {
-                thread::sleep(Duration::from_millis(20));
                 worker_force.store(true, Ordering::Release);
                 drain_waker.write_all(&[1]).unwrap();
-                thread::sleep(Duration::from_millis(20));
                 retained_writer.write_all(b"late").unwrap();
                 written_tx.send(()).unwrap();
                 // Deliberately retain the write side beyond the forced drain

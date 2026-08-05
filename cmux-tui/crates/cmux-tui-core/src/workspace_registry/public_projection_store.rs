@@ -473,7 +473,7 @@ impl WorkspaceRegistry {
         self.connection
             .execute(
                 "UPDATE resource_agent_projections
-                 SET result_json = '{'
+                 SET result_json = json_set(result_json, '$.state', 'corrupt')
                  WHERE terminal_id = ?1",
                 [terminal_id.as_str()],
             )
