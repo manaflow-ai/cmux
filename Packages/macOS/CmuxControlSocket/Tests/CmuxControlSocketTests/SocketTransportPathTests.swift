@@ -66,6 +66,30 @@ import Testing
         #expect(failure.stage == "verify_bound_path_drain")
         #expect(failure.errnoCode == EAGAIN)
     }
+
+    @Test func retainedPathVerificationBoundsInterruptedDrainAccepts() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.unlink(path)
+        }
+        let faults = TestSocketTransportFaultInjector(
+            repeatingFailuresByStage: ["verify_bound_path_drain_accept": EINTR]
+        )
+        let transport = SocketTransport(faultInjector: faults)
+
+        guard case .pending(let failure) = transport.verifyRetainedBoundPath(
+            at: path,
+            listenerSocket: listenerFD
+        ) else {
+            Issue.record("Expected a bounded retry after repeated interrupted accepts")
+            return
+        }
+        #expect(failure.stage == "verify_bound_path_drain")
+        #expect(failure.errnoCode == EINTR)
+        #expect(faults.invocationCount(for: "verify_bound_path_drain_accept") > 1)
+    }
 }
 
 @Suite struct SocketTransportProbeTests {

@@ -235,6 +235,24 @@ import Testing
         ))
     }
 
+    @Test func retainedPathDrainRetriesOccupancyAndInterruptions() {
+        #expect(policy.shouldRetryStartupFailure(
+            stage: "verify_bound_path_drain",
+            errnoCode: EAGAIN,
+            consecutiveFailures: 1
+        ))
+        #expect(policy.shouldRetryStartupFailure(
+            stage: "verify_bound_path_drain",
+            errnoCode: EINTR,
+            consecutiveFailures: 1
+        ))
+        #expect(!policy.shouldRetryStartupFailure(
+            stage: "verify_bound_path_drain",
+            errnoCode: EIO,
+            consecutiveFailures: 1
+        ))
+    }
+
     @Test func inconclusiveBoundPathProofIsTerminal() {
         #expect(!policy.shouldRetryStartupFailure(
             stage: "verify_bound_path",

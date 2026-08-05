@@ -162,6 +162,30 @@ import Testing
         #expect(try #require(cache.currentSnapshot()).parts == expectedParts)
     }
 
+    @Test func textEditPreservesInterleavedAttachmentPosition() throws {
+        let attachment = TextBoxAttachment(
+            displayName: "first.txt",
+            submissionText: "/tmp/first.txt",
+            submissionPath: "/tmp/first.txt",
+            localURL: nil
+        )
+        let attachmentPart = SessionTextBoxInputDraftPart.attachment(
+            SessionTextBoxInputAttachmentSnapshot(attachment)
+        )
+        let cache = TerminalPanelTextBoxDraftCache()
+
+        cache.recordExactSnapshot(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("before "), attachmentPart, .text(" after")]
+        ))
+        cache.updateText("before  after edited")
+
+        #expect(
+            try #require(cache.currentSnapshot()).parts
+                == [.text("before "), attachmentPart, .text(" after edited")]
+        )
+    }
+
     @Test func attachmentUpdatePreservesExactDraftPartOrdering() throws {
         let first = TextBoxAttachment(
             displayName: "first.txt",
