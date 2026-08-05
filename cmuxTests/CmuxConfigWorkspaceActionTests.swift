@@ -377,4 +377,66 @@ struct CmuxConfigWorkspaceActionTests {
         #expect(manager.tabs.map(\.id) == [existingWorkspace.id])
         #expect(manager.selectedWorkspace?.id == existingWorkspace.id)
     }
+
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func backgroundCommandActionRunsWithoutOpeningATerminal() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-background-action-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let quotedOutputPath = "'\(outputURL.path.replacingOccurrences(of: "'", with: "'\\''"))'"
+        let command = "printf background-action > \(quotedOutputPath)"
+        let encodedCommand = String(decoding: try JSONEncoder().encode(command), as: UTF8.self)
+        let config = try decode("""
+        {
+          "actions": {
+            "quiet-command": {
+              "type": "command",
+              "title": "Quiet Command",
+              "command": \(encodedCommand),
+              "target": "background"
+            }
+          }
+        }
+        """)
+        let definition = try #require(config.actions["quiet-command"])
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "quiet-command",
+            definition: definition,
+            sourcePath: nil
+        ))
+        #expect(action.terminalCommandTarget?.rawValue == "background")
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let selectedWorkspaceID = manager.selectedTabId
+        let focusedPanelID = workspace.focusedPanelId
+        let panelCount = workspace.panels.count
+        var didExecute = false
+
+        #expect(CmuxConfigExecutor.execute(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: FileManager.default.temporaryDirectory.path,
+            globalConfigPath: "/tmp/cmux-test-global-config.json",
+            onExecuted: { didExecute = true }
+        ))
+        #expect(didExecute)
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while !FileManager.default.fileExists(atPath: outputURL.path),
+              clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let output = try String(contentsOf: outputURL, encoding: .utf8)
+        #expect(output == "background-action")
+        #expect(manager.selectedTabId == selectedWorkspaceID)
+        #expect(workspace.focusedPanelId == focusedPanelID)
+        #expect(workspace.panels.count == panelCount)
+    }
 }

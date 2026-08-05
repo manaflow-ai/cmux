@@ -207,6 +207,23 @@ struct ReorderShortcutActionTests {
         }
     }
 
+    @Test func moveWorkspaceToTopIsBindableAndLinkedToThePaletteAction() throws {
+        let actionID = "moveWorkspaceToTop"
+        let runtimeAction = try #require(KeyboardShortcutSettings.Action(rawValue: actionID))
+        let settingsAction = try #require(ShortcutAction(rawValue: actionID))
+
+        #expect(KeyboardShortcutSettings.publicShortcutActions.contains(runtimeAction))
+        #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(runtimeAction))
+        #expect(runtimeAction.defaultShortcut.isUnbound)
+        #expect(settingsAction.defaultStroke == nil)
+        #expect(settingsAction.displayName == runtimeAction.label)
+        #expect(
+            ContentView.commandPaletteShortcutAction(
+                forCommandID: "palette.moveWorkspaceToTop"
+            ) == runtimeAction
+        )
+    }
+
     private func panelOrder(in workspace: Workspace, paneId: PaneID) -> [UUID] {
         workspace.bonsplitController.tabs(inPane: paneId).compactMap {
             workspace.panelIdFromSurfaceId($0.id)
