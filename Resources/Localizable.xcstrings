@@ -16465,6 +16465,12 @@
             "value": "キャンセル"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បោះបង់"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -16505,6 +16511,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "İptal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скасувати"
           }
         },
         "zh-Hans": {
@@ -18434,6 +18446,12 @@
             "value": "このタブのカスタム名を入力してください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចូលឈ្មោះផ្ទាល់ខ្លួនសម្រាប់ផ្ទាំងនេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18474,6 +18492,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bu sekme için özel bir ad girin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть власну назву для цієї вкладки."
           }
         },
         "zh-Hans": {
@@ -18547,6 +18571,12 @@
             "value": "タブ名"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះផ្ទាំង"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18587,6 +18617,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sekme adı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назва вкладки"
           }
         },
         "zh-Hans": {
@@ -18660,6 +18696,12 @@
             "value": "変更"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរឈ្មោះ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18700,6 +18742,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Yeniden Adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейменувати"
           }
         },
         "zh-Hans": {
@@ -18773,6 +18821,12 @@
             "value": "タブ名を変更"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរឈ្មោះផ្ទាំង"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18813,6 +18867,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sekmeyi Yeniden Adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейменувати вкладку"
           }
         },
         "zh-Hans": {
