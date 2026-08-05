@@ -1358,6 +1358,19 @@ fn prune_resource_input_receipts(transaction: &Transaction<'_>) -> anyhow::Resul
 mod tests {
     use super::*;
 
+    fn journal_record_for_effect(
+        registry: &WorkspaceRegistry,
+        idempotency_key: &str,
+    ) -> SessionJournalRecord {
+        registry
+            .session_journal_after(0, 64)
+            .unwrap()
+            .records
+            .into_iter()
+            .find(|record| record.payload["idempotency_key"] == idempotency_key)
+            .unwrap_or_else(|| panic!("missing journal outcome for {idempotency_key}"))
+    }
+
     fn scale_input_operation(index: usize) -> &'static str {
         if index == 0 {
             return "terminal.viewport.scroll";
@@ -1490,6 +1503,128 @@ mod tests {
     }
 
     #[test]
+    fn receipt_only_success_appends_a_nonreplayable_effect_outcome() {
+        let mut registry = WorkspaceRegistry::in_memory("effect-success-journal").unwrap();
+        let fingerprint = json!({"title":"hello"});
+        let intent = json!({
+            "notification_id":"notification_11111111111111111111111111111111",
+        });
+        registry
+            .prepare_resource_effect(
+                "effect-success-key",
+                "notification.create",
+                &fingerprint,
+                &intent,
+                None,
+                None,
+            )
+            .unwrap();
+        registry
+            .mark_resource_effect_executing(
+                "effect-success-key",
+                "notification.create",
+                &fingerprint,
+            )
+            .unwrap();
+        let outcome = ResourceEffectOutcome::Success(json!({
+            "id":"notification_11111111111111111111111111111111",
+        }));
+        assert_eq!(
+            registry
+                .commit_resource_effect(
+                    "effect-success-key",
+                    "notification.create",
+                    &fingerprint,
+                    &outcome,
+                    None,
+                )
+                .unwrap(),
+            0
+        );
+
+        let record = journal_record_for_effect(&registry, "effect-success-key");
+        assert_eq!(record.kind, "notification.create.effect.succeeded");
+        assert_eq!(record.class, JournalClass::Effect);
+        assert_eq!(record.replay, JournalReplayPolicy::Never);
+        assert_eq!(record.resource_revision, None);
+        assert_eq!(record.payload["state"], "succeeded");
+        assert_eq!(record.payload["intent"], intent);
+        assert_eq!(record.payload["outcome"], serde_json::to_value(outcome).unwrap());
+        assert!(record.subjects.contains(&JournalSubject {
+            kind: "notification".into(),
+            id: "notification_11111111111111111111111111111111".into(),
+        }));
+    }
+
+    #[test]
+    fn failed_creation_appends_its_correlation_attempt_and_reserved_subjects() {
+        let mut registry = WorkspaceRegistry::in_memory("effect-failure-journal").unwrap();
+        let fingerprint = json!({"url":"https://example.test"});
+        let intent = json!({
+            "path":{
+                "workspace":"ws_11111111111111111111111111111111",
+                "pane":"pane_22222222222222222222222222222222",
+            },
+            "browser_reservation":{
+                "tab_id":"tab_33333333333333333333333333333333",
+                "browser_id":"browser_44444444444444444444444444444444",
+            },
+        });
+        registry
+            .prepare_resource_creation(
+                "creation-correlation",
+                "creation-attempt-one",
+                "tab.create_browser",
+                &fingerprint,
+                &intent,
+                true,
+                None,
+                None,
+            )
+            .unwrap();
+        registry
+            .mark_resource_effect_executing(
+                "creation-attempt-one",
+                "tab.create_browser",
+                &fingerprint,
+            )
+            .unwrap();
+        let failure = ResourceError::operation_failed(
+            "tab.create_browser",
+            "browser launch failed",
+            json!({"stage":"spawn"}),
+        );
+        registry
+            .commit_resource_effect(
+                "creation-attempt-one",
+                "tab.create_browser",
+                &fingerprint,
+                &ResourceEffectOutcome::Failure(failure.clone()),
+                None,
+            )
+            .unwrap();
+
+        let record = journal_record_for_effect(&registry, "creation-attempt-one");
+        assert_eq!(record.kind, "tab.create_browser.effect.failed");
+        assert_eq!(record.class, JournalClass::Effect);
+        assert_eq!(record.replay, JournalReplayPolicy::Never);
+        assert_eq!(record.correlation_id.as_deref(), Some("creation-correlation"));
+        assert_eq!(record.payload["state"], "failed");
+        assert_eq!(record.payload["attempt"], "1");
+        assert_eq!(record.payload["outcome"], serde_json::to_value(
+            ResourceEffectOutcome::Failure(failure)
+        ).unwrap());
+        for (kind, id) in [
+            ("workspace", "ws_11111111111111111111111111111111"),
+            ("pane", "pane_22222222222222222222222222222222"),
+            ("tab", "tab_33333333333333333333333333333333"),
+            ("browser", "browser_44444444444444444444444444444444"),
+        ] {
+            assert!(record.subjects.contains(&JournalSubject { kind: kind.into(), id: id.into() }));
+        }
+    }
+
+    #[test]
     fn restart_turns_executing_without_outcome_indeterminate() {
         let root = std::env::temp_dir().join(format!("cmux-effect-{}", new_uuid_v4()));
         let fingerprint = serde_json::json!({"text":"effect"});
@@ -1523,6 +1658,12 @@ mod tests {
                 .unwrap(),
             ResourceEffectPreparation::Indeterminate
         );
+        let record = journal_record_for_effect(&reopened, "crash-key");
+        assert_eq!(record.kind, "terminal.input.write.effect.indeterminate");
+        assert_eq!(record.class, JournalClass::Effect);
+        assert_eq!(record.replay, JournalReplayPolicy::Never);
+        assert_eq!(record.payload["state"], "indeterminate");
+        assert_eq!(record.payload["outcome"], Value::Null);
         drop(reopened);
         fs::remove_dir_all(root).unwrap();
     }
