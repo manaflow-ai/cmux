@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxFoundation
 import Foundation
 import Testing
@@ -699,35 +700,44 @@ struct CommandClickHTMLOpenRoutingTests {
         let otherURL = try #require(URL(string: "file:///tmp/other.html"))
         var allowance = BrowserValidatedFileNavigationAllowance()
 
-        #expect(allowance.authorize(expectedURL))
-        #expect(!allowance.consumeIfMatches(
+        let authorizedForSubframeCheck = allowance.authorize(expectedURL)
+        let rejectedSubframe = allowance.consumeIfMatches(
             expectedURL,
             targetFrameIsMainFrame: false
-        ))
-        #expect(!allowance.consumeIfMatches(
+        )
+        let rejectedAfterSubframeAttempt = allowance.consumeIfMatches(
             expectedURL,
             targetFrameIsMainFrame: true
-        ))
+        )
+        #expect(authorizedForSubframeCheck)
+        #expect(!rejectedSubframe)
+        #expect(!rejectedAfterSubframeAttempt)
 
-        #expect(allowance.authorize(expectedURL))
-        #expect(!allowance.consumeIfMatches(
+        let authorizedForMismatchCheck = allowance.authorize(expectedURL)
+        let rejectedMismatch = allowance.consumeIfMatches(
             otherURL,
             targetFrameIsMainFrame: true
-        ))
-        #expect(!allowance.consumeIfMatches(
+        )
+        let rejectedAfterMismatch = allowance.consumeIfMatches(
             expectedURL,
             targetFrameIsMainFrame: true
-        ))
+        )
+        #expect(authorizedForMismatchCheck)
+        #expect(!rejectedMismatch)
+        #expect(!rejectedAfterMismatch)
 
-        #expect(allowance.authorize(expectedURL))
-        #expect(allowance.consumeIfMatches(
+        let authorizedForConsumption = allowance.authorize(expectedURL)
+        let consumedExactMainFrame = allowance.consumeIfMatches(
             expectedURL,
             targetFrameIsMainFrame: true
-        ))
-        #expect(!allowance.consumeIfMatches(
+        )
+        let rejectedSecondConsumption = allowance.consumeIfMatches(
             expectedURL,
             targetFrameIsMainFrame: true
-        ))
+        )
+        #expect(authorizedForConsumption)
+        #expect(consumedExactMainFrame)
+        #expect(!rejectedSecondConsumption)
     }
 
     @Test(.timeLimit(.minutes(1)))
