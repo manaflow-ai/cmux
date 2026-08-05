@@ -387,15 +387,10 @@ import Testing
         router: RoutingHostRouter,
         deadline deadlineDuration: Duration = .milliseconds(500)
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: deadlineDuration)
-        while clock.now < deadline {
-            if await router.recordedTerminalInputs().count >= expectedCount {
-                return true
-            }
-            await Task.yield()
-        }
-        return false
+        await router.waitForTerminalInputCount(
+            atLeast: expectedCount,
+            timeout: deadlineDuration
+        )
     }
 
     private func waitForTerminalInputQuiescence(router: RoutingHostRouter) async -> Bool {

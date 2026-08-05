@@ -87,7 +87,7 @@ import Testing
     }
     #expect(fullDelivered, "a full live render-grid frame can establish the post-failure baseline")
 
-    collector.unmount()
+    await collector.unmount()
 }
 
 @MainActor
@@ -168,7 +168,7 @@ import Testing
     )
     #expect(retriesExhausted, "partial live grids must not consume the cold replay retry budget")
 
-    collector.unmount()
+    await collector.unmount()
 }
 
 @MainActor
@@ -202,7 +202,7 @@ import Testing
     }
     #expect(barrierCleared)
 
-    collector.unmount()
+    await collector.unmount()
     await router.releaseAllHeld()
 }
 
@@ -259,7 +259,7 @@ import Testing
     )
     #expect(secondBaselineReplayRequested, "transient baseline replay failure must not permanently suppress recovery")
 
-    collector.unmount()
+    await collector.unmount()
 }
 
 @MainActor
@@ -316,7 +316,7 @@ import Testing
     }
     #expect(followUpDelivered)
 
-    collector.unmount()
+    await collector.unmount()
 }
 
 @MainActor
@@ -374,7 +374,7 @@ import Testing
         "full live frame should cover earlier drops in the same recovery barrier"
     )
 
-    collector.unmount()
+    await collector.unmount()
     await router.releaseAllHeld()
 }
 
@@ -414,7 +414,7 @@ import Testing
     }
     #expect(!rawDelivered, "partial alternate-screen frames waiting for baseline must still suppress raw bytes")
 
-    collector.unmount()
+    await collector.unmount()
 }
 
 @MainActor

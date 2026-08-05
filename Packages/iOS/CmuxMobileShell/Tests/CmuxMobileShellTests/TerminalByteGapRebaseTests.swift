@@ -41,7 +41,7 @@ import Testing
         recordIssueOnTimeout: false
     )
     #expect(!extraReplayRequested)
-    collector.unmount()
+    await collector.unmount()
 }
 
 @MainActor
@@ -87,5 +87,5 @@ import Testing
     #expect(!extraReplayRequested)
 
     await router.releaseAllHeld()
-    collector.unmount()
+    await collector.unmount()
 }

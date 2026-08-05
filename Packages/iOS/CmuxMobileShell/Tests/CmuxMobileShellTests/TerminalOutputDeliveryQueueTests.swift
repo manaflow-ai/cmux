@@ -63,7 +63,7 @@ import Testing
     #expect(replacementMounted)
     let replacementToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
 
-    oldCollector.unmount()
+    await oldCollector.unmount()
     for _ in 0..<20 {
         await Task.yield()
     }
@@ -75,7 +75,7 @@ import Testing
     }
     #expect(replacementReceivedOutput)
 
-    currentCollector.unmount()
+    await currentCollector.unmount()
 }
 
 @MainActor
@@ -446,7 +446,7 @@ import Testing
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     #expect(store.terminalReplaySurfaceIDsInFlight.contains(surfaceID))
 
-    collector.unmount()
+    await collector.unmount()
     let unregistered = await waitForReplayBarrierFailureToSettle {
         store.terminalByteContinuationsBySurfaceID[surfaceID] == nil
     }
@@ -467,7 +467,7 @@ import Testing
     }
     #expect(replayDelivered)
 
-    remountCollector.unmount()
+    await remountCollector.unmount()
     await router.releaseAllHeld()
 }
 
@@ -483,7 +483,7 @@ import Testing
     let oldCollector = OutputCollector()
     oldCollector.mount(store: store, surfaceID: surfaceID)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
-    oldCollector.unmount()
+    await oldCollector.unmount()
 
     let unregistered = await waitForReplayBarrierFailureToSettle {
         store.terminalByteContinuationsBySurfaceID[surfaceID] == nil
@@ -510,7 +510,7 @@ import Testing
     }
     #expect(!staleDelivered, "superseded replay responses must not deliver stale bytes")
 
-    currentCollector.unmount()
+    await currentCollector.unmount()
 }
 
 @MainActor

@@ -878,9 +878,11 @@ final class OutputCollector {
         }
     }
 
-    func unmount() {
-        task?.cancel()
+    func unmount() async {
+        let mountedTask = task
         task = nil
+        mountedTask?.cancel()
+        _ = await mountedTask?.value
     }
 }
 

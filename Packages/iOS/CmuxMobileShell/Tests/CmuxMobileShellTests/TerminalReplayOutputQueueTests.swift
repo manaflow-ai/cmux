@@ -46,7 +46,7 @@ import Testing
     }
     #expect(barrierCleared)
 
-    collector.unmount()
+    await collector.unmount()
     await router.releaseAllHeld()
 }
 

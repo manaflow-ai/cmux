@@ -85,5 +85,5 @@ import Testing
     #expect(freshDelivered)
     #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 2000)
 
-    collector.unmount()
+    await collector.unmount()
 }

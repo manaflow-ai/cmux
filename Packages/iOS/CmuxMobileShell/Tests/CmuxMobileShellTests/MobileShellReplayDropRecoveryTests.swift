@@ -60,7 +60,7 @@ import Testing
     #expect(currentDelivered)
     #expect(store.pendingTerminalByteEndSeqBySurfaceID[surfaceID] == nil)
     #expect(!store.pendingTerminalInputDroppedRenderGridSurfaceIDs.contains(surfaceID))
-    collector.unmount()
+    await collector.unmount()
 }
 
 private func recoveryRenderGridFrame(

@@ -82,7 +82,7 @@ import Testing
         collector.lines.contains { $0.contains("post-settle") }
     }
     #expect(postSettleDelivered, "live render-grid output must resume after the cold barrier settles")
-    collector.unmount()
+    await collector.unmount()
 }
 
 @MainActor
@@ -152,7 +152,7 @@ import Testing
         collector.lines.contains { $0.contains("post-raw") }
     }
     #expect(postSettleDelivered, "live raw output must resume after the cold barrier settles")
-    collector.unmount()
+    await collector.unmount()
 }
 
 @MainActor
@@ -249,7 +249,7 @@ import Testing
         collector.lines.contains { $0.contains("post-deferred-full") }
     }
     #expect(postDeferredDelivered, "live output must resume after the deferred cold replay barrier clears")
-    collector.unmount()
+    await collector.unmount()
 }
 
 @MainActor
@@ -314,7 +314,7 @@ import Testing
         replayDelivered,
         "a same-seq barrier replay must still apply after an advisory full grid that was dropped by the barrier"
     )
-    collector.unmount()
+    await collector.unmount()
 }
 
 @MainActor
@@ -373,5 +373,5 @@ import Testing
         baseDelivered,
         "the fallback cold replay must paint the terminal on hosts without the replay barrier capability"
     )
-    collector.unmount()
+    await collector.unmount()
 }

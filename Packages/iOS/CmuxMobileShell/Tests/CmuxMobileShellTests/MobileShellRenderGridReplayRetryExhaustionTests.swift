@@ -85,7 +85,7 @@ import Testing
         collector.lines.contains { $0.contains("delta-after-exhaustion") }
     }
     #expect(deltaDelivered)
-    collector.unmount()
+    await collector.unmount()
 }
 
 private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throws -> MobileTerminalRenderGridFrame {
