@@ -2724,8 +2724,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var workspaceId: UUID
 
     let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
-    private(set) var terminalFileReuseIdentity: BrowserLocalFileIdentity?
-    private(set) var terminalFileReuseURL: URL?
+    private var terminalFileReuseIdentity: BrowserLocalFileIdentity?
+    private var terminalFileReusePaths: Set<String> = []
+    private var terminalFileReuseAllowsNextCommitAlias = false
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
 
@@ -3855,6 +3856,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 // discarded. didCommit does not fire for same-document (pushState)
                 // navigations, so a persisting SPA video keeps its frame id.
                 self.resetMediaPlaybackTracking()
+                self.reconcileTerminalFileReuseIdentity(with: webView.url)
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
                 if self.shouldTreatCommitAsDiscardedRestoreCommit(from: webView) {
@@ -6079,6 +6081,7 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted?(nil)
             return nil
         }
+        forgetTerminalFileReuseIdentity()
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
@@ -6675,6 +6678,7 @@ extension BrowserPanel {
     /// Go back in history
     func goBack() {
         guard canGoBack else { return }
+        forgetTerminalFileReuseIdentity()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6709,6 +6713,7 @@ extension BrowserPanel {
     /// Go forward in history
     func goForward() {
         guard canGoForward else { return }
+        forgetTerminalFileReuseIdentity()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6838,21 +6843,55 @@ extension BrowserPanel {
         guard localFileReadAccessPolicy == .fileOnly,
               bypassesRemoteWorkspaceProxyForTabDuplication,
               terminalFileReuseIdentity == identity,
-              let rememberedPath = terminalFileReuseURL?.standardizedFileURL.path,
-              rememberedPath == fileURL.standardizedFileURL.path,
-              let effectivePath = effectiveURLForTerminalFileReuse?
-                  .standardizedFileURL.path else {
+              terminalFileReusePaths.contains(fileURL.standardizedFileURL.path) else {
             return false
         }
-        return effectivePath == rememberedPath
+        if isMainFrameProvisionalNavigationActive {
+            guard let attemptedPath = navigationDelegate?.lastAttemptedURL?
+                .standardizedFileURL.path else {
+                return false
+            }
+            return terminalFileReusePaths.contains(attemptedPath)
+        }
+        return true
     }
 
     func rememberTerminalFileForReuse(
         _ fileURL: URL,
         identity: BrowserLocalFileIdentity
     ) {
-        terminalFileReuseURL = fileURL.standardizedFileURL
         terminalFileReuseIdentity = identity
+        terminalFileReusePaths = [fileURL.standardizedFileURL.path]
+        if let effectiveURL = effectiveURLForTerminalFileReuse,
+           effectiveURL.isFileURL {
+            terminalFileReusePaths.insert(effectiveURL.standardizedFileURL.path)
+        }
+        terminalFileReuseAllowsNextCommitAlias = true
+    }
+
+    private func reconcileTerminalFileReuseIdentity(with committedURL: URL?) {
+        guard terminalFileReuseIdentity != nil else { return }
+        guard let committedURL, committedURL.isFileURL else {
+            forgetTerminalFileReuseIdentity()
+            return
+        }
+        let committedPath = committedURL.standardizedFileURL.path
+        if terminalFileReusePaths.contains(committedPath) {
+            terminalFileReuseAllowsNextCommitAlias = false
+            return
+        }
+        guard terminalFileReuseAllowsNextCommitAlias else {
+            forgetTerminalFileReuseIdentity()
+            return
+        }
+        terminalFileReusePaths.insert(committedPath)
+        terminalFileReuseAllowsNextCommitAlias = false
+    }
+
+    private func forgetTerminalFileReuseIdentity() {
+        terminalFileReuseIdentity = nil
+        terminalFileReusePaths.removeAll(keepingCapacity: true)
+        terminalFileReuseAllowsNextCommitAlias = false
     }
 
     var bypassesRemoteWorkspaceProxyForTabDuplication: Bool {
