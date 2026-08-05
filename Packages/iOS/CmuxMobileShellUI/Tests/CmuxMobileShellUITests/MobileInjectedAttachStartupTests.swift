@@ -30,6 +30,24 @@ struct MobileInjectedAttachStartupTests {
 
     @Test
     @MainActor
+    func approvalGatedInjectedAttachConsumesStartupWithoutFallback() throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+        let attempt = try #require(coordinator.claimInjectedAttach())
+
+        let shouldFallBack = coordinator.finishInjectedAttach(
+            attempt, outcome: .awaitingUserApproval
+        )
+
+        #expect(!shouldFallBack)
+        #expect(!coordinator.shouldFallBackFromInjectedAttach)
+        // An attach parked on the Mac-side approval prompt still owns startup:
+        // the saved-Mac reconnect dialing underneath it would race the very
+        // connection the user is approving.
+        #expect(coordinator.claimStoredReconnect() == nil)
+    }
+
+    @Test
+    @MainActor
     func failedInjectedAttachReleasesStartupToStoredReconnect() throws {
         let coordinator = MobileStartupConnectionCoordinator()
         let attempt = try #require(coordinator.claimInjectedAttach())
