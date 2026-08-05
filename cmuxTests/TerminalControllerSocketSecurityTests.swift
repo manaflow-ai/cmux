@@ -115,9 +115,7 @@ private func XCTFail(
 
 @MainActor
 @Suite(.serialized)
-final class TerminalControllerSocketSecurityTests {
-    private var teardownBlocks: [() -> Void] = []
-
+struct CmuxTUIAttachSecurityTests {
     @Test func cmuxTUIAttachAcceptsOnlyCanonicalPublicTerminalIDs() {
         XCTAssertTrue(
             TerminalController.isValidCmuxTUIPublicTerminalID(
@@ -151,6 +149,12 @@ final class TerminalControllerSocketSecurityTests {
             )
         )
     }
+}
+
+@MainActor
+@Suite(.serialized)
+final class TerminalControllerSocketSecurityTests {
+    private var teardownBlocks: [() -> Void] = []
 
     @Test func browserDownloadQueueKeepsCompletionAfterPromptReadyEvent() {
         let controller = TerminalController.shared
