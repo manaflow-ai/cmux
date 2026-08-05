@@ -213,6 +213,7 @@ func TestAPIClientRejectsInsecureRemoteBaseAndCrossOriginRedirects(t *testing.T)
 }
 
 func TestCredentialedClientRequiresHTTPSEvenOnLoopback(t *testing.T) {
+	t.Setenv("CMUX_SPRITES_ALLOW_INSECURE_LOCALHOST", "1")
 	client := newClient("http://127.0.0.1:4733", &tokens{
 		AccessToken:  "access",
 		RefreshToken: "refresh",
@@ -253,6 +254,7 @@ type fakeEnrollmentExecutor struct {
 	results  []execResult
 	errors   []error
 	timeouts []int
+	onCall   func(int)
 }
 
 func (executor *fakeEnrollmentExecutor) execWithTimeout(
@@ -263,6 +265,9 @@ func (executor *fakeEnrollmentExecutor) execWithTimeout(
 ) (execResult, error) {
 	executor.timeouts = append(executor.timeouts, timeout)
 	index := len(executor.timeouts) - 1
+	if executor.onCall != nil {
+		executor.onCall(index)
+	}
 	var result execResult
 	if index < len(executor.results) {
 		result = executor.results[index]
@@ -272,6 +277,38 @@ func (executor *fakeEnrollmentExecutor) execWithTimeout(
 		err = executor.errors[index]
 	}
 	return result, err
+}
+
+func TestApproveEnrollmentDoesNotApproveAfterDeadline(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(0, 0)}
+	executor := &fakeEnrollmentExecutor{
+		results: []execResult{
+			{ExitCode: 0, Stdout: `[{"invitation_id":"invite-1"}]`},
+		},
+		onCall: func(index int) {
+			if index == 0 {
+				clock.now = clock.now.Add(3 * time.Second)
+			}
+		},
+	}
+
+	err := approveEnrollmentWithClock(
+		context.Background(),
+		executor,
+		"sprite-1",
+		"invite-1",
+		clock,
+		3*time.Second,
+	)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("deadline error = %v", err)
+	}
+	if len(executor.timeouts) != 1 {
+		t.Fatalf("approval ran after deadline; calls = %d", len(executor.timeouts))
+	}
+	if executor.timeouts[0] != 3_000 {
+		t.Fatalf("pending timeout = %d", executor.timeouts[0])
+	}
 }
 
 func TestApproveEnrollmentUsesInjectedCancellationAwareRetry(t *testing.T) {

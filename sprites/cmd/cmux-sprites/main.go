@@ -479,17 +479,26 @@ func approveEnrollmentWithClock(
 	var latestError error
 	attempt := 0
 	for {
+		remaining := deadline.Sub(clock.Now())
+		if remaining <= 0 {
+			return enrollmentTimeoutError(latestError)
+		}
+		commandContext, cancelCommand := context.WithTimeout(ctx, remaining)
 		pending, err := client.execWithTimeout(
-			ctx,
+			commandContext,
 			vmID,
 			"/usr/local/bin/cmux enroll pending --session sprite --state-dir "+
 				shellQuote("/home/sprite/.local/share/cmux-sprite/remote")+" --json",
-			8_000,
+			enrollmentCommandTimeoutMs(remaining),
 		)
+		cancelCommand()
 		if err != nil {
 			latestError = err
 		} else if pending.ExitCode != 0 {
 			latestError = fmt.Errorf("pending-enrollment command exited %d", pending.ExitCode)
+		}
+		if deadline.Sub(clock.Now()) <= 0 {
+			return enrollmentTimeoutError(latestError)
 		}
 		if err == nil && pending.ExitCode == 0 {
 			var requests []struct {
@@ -498,14 +507,23 @@ func approveEnrollmentWithClock(
 			if json.Unmarshal([]byte(pending.Stdout), &requests) == nil {
 				for _, request := range requests {
 					if request.InvitationID == invitationID {
-						approved, err := client.execWithTimeout(
+						approvalRemaining := deadline.Sub(clock.Now())
+						if approvalRemaining <= 0 {
+							return enrollmentTimeoutError(latestError)
+						}
+						approvalContext, cancelApproval := context.WithTimeout(
 							ctx,
+							approvalRemaining,
+						)
+						approved, err := client.execWithTimeout(
+							approvalContext,
 							vmID,
 							"/usr/local/bin/cmux enroll approve "+shellQuote(invitationID)+
 								" --session sprite --state-dir "+
 								shellQuote("/home/sprite/.local/share/cmux-sprite/remote"),
-							8_000,
+							enrollmentCommandTimeoutMs(approvalRemaining),
 						)
+						cancelApproval()
 						if err != nil {
 							return err
 						}
@@ -517,15 +535,9 @@ func approveEnrollmentWithClock(
 				}
 			}
 		}
-		remaining := deadline.Sub(clock.Now())
+		remaining = deadline.Sub(clock.Now())
 		if remaining <= 0 {
-			if latestError != nil {
-				return fmt.Errorf(
-					"timed out waiting for the device enrollment claim; last check: %w",
-					latestError,
-				)
-			}
-			return errors.New("timed out waiting for the device enrollment claim")
+			return enrollmentTimeoutError(latestError)
 		}
 		delay := min(time.Second<<min(attempt, 1), remaining)
 		if err := clock.Sleep(ctx, delay); err != nil {
@@ -533,6 +545,25 @@ func approveEnrollmentWithClock(
 		}
 		attempt++
 	}
+}
+
+func enrollmentCommandTimeoutMs(remaining time.Duration) int {
+	const maximum = 8_000
+	milliseconds := int(remaining.Milliseconds())
+	if milliseconds < 1 {
+		return 1
+	}
+	return min(milliseconds, maximum)
+}
+
+func enrollmentTimeoutError(latestError error) error {
+	if latestError != nil {
+		return fmt.Errorf(
+			"timed out waiting for the device enrollment claim; last check: %w",
+			latestError,
+		)
+	}
+	return errors.New("timed out waiting for the device enrollment claim")
 }
 
 func (c *apiClient) exec(ctx context.Context, vmID, command string) (execResult, error) {
@@ -629,11 +660,8 @@ func normalizedAPIBase(raw string, credentialed bool) (string, error) {
 			(host != "localhost" && host != "127.0.0.1" && host != "::1") {
 			return "", errors.New("cmux API base URL must use HTTPS")
 		}
-		if credentialed && os.Getenv("CMUX_SPRITES_ALLOW_INSECURE_LOCALHOST") != "1" {
-			return "", errors.New(
-				"credentialed cmux API requests require HTTPS; " +
-					"set CMUX_SPRITES_ALLOW_INSECURE_LOCALHOST=1 only for local development",
-			)
+		if credentialed {
+			return "", errors.New("credentialed cmux API requests require HTTPS")
 		}
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
