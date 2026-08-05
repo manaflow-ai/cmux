@@ -2549,6 +2549,9 @@ struct ContentView: View {
         if providerID == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             return true
         }
+        if CmuxExtensionSidebarSelection.provider(for: providerID) != nil {
+            return true
+        }
         return CmuxExtensionSidebarSelection.customSidebarFileURL(
             forProviderId: providerID
         ) != nil

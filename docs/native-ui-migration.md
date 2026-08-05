@@ -75,7 +75,8 @@ The counts are discovery metrics. Completion is determined by the gates below.
     browser, Vault, Feed, titlebar controls, notifications popover, the
     right-sidebar root, and the browser design-mode composer are native AppKit.
     The default workspace sidebar, custom-sidebar host, installed-extension
-    host, permission review, provider picker, and XPC renderer are also native.
+    host, all six bundled providers, permission review, provider picker, and
+    XPC renderer are also native.
   - [ ] Remove every `NSHostingView` and `NSHostingController` boundary.
 - [ ] iOS packages and executable
   - [ ] `CmuxMobileShellUI` (177 import files; notification feed, terminal
