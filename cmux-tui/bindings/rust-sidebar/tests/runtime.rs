@@ -22,6 +22,15 @@ fn socket_path() -> PathBuf {
     ))
 }
 
+fn test_timeout(duration: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(1);
+    duration.saturating_mul(scale)
+}
+
 fn request(reader: &mut BufReader<UnixStream>) -> Value {
     let mut line = String::new();
     assert_ne!(reader.read_line(&mut line).unwrap(), 0);
@@ -336,6 +345,7 @@ fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapsho
 fn bounded_queue_overflow_cancels_and_reports_recovery() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let (overflow_observed_tx, overflow_observed_rx) = std::sync::mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -350,6 +360,7 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         assert_eq!(cancel["operation"], "stream.cancel");
         success(&mut stream, &cancel, json!({}));
         end_canceled(&mut stream, &stream_id);
+        overflow_observed_tx.send(()).unwrap();
         drop(control);
     });
 
@@ -364,8 +375,10 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         SidebarConfig { queue_capacity: 1, ..SidebarConfig::default() },
     )
     .unwrap();
-    thread::sleep(Duration::from_millis(50));
-    let deadline = Instant::now() + Duration::from_secs(2);
+    overflow_observed_rx
+        .recv_timeout(test_timeout(Duration::from_secs(2)))
+        .expect("sidebar worker did not cancel the overflowing stream");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(2));
     loop {
         runtime.poll_updates();
         if runtime.model().error.is_some() {

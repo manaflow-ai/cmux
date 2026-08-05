@@ -251,20 +251,21 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Zig for SDK conformance
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: ${{ steps.zig-sdk-version.outputs.version }}
+      - name: Install Zig for SDK conformance
+        env:
+          ZIG_REQUIRED: ${{ steps.zig-sdk-version.outputs.version }}
+          ZIG_FORCE_LOCAL_INSTALL: "1"
+        run: ./scripts/install-zig-ci.sh
 
       - name: Python conformance fixtures
-        env:
-          CMUX_ZIG: zig
         run: |
-          test "$(zig version)" = "${{ steps.zig-sdk-version.outputs.version }}"
+          test "$("$CMUX_ZIG" version)" = "${{ steps.zig-sdk-version.outputs.version }}"
           python3 cmux-tui/bindings/conformance/runner.py
 
       - name: Binding e2e
-        run: bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
+        run: |
+          test "$("$CMUX_ZIG" version)" = "${{ steps.zig-sdk-version.outputs.version }}"
+          bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
 
   windows-experimental:
     name: windows experimental (x86_64-gnu)

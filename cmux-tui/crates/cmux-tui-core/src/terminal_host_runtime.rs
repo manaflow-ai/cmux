@@ -46,6 +46,8 @@ const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const HOST_CONNECT_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+const HOST_CONNECT_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
 // Keep live PTY backpressure independent from the extra headroom needed by
 // one maximum Resized + Colors + targeted acknowledgement transition.
 const MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
@@ -1992,6 +1994,11 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
+        let endpoint = PathBuf::from(&record.endpoint);
+        let mut stream = Some(
+            connect_with_retry(&endpoint)
+                .with_context(|| format!("connect terminal host at {}", endpoint.display()))?,
+        );
         let mut failures = Vec::new();
         for protocol_version in (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev() {
             match connect_record_at_version(
@@ -1999,10 +2006,20 @@ mod unix {
                 record_path.clone(),
                 handshake_timeout,
                 protocol_version,
+                stream.take().expect("protocol attempt has a connected stream"),
             ) {
                 Ok(attachment) => return Ok(attachment),
                 Err(error) => {
                     failures.push(format!("protocol {protocol_version}: {error:#}"));
+                }
+            }
+            if protocol_version > LEGACY_PROTOCOL_VERSION {
+                match connect_with_retry(&endpoint) {
+                    Ok(next_stream) => stream = Some(next_stream),
+                    Err(error) => {
+                        failures.push(format!("protocol fallback reconnect: {error:#}"));
+                        break;
+                    }
                 }
             }
         }
@@ -2014,6 +2031,7 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
         protocol_version: u16,
+        mut stream: UnixStream,
     ) -> anyhow::Result<HostAttachment> {
         if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
             anyhow::bail!("unsupported terminal-host adoption protocol {protocol_version}");
@@ -2021,7 +2039,6 @@ mod unix {
         let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
         let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
         let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
-        let mut stream = connect_with_retry(Path::new(&record.endpoint))?;
         stream.set_read_timeout(Some(handshake_timeout))?;
         stream.set_write_timeout(Some(handshake_timeout))?;
         let hello = ClientHello {
@@ -2100,19 +2117,19 @@ mod unix {
     }
 
     fn connect_with_retry(path: &Path) -> anyhow::Result<UnixStream> {
-        let mut last_error = None;
-        for _ in 0..100 {
+        let deadline = Instant::now() + HOST_CONNECT_RETRY_WINDOW;
+        loop {
             match UnixStream::connect(path) {
                 Ok(stream) => return Ok(stream),
                 Err(error) => {
-                    last_error = Some(error);
-                    thread::sleep(Duration::from_millis(10));
+                    let now = Instant::now();
+                    if now >= deadline {
+                        return Err(error.into());
+                    }
+                    thread::sleep(HOST_CONNECT_RETRY_INTERVAL.min(deadline - now));
                 }
             }
         }
-        Err(last_error
-            .unwrap_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "host missing"))
-            .into())
     }
 
     fn read_required_frame(reader: &mut impl Read, context: &str) -> anyhow::Result<Frame> {
