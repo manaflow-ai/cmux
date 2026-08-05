@@ -51,14 +51,16 @@ enum KeyboardLayout {
     }
 
     /// Translate a physical key code using the last completed snapshot.
-    static func character(
+    nonisolated static func character(
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> String? {
-        currentSnapshot().shortcutCharacter(
-            forKeyCode: keyCode,
-            modifierFlags: modifierFlags
-        )
+        MainActor.assumeIsolated {
+            currentSnapshot().shortcutCharacter(
+                forKeyCode: keyCode,
+                modifierFlags: modifierFlags
+            )
+        }
     }
 
     /// Captures one immutable snapshot for callers that scan many key codes.
@@ -74,14 +76,16 @@ enum KeyboardLayout {
 
     /// Translate a physical key code exactly as text input would, including
     /// Option/Shift and without ASCII fallback.
-    static func textInputCharacter(
+    nonisolated static func textInputCharacter(
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags
     ) -> String? {
-        currentSnapshot().textInputCharacter(
-            forKeyCode: keyCode,
-            modifierFlags: modifierFlags
-        )
+        MainActor.assumeIsolated {
+            currentSnapshot().textInputCharacter(
+                forKeyCode: keyCode,
+                modifierFlags: modifierFlags
+            )
+        }
     }
 
     #if DEBUG
