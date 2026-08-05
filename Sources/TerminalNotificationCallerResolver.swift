@@ -201,15 +201,27 @@ extension TerminalController {
         _ ttyName: String,
         tabManagers: [TabManager]
     ) -> TerminalCallerTarget? {
+        var candidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
+        var targets: [TerminalCallerTTYBinding: TerminalCallerTarget] = [:]
         for manager in tabManagers {
             for workspace in manager.tabs {
                 for (surfaceId, candidateTTY) in workspace.surfaceTTYNames
                     where workspace.panels[surfaceId] != nil && normalizedTTYName(candidateTTY) == ttyName {
-                    return TerminalCallerTarget(workspace: workspace, surfaceId: surfaceId)
+                    let binding = TerminalCallerTTYBinding(
+                        workspaceId: workspace.id,
+                        surfaceId: surfaceId
+                    )
+                    candidates.append((binding: binding, ttyName: candidateTTY))
+                    targets[binding] = TerminalCallerTarget(
+                        workspace: workspace,
+                        surfaceId: surfaceId
+                    )
                 }
             }
         }
-        return nil
+        let resolver = TerminalCallerTTYResolver(reportedCandidates: candidates)
+        guard let binding = resolver.binding(for: ttyName) else { return nil }
+        return targets[binding]
     }
 
     /// Resolve local callers from Ghostty's current runtime PTYs first. Shell-

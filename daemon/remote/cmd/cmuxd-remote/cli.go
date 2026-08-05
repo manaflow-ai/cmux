@@ -931,7 +931,7 @@ func runningInsideTmux() bool {
 }
 
 func resolveCallerTTYName() string {
-	for _, key := range []string{"CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY"} {
+	for _, key := range []string{"CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"} {
 		if ttyName := normalizedTTYName(os.Getenv(key)); ttyName != "" {
 			return ttyName
 		}
@@ -946,18 +946,40 @@ func resolveCallerTTYName() string {
 	if ttyName := normalizedTTYName(callerTTYCommand()); ttyName != "" {
 		return ttyName
 	}
+	for _, key := range []string{"TTY", "SSH_TTY"} {
+		if ttyName := normalizedTTYName(os.Getenv(key)); ttyName != "" {
+			return ttyName
+		}
+	}
 	return ""
 }
 
 func defaultCallerTTYCommand() string {
-	cmd := exec.Command("tty")
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = io.Discard
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
+	pid := os.Getpid()
+	for range 8 {
+		if pid <= 1 {
+			break
+		}
+		cmd := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "tty=", "-o", "ppid=")
+		cmd.Stderr = io.Discard
+		output, err := cmd.Output()
+		if err != nil {
+			break
+		}
+		fields := strings.Fields(string(output))
+		if len(fields) < 2 {
+			break
+		}
+		if normalizedTTYName(fields[0]) != "" {
+			return fields[0]
+		}
+		parentPID, err := strconv.Atoi(fields[len(fields)-1])
+		if err != nil || parentPID == pid {
+			break
+		}
+		pid = parentPID
 	}
-	return string(output)
+	return ""
 }
 
 func normalizedTTYName(raw string) string {
