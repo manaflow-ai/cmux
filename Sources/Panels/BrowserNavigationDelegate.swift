@@ -50,6 +50,7 @@ import WebKit
     private var activeSSLTrustBypassReplayRequest: URLRequest?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
     private var pendingMainFrameDownloadRestoreAttemptID: UUID?
+    private var validatedFileOnlyNavigationAllowance = BrowserValidatedFileNavigationAllowance()
     // WKNavigation is WebKit's only public identity linking a load to its lifecycle callbacks.
     private var activeMainFrameNavigation: WKNavigation?
 
@@ -87,6 +88,7 @@ import WebKit
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
+        validatedFileOnlyNavigationAllowance.clear()
     }
 
     func clearSSLTrustState() {
@@ -99,9 +101,19 @@ import WebKit
         lastAttemptedRequest = nil
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
+        validatedFileOnlyNavigationAllowance.clear()
+    }
+
+    func authorizeValidatedFileOnlyNavigation(_ url: URL) -> Bool {
+        validatedFileOnlyNavigationAllowance.authorize(url)
+    }
+
+    func cancelValidatedFileOnlyNavigationAllowance() {
+        validatedFileOnlyNavigationAllowance.clear()
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        validatedFileOnlyNavigationAllowance.clear()
         activeMainFrameNavigation = navigation
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
         shouldPrintAfterCurrentNavigationFinishes = false
@@ -485,6 +497,20 @@ import WebKit
             reportTerminalCancellation()
             decisionHandler(.cancel)
             return
+        }
+
+        if let fileURL = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
+           owner?.localFileReadAccessPolicy == .fileOnly,
+           fileURL.isFileURL {
+            if !validatedFileOnlyNavigationAllowance.consumeIfMatches(fileURL) {
+                clearAttemptedRequest()
+                decisionHandler(.cancel)
+                requestNavigation?(navigationAction.request, .currentTab, nil)
+                return
+            }
+        } else if navigationAction.targetFrame?.isMainFrame != false {
+            validatedFileOnlyNavigationAllowance.clear()
         }
 
 #if DEBUG

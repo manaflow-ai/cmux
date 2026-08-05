@@ -733,6 +733,28 @@ struct BrowserPopupBrowserContext {
     let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
 }
 
+struct BrowserValidatedFileNavigationAllowance {
+    private var expectedURLString: String?
+
+    mutating func authorize(_ url: URL) -> Bool {
+        guard BrowserLocalFileReadAccessPolicy.isLocalFileURL(url) else {
+            expectedURLString = nil
+            return false
+        }
+        expectedURLString = url.absoluteString
+        return true
+    }
+
+    mutating func consumeIfMatches(_ url: URL) -> Bool {
+        defer { expectedURLString = nil }
+        return expectedURLString == url.absoluteString
+    }
+
+    mutating func clear() {
+        expectedURLString = nil
+    }
+}
+
 enum BrowserFileSystemAccessBridge {
     static let scriptSource = """
     (() => {
@@ -6187,6 +6209,12 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted?(nil)
             return
         }
+        guard BrowserLocalFileReadAccessPolicy.isLocalFileURL(originalURL) else {
+            cancelPendingFileOnlyNavigation()
+            noteFileOnlyNavigationResolutionFailure(request: request)
+            onNavigationStarted?(nil)
+            return
+        }
         cancelPendingFileOnlyNavigation()
         let id = UUID()
         pendingFileOnlyNavigation = (
@@ -6271,6 +6299,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate?.recordAttemptedRequest(request, displayURL: url)
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         shouldRenderWebView = true
+        _ = reactivateDiscardedWebViewWithoutNavigation(reason: "file_only_navigation_failed")
         refreshBackgroundAppearance()
         refreshNavigationAvailability()
         reevaluateHiddenWebViewDiscardScheduling(reason: "file_only_navigation_failed")
@@ -6336,6 +6365,14 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         noteDiscardedWebViewRestoreNavigationStarted()
         userStoppedLoadSinceWebViewReplacement = false
+        let authorizedFileOnlyNavigation = validatedReadableFileURL.flatMap { validatedURL -> URL? in
+            guard localFileReadAccessPolicy == .fileOnly,
+                  effectiveRequest.url == validatedURL,
+                  navigationDelegate?.authorizeValidatedFileOnlyNavigation(validatedURL) == true else {
+                return nil
+            }
+            return validatedURL
+        }
         let startedNavigation = browserLoadRequest(
             effectiveRequest,
             in: webView,
@@ -6343,6 +6380,9 @@ final class BrowserPanel: Panel, ObservableObject {
             validatedReadableFileURL: validatedReadableFileURL
         )
         if startedNavigation == nil {
+            if authorizedFileOnlyNavigation != nil {
+                navigationDelegate?.cancelValidatedFileOnlyNavigationAllowance()
+            }
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
             pendingDiscardRestoreNavigation = startedNavigation
@@ -6980,6 +7020,10 @@ extension BrowserPanel {
                 request: resolvedRequest,
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
             )
+        }
+        guard BrowserLocalFileReadAccessPolicy.isLocalFileURL(fileURL) else {
+            finishResolution(nil)
+            return
         }
         WordPathFilesystemResolutionCoordinator.shared.submit(
             id: UUID(),
