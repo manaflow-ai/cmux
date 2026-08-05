@@ -38,6 +38,8 @@ final class WordPathFilesystemResolutionCoordinator {
     private var pendingCoalescedKeys = Set<UUID>()
     private var pendingCoalescedJobs: [UUID: Job] = [:]
     private var pendingCoalescedKeyByJobID: [UUID: UUID] = [:]
+    private var coalescedExpiryTimer: DispatchSourceTimer?
+    private var coalescedExpiryTimerDeadline: DispatchTime?
     private var pendingHover: Job?
     private var nextHoverStartDeadline = DispatchTime.now()
     private var hoverStartTimer: DispatchSourceTimer?
@@ -124,6 +126,9 @@ final class WordPathFilesystemResolutionCoordinator {
         if pendingCoalescedKeys.insert(coalescingKey).inserted {
             pendingCoalescedOrder.append(coalescingKey)
         }
+        if let queueDeadline = job.queueDeadline {
+            scheduleCoalescedExpiryTimerIfEarlier(at: queueDeadline)
+        }
         startNextIfPossible()
     }
 
@@ -137,6 +142,7 @@ final class WordPathFilesystemResolutionCoordinator {
         if let key = pendingCoalescedKeyByJobID.removeValue(forKey: id),
            pendingCoalescedJobs[key]?.id == id {
             pendingCoalescedJobs.removeValue(forKey: key)?.discarded()
+            rescheduleCoalescedExpiryTimer()
         }
         if pendingHover?.id == id {
             let discarded = pendingHover?.discarded
@@ -178,6 +184,11 @@ final class WordPathFilesystemResolutionCoordinator {
 
     private func startNextIfPossible() {
         guard runningID == nil else { return }
+        let now = DispatchTime.now()
+        if let coalescedExpiryTimerDeadline,
+           now >= coalescedExpiryTimerDeadline {
+            expirePendingCoalescedJobs(now: now)
+        }
         if !pendingClicks.isEmpty {
             let next = pendingClicks.removeFirst()
             start(next)
@@ -222,6 +233,63 @@ final class WordPathFilesystemResolutionCoordinator {
         }
         pendingCoalescedOrder.removeFirst(pendingCoalescedHead)
         pendingCoalescedHead = 0
+    }
+
+    private func scheduleCoalescedExpiryTimerIfEarlier(at deadline: DispatchTime) {
+        if let coalescedExpiryTimerDeadline,
+           coalescedExpiryTimerDeadline <= deadline {
+            return
+        }
+        scheduleCoalescedExpiryTimer(at: deadline)
+    }
+
+    private func scheduleCoalescedExpiryTimer(at deadline: DispatchTime) {
+        if let coalescedExpiryTimer {
+            coalescedExpiryTimer.schedule(deadline: deadline)
+        } else {
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.setEventHandler { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.coalescedExpiryTimerDidFire()
+                }
+            }
+            coalescedExpiryTimer = timer
+            timer.schedule(deadline: deadline)
+            timer.resume()
+        }
+        coalescedExpiryTimerDeadline = deadline
+    }
+
+    private func coalescedExpiryTimerDidFire() {
+        expirePendingCoalescedJobs(now: .now())
+        startNextIfPossible()
+    }
+
+    private func expirePendingCoalescedJobs(now: DispatchTime) {
+        let expiredKeys = pendingCoalescedJobs.compactMap { key, job -> UUID? in
+            guard let queueDeadline = job.queueDeadline,
+                  now >= queueDeadline else {
+                return nil
+            }
+            return key
+        }
+        for key in expiredKeys {
+            guard let job = pendingCoalescedJobs.removeValue(forKey: key) else { continue }
+            pendingCoalescedKeyByJobID.removeValue(forKey: job.id)
+            job.expired?()
+        }
+        rescheduleCoalescedExpiryTimer()
+    }
+
+    private func rescheduleCoalescedExpiryTimer() {
+        let nextDeadline = pendingCoalescedJobs.values.compactMap { $0.queueDeadline }.min()
+        guard let nextDeadline else {
+            coalescedExpiryTimer?.cancel()
+            coalescedExpiryTimer = nil
+            coalescedExpiryTimerDeadline = nil
+            return
+        }
+        scheduleCoalescedExpiryTimer(at: nextDeadline)
     }
 
     private func scheduleHoverStart(at deadline: DispatchTime) {
