@@ -806,6 +806,62 @@ mod tests {
     }
 
     #[test]
+    fn nested_agent_sessions_form_one_tree_without_provider_agent_ids() {
+        let root = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({"session_id":"root-session","root_session_id":"root-session"}),
+        )
+        .unwrap();
+        let child = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"child-session",
+                "parent_session_id":"root-session",
+                "root_session_id":"root-session"
+            }),
+        )
+        .unwrap();
+        let grandchild = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"grandchild-session",
+                "parent_session_id":"child-session",
+                "root_session_id":"root-session"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(child.payload["normalized"]["agent_relation"], "explicit");
+        assert_eq!(grandchild.payload["normalized"]["agent_relation"], "explicit");
+        assert_eq!(
+            child.payload["normalized"]["parent_agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            grandchild.payload["normalized"]["parent_agent_node_id"],
+            child.payload["normalized"]["agent_node_id"]
+        );
+        assert_ne!(
+            child.payload["normalized"]["agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
+        assert_ne!(
+            grandchild.payload["normalized"]["agent_node_id"],
+            child.payload["normalized"]["agent_node_id"]
+        );
+        assert_eq!(
+            grandchild.payload["normalized"]["agent_tree_id"],
+            root.payload["normalized"]["agent_tree_id"]
+        );
+    }
+
+    #[test]
     fn claude_direct_children_attach_to_the_shared_session_root() {
         for source in ["claude", "claude-code"] {
             let root = agent_hook_journal_ingress(
