@@ -117,22 +117,22 @@ extension ShortcutAction {
             )
         case .equalizeSplits: return "Equalize Splits"
         case .growPaneLeft:
-            return String(localized: "shortcut.growPaneLeft.label", defaultValue: "Grow Pane Left")
+            return String(localized: "shortcut.growPaneLeft.label", defaultValue: "Resize Pane Left")
         case .growPaneRight:
-            return String(localized: "shortcut.growPaneRight.label", defaultValue: "Grow Pane Right")
+            return String(localized: "shortcut.growPaneRight.label", defaultValue: "Resize Pane Right")
         case .growPaneUp:
-            return String(localized: "shortcut.growPaneUp.label", defaultValue: "Grow Pane Up")
+            return String(localized: "shortcut.growPaneUp.label", defaultValue: "Resize Pane Up")
         case .growPaneDown:
-            return String(localized: "shortcut.growPaneDown.label", defaultValue: "Grow Pane Down")
+            return String(localized: "shortcut.growPaneDown.label", defaultValue: "Resize Pane Down")
         case .setPaneWidthRatioByNumber:
             return String(
                 localized: "shortcut.setPaneWidthRatioByNumber.label",
-                defaultValue: "Set Pane Width Ratio 1:1–6:1"
+                defaultValue: "Set Pane Width: 1/3, 1/2, 2/3"
             )
         case .setPaneHeightRatioByNumber:
             return String(
                 localized: "shortcut.setPaneHeightRatioByNumber.label",
-                defaultValue: "Set Pane Height Ratio 1:1–6:1"
+                defaultValue: "Set Pane Height: 1/3, 1/2, 2/3"
             )
         case .maximizePaneWidth:
             return String(
@@ -142,7 +142,7 @@ extension ShortcutAction {
         case .maximizePaneHeight:
             return String(
                 localized: "shortcut.maximizePaneHeight.label",
-                defaultValue: "Maximize Pane Vertically"
+                defaultValue: "Toggle Pane Height Maximize"
             )
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"

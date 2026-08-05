@@ -1,6 +1,6 @@
 public import Bonsplit
-import CoreGraphics
-import Foundation
+public import CoreGraphics
+public import Foundation
 
 /// Pure split-tree geometry over Bonsplit's external snapshot: equalize and
 /// resize planning, lifted one-for-one from the app-side `SplitEqualizer`
@@ -124,9 +124,7 @@ extension ExternalTreeNode {
         guard let splitId = candidate.splitId else {
             return .invalidSplitIdentifier
         }
-        let sign = directCandidate == nil
-            ? -direction.dividerDeltaSign
-            : direction.dividerDeltaSign
+        let sign = direction.dividerDeltaSign
 
         let delta = CGFloat(amountPixels) / candidate.axisPixels
         let requested = candidate.dividerPosition + (sign * delta)
@@ -188,6 +186,22 @@ extension ExternalTreeNode {
             }
             return split.first.dividerPosition(forSplitId: splitId)
                 ?? split.second.dividerPosition(forSplitId: splitId)
+        }
+    }
+
+    /// Returns every addressable split divider in the snapshot.  This is used
+    /// by reversible layout commands to restore the exact pre-command tree.
+    public func dividerPositions() -> [UUID: CGFloat] {
+        switch self {
+        case .pane:
+            return [:]
+        case .split(let split):
+            var positions = split.first.dividerPositions()
+            positions.merge(split.second.dividerPositions(), uniquingKeysWith: { first, _ in first })
+            if let splitId = UUID(uuidString: split.id) {
+                positions[splitId] = split.dividerPosition
+            }
+            return positions
         }
     }
 

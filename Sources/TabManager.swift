@@ -373,6 +373,8 @@ class TabManager: ObservableObject {
     }
     private var observers: [NSObjectProtocol] = []
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
+    /// One reversible height-maximize state per workspace.
+    private var paneHeightMaximizeSnapshots: [UUID: PaneHeightMaximizeSnapshot] = [:]
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
         let panelId: UUID
@@ -6479,4 +6481,80 @@ extension Notification.Name {
 
 enum BrowserFirstResponderNotificationUserInfoKey {
     static let pointerInitiated = "pointerInitiated"
+}
+
+private struct PaneHeightMaximizeSnapshot {
+    let paneId: UUID
+    let dividerPositions: [UUID: CGFloat]
+    let minimumPaneHeight: CGFloat
+    let dividerPositionRange: ClosedRange<CGFloat>
+}
+
+extension TabManager {
+    @discardableResult
+    func toggleSelectedPaneHeightMaximize() -> PaneResizeResult {
+        guard let workspace = selectedWorkspace else { return .rejected(reason: "No workspace is selected.") }
+        guard workspace.layoutMode != .canvas, !workspace.isRemoteTmuxMirror else { return .unsupportedLayout }
+        guard !workspace.bonsplitController.isSplitZoomed else {
+            return .rejected(reason: "Pane sizing is unavailable while a pane is zoomed.")
+        }
+        guard let panelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: panelId) else {
+            return .rejected(reason: "No pane is focused.")
+        }
+
+        if let snapshot = paneHeightMaximizeSnapshots[workspace.id], snapshot.paneId == paneId.id {
+            restoreHeightMaximize(snapshot, in: workspace)
+            paneHeightMaximizeSnapshots.removeValue(forKey: workspace.id)
+            return .applied(actualShare: 0)
+        }
+        if let snapshot = paneHeightMaximizeSnapshots.removeValue(forKey: workspace.id) {
+            restoreHeightMaximize(snapshot, in: workspace)
+        }
+
+        let controller = workspace.bonsplitController
+        let tree = controller.treeSnapshot()
+        let configuration = controller.configuration
+        let planResult = tree.heightMaximizePlan(
+            targetPaneId: paneId.id.uuidString,
+            collapsedPaneHeight: configuration.appearance.tabBarHeight,
+            dividerThickness: configuration.appearance.dividerThickness
+        )
+        guard case .plan(let plan) = planResult else {
+            return .rejected(reason: "The focused pane has no height split to maximize.")
+        }
+
+        let snapshot = PaneHeightMaximizeSnapshot(
+            paneId: paneId.id,
+            dividerPositions: tree.dividerPositions(),
+            minimumPaneHeight: configuration.appearance.minimumPaneHeight,
+            dividerPositionRange: configuration.dividerPositionRange
+        )
+        var expandedConfiguration = configuration
+        expandedConfiguration.appearance.minimumPaneHeight = configuration.appearance.tabBarHeight
+        expandedConfiguration.dividerPositionRange = 0...1
+        controller.configuration = expandedConfiguration
+        guard plan.adjustments.allSatisfy({ controller.setImposedFirstExtent($0.imposedFirstExtent, forSplit: $0.splitId, fromExternal: true) }) else {
+            restoreHeightMaximize(snapshot, in: workspace)
+            return .rejected(reason: "Unable to apply pane height maximize.")
+        }
+        paneHeightMaximizeSnapshots[workspace.id] = snapshot
+        workspace.didProgrammaticallyChangeSplitGeometry()
+        return .applied(actualShare: 1)
+    }
+
+    private func restoreHeightMaximize(_ snapshot: PaneHeightMaximizeSnapshot, in workspace: Workspace) {
+        let controller = workspace.bonsplitController
+        for splitId in snapshot.dividerPositions.keys {
+            _ = controller.setImposedFirstExtent(nil, forSplit: splitId, fromExternal: true)
+        }
+        for (splitId, position) in snapshot.dividerPositions {
+            _ = controller.setDividerPosition(position, forSplit: splitId, fromExternal: true)
+        }
+        var configuration = controller.configuration
+        configuration.appearance.minimumPaneHeight = snapshot.minimumPaneHeight
+        configuration.dividerPositionRange = snapshot.dividerPositionRange
+        controller.configuration = configuration
+        workspace.didProgrammaticallyChangeSplitGeometry()
+    }
 }

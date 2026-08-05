@@ -83,10 +83,10 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.growPaneRight`
 - `shortcuts.bindings.growPaneUp`
 - `shortcuts.bindings.growPaneDown`
-- `shortcuts.bindings.setPaneWidthRatioByNumber` (`cmd+opt+1…6`; digit `n` applies `n:1`)
-- `shortcuts.bindings.setPaneHeightRatioByNumber` (`cmd+opt+shift+1…6`; digit `n` applies `n:1`)
+- `shortcuts.bindings.setPaneWidthRatioByNumber` (`cmd+opt+1…3`; selects `1/3`, `1/2`, or `2/3` of the nearest width split)
+- `shortcuts.bindings.setPaneHeightRatioByNumber` (`cmd+opt+shift+1…3`; selects `1/3`, `1/2`, or `2/3` of the nearest height split)
 - `shortcuts.bindings.maximizePaneWidth` (`cmd+opt+0`; applies the 90% recoverable maximum)
-- `shortcuts.bindings.maximizePaneHeight` (`cmd+opt+shift+0`; applies the 90% recoverable maximum)
+- `shortcuts.bindings.maximizePaneHeight` (`cmd+opt+shift+0`; toggles height-only maximize, preserving width and visible neighboring pane headers)
 
 ## Canvas
 

@@ -164,10 +164,10 @@ struct SplitGeometryTests {
         )
 
         let cases: [(ExternalTreeNode, UUID, String, ResizeDirection, CGFloat)] = [
-            (horizontal, horizontalId, "left", .left, 0.6),
-            (horizontal, horizontalId, "right", .right, 0.4),
-            (vertical, verticalId, "top", .up, 0.6),
-            (vertical, verticalId, "bottom", .down, 0.4),
+            (horizontal, horizontalId, "left", .left, 0.4),
+            (horizontal, horizontalId, "right", .right, 0.6),
+            (vertical, verticalId, "top", .up, 0.4),
+            (vertical, verticalId, "bottom", .down, 0.6),
         ]
 
         for (tree, splitId, paneId, direction, expectedPosition) in cases {
@@ -179,6 +179,59 @@ struct SplitGeometryTests {
             #expect(adjustment?.splitId == splitId)
             #expect(adjustment.map { abs($0.position - expectedPosition) < 0.0001 } == true)
         }
+    }
+
+    // MARK: Height-only maximize planning
+
+    @Test func heightMaximizeCollapsesCompetingPanesToTheirHeaders() {
+        let splitId = UUID()
+        let tree = split(
+            splitId,
+            orientation: "vertical",
+            first: pane("top", width: 600, height: 400),
+            second: pane("bottom", y: 400, width: 600, height: 400)
+        )
+
+        let result = tree.heightMaximizePlan(
+            targetPaneId: "top",
+            collapsedPaneHeight: 28,
+            dividerThickness: 1
+        )
+
+        guard case .plan(let plan) = result else {
+            Issue.record("Expected a height maximize plan")
+            return
+        }
+        #expect(plan.adjustments == [.init(splitId: splitId, imposedFirstExtent: 771)])
+    }
+
+    @Test func heightMaximizePreservesHorizontalSplits() {
+        let verticalId = UUID()
+        let horizontalId = UUID()
+        let tree = split(
+            horizontalId,
+            orientation: "horizontal",
+            first: split(
+                verticalId,
+                orientation: "vertical",
+                first: pane("top", width: 300, height: 400),
+                second: pane("bottom", y: 400, width: 300, height: 400)
+            ),
+            second: pane("right", x: 300, width: 300, height: 800)
+        )
+
+        let result = tree.heightMaximizePlan(
+            targetPaneId: "bottom",
+            collapsedPaneHeight: 28,
+            dividerThickness: 1
+        )
+
+        guard case .plan(let plan) = result else {
+            Issue.record("Expected a height maximize plan")
+            return
+        }
+        #expect(plan.adjustments.map(\.splitId) == [verticalId])
+        #expect(plan.adjustments[0].imposedFirstExtent == 28)
     }
 
     @Test func resizePrefersRequestedEdgeBeforeNearerOppositeEdge() {

@@ -118,21 +118,21 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     /// Resets every terminal font size in the selected workspace.
     case resetWorkspaceTerminalFontSize
     case equalizeSplits
-    /// Grows the focused pane toward its left edge.
+    /// Moves the focused pane's controlling divider left.
     case growPaneLeft
-    /// Grows the focused pane toward its right edge.
+    /// Moves the focused pane's controlling divider right.
     case growPaneRight
-    /// Grows the focused pane toward its top edge.
+    /// Moves the focused pane's controlling divider up.
     case growPaneUp
-    /// Grows the focused pane toward its bottom edge.
+    /// Moves the focused pane's controlling divider down.
     case growPaneDown
-    /// Sets the focused pane's width to the pressed digit's `n:1` ratio.
+    /// Sets the focused pane's width to the pressed digit's fixed preset.
     case setPaneWidthRatioByNumber
-    /// Sets the focused pane's height to the pressed digit's `n:1` ratio.
+    /// Sets the focused pane's height to the pressed digit's fixed preset.
     case setPaneHeightRatioByNumber
     /// Maximizes the focused pane within its nearest width split.
     case maximizePaneWidth
-    /// Maximizes the focused pane within its nearest height split.
+    /// Toggles a height-only maximize while preserving the focused pane's width.
     case maximizePaneHeight
     case splitBrowserRight
     case splitBrowserDown
@@ -227,14 +227,14 @@ extension ShortcutAction {
     /// The digit range bound through this action's single stored placeholder.
     ///
     /// Numbered workspace and surface selection use `1...9`, while pane-ratio
-    /// shortcuts use `1...6`. Recording any digit inside the action's range
+    /// shortcuts use `1...3`. Recording any digit inside the action's range
     /// rebinds the whole family and normalizes the stored key to the lower bound.
     public var numberedDigitRange: ClosedRange<Int>? {
         switch self {
         case .selectSurfaceByNumber, .selectWorkspaceByNumber:
             return 1...9
         case .setPaneWidthRatioByNumber, .setPaneHeightRatioByNumber:
-            return 1...6
+            return 1...3
         default:
             return nil
         }

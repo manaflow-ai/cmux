@@ -4,26 +4,36 @@ import CmuxPanes
 extension AppDelegate {
     /// Fixed incremental movement used by the directional pane resize actions.
     private static let paneResizeStep: CGFloat = 20
-    /// Largest focused-branch share allowed while keeping its sibling visible.
+    /// Recoverable maximum used by the existing width-only shortcut.
     private static let maximizedPaneShare: CGFloat = 0.9
-
     private static let paneShareShortcutActions: [KeyboardShortcutSettings.Action] = [
         .setPaneWidthRatioByNumber,
         .setPaneHeightRatioByNumber,
         .maximizePaneWidth,
+    ]
+
+    private static let paneHeightMaximizeShortcutActions: [KeyboardShortcutSettings.Action] = [
         .maximizePaneHeight,
     ]
 
     /// Routes configured exact pane-share shortcuts.
     func handlePaneShareShortcut(event: NSEvent) -> Bool {
-        let actions = Self.paneShareShortcutActions
+        let actions = Self.paneShareShortcutActions + Self.paneHeightMaximizeShortcutActions
         guard let action = preferredMatchingShortcutAction(event: event, actions: actions),
               !explicitShortcutOverrideShouldPreemptImplicitDefault(
                 event: event,
                 matchedAction: action,
                 actionFamily: actions
-              ),
-              let route = paneShareShortcutRoute(event: event, action: action) else {
+              ) else {
+            return false
+        }
+
+        if action == .maximizePaneHeight {
+            performPaneHeightMaximizeShortcut(event: event)
+            return true
+        }
+
+        guard let route = paneShareShortcutRoute(event: event, action: action) else {
             return false
         }
 
@@ -31,27 +41,35 @@ extension AppDelegate {
         return true
     }
 
-    /// Resolves a ratio-family or maximize action to one exact-share request.
+    /// Resolves a ratio-family shortcut to one exact-share request.
     private func paneShareShortcutRoute(
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> (axis: PaneAxis, share: CGFloat)? {
         switch action {
         case .setPaneWidthRatioByNumber, .setPaneHeightRatioByNumber:
-            guard let numerator = routableNumberedConfiguredShortcutDigit(
+            guard let digit = routableNumberedConfiguredShortcutDigit(
                 event: event,
                 action: action
-            ), let ratio = PaneShareRatio(focusedParts: numerator, siblingParts: 1) else {
+            ), let share = Self.panePresetShare(for: digit) else {
                 return nil
             }
             let axis: PaneAxis = action == .setPaneWidthRatioByNumber ? .width : .height
-            return (axis, ratio.share)
+            return (axis, share)
         case .maximizePaneWidth:
             return (.width, Self.maximizedPaneShare)
-        case .maximizePaneHeight:
-            return (.height, Self.maximizedPaneShare)
         default:
             return nil
+        }
+    }
+
+    /// Resolves the compact preset family to the focused pane's exact share.
+    private static func panePresetShare(for digit: Int) -> CGFloat? {
+        switch digit {
+        case 1: return 1.0 / 3.0
+        case 2: return 1.0 / 2.0
+        case 3: return 2.0 / 3.0
+        default: return nil
         }
     }
 
@@ -74,6 +92,25 @@ extension AppDelegate {
             "shortcut.action name=setPaneShare axis=\(axis) share=\(share) " +
             "result=\(String(describing: result))"
         )
+#endif
+    }
+
+    /// Toggles height-only maximize through the same selected-pane action
+    /// path used by the other sizing shortcuts.
+    func performPaneHeightMaximizeShortcut(event: NSEvent) {
+        if focusedDockStoreForShortcut(preferredWindow: event.window) != nil {
+            NSSound.beep()
+            return
+        }
+        let manager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+        if shouldSuppressSplitShortcutForTransientTerminalFocusState(tabManager: manager) {
+            return
+        }
+        let result = manager?.toggleSelectedPaneHeightMaximize()
+            ?? .rejected(reason: "No workspace is selected.")
+        if !result.didApply { NSSound.beep() }
+#if DEBUG
+        cmuxDebugLog("shortcut.action name=togglePaneHeightMaximize result=\(String(describing: result))")
 #endif
     }
 

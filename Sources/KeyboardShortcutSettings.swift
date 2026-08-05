@@ -307,19 +307,19 @@ enum KeyboardShortcutSettings {
                     defaultValue: "Reset Font Size for Workspace Terminals"
                 )
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
-            case .growPaneLeft: return String(localized: "shortcut.growPaneLeft.label", defaultValue: "Grow Pane Left")
-            case .growPaneRight: return String(localized: "shortcut.growPaneRight.label", defaultValue: "Grow Pane Right")
-            case .growPaneUp: return String(localized: "shortcut.growPaneUp.label", defaultValue: "Grow Pane Up")
-            case .growPaneDown: return String(localized: "shortcut.growPaneDown.label", defaultValue: "Grow Pane Down")
+            case .growPaneLeft: return String(localized: "shortcut.growPaneLeft.label", defaultValue: "Resize Pane Left")
+            case .growPaneRight: return String(localized: "shortcut.growPaneRight.label", defaultValue: "Resize Pane Right")
+            case .growPaneUp: return String(localized: "shortcut.growPaneUp.label", defaultValue: "Resize Pane Up")
+            case .growPaneDown: return String(localized: "shortcut.growPaneDown.label", defaultValue: "Resize Pane Down")
             case .setPaneWidthRatioByNumber:
                 return String(
                     localized: "shortcut.setPaneWidthRatioByNumber.label",
-                    defaultValue: "Set Pane Width Ratio 1:1–6:1"
+                    defaultValue: "Set Pane Width: 1/3, 1/2, 2/3"
                 )
             case .setPaneHeightRatioByNumber:
                 return String(
                     localized: "shortcut.setPaneHeightRatioByNumber.label",
-                    defaultValue: "Set Pane Height Ratio 1:1–6:1"
+                    defaultValue: "Set Pane Height: 1/3, 1/2, 2/3"
                 )
             case .maximizePaneWidth:
                 return String(
@@ -329,7 +329,7 @@ enum KeyboardShortcutSettings {
             case .maximizePaneHeight:
                 return String(
                     localized: "shortcut.maximizePaneHeight.label",
-                    defaultValue: "Maximize Pane Vertically"
+                    defaultValue: "Toggle Pane Height Maximize"
                 )
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
@@ -535,8 +535,14 @@ enum KeyboardShortcutSettings {
             case .resetWorkspaceTerminalFontSize:
                 return StoredShortcut(key: "0", command: true, shift: false, option: false, control: true)
             case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: true, option: false, control: true)
-            case .growPaneLeft, .growPaneRight, .growPaneUp, .growPaneDown:
-                return .unbound
+            case .growPaneLeft:
+                return StoredShortcut(key: "h", command: false, shift: true, option: false, control: true)
+            case .growPaneRight:
+                return StoredShortcut(key: "l", command: false, shift: true, option: false, control: true)
+            case .growPaneUp:
+                return StoredShortcut(key: "k", command: false, shift: true, option: false, control: true)
+            case .growPaneDown:
+                return StoredShortcut(key: "j", command: false, shift: true, option: false, control: true)
             case .setPaneWidthRatioByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: true, control: false)
             case .setPaneHeightRatioByNumber:

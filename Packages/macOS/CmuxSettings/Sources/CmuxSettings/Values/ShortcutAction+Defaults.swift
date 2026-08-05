@@ -101,10 +101,14 @@ extension ShortcutAction {
         case .resetWorkspaceTerminalFontSize:
             return ShortcutStroke(key: "0", command: true, control: true)
         case .equalizeSplits: return ShortcutStroke(key: "=", command: true, shift: true, control: true)
-        case .growPaneLeft, .growPaneRight, .growPaneUp, .growPaneDown:
-            // Configurable but initially unbound to avoid conflicting with
-            // terminal bindings and pane-navigation shortcuts.
-            return nil
+        case .growPaneLeft:
+            return ShortcutStroke(key: "h", shift: true, control: true)
+        case .growPaneRight:
+            return ShortcutStroke(key: "l", shift: true, control: true)
+        case .growPaneUp:
+            return ShortcutStroke(key: "k", shift: true, control: true)
+        case .growPaneDown:
+            return ShortcutStroke(key: "j", shift: true, control: true)
         case .setPaneWidthRatioByNumber:
             return ShortcutStroke(key: "1", command: true, option: true)
         case .setPaneHeightRatioByNumber:

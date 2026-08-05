@@ -206683,7 +206683,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grow Pane Down"
+            "value": "Resize Pane Down"
           }
         },
         "es": {
@@ -206808,7 +206808,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grow Pane Left"
+            "value": "Resize Pane Left"
           }
         },
         "es": {
@@ -206933,7 +206933,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grow Pane Right"
+            "value": "Resize Pane Right"
           }
         },
         "es": {
@@ -207058,7 +207058,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grow Pane Up"
+            "value": "Resize Pane Up"
           }
         },
         "es": {
@@ -211411,7 +211411,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Maximize Pane Vertically"
+            "value": "Toggle Pane Height Maximize"
           }
         },
         "es": {
@@ -211661,7 +211661,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set Pane Height Ratio 1:1–6:1"
+            "value": "Set Pane Height: 1/3, 1/2, 2/3"
           }
         },
         "es": {
@@ -211786,7 +211786,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set Pane Width Ratio 1:1–6:1"
+            "value": "Set Pane Width: 1/3, 1/2, 2/3"
           }
         },
         "es": {

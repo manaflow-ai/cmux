@@ -410,14 +410,14 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         }
     }
 
-    @Test func configuredGrowPaneShortcutsUseOppositeEdgeAtEveryOuterBoundary() throws {
+    @Test func configuredResizePaneShortcutsMoveTheFallbackDividerSpatially() throws {
         try assertPaneResizeShortcut(
             action: .growPaneLeft,
             key: "←",
             keyCode: 123,
             orientation: .horizontal,
             focusSecondPane: false,
-            expectedDividerToIncrease: true
+            expectedDividerToIncrease: false
         )
         try assertPaneResizeShortcut(
             action: .growPaneRight,
@@ -425,7 +425,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             keyCode: 124,
             orientation: .horizontal,
             focusSecondPane: true,
-            expectedDividerToIncrease: false
+            expectedDividerToIncrease: true
         )
         try assertPaneResizeShortcut(
             action: .growPaneUp,
@@ -433,7 +433,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             keyCode: 126,
             orientation: .vertical,
             focusSecondPane: false,
-            expectedDividerToIncrease: true
+            expectedDividerToIncrease: false
         )
         try assertPaneResizeShortcut(
             action: .growPaneDown,
@@ -441,22 +441,18 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             keyCode: 125,
             orientation: .vertical,
             focusSecondPane: true,
-            expectedDividerToIncrease: false
+            expectedDividerToIncrease: true
         )
     }
 
-    @Test func paneShareShortcutFamiliesApplyOneThroughSixRatiosByAxis() throws {
+    @Test func paneShareShortcutFamiliesApplyFixedPresetsByAxis() throws {
         let digitKeys: [(key: String, keyCode: UInt16)] = [
             ("1", 18),
             ("2", 19),
             ("3", 20),
-            ("4", 21),
-            ("5", 23),
-            ("6", 22),
         ]
-        for (index, digitKey) in digitKeys.enumerated() {
-            let focusedParts = index + 1
-            let expectedShare = CGFloat(focusedParts) / CGFloat(focusedParts + 1)
+        let expectedShares: [CGFloat] = [1.0 / 3.0, 1.0 / 2.0, 2.0 / 3.0]
+        for (digitKey, expectedShare) in zip(digitKeys, expectedShares) {
             try assertPaneShareShortcut(
                 action: .setPaneWidthRatioByNumber,
                 key: digitKey.key,
@@ -474,25 +470,6 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                 expectedFocusedShare: expectedShare
             )
         }
-    }
-
-    @Test func paneMaximizeShortcutsApplyMaximumShareByAxis() throws {
-        try assertPaneShareShortcut(
-            action: .maximizePaneWidth,
-            key: "0",
-            keyCode: 29,
-            modifiers: [.command, .option],
-            orientation: .horizontal,
-            expectedFocusedShare: 0.9
-        )
-        try assertPaneShareShortcut(
-            action: .maximizePaneHeight,
-            key: "0",
-            keyCode: 29,
-            modifiers: [.command, .option, .shift],
-            orientation: .vertical,
-            expectedFocusedShare: 0.9
-        )
     }
 
     private func assertPaneShareShortcut(
