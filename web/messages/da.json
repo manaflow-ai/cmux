@@ -3568,7 +3568,6 @@
     "title": "cmux til {platform}",
     "tagline": "En Chromium-browser og et agentarbejdsområde, bygget som én helhed.",
     "logoAlt": "cmux-appikon",
-    "portableCta": "Transportabel ZIP",
     "featuresTitle": "Bygget til agentbaseret arbejde",
     "features": {
       "chromium": {
@@ -3600,6 +3599,7 @@
       "metaDescription": "Download cmux til Windows x64: en gratis open source Chromium-browser og et agentarbejdsområde med opgavebaserede faner og terminalflader.",
       "subtitle": "En indbygget x64-version med Chromium-faner, cmux-arbejdsområder og velkendte Windows-tastaturgenveje.",
       "primaryCta": "Download installationsprogram (.exe)",
+      "secondaryCta": "Transportabel ZIP",
       "requirements": "Windows 10 eller nyere · x64",
       "installBody": "Kør installationsprogrammet, og følg anvisningerne i Windows. Vælg den transportable ZIP, hvis du vil beholde cmux i en mappe uden en systemomfattende installation."
     },
@@ -3608,9 +3608,10 @@
       "metaTitle": "Download cmux til Linux",
       "metaDescription": "Download cmux til Linux x64: en gratis open source Chromium-browser og et agentarbejdsområde med opgavebaserede faner og terminalflader.",
       "subtitle": "En indbygget x64-version med Chromium-faner, cmux-arbejdsområder og integrerede terminalflader.",
-      "primaryCta": "Download .deb",
-      "requirements": "Debian eller Ubuntu · x64",
-      "installBody": "Download Debian-pakken, og installer den med din pakkehåndtering. Vælg den transportable ZIP til installation pr. bruger og opdateringer i appen."
+      "primaryCta": "Download installationsprogram med automatiske opdateringer (.run)",
+      "secondaryCta": "Debian-pakke (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Kør installationsprogrammet én gang for din bruger. Det installerer cmux i ~/.local uden root-rettigheder og aktiverer signerede opdateringer i appen. Vælg i stedet Debian-pakken, hvis du vil have opdateringer administreret af din pakkehåndtering."
     }
   },
   "emails": {

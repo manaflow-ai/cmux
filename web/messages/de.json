@@ -3571,7 +3571,6 @@
     "title": "cmux für {platform}",
     "tagline": "Ein Chromium-Browser und Agenten-Workspace, gemeinsam entwickelt.",
     "logoAlt": "cmux-App-Symbol",
-    "portableCta": "Portable ZIP-Datei",
     "featuresTitle": "Für agentenbasierte Arbeit entwickelt",
     "features": {
       "chromium": {
@@ -3603,6 +3602,7 @@
       "metaDescription": "cmux für Windows x64 herunterladen: ein kostenloser, quelloffener Chromium-Browser und Agenten-Workspace mit aufgabenorientierten Tabs und Terminal-Oberflächen.",
       "subtitle": "Ein nativer x64-Build mit Chromium-Tabs, cmux-Workspaces und vertrauter Windows-Tastaturbedienung.",
       "primaryCta": "Installationsprogramm (.exe) herunterladen",
+      "secondaryCta": "Portable ZIP-Datei",
       "requirements": "Windows 10 oder neuer · x64",
       "installBody": "Führe das Installationsprogramm aus und folge den Windows-Anweisungen. Wähle die portable ZIP-Datei, wenn du cmux ohne systemweite Installation in einem Ordner behalten möchtest."
     },
@@ -3611,9 +3611,10 @@
       "metaTitle": "cmux für Linux herunterladen",
       "metaDescription": "cmux für Linux x64 herunterladen: ein kostenloser, quelloffener Chromium-Browser und Agenten-Workspace mit aufgabenorientierten Tabs und Terminal-Oberflächen.",
       "subtitle": "Ein nativer x64-Build mit Chromium-Tabs, cmux-Workspaces und integrierten Terminal-Oberflächen.",
-      "primaryCta": ".deb herunterladen",
-      "requirements": "Debian oder Ubuntu · x64",
-      "installBody": "Lade das Debian-Paket herunter und installiere es mit deiner Paketverwaltung. Wähle die portable ZIP-Datei für eine benutzerspezifische Installation und Updates innerhalb der App."
+      "primaryCta": "Installationsprogramm mit automatischen Updates (.run) herunterladen",
+      "secondaryCta": "Debian-Paket (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Führe das Installationsprogramm für deinen Benutzer einmal aus. Es installiert cmux ohne Root-Rechte unter ~/.local und aktiviert signierte Updates innerhalb der App. Wähle stattdessen das Debian-Paket, wenn deine Paketverwaltung die Updates verwalten soll."
     }
   },
   "emails": {

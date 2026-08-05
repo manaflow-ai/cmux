@@ -3568,7 +3568,6 @@
     "title": "cmux for {platform}",
     "tagline": "En Chromium-nettleser og et arbeidsområde for agenter, bygget som én helhet.",
     "logoAlt": "cmux-appikon",
-    "portableCta": "Portabel ZIP",
     "featuresTitle": "Bygget for agentbasert arbeid",
     "features": {
       "chromium": {
@@ -3600,6 +3599,7 @@
       "metaDescription": "Last ned cmux for Windows x64: en gratis Chromium-nettleser med åpen kildekode og et arbeidsområde for agenter med oppgavebaserte faner og terminalflater.",
       "subtitle": "En innebygd x64-versjon med Chromium-faner, cmux-arbeidsområder og kjente Windows-tastaturkonvensjoner.",
       "primaryCta": "Last ned installasjonsprogram (.exe)",
+      "secondaryCta": "Portabel ZIP",
       "requirements": "Windows 10 eller nyere · x64",
       "installBody": "Kjør installasjonsprogrammet og følg Windows-instruksjonene. Velg den portable ZIP-filen hvis du vil beholde cmux i en mappe uten systemomfattende installasjon."
     },
@@ -3608,9 +3608,10 @@
       "metaTitle": "Last ned cmux for Linux",
       "metaDescription": "Last ned cmux for Linux x64: en gratis Chromium-nettleser med åpen kildekode og et arbeidsområde for agenter med oppgavebaserte faner og terminalflater.",
       "subtitle": "En innebygd x64-versjon med Chromium-faner, cmux-arbeidsområder og integrerte terminalflater.",
-      "primaryCta": "Last ned .deb",
-      "requirements": "Debian eller Ubuntu · x64",
-      "installBody": "Last ned Debian-pakken og installer den med pakkebehandleren. Velg den portable ZIP-filen for installasjon per bruker og oppdateringer i appen."
+      "primaryCta": "Last ned installasjonsprogram med automatiske oppdateringer (.run)",
+      "secondaryCta": "Debian-pakke (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Kjør installasjonsprogrammet for brukeren én gang. Det installerer cmux under ~/.local uten root-tilgang og aktiverer signerte oppdateringer i appen. Velg Debian-pakken i stedet hvis du vil at oppdateringene skal administreres av pakkebehandleren."
     }
   },
   "emails": {
