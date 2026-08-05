@@ -32,9 +32,24 @@ extension CMUXCLI {
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
-        guard fm.fileExists(atPath: configDir) else {
-            print("\(configDir) does not exist. Install \(def.displayName) first.")
-            return
+        let configDirectoryFileError = String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.error.configDirectoryIsFile",
+                defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+            ),
+            configDir
+        )
+        var isConfigDirectory: ObjCBool = false
+        if fm.fileExists(atPath: configDir, isDirectory: &isConfigDirectory) {
+            guard isConfigDirectory.boolValue else {
+                throw CLIError(message: configDirectoryFileError)
+            }
+        } else {
+            do {
+                try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+            } catch {
+                throw CLIError(message: configDirectoryFileError)
+            }
         }
 
         let events = hermesAgentEvents(def: def)

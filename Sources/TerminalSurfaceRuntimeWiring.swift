@@ -142,10 +142,10 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
 extension TerminalSurfaceRuntimeFilesystem {
     static func live() -> TerminalSurfaceRuntimeFilesystem {
         TerminalSurfaceRuntimeFilesystem(
-            claudeCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
-            installClaudeCommandShim: {
-                TerminalSurface.installClaudeCommandShimIfPossible(
-                    wrapperURL: $0,
+            agentCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
+            installAgentCommandShims: {
+                TerminalSurface.installAgentCommandShimsIfPossible(
+                    wrapperDirectoryURL: $0,
                     surfaceId: $1,
                     temporaryDirectory: $2,
                     fileManager: .default

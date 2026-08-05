@@ -203,8 +203,8 @@ struct HermesFirstClassSupportTests {
         #expect(detected.values.first?.snapshot.sessionId == "team-session-1")
     }
 
-    @Test("Hermes hook install pins CLI and socket in both config and consent allowlist")
-    func hookInstallPinsDispatchAndConsent() throws {
+    @Test("Hermes hook install migrates consent to ambient per-launch dispatch")
+    func hookInstallUsesAmbientDispatchAndConsent() throws {
         let root = try temporaryDirectory(prefix: "cmux-hermes-hooks")
         defer { try? FileManager.default.removeItem(at: root) }
         let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
@@ -270,21 +270,23 @@ struct HermesFirstClassSupportTests {
         #expect(commands.contains(userCommand))
         #expect(!commands.contains(legacyCommand))
         #expect(!cmuxCommands.isEmpty)
-        #expect(cmuxCommands.allSatisfy { $0.contains("cmux-hermes-agent-hook-v2") })
-        #expect(cmuxCommands.allSatisfy { $0.contains("'\(pinnedCLI.path)'") })
-        #expect(cmuxCommands.allSatisfy { $0.contains("--socket '\(socketPath)'") })
-        #expect(cmuxCommands.allSatisfy { !$0.contains("$CMUX_") })
-        #expect(config.contains("cmux-hermes-agent-hook-v2"))
-        #expect(config.contains(pinnedCLI.path))
-        #expect(config.contains(socketPath))
+        #expect(cmuxCommands.allSatisfy { !$0.contains("cmux-hermes-agent-hook-v2") })
+        #expect(cmuxCommands.allSatisfy { !$0.contains(pinnedCLI.path) })
+        #expect(cmuxCommands.allSatisfy { !$0.contains(socketPath) })
+        #expect(cmuxCommands.allSatisfy { $0.contains("CMUX_BUNDLED_CLI_PATH") })
+        #expect(cmuxCommands.allSatisfy { $0.contains("CMUX_SOCKET_PATH") })
+        #expect(!config.contains("cmux-hermes-agent-hook-v2"))
+        #expect(!config.contains(pinnedCLI.path))
+        #expect(!config.contains(socketPath))
+        #expect(config.contains("CMUX_BUNDLED_CLI_PATH"))
+        #expect(config.contains("CMUX_SOCKET_PATH"))
     }
 
-    @Test("Hermes hook install fails closed without a pinned cmux target")
-    func hookInstallRequiresPinnedTarget() throws {
+    @Test("Hermes hook install creates a fresh home without a pinned cmux target")
+    func hookInstallCreatesMissingHomeWithAmbientDispatch() throws {
         let root = try temporaryDirectory(prefix: "cmux-hermes-hooks-no-target")
         defer { try? FileManager.default.removeItem(at: root) }
         let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
-        try FileManager.default.createDirectory(at: hermesHome, withIntermediateDirectories: true)
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: HermesFirstClassBundleToken.self)
         let configURL = hermesHome.appendingPathComponent("config.yaml")
         let allowlistURL = hermesHome.appendingPathComponent("shell-hooks-allowlist.json")
@@ -300,10 +302,12 @@ struct HermesFirstClassSupportTests {
             ]
         )
 
-        #expect(result.status != 0)
-        #expect(result.output.contains("CMUX_SOCKET_PATH"))
-        #expect(!FileManager.default.fileExists(atPath: configURL.path))
-        #expect(!FileManager.default.fileExists(atPath: allowlistURL.path))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(FileManager.default.fileExists(atPath: configURL.path))
+        #expect(FileManager.default.fileExists(atPath: allowlistURL.path))
+        let config = try String(contentsOf: configURL, encoding: .utf8)
+        #expect(config.contains("CMUX_BUNDLED_CLI_PATH"))
+        #expect(config.contains("CMUX_SOCKET_PATH"))
     }
 
     private struct Fixture {

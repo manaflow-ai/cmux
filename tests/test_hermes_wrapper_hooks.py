@@ -173,7 +173,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             cmux_environment=read_environment(cmux_env_log) if cmux_env_log.exists() else {},
             stderr=proc.stderr.strip(),
             real_path=str(real_hermes),
-            working_directory=str(tmp),
+            working_directory=os.path.realpath(tmp),
             socket_path=socket_path,
         )
 
