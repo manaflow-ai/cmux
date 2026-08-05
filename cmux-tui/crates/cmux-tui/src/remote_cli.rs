@@ -1134,7 +1134,15 @@ pub(crate) struct ManagedSshConnection {
 /// Keeps the local bridge and its reconnecting SSH client alive for as long
 /// as the selected machine session owns it.
 pub(crate) struct ManagedSshLease {
-    _runtime: crate::remote_runtime::ClientRuntimeHandle,
+    runtime: Option<crate::remote_runtime::ClientRuntimeHandle>,
+}
+
+impl Drop for ManagedSshLease {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            let _ = runtime.shutdown();
+        }
+    }
 }
 
 pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyhow::Result<()> {
@@ -1170,7 +1178,7 @@ pub(crate) fn connect_managed_ssh(
     match RemoteSession::connect(&local_socket) {
         Ok(remote) => Ok(ManagedSshConnection {
             session: Session::Remote(remote),
-            lease: ManagedSshLease { _runtime: connected.runtime },
+            lease: ManagedSshLease { runtime: Some(connected.runtime) },
         }),
         Err(connect_error) => {
             let cleanup_error = connected.runtime.shutdown().err();
