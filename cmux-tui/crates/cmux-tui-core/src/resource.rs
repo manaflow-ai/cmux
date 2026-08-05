@@ -1617,6 +1617,11 @@ mod tests {
     }
 
     #[test]
+    fn terminal_multiview_uses_a_new_public_protocol_version() {
+        assert_eq!(PROTOCOL, "cmux.protocol/2");
+    }
+
+    #[test]
     fn requests_enforce_envelope_and_idempotency_rules() {
         let read: RequestEnvelope = serde_json::from_value(json!({
             "protocol": PROTOCOL,
