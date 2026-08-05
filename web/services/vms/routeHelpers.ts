@@ -96,10 +96,14 @@ export async function withAuthedVmApiRoute(
  * promise settles but turbopack reports "No response is returned from route handler").
  * Use `new Response(JSON.stringify(...), { ... })` explicitly instead.
  */
-export function jsonResponse(data: unknown, status = 200): Response {
+export function jsonResponse(
+  data: unknown,
+  status = 200,
+  headers?: HeadersInit,
+): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...Object.fromEntries(new Headers(headers)) },
   });
 }
 
@@ -284,19 +288,14 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
     const providerCause = providerCauseSummary(workflowError.cause);
     const phase = vmPhaseForOperation(workflowError.operation);
     const retryAfterSeconds = retryAfterForOperation(workflowError.operation);
-    const providerMessage = providerCause?.message
-      ? sanitizedProviderMessage(providerCause.message)
-      : null;
     const providerCode = providerCause?.code
       ? sanitizedProviderCode(providerCause.code)
-      : inferredProviderCode(providerMessage);
+      : inferredProviderCode(providerCause?.message ?? null);
     return vmErrorResponse({
       error: "vm_cloud_service_unavailable",
       status: 502,
       message: vmUnavailableMessage(phase),
-      reason: providerMessage
-        ? `Cloud VM service is temporarily unavailable: ${providerMessage}`
-        : "Cloud VM service is temporarily unavailable.",
+      reason: "Cloud VM service is temporarily unavailable.",
       action: cloudServiceAction(workflowError.operation, retryAfterSeconds),
       phase,
       retryable: true,
@@ -307,7 +306,6 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
         operation: workflowError.operation,
         retryable: true,
         ...(providerCode ? { providerCode } : {}),
-        ...(providerMessage ? { providerMessage } : {}),
       },
     });
   }
@@ -479,19 +477,6 @@ function vmUnavailableDisplayMessage(phase: VmLifecyclePhase, retryAfterSeconds:
   return `${vmUnavailableMessage(phase)}${suffix}`;
 }
 
-function sanitizedProviderMessage(message: string): string {
-  const normalized = message.trim();
-  if (!normalized) return "";
-  if (/internal/i.test(normalized) && /error/i.test(normalized)) return "internal service error";
-  if (/timeout|timed out|aborted/i.test(normalized)) return "request timed out";
-  if (/rate[_\s-]*limit|too many requests/i.test(normalized)) return "rate limited";
-  if (/not found|deleted/i.test(normalized)) return "VM not found";
-  return normalized
-    .replace(/freestyle/gi, "Cloud VM")
-    .replace(/e2b/gi, "Cloud VM")
-    .slice(0, 240);
-}
-
 function sanitizedProviderCode(code: string): string {
   const normalized = code.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   if (!normalized) return "";
@@ -504,10 +489,10 @@ function sanitizedProviderCode(code: string): string {
 
 function inferredProviderCode(message: string | null): string | null {
   if (!message) return null;
-  if (message === "internal service error") return "provider_internal";
-  if (message === "request timed out") return "provider_timeout";
-  if (message === "rate limited") return "provider_rate_limited";
-  if (message === "VM not found") return "provider_not_found";
+  if (/internal/i.test(message) && /error/i.test(message)) return "provider_internal";
+  if (/timeout|timed out|aborted/i.test(message)) return "provider_timeout";
+  if (/rate[_\s-]*limit|too many requests/i.test(message)) return "provider_rate_limited";
+  if (/not found|deleted/i.test(message)) return "provider_not_found";
   return null;
 }
 

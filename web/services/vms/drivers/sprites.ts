@@ -1,5 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { ExecError, SpritesClient, type Sprite } from "@fly/sprites";
+import {
+  ExecError,
+  SpritesClient,
+  type Checkpoint,
+  type ServiceLogEvent,
+  type Sprite,
+} from "@fly/sprites";
 import {
   NotImplementedError,
   ProviderError,
@@ -37,7 +43,7 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function mapStatus(status: string | undefined): VMStatus {
+export function mapStatus(status: string | undefined): VMStatus {
   switch (status) {
     case "creating":
     case "warming":
@@ -48,19 +54,38 @@ function mapStatus(status: string | undefined): VMStatus {
     case "paused":
     case "cold":
     case "warm":
+    case "running":
       // A paused Sprite remains immediately addressable and wakes on the next
       // exec or URL request, so it is an active Cloud VM from cmux's perspective.
       return "running";
     default:
-      return "running";
+      throw new ProviderError("sprites", "unsupported lifecycle status");
   }
 }
 
 async function drain(stream: AsyncIterable<unknown>): Promise<void> {
   for await (const event of stream) {
-    // Reading the full stream is the operation completion acknowledgement.
     void event;
   }
+}
+
+export async function waitForServiceStarted(
+  stream: AsyncIterable<ServiceLogEvent>,
+): Promise<void> {
+  for await (const event of stream) {
+    if (event.type === "started") return;
+    if (event.type === "error" || event.type === "exit" || event.type === "stopped") {
+      throw new ProviderError("sprites", "cmux service failed during startup");
+    }
+  }
+  throw new ProviderError("sprites", "cmux service ended before readiness");
+}
+
+export function checkpointMatchingComment(
+  checkpoints: readonly Checkpoint[],
+  comment: string,
+): Checkpoint | undefined {
+  return checkpoints.find((checkpoint) => checkpoint.comment === comment);
 }
 
 function bootstrapCommand(image: string): string {
@@ -119,9 +144,8 @@ export class SpritesProvider implements VMProvider {
               dir: "/home/sprite",
               httpPort: 8080,
             },
-            "5s",
           );
-          await drain(service);
+          await waitForServiceStarted(service);
           const refreshed = await sprites.getSprite(name);
           const url = refreshed.url;
           if (!url) throw new Error("Sprite create response omitted its URL");
@@ -203,12 +227,11 @@ export class SpritesProvider implements VMProvider {
   async snapshot(vmId: string, name?: string): Promise<SnapshotRef> {
     try {
       const sprite = client().sprite(vmId);
-      const stream = await sprite.createCheckpoint(name);
+      const checkpointComment = `cmux-${randomBytes(16).toString("hex")}`;
+      const stream = await sprite.createCheckpoint(checkpointComment);
       await drain(stream);
       const checkpoints = await sprite.listCheckpoints();
-      const checkpoint = checkpoints.toSorted((a, b) =>
-        b.createTime.getTime() - a.createTime.getTime()
-      )[0];
+      const checkpoint = checkpointMatchingComment(checkpoints, checkpointComment);
       if (!checkpoint) throw new Error("Sprite checkpoint completed without a checkpoint id");
       return {
         id: `${vmId}:${checkpoint.id}`,
@@ -221,27 +244,11 @@ export class SpritesProvider implements VMProvider {
   }
 
   async restore(snapshotId: string): Promise<VMHandle> {
-    const separator = snapshotId.lastIndexOf(":");
-    if (separator <= 0 || separator === snapshotId.length - 1) {
-      throw new ProviderError("sprites", "restore requires <sprite>:<checkpoint>");
-    }
-    const vmId = snapshotId.slice(0, separator);
-    const checkpoint = snapshotId.slice(separator + 1);
-    try {
-      const sprite = client().sprite(vmId);
-      await drain(await sprite.restoreCheckpoint(checkpoint));
-      const refreshed = await client().getSprite(vmId);
-      return {
-        provider: "sprites",
-        providerVmId: vmId,
-        status: mapStatus(refreshed.status),
-        image: `checkpoint:${checkpoint}`,
-        createdAt: Date.now(),
-        providerMetadata: refreshed.url ? { url: refreshed.url } : undefined,
-      };
-    } catch (error) {
-      throw new ProviderError("sprites", `restore(${snapshotId})`, error);
-    }
+    void snapshotId;
+    throw new NotImplementedError(
+      "sprites",
+      "cross-Sprite checkpoint restore requires a provider fork API",
+    );
   }
 
   async openAttach(): Promise<AttachEndpoint> {

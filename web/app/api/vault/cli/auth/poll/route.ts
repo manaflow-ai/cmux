@@ -23,7 +23,9 @@ async function mintStackTokens(
   userId: string,
   client: CliAuthClient,
 ): Promise<CliAuthTokens | null> {
-  if (client !== "cmux-vault" && client !== "subrouter" && client !== "cmux-sprites") return null;
+  // The client binding is returned with the minted session so the caller can
+  // reject credentials approved for another CLI.
+  void client;
   const user = await getStackServerApp().getUser(userId);
   if (!user) return null;
   // Stack sessions establish identity only. Every Subrouter route separately

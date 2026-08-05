@@ -183,7 +183,7 @@ export function drizzleCliAuthRepository(): CliAuthRepository {
   };
 }
 
-function cliAuthClient(value: unknown): CliAuthClient | null {
+export function cliAuthClient(value: unknown): CliAuthClient | null {
   return value === "cmux-vault" || value === "subrouter" || value === "cmux-sprites"
     ? value
     : null;

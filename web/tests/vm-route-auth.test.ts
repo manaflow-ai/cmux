@@ -206,6 +206,7 @@ describe("VM REST auth", () => {
     expect(await response.json()).toEqual({ error: "unauthorized" });
     expect(getUser).toHaveBeenCalled();
     expect(runVmWorkflow).not.toHaveBeenCalled();
+
   });
 
   test("rejects unauthenticated VM listing before reaching Postgres", async () => {
@@ -419,6 +420,7 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(createVm).toHaveBeenCalled();
   });
 
@@ -429,6 +431,7 @@ describe("VM REST auth", () => {
 
     const response = await GET(new Request("https://cmux.test/api/vm"));
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(createVm).not.toHaveBeenCalled();
   });
 
@@ -1079,11 +1082,11 @@ describe("VM REST auth", () => {
         details: {
           operation: "openAttach",
           providerCode: "provider_internal",
-          providerMessage: "internal service error",
           retryable: true,
         },
       });
       expect(JSON.stringify(payload)).not.toContain("INTERNAL_ERROR");
+      expect(JSON.stringify(payload)).not.toContain("internal service error");
       expect(JSON.stringify(payload)).not.toContain("Freestyle");
     } finally {
       console.error = originalError;
@@ -1211,6 +1214,19 @@ describe("VM REST auth", () => {
     expect(await invalidProvider.json()).toMatchObject({
       error: "vm_invalid_provider",
       details: { field: "provider" },
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+
+    const unsupportedSpriteRestore = await restoreRoute.POST(
+      new Request("https://cmux.test/api/vm/restore", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ snapshotId: "sprite-1:v1", provider: "sprites" }),
+      }),
+    );
+    expect(unsupportedSpriteRestore.status).toBe(400);
+    expect(await unsupportedSpriteRestore.json()).toMatchObject({
+      error: "vm_invalid_provider",
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });

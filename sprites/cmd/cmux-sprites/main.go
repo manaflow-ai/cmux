@@ -61,6 +61,7 @@ type execResult struct {
 
 type apiClient struct {
 	baseURL string
+	baseErr error
 	tokens  *tokens
 	http    *http.Client
 }
@@ -321,8 +322,12 @@ func connect(ctx context.Context, args []string, apiBase, configDir string, stdo
 		shellQuote(advertise),
 	)
 	created, err := client.exec(ctx, vmID, createCommand)
-	if err != nil || created.ExitCode != 0 {
-		fmt.Fprintf(stderr, "connect failed to create enrollment: %v %s\n", err, created.Stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "connect failed to create enrollment: %v\n", err)
+		return 1
+	}
+	if created.ExitCode != 0 {
+		fmt.Fprintf(stderr, "connect failed to create enrollment: remote command exited %d\n", created.ExitCode)
 		return 1
 	}
 	var invitation struct {
@@ -422,13 +427,20 @@ func approveEnrollment(ctx context.Context, client *apiClient, vmID, invitationI
 	defer deadline.Stop()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	var latestError error
 	for {
-		pending, err := client.exec(
+		pending, err := client.execWithTimeout(
 			ctx,
 			vmID,
 			"/usr/local/bin/cmux enroll pending --session sprite --state-dir "+
 				shellQuote("/home/sprite/.local/share/cmux-sprite/remote")+" --json",
+			8_000,
 		)
+		if err != nil {
+			latestError = err
+		} else if pending.ExitCode != 0 {
+			latestError = fmt.Errorf("pending-enrollment command exited %d", pending.ExitCode)
+		}
 		if err == nil && pending.ExitCode == 0 {
 			var requests []struct {
 				InvitationID string `json:"invitation_id"`
@@ -436,18 +448,19 @@ func approveEnrollment(ctx context.Context, client *apiClient, vmID, invitationI
 			if json.Unmarshal([]byte(pending.Stdout), &requests) == nil {
 				for _, request := range requests {
 					if request.InvitationID == invitationID {
-						approved, err := client.exec(
+						approved, err := client.execWithTimeout(
 							ctx,
 							vmID,
 							"/usr/local/bin/cmux enroll approve "+shellQuote(invitationID)+
 								" --session sprite --state-dir "+
 								shellQuote("/home/sprite/.local/share/cmux-sprite/remote"),
+							8_000,
 						)
 						if err != nil {
 							return err
 						}
 						if approved.ExitCode != 0 {
-							return errors.New(strings.TrimSpace(approved.Stderr))
+							return fmt.Errorf("enrollment approval command exited %d", approved.ExitCode)
 						}
 						return nil
 					}
@@ -458,6 +471,12 @@ func approveEnrollment(ctx context.Context, client *apiClient, vmID, invitationI
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
+			if latestError != nil {
+				return fmt.Errorf(
+					"timed out waiting for the device enrollment claim; last check: %w",
+					latestError,
+				)
+			}
 			return errors.New("timed out waiting for the device enrollment claim")
 		case <-ticker.C:
 		}
@@ -465,15 +484,27 @@ func approveEnrollment(ctx context.Context, client *apiClient, vmID, invitationI
 }
 
 func (c *apiClient) exec(ctx context.Context, vmID, command string) (execResult, error) {
+	return c.execWithTimeout(ctx, vmID, command, 60_000)
+}
+
+func (c *apiClient) execWithTimeout(
+	ctx context.Context,
+	vmID string,
+	command string,
+	timeoutMs int,
+) (execResult, error) {
 	var result execResult
 	err := c.request(ctx, http.MethodPost, "/api/vm/"+url.PathEscape(vmID)+"/exec", map[string]any{
 		"command":   command,
-		"timeoutMs": 60_000,
+		"timeoutMs": timeoutMs,
 	}, &result)
 	return result, err
 }
 
 func (c *apiClient) request(ctx context.Context, method, path string, body any, out any) error {
+	if c.baseErr != nil {
+		return c.baseErr
+	}
 	var payload []byte
 	var err error
 	if body != nil {
@@ -504,7 +535,7 @@ func (c *apiClient) request(ctx context.Context, method, path string, body any, 
 		return err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("cmux.com returned %d: %s", response.StatusCode, strings.TrimSpace(string(data)))
+		return apiResponseError(response.StatusCode, data)
 	}
 	if out != nil && len(data) > 0 {
 		return json.Unmarshal(data, out)
@@ -513,11 +544,75 @@ func (c *apiClient) request(ctx context.Context, method, path string, body any, 
 }
 
 func newClient(baseURL string, value *tokens) *apiClient {
+	normalized, baseErr := normalizedAPIBase(baseURL)
 	return &apiClient{
-		baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		baseURL: normalized,
+		baseErr: baseErr,
 		tokens:  value,
-		http:    &http.Client{Timeout: 90 * time.Second},
+		http: &http.Client{
+			Timeout: 90 * time.Second,
+			CheckRedirect: func(request *http.Request, via []*http.Request) error {
+				if len(via) == 0 {
+					return nil
+				}
+				original := via[0].URL
+				if request.URL.Scheme != original.Scheme || request.URL.Host != original.Host {
+					return errors.New("refusing cross-origin API redirect")
+				}
+				return nil
+			},
+		},
 	}
+}
+
+func normalizedAPIBase(raw string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("invalid cmux API base URL")
+	}
+	if parsed.Scheme != "https" {
+		host := parsed.Hostname()
+		if parsed.Scheme != "http" ||
+			(host != "localhost" && host != "127.0.0.1" && host != "::1") {
+			return "", errors.New("cmux API base URL must use HTTPS")
+		}
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	return parsed.String(), nil
+}
+
+func apiResponseError(status int, data []byte) error {
+	code := ""
+	var envelope struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(data, &envelope) == nil && len(envelope.Error) > 0 {
+		var direct string
+		if json.Unmarshal(envelope.Error, &direct) == nil {
+			code = direct
+		} else {
+			var nested struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal(envelope.Error, &nested) == nil {
+				code = nested.Code
+			}
+		}
+	}
+	if code != "" {
+		for _, char := range code {
+			if !((char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') ||
+				char == '_' || char == '-' || char == '.') {
+				code = ""
+				break
+			}
+		}
+	}
+	if code != "" && len(code) <= 80 {
+		return fmt.Errorf("cmux API request failed (status %d, code %s)", status, code)
+	}
+	return fmt.Errorf("cmux API request failed (status %d)", status)
 }
 
 func authedClient(apiBase, dir string, stderr io.Writer) (*apiClient, bool) {

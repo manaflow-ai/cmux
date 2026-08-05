@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   claimCliAuthTokens,
+  type CliAuthClient,
   type CliAuthRepository,
   type CliAuthTokenMinter,
   type CliAuthTokens,
@@ -9,7 +10,7 @@ import {
 type FakeRow = {
   id: string;
   deviceCodeHash: string;
-  client: "cmux-vault" | "subrouter" | "cmux-sprites";
+  client: CliAuthClient;
   status: string;
   userId: string | null;
   expiresAt: Date;
@@ -51,11 +52,11 @@ function countingMinter(
   tokens: CliAuthTokens | null,
 ): {
   minter: CliAuthTokenMinter;
-  calls: Array<{ userId: string; client: "cmux-vault" | "subrouter" | "cmux-sprites" }>;
+  calls: Array<{ userId: string; client: CliAuthClient }>;
 } {
   const calls: Array<{
     userId: string;
-    client: "cmux-vault" | "subrouter" | "cmux-sprites";
+    client: CliAuthClient;
   }> = [];
   return {
     minter: async (userId, client) => {

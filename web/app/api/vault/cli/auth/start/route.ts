@@ -8,6 +8,7 @@ import { withCliAuthApiRoute } from "../../../../../../services/vault/routeHelpe
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
+import { cliAuthClient } from "../../../../../../services/vault/cliAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,13 +48,7 @@ export async function POST(request: Request): Promise<Response> {
         return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
       }
       const requestedClient = body.value.client;
-      const client = requestedClient === undefined
-        ? "cmux-vault"
-        : requestedClient === "cmux-vault" ||
-            requestedClient === "subrouter" ||
-            requestedClient === "cmux-sprites"
-        ? requestedClient
-        : null;
+      const client = cliAuthClient(requestedClient ?? "cmux-vault");
       if (!client) {
         return jsonResponse({ error: "invalid_client" }, 400);
       }

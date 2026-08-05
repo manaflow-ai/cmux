@@ -2,7 +2,7 @@ import { DaytonaProvider } from "./daytona";
 import { E2BProvider } from "./e2b";
 import { FreestyleProvider } from "./freestyle";
 import { SpritesProvider } from "./sprites";
-import type { ProviderId, VMProvider } from "./types";
+import { isProviderId, type ProviderId, type VMProvider } from "./types";
 
 export * from "./types";
 export { DaytonaProvider, E2BProvider, FreestyleProvider, SpritesProvider };
@@ -26,13 +26,8 @@ export function getProvider(id: ProviderId): VMProvider {
 }
 
 export function defaultProviderId(): ProviderId {
-  const configured = process.env.CMUX_VM_DEFAULT_PROVIDER as ProviderId | undefined;
-  if (
-    configured === "e2b" ||
-    configured === "freestyle" ||
-    configured === "daytona" ||
-    configured === "sprites"
-  ) return configured;
+  const configured = process.env.CMUX_VM_DEFAULT_PROVIDER;
+  if (isProviderId(configured)) return configured;
   // Freestyle is the default for interactive work. The route layer still resolves
   // the provider image from the manifest/env before any paid create.
   return "freestyle";

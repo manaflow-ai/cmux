@@ -1,5 +1,5 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
-import { defaultProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
@@ -157,12 +157,10 @@ type ProviderFieldResult = { ok: true; provider?: ProviderId } | { ok: false; re
 function providerField(body: Record<string, unknown>): ProviderFieldResult {
   const value = stringField(body, "provider");
   if (!value) return { ok: true };
-  if (
-    value === "e2b" ||
-    value === "freestyle" ||
-    value === "daytona" ||
-    value === "sprites"
-  ) return { ok: true, provider: value };
+  // restoreVm creates a new database VM. A Sprite checkpoint can currently be
+  // restored only in place, so accepting it here would mutate the source while
+  // recording a second identity for the same provider VM.
+  if (isProviderId(value) && value !== "sprites") return { ok: true, provider: value };
   return {
     ok: false,
     response: vmErrorResponse({

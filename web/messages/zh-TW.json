@@ -1,4 +1,5 @@
 {
+  "vault": {"cliAuth": {"spritesEyebrow": "cmux Sprites", "spritesTitle": "核准存取 cmux Sprites", "spritesDescription": "輸入 cmux-sprites 顯示的代碼。Fly 憑證只會保留在 cmux.com，絕不會傳送到此裝置。"}},
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "在終端機中繼續",

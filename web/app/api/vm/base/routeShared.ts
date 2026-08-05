@@ -1,6 +1,6 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -248,13 +248,10 @@ async function parseBaseRequest(
     }
   }
   const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
-  if (
-    provider &&
-    provider !== "e2b" &&
-    provider !== "freestyle" &&
-    provider !== "daytona" &&
-    provider !== "sprites"
-  ) {
+  // Fly's public API can restore a checkpoint only into its source Sprite.
+  // This base route creates a distinct VM identity, so Sprites must fail closed
+  // until Fly publishes a cross-Sprite fork API.
+  if (provider && (!isProviderId(provider) || provider === "sprites")) {
     return {
       ok: false,
       response: vmErrorResponse({

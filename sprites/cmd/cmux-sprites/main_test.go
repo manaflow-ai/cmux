@@ -107,3 +107,95 @@ func TestLoginPrintsCopyPasteCodeAndBindsClient(t *testing.T) {
 		t.Fatalf("login tokens = %#v", got)
 	}
 }
+
+func TestLoginRejectsCredentialsMintedForAnotherClient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/vault/cli/auth/start":
+			_ = json.NewEncoder(response).Encode(authStart{
+				DeviceCode:       strings.Repeat("a", 64),
+				UserCode:         "ABCD2345",
+				VerificationURL:  "https://cmux.test/approve",
+				ExpiresInSeconds: 60,
+				IntervalSeconds:  1,
+			})
+		case "/api/vault/cli/auth/poll":
+			_ = json.NewEncoder(response).Encode(authPoll{
+				Status:       "approved",
+				Client:       "cmux-vault",
+				AccessToken:  "must-not-return",
+				RefreshToken: "must-not-return",
+			})
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	got, err := login(context.Background(), newClient(server.URL, nil), false, io.Discard)
+	if err == nil {
+		t.Fatal("login accepted credentials for cmux-vault")
+	}
+	if got.AccessToken != "" || got.RefreshToken != "" {
+		t.Fatalf("login returned mismatched tokens: %#v", got)
+	}
+}
+
+func TestAPIClientRejectsInsecureRemoteBaseAndCrossOriginRedirects(t *testing.T) {
+	insecure := newClient("http://example.com", &tokens{
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+	})
+	if err := insecure.request(context.Background(), http.MethodGet, "/api/vm", nil, nil); err == nil {
+		t.Fatal("insecure remote API base succeeded")
+	}
+
+	targetCalled := false
+	target := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		targetCalled = true
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Redirect(response, request, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+
+	redirecting := newClient(source.URL, &tokens{
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+	})
+	err := redirecting.request(context.Background(), http.MethodGet, "/", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "refusing cross-origin API redirect") {
+		t.Fatalf("cross-origin redirect error = %v", err)
+	}
+	if targetCalled {
+		t.Fatal("credential-bearing redirect reached the second origin")
+	}
+}
+
+func TestAPIClientDoesNotExposeRawErrorBodies(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.WriteHeader(http.StatusBadGateway)
+		_, _ = response.Write([]byte(`{"error":"vm_cloud_service_unavailable","details":{"providerMessage":"SPRITE_TOKEN secret-provider-detail"}}`))
+	}))
+	defer server.Close()
+
+	err := newClient(server.URL, nil).request(
+		context.Background(),
+		http.MethodGet,
+		"/api/vm",
+		nil,
+		nil,
+	)
+	if err == nil {
+		t.Fatal("error response succeeded")
+	}
+	if strings.Contains(err.Error(), "SPRITE_TOKEN") ||
+		strings.Contains(err.Error(), "secret-provider-detail") {
+		t.Fatalf("raw API body leaked: %v", err)
+	}
+	if !strings.Contains(err.Error(), "code vm_cloud_service_unavailable") {
+		t.Fatalf("safe error code missing: %v", err)
+	}
+}
