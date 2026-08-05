@@ -8715,33 +8715,41 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Open the markdown viewer for `filePath`, reusing an existing
     /// `MarkdownPanel` in this workspace that already shows the same file.
-    /// Paths are compared after symlink resolution so `./README.md` and a
-    /// symlink pointing at the same file focus the same viewer.
+    /// Ordinary paths are compared after symlink resolution. Callers that
+    /// already resolved the file can supply that canonical URL to keep the
+    /// main actor off the filesystem.
     /// Returns `nil` when no existing viewer matches and split creation
     /// fails, so callers can fall back to the preferred editor / system opener.
     @discardableResult
     func openOrFocusMarkdownSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        resolvedFileURL: URL? = nil
     ) -> MarkdownPanel? {
-        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        let routedFilePath = resolvedFileURL?.standardizedFileURL.path ?? filePath
+        let canonical = resolvedFileURL != nil
+            ? routedFilePath
+            : (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let md = panel as? MarkdownPanel else { continue }
-            if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
+            let existingCanonical = resolvedFileURL != nil
+                ? URL(fileURLWithPath: md.filePath).standardizedFileURL.path
+                : (md.filePath as NSString).resolvingSymlinksInPath
+            if existingCanonical == canonical {
                 focusPanel(existingId)
                 return md
             }
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return newMarkdownSurface(inPane: targetPane, filePath: routedFilePath, focus: true)
         }
 
         return newMarkdownSplit(
             from: panelId,
             orientation: .horizontal,
             insertFirst: false,
-            filePath: filePath,
+            filePath: routedFilePath,
             focus: true
         )
     }
@@ -8996,19 +9004,26 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func openOrFocusFilePreviewSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        resolvedFileURL: URL? = nil
     ) -> FilePreviewPanel? {
-        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        let routedFilePath = resolvedFileURL?.standardizedFileURL.path ?? filePath
+        let canonical = resolvedFileURL != nil
+            ? routedFilePath
+            : (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let preview = panel as? FilePreviewPanel else { continue }
-            if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
+            let existingCanonical = resolvedFileURL != nil
+                ? URL(fileURLWithPath: preview.filePath).standardizedFileURL.path
+                : (preview.filePath as NSString).resolvingSymlinksInPath
+            if existingCanonical == canonical {
                 focusPanel(existingId)
                 return preview
             }
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return newFilePreviewSurface(inPane: targetPane, filePath: routedFilePath, focus: true)
         }
 
         guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
@@ -9016,7 +9031,7 @@ final class Workspace: Identifiable, ObservableObject {
             targetPane: sourcePaneId,
             orientation: .horizontal,
             insertFirst: false,
-            filePath: filePath
+            filePath: routedFilePath
         )
     }
 

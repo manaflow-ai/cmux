@@ -38,8 +38,16 @@ enum CommandClickFileOpenRouter {
         defaults: UserDefaults = .standard
     ) -> Bool {
         let store = FileRouteSettingsStore(defaults: defaults)
-        if store.shouldRouteMarkdown(path: filePath),
-           workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
+        let hasValidatedReadableFile = resolvedFileURL != nil
+        let shouldRouteMarkdown = hasValidatedReadableFile
+            ? store.markdownRouteEnabled && FileRouteSettingsStore.isMarkdownPath(filePath)
+            : store.shouldRouteMarkdown(path: filePath)
+        if shouldRouteMarkdown,
+           workspace.openOrFocusMarkdownSplit(
+               from: sourcePanelId,
+               filePath: filePath,
+               resolvedFileURL: resolvedFileURL
+           ) != nil {
             return true
         }
 
@@ -53,11 +61,18 @@ enum CommandClickFileOpenRouter {
             return true
         }
 
-        guard store.shouldRouteSupportedFile(path: filePath) else {
+        let shouldRouteSupportedFile = hasValidatedReadableFile
+            ? store.supportedFileRouteEnabled
+            : store.shouldRouteSupportedFile(path: filePath)
+        guard shouldRouteSupportedFile else {
             return false
         }
 
-        return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
+        return workspace.openOrFocusFilePreviewSplit(
+            from: sourcePanelId,
+            filePath: filePath,
+            resolvedFileURL: resolvedFileURL
+        ) != nil
     }
 
     /// Resolve the working directory for a terminal surface, preferring the
@@ -89,16 +104,17 @@ enum CommandClickFileOpenRouter {
     /// Ghostty's `Surface.openUrl` holds an internal `os_unfair_lock` when it
     /// dispatches into Swift; opening a new panel synchronously re-enters
     /// Ghostty and deadlocks (https://github.com/manaflow-ai/cmux/issues/3370).
-    /// This helper defers the split creation
-    /// via `DispatchQueue.main.async` and re-validates the workspace and path
-    /// at dispatch time (TOCTOU). When routing fails, `fallback` is called so
-    /// the caller can open the file externally. `completion` fires afterward.
+    /// This helper defers split creation via `DispatchQueue.main.async` and
+    /// revalidates the workspace and route settings at dispatch time. A
+    /// previously validated canonical file URL bypasses another filesystem
+    /// probe. When routing fails, `fallback` runs before `completion`.
     @MainActor
     static func deferredOpenFileInCmux(
         workspace: Workspace,
         preferredWorkspaceId: UUID,
         surfaceId: UUID,
         filePath: String,
+        resolvedFileURL: URL? = nil,
         defaults: UserDefaults = .standard,
         fallback: (@MainActor @Sendable () -> Void)? = nil,
         completion: (@MainActor @Sendable () -> Void)? = nil
@@ -113,7 +129,10 @@ enum CommandClickFileOpenRouter {
                 completion?()
                 return
             }
-            guard shouldRouteInCmux(path: filePath, defaults: defaults) else {
+            let shouldRoute = resolvedFileURL != nil
+                ? shouldRouteResolvedFileInCmux(path: filePath, defaults: defaults)
+                : shouldRouteInCmux(path: filePath, defaults: defaults)
+            guard shouldRoute else {
                 fallback?()
                 completion?()
                 return
@@ -122,6 +141,7 @@ enum CommandClickFileOpenRouter {
                 workspace: resolvedWorkspace,
                 sourcePanelId: surfaceId,
                 filePath: filePath,
+                resolvedFileURL: resolvedFileURL,
                 defaults: defaults
             ) {
                 completion?()

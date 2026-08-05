@@ -16,9 +16,14 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         if terminalLinkIsRemoteTerminal(sourcePanelId) {
             return terminalLinkHoverWorkingDirectory(for: sourcePanelId)
         }
+        // Click routing accepts only the live process CWD or the latest OSC 7
+        // report. Requested and transfer directories remain hover hints because
+        // they can lag after a local process changes directories.
         return terminalWorkingDirectoryResolver
             .liveForegroundProcessWorkingDirectory(for: terminal)
-            ?? terminalLinkHoverWorkingDirectory(for: sourcePanelId)
+            ?? TerminalWorkingDirectoryResolver.normalized(
+                terminal.surface.reportedWorkingDirectory
+            )
     }
 
     func terminalLinkHoverWorkingDirectory(for sourcePanelId: UUID) -> String? {
@@ -62,6 +67,7 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     func deferTerminalFileLinkOpen(
         sourcePanelId _: UUID,
         filePath _: String,
+        resolvedFileURL _: URL?,
         fallback _: @escaping @MainActor @Sendable () -> Void,
         completion _: @escaping @MainActor @Sendable () -> Void
     ) -> Bool {

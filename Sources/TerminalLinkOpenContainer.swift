@@ -18,6 +18,7 @@ protocol TerminalLinkOpenContainer: AnyObject {
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
         filePath: String,
+        resolvedFileURL: URL?,
         fallback: @escaping @MainActor @Sendable () -> Void,
         completion: @escaping @MainActor @Sendable () -> Void
     ) -> Bool

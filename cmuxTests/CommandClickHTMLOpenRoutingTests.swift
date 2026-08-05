@@ -214,7 +214,9 @@ struct CommandClickHTMLOpenRoutingTests {
 
     @Test(.timeLimit(.minutes(1)))
     func filesystemProbePoolPreservesDistinctCoalescedOwnersBeyondClickLimit() async {
-        let pool = WordPathFilesystemResolutionCoordinator()
+        let pool = WordPathFilesystemResolutionCoordinator(
+            maximumCoalescedQueueWait: .seconds(60)
+        )
         let blockerStarted = AsyncStream<Void>.makeStream()
         let releaseBlocker = AsyncStream<Void>.makeStream()
         let jobsFinished = AsyncStream<Int>.makeStream()
@@ -240,7 +242,8 @@ struct CommandClickHTMLOpenRoutingTests {
                 work: {
                     return { @MainActor in jobsFinished.continuation.yield(job) }
                 },
-                discarded: {}
+                discarded: {},
+                expired: {}
             )
         }
         releaseBlocker.continuation.yield()
@@ -290,7 +293,8 @@ struct CommandClickHTMLOpenRoutingTests {
                 firstRan.storeRelease(true)
                 return { @MainActor in }
             },
-            discarded: { firstDiscarded.continuation.yield() }
+            discarded: { firstDiscarded.continuation.yield() },
+            expired: {}
         )
         pool.submitCoalesced(
             id: UUID(),
@@ -298,7 +302,8 @@ struct CommandClickHTMLOpenRoutingTests {
             work: {
                 return { @MainActor in latestFinished.continuation.yield() }
             },
-            discarded: {}
+            discarded: {},
+            expired: {}
         )
 
         var discardedIterator = firstDiscarded.stream.makeAsyncIterator()

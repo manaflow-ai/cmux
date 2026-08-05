@@ -385,6 +385,9 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
                 },
                 discarded: { [weak self] in
                     self?.discardFileOnlyNavigation(id: id)
+                },
+                expired: { [weak self] in
+                    self?.finishFileOnlyNavigation(id: id, navigationURL: nil)
                 }
             )
             return

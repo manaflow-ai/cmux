@@ -161,6 +161,7 @@ struct TerminalLinkOpenCoordinator {
         guard container.deferTerminalFileLinkOpen(
             sourcePanelId: sourcePanelId,
             filePath: fileURL.path,
+            resolvedFileURL: resolvedFileURL,
             fallback: { [externalOpen] in _ = externalOpen(fileURL) },
             completion: { completion?() }
         ) else {
@@ -230,6 +231,7 @@ struct TerminalLinkOpenCoordinator {
             if currentContainer.deferTerminalFileLinkOpen(
                 sourcePanelId: sourcePanelId,
                 filePath: fileURL.path,
+                resolvedFileURL: currentResolvedFileURL,
                 fallback: externalFallback,
                 completion: { completion?() }
             ) {

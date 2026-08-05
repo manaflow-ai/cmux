@@ -4,9 +4,9 @@ import Foundation
 ///
 /// Mutable scheduling state is main-actor isolated. At most one asynchronous,
 /// deadline-bounded probe runs at a time. Discrete clicks use a bounded FIFO,
-/// correctness-critical Browser work coalesces per owner without eviction,
-/// hover movement collapses to the newest request, and hover starts are rate
-/// limited. Clicks and Browser work run before hovers.
+/// correctness-critical Browser work coalesces per owner and expires after a
+/// bounded queue wait, hover movement collapses to the newest request, and
+/// hover starts are rate limited. Clicks and Browser work run before hovers.
 @MainActor
 final class WordPathFilesystemResolutionCoordinator {
     typealias Completion = @MainActor @Sendable () -> Void
@@ -17,8 +17,10 @@ final class WordPathFilesystemResolutionCoordinator {
         id: UUID,
         isUserInitiated: Bool,
         coalescingKey: UUID?,
+        queueDeadline: DispatchTime?,
         prepare: Prepare,
-        discarded: Discarded
+        discarded: Discarded,
+        expired: Discarded?
     )
 
     static let shared = WordPathFilesystemResolutionCoordinator()
@@ -26,6 +28,7 @@ final class WordPathFilesystemResolutionCoordinator {
     private static let maximumPendingClicks = 32
 
     private let minimumHoverInterval: DispatchTimeInterval
+    private let maximumCoalescedQueueWait: DispatchTimeInterval
     private var runningID: UUID?
     private var runningCoalescingKey: UUID?
     private var runningTask: Task<Void, Never>?
@@ -39,8 +42,14 @@ final class WordPathFilesystemResolutionCoordinator {
     private var nextHoverStartDeadline = DispatchTime.now()
     private var hoverStartTimer: DispatchSourceTimer?
 
-    init(minimumHoverInterval: DispatchTimeInterval = .milliseconds(100)) {
+    init(
+        minimumHoverInterval: DispatchTimeInterval = .milliseconds(100),
+        // Browser work that cannot start within this budget enters its visible
+        // recoverable-failure state instead of waiting behind every restored tab.
+        maximumCoalescedQueueWait: DispatchTimeInterval = .seconds(1)
+    ) {
         self.minimumHoverInterval = minimumHoverInterval
+        self.maximumCoalescedQueueWait = maximumCoalescedQueueWait
     }
 
     func submit(
@@ -67,8 +76,10 @@ final class WordPathFilesystemResolutionCoordinator {
             id: id,
             isUserInitiated: isUserInitiated,
             coalescingKey: nil,
+            queueDeadline: nil,
             prepare: prepare,
-            discarded: discarded
+            discarded: discarded,
+            expired: nil
         )
 
         if isUserInitiated {
@@ -83,21 +94,24 @@ final class WordPathFilesystemResolutionCoordinator {
         startNextIfPossible()
     }
 
-    /// Queues correctness-critical work without the bounded click queue's
-    /// eviction policy. Only the latest pending job for each owner is retained,
-    /// while distinct owners remain FIFO and execution stays globally serial.
+    /// Queues correctness-critical work without silently evicting an owner.
+    /// Only the latest pending job for each owner is retained. Distinct owners
+    /// remain FIFO, and expired owners receive an explicit recovery callback.
     func submitCoalesced(
         id: UUID,
         coalescingKey: UUID,
         work: @escaping Work,
-        discarded: @escaping Discarded
+        discarded: @escaping Discarded,
+        expired: @escaping Discarded
     ) {
         let job = Job(
             id: id,
             isUserInitiated: true,
             coalescingKey: coalescingKey,
+            queueDeadline: .now() + maximumCoalescedQueueWait,
             prepare: { work },
-            discarded: discarded
+            discarded: discarded,
+            expired: expired
         )
         if runningCoalescingKey == coalescingKey {
             runningTask?.cancel()
@@ -177,6 +191,11 @@ final class WordPathFilesystemResolutionCoordinator {
             if let next = pendingCoalescedJobs.removeValue(forKey: key) {
                 pendingCoalescedKeyByJobID.removeValue(forKey: next.id)
                 compactPendingCoalescedOrderIfNeeded()
+                if let queueDeadline = next.queueDeadline,
+                   DispatchTime.now() >= queueDeadline {
+                    next.expired?()
+                    continue
+                }
                 start(next)
                 return
             }

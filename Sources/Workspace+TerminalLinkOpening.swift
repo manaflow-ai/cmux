@@ -35,6 +35,7 @@ extension Workspace: TerminalLinkOpenContainer {
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
         filePath: String,
+        resolvedFileURL: URL?,
         fallback: @escaping @MainActor @Sendable () -> Void,
         completion: @escaping @MainActor @Sendable () -> Void
     ) -> Bool {
@@ -44,6 +45,7 @@ extension Workspace: TerminalLinkOpenContainer {
             preferredWorkspaceId: id,
             surfaceId: target.containerPanelID,
             filePath: filePath,
+            resolvedFileURL: resolvedFileURL,
             fallback: fallback,
             completion: completion
         )
