@@ -733,28 +733,6 @@ struct BrowserPopupBrowserContext {
     let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
 }
 
-struct BrowserValidatedFileNavigationAllowance {
-    private var expectedURLString: String?
-
-    mutating func authorize(_ url: URL) -> Bool {
-        guard BrowserLocalFileReadAccessPolicy.isLocalFileURL(url) else {
-            expectedURLString = nil
-            return false
-        }
-        expectedURLString = url.absoluteString
-        return true
-    }
-
-    mutating func consumeIfMatches(_ url: URL) -> Bool {
-        defer { expectedURLString = nil }
-        return expectedURLString == url.absoluteString
-    }
-
-    mutating func clear() {
-        expectedURLString = nil
-    }
-}
-
 enum BrowserFileSystemAccessBridge {
     static let scriptSource = """
     (() => {
@@ -6209,7 +6187,7 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted?(nil)
             return
         }
-        guard BrowserLocalFileReadAccessPolicy.isLocalFileURL(originalURL) else {
+        guard originalURL.browserIsLocalFileURL else {
             cancelPendingFileOnlyNavigation()
             noteFileOnlyNavigationResolutionFailure(request: request)
             onNavigationStarted?(nil)
@@ -7021,7 +6999,7 @@ extension BrowserPanel {
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
             )
         }
-        guard BrowserLocalFileReadAccessPolicy.isLocalFileURL(fileURL) else {
+        guard fileURL.browserIsLocalFileURL else {
             finishResolution(nil)
             return
         }

@@ -368,7 +368,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
            let originalURL = request.url,
            originalURL.isFileURL {
             cancelPendingFileOnlyNavigation()
-            guard BrowserLocalFileReadAccessPolicy.isLocalFileURL(originalURL) else {
+            guard originalURL.browserIsLocalFileURL else {
                 popupNavigationDelegate.showFileOnlyNavigationResolutionFailure(request, in: webView)
                 return
             }
@@ -873,7 +873,9 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return
         }
 
-        if url.isFileURL, controller?.usesFileOnlyReadAccess == true {
+        if navigationAction.targetFrame?.isMainFrame != false,
+           url.isFileURL,
+           controller?.usesFileOnlyReadAccess == true {
             if !validatedFileOnlyNavigationAllowance.consumeIfMatches(url) {
                 clearAttemptedRequest()
                 decisionHandler(.cancel)

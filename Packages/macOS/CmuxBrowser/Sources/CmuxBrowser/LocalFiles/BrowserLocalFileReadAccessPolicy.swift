@@ -1,5 +1,15 @@
 public import Foundation
 
+/// Browser-specific validation for local file URL authorities.
+public extension URL {
+    /// Whether this file URL names the local machine rather than a remote authority.
+    var browserIsLocalFileURL: Bool {
+        guard isFileURL else { return false }
+        guard let host, !host.isEmpty else { return true }
+        return host.caseInsensitiveCompare("localhost") == .orderedSame
+    }
+}
+
 /// Defines the local filesystem scope granted to a Browser navigation.
 public enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Hashable, Sendable {
     /// Grants the displayed file access to other files in its containing directory.
@@ -7,19 +17,12 @@ public enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Hashab
     /// Grants access only to the displayed file after resolving its canonical target.
     case fileOnly
 
-    /// Returns whether a file URL names the local machine rather than a remote authority.
-    public static func isLocalFileURL(_ url: URL) -> Bool {
-        guard url.isFileURL else { return false }
-        guard let host = url.host, !host.isEmpty else { return true }
-        return host.caseInsensitiveCompare("localhost") == .orderedSame
-    }
-
     /// Resolves the document URL required by this policy.
     ///
     /// - Parameter url: The navigation URL to resolve.
     /// - Returns: The canonical file target for ``fileOnly``, or the original URL otherwise.
     public func resolvedNavigationURL(for url: URL) -> URL {
-        guard self == .fileOnly, Self.isLocalFileURL(url) else { return url }
+        guard self == .fileOnly, url.browserIsLocalFileURL else { return url }
         let resolvedFileURL = URL(fileURLWithPath: url.path)
             .standardizedFileURL
             .resolvingSymlinksInPath()
@@ -38,8 +41,8 @@ public enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Hashab
         for originalURL: URL,
         resolvedFileURL: URL
     ) -> URL? {
-        guard Self.isLocalFileURL(originalURL),
-              Self.isLocalFileURL(resolvedFileURL),
+        guard originalURL.browserIsLocalFileURL,
+              resolvedFileURL.browserIsLocalFileURL,
               resolvedFileURL.path.hasPrefix("/"),
               let originalComponents = URLComponents(
                   url: originalURL,
@@ -60,7 +63,7 @@ public enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Hashab
     /// main actor.
     public func readAccessURL(forResolvedNavigationURL fileURL: URL) -> URL? {
         guard self == .fileOnly,
-              Self.isLocalFileURL(fileURL),
+              fileURL.browserIsLocalFileURL,
               fileURL.path.hasPrefix("/"),
               var components = URLComponents(
                   url: fileURL,
@@ -83,7 +86,7 @@ public enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Hashab
         for fileURL: URL,
         fileManager: FileManager = .default
     ) -> URL? {
-        guard Self.isLocalFileURL(fileURL), fileURL.path.hasPrefix("/") else { return nil }
+        guard fileURL.browserIsLocalFileURL, fileURL.path.hasPrefix("/") else { return nil }
         let resolvedURL = resolvedNavigationURL(for: fileURL)
         var isDirectory: ObjCBool = false
         if fileManager.fileExists(
