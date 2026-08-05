@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxDiffComments
 import Foundation
 import WebKit
 

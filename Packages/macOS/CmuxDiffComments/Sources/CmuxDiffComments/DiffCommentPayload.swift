@@ -7,10 +7,10 @@ import Foundation
 /// Both surfaces that hand comments to a client go through here: the webview
 /// bridge (`comments.list` for the diff viewer) and the socket method of the
 /// same name.
-enum DiffCommentPayload {
+public enum DiffCommentPayload {
     /// Serializes one comment. Callers mapping several comments pass a shared
     /// `formatter` so a reply does not allocate one per comment.
-    static func json(_ comment: DiffComment, formatter: ISO8601DateFormatter) -> [String: Any] {
+    public static func json(_ comment: DiffComment, formatter: ISO8601DateFormatter) -> [String: Any] {
         var json: [String: Any] = [
             "id": comment.id.uuidString,
             "filePath": comment.filePath,
@@ -30,14 +30,14 @@ enum DiffCommentPayload {
     }
 
     /// Serializes one comment with its own formatter, for single-comment replies.
-    static func json(_ comment: DiffComment) -> [String: Any] {
+    public static func json(_ comment: DiffComment) -> [String: Any] {
         json(comment, formatter: ISO8601DateFormatter())
     }
 
     /// Builds the `comments.list` reply. Comments delivered to an agent through
     /// a TextBox submission carry `consumedAt` and stay out of the default
     /// listing so callers see only what is still unaddressed.
-    static func list(
+    public static func list(
         comments: [DiffComment],
         repoRoot: String,
         includeConsumed: Bool

@@ -1,3 +1,4 @@
+import CmuxDiffComments
 import Foundation
 
 /// Socket v2 surface for diff-viewer review comments.
