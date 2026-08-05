@@ -863,8 +863,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Focused clients whose terminal subscribe/reassert operations are fenced
     /// while their final unsubscribe is prepared. Per-client tokens prevent an
     /// older A→B cleanup from clearing a newer A→B handoff after rapid reversal.
+    /// The stored handoff retains its client, so an entry can never name a
+    /// deallocated address that a later client could reuse.
     private var terminalSubscriptionHandoffFences:
-        [ObjectIdentifier: UUID] = [:]
+        [ObjectIdentifier: PendingTerminalSubscriptionHandoff] = [:]
+    /// Focus-transition maintenance (session-purpose sync, demoted-control
+    /// activation) keyed by the client it maintains. A newer transition for the
+    /// same client cancels the older instance, so a rapid A→B→A reversal cannot
+    /// run overlapping purpose loops; sign-out tears all of them down. The task
+    /// closure retains its client, so an entry never outlives that identity.
+    private var focusTransitionMaintenanceTasks:
+        [ObjectIdentifier: (token: UUID, task: Task<Void, Never>)] = [:]
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -3258,10 +3267,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         ) {
-            if focusWarmIrohPeer(
+            if await warmIrohFocusCandidateIsAuthorized(promotableOwnerKey),
+               focusWarmIrohPeer(
                 promotableOwnerKey,
                 switchAttemptID: switchAttemptID
-            ) {
+               ) {
                 macSwitchRestoreBaseline = nil
                 return true
             }
@@ -6359,6 +6369,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// and cancel any in-flight aggregation pass so it cannot resume and re-seed
     /// the torn-down entries for a now-signed-out / switched account.
     private func teardownSecondaryMacSubscriptions() {
+        cancelAllFocusTransitionMaintenance()
         secondaryAggregationTask?.cancel()
         secondaryAggregationTask = nil
         secondaryAggregationTaskGeneration = UUID()
@@ -6649,6 +6660,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markSecondaryMacUnavailable(MacPairingKey(pairingID: macID))
     }
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
+
+    func terminalSubscriptionHandoffFenceIDForTesting(
+        on client: MobileCoreRPCClient
+    ) -> UUID? {
+        terminalSubscriptionHandoffFences[ObjectIdentifier(client)]?.fenceID
+    }
     func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
         connections[macDeviceID]?.route
     }
@@ -7878,6 +7895,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 }
             }
+        }
+        // An in-flight secondary establishment owns its route's connect lease
+        // from dial until it publishes or fails, and during that window it is
+        // in neither the live registry nor the drain reservations. Settle it
+        // first so the foreground dial drains whatever it publishes instead of
+        // dialing into an instantaneous `.connectAttemptGated` refusal.
+        let conflictingEstablishmentFlights =
+            secondaryMacEstablishmentFlights.values.filter { flight in
+                let sameRequestedDevice = requestedMacDeviceID.map {
+                    cmxCanonicalDeviceID(flight.mac.macDeviceID)
+                        == cmxCanonicalDeviceID($0)
+                } ?? false
+                return sameRequestedDevice
+                    || flight.mac.routes.contains { flightRoute in
+                        supportedRoutes.contains {
+                            MobileCoreRPCClient.routesSharePhysicalTransport(
+                                flightRoute,
+                                $0
+                            )
+                        }
+                    }
+            }
+        if !conflictingEstablishmentFlights.isEmpty {
+            for flight in conflictingEstablishmentFlights {
+                _ = await flight.task.value
+            }
+            guard isConnectCurrent() else { return nil }
         }
         // A fresh same-peer dial cannot acquire the Iroh session while any
         // warm control client owns one of its physical routes. Logical device
@@ -12027,11 +12071,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await pending.probeTask?.value
             return true
         }
-        return drain.value == true
+        let prepared = drain.value == true
             && !drain.wasCancelled
             && remoteClient === client
-            && terminalSubscriptionHandoffFences[ObjectIdentifier(client)]
-                == pending.fenceID
+            && terminalSubscriptionHandoffFences[ObjectIdentifier(client)]?
+                .fenceID == pending.fenceID
+        if !prepared {
+            // The caller abandons this handoff (and usually disconnects the
+            // client), so the fence must not outlive it: a leaked entry can
+            // block a later client that reuses the same object identity.
+            finishTerminalSubscriptionHandoff(pending)
+        }
+        return prepared
     }
 
     /// Fence a focused client's terminal registration and move every in-flight
@@ -12041,8 +12092,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> PendingTerminalSubscriptionHandoff? {
         guard remoteClient === client else { return nil }
         let clientID = ObjectIdentifier(client)
-        let fenceID = UUID()
-        terminalSubscriptionHandoffFences[clientID] = fenceID
 
         terminalEventListenerTask?.cancel()
         terminalEventListenerTask = nil
@@ -12059,13 +12108,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionRefreshTask = nil
         renderGridLivenessProbeTask = nil
         renderGridLivenessProbeID = nil
-        return PendingTerminalSubscriptionHandoff(
+        let pending = PendingTerminalSubscriptionHandoff(
             client: client,
-            fenceID: fenceID,
+            fenceID: UUID(),
             startTask: start,
             refreshTask: refresh,
             probeTask: probe
         )
+        terminalSubscriptionHandoffFences[clientID] = pending
+        return pending
     }
 
     /// Await a retired peer's captured requests without blocking the focus
@@ -12082,11 +12133,39 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ pending: PendingTerminalSubscriptionHandoff
     ) {
         let clientID = ObjectIdentifier(pending.client)
-        guard terminalSubscriptionHandoffFences[clientID]
+        guard terminalSubscriptionHandoffFences[clientID]?.fenceID
                 == pending.fenceID else {
             return
         }
         terminalSubscriptionHandoffFences[clientID] = nil
+    }
+
+    /// Run one owned focus-transition maintenance operation for `client`,
+    /// cancelling any older instance still maintaining the same client.
+    func startFocusTransitionMaintenance(
+        for client: MobileCoreRPCClient,
+        _ operation: @escaping @MainActor () async -> Void
+    ) {
+        let clientID = ObjectIdentifier(client)
+        focusTransitionMaintenanceTasks[clientID]?.task.cancel()
+        let token = UUID()
+        let task = Task { @MainActor [weak self] in
+            await operation()
+            guard let self,
+                  self.focusTransitionMaintenanceTasks[clientID]?.token
+                    == token else {
+                return
+            }
+            self.focusTransitionMaintenanceTasks[clientID] = nil
+        }
+        focusTransitionMaintenanceTasks[clientID] = (token, task)
+    }
+
+    func cancelAllFocusTransitionMaintenance() {
+        for entry in focusTransitionMaintenanceTasks.values {
+            entry.task.cancel()
+        }
+        focusTransitionMaintenanceTasks.removeAll()
     }
 
     func setSelectedWorkspaceID(_ id: MobileWorkspacePreview.ID?) {

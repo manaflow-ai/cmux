@@ -35,13 +35,21 @@ actor MobileTerminalLaneCoordinator {
         let peerIdentity: String
         let surfaceID: String
 
-        init(configuration: Configuration) {
+        init?(configuration: Configuration) {
             switch configuration.request.route.endpoint {
             case .peer(let identity, _):
                 peerIdentity = identity.endpointID
             case .hostPort, .url:
+                // LaneKey routes terminal input. Without a peer identity, two
+                // peers sharing one route id would collapse into one lane and
+                // cross-route input, so fail closed instead of defaulting.
+                guard let expectedPeerDeviceID =
+                        configuration.request.expectedPeerDeviceID,
+                      !expectedPeerDeviceID.isEmpty else {
+                    return nil
+                }
                 peerIdentity = [
-                    configuration.request.expectedPeerDeviceID ?? "",
+                    expectedPeerDeviceID,
                     configuration.request.route.id,
                 ].joined(separator: "|")
             }
@@ -76,7 +84,7 @@ actor MobileTerminalLaneCoordinator {
     }
 
     func ensure(_ configuration: Configuration) async {
-        let key = LaneKey(configuration: configuration)
+        guard let key = LaneKey(configuration: configuration) else { return }
         focusedKeyBySurfaceID[configuration.surfaceID] = key
         if var entry = entriesByKey[key] {
             entry.configuration = configuration

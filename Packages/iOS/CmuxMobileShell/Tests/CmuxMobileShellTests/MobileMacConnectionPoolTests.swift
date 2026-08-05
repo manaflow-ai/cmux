@@ -3121,7 +3121,7 @@ import Testing
         control.cancel()
     }
 
-    @Test func onePeerSessionCanCarryControlAndFocusedRolesTogether() throws {
+    @Test func onePeerSessionCanCarryControlAndFocusedRolesTogether() async throws {
         let router = LivenessHostRouter()
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(
@@ -3190,6 +3190,8 @@ import Testing
             ),
         ])
         subscription.detachKeepingClient()
+        // Release the shared loopback port; other tests in this suite dial it.
+        await client.disconnect()
     }
 
     @Test func multiplexedFocusCountsOnceTowardFiveSessionCap() throws {
@@ -3325,13 +3327,14 @@ import Testing
     }
 
     @Test func olderTerminalHandoffCannotClearNewerFence() async throws {
+        let fixedNow = Date(timeIntervalSince1970: 1_755_000_000)
         let router = LivenessHostRouter()
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(
                 router: router,
                 box: TransportBox()
             ),
-            now: { Date() }
+            now: { fixedNow }
         )
         let route = try CmxAttachRoute(
             id: "handoff-fence",
@@ -3344,7 +3347,7 @@ import Testing
             macDeviceID: "mac-a",
             macDisplayName: "Mac A",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(3_600)
+            expiresAt: fixedNow.addingTimeInterval(3_600)
         )
         let client = MobileCoreRPCClient(
             runtime: runtime,
@@ -3362,10 +3365,20 @@ import Testing
         )
 
         shell.finishTerminalSubscriptionHandoff(older)
+        // Isolate the fence token: the older handoff's release must be a no-op
+        // while the newer fence still owns the client.
+        #expect(
+            shell.terminalSubscriptionHandoffFenceIDForTesting(on: client)
+                == newer.fenceID
+        )
         shell.startTerminalRefreshPolling()
         #expect(shell.terminalEventListenerTask == nil)
 
         shell.finishTerminalSubscriptionHandoff(newer)
+        #expect(
+            shell.terminalSubscriptionHandoffFenceIDForTesting(on: client)
+                == nil
+        )
         shell.startTerminalRefreshPolling()
         #expect(shell.terminalEventListenerTask != nil)
         shell.stopTerminalRefreshPolling()
@@ -3373,13 +3386,14 @@ import Testing
     }
 
     @Test func focusedControlFailurePreservesSharedPeerSession() async throws {
+        let fixedNow = Date(timeIntervalSince1970: 1_755_000_000)
         let router = LivenessHostRouter()
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(
                 router: router,
                 box: TransportBox()
             ),
-            now: { Date() }
+            now: { fixedNow }
         )
         let route = try CmxAttachRoute(
             id: "focused-control-failure",
@@ -3392,7 +3406,7 @@ import Testing
             macDeviceID: "mac-a",
             macDisplayName: "Mac A",
             routes: [route],
-            expiresAt: Date().addingTimeInterval(3_600)
+            expiresAt: fixedNow.addingTimeInterval(3_600)
         )
         let client = MobileCoreRPCClient(
             runtime: runtime,

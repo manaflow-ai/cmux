@@ -118,6 +118,14 @@ extension MobileShellComposite {
         } else {
             focusedHandoffPreparedGenerations.remove(connection.generation)
             await synchronizeTransportSessionPurpose(connection.client)
+            // While focused, this peer's feed lived under the bare device key
+            // and was removed on demotion. The reuse branch skips activation
+            // catch-up, so reseed the pairing-keyed snapshot explicitly.
+            scheduleSecondaryNotificationFeedRefresh(
+                macDeviceID: subscription.ownerKey.pairingID,
+                client: subscription.client,
+                displayName: subscription.displayName
+            )
         }
     }
 
@@ -710,16 +718,29 @@ extension MobileShellComposite {
         if let previousForegroundConnection,
            let demotedForegroundSubscription {
             if demotedForegroundNeedsActivation {
-                Task { @MainActor [weak self] in
+                startFocusTransitionMaintenance(
+                    for: previousForegroundConnection.client
+                ) { [weak self] in
                     await self?.activateDemotedControlConnection(
                         demotedForegroundSubscription,
                         from: previousForegroundConnection
                     )
                 }
             } else {
-                Task { @MainActor [weak self] in
-                    await self?.synchronizeTransportSessionPurpose(
+                let demoted = demotedForegroundSubscription
+                startFocusTransitionMaintenance(
+                    for: previousForegroundConnection.client
+                ) { [weak self] in
+                    guard let self else { return }
+                    await self.synchronizeTransportSessionPurpose(
                         previousForegroundConnection.client
+                    )
+                    // The reuse branch skips activation catch-up; reseed the
+                    // demoted peer's pairing-keyed notification feed.
+                    self.scheduleSecondaryNotificationFeedRefresh(
+                        macDeviceID: demoted.ownerKey.pairingID,
+                        client: demoted.client,
+                        displayName: demoted.displayName
                     )
                 }
             }

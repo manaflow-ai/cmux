@@ -4,6 +4,34 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    /// Re-read stored authority and hidden state for a warm-focus candidate.
+    /// The fast path commits synchronously on cached values, so ownership
+    /// revoked or a Mac hidden after admission must be caught here; a false
+    /// return routes the switch to the validated legacy promotion instead.
+    /// `focusWarmIrohPeer` re-checks switch ownership and subscription
+    /// identity synchronously after this await, so nothing can interleave
+    /// between validation and the commit that the commit does not re-verify.
+    func warmIrohFocusCandidateIsAuthorized(
+        _ ownerKey: MacPairingKey
+    ) async -> Bool {
+        guard let subscription = secondaryMacSubscriptions[ownerKey],
+              subscription.route.kind == .iroh,
+              subscription.client !== remoteClient else {
+            return false
+        }
+        guard let scope = await currentScopeSnapshot() else { return false }
+        guard case .authorized = await readSecondaryStoredAuthority(
+            macDeviceID: subscription.macDeviceID,
+            storedInstanceTag: subscription.storedInstanceTag,
+            scope: scope
+        ) else { return false }
+        return await !isHiddenMacDeviceID(
+            subscription.macDeviceID,
+            instanceTag: subscription.storedInstanceTag,
+            scope: scope
+        )
+    }
+
     /// Move focus to an already admitted Iroh peer without changing either
     /// peer's control subscription or waiting for terminal teardown RPCs.
     func focusWarmIrohPeer(
@@ -149,16 +177,28 @@ extension MobileShellComposite {
                 )
             }
             if installedDemotedControl {
-                Task { @MainActor [weak self] in
+                startFocusTransitionMaintenance(
+                    for: previousConnection.client
+                ) { [weak self] in
                     await self?.activateDemotedControlConnection(
                         demotedSubscription,
                         from: previousConnection
                     )
                 }
             } else {
-                Task { @MainActor [weak self] in
-                    await self?.synchronizeTransportSessionPurpose(
+                startFocusTransitionMaintenance(
+                    for: previousConnection.client
+                ) { [weak self] in
+                    guard let self else { return }
+                    await self.synchronizeTransportSessionPurpose(
                         previousConnection.client
+                    )
+                    // The reuse branch skips activation catch-up; reseed the
+                    // demoted peer's pairing-keyed notification feed.
+                    self.scheduleSecondaryNotificationFeedRefresh(
+                        macDeviceID: demotedSubscription.ownerKey.pairingID,
+                        client: demotedSubscription.client,
+                        displayName: demotedSubscription.displayName
                     )
                 }
             }
@@ -168,7 +208,7 @@ extension MobileShellComposite {
             Task { await previousAnonymousClient.disconnect() }
         }
 
-        Task { @MainActor [weak self] in
+        startFocusTransitionMaintenance(for: subscription.client) { [weak self] in
             await self?.synchronizeTransportSessionPurpose(
                 subscription.client
             )
@@ -191,7 +231,7 @@ extension MobileShellComposite {
             guard let self,
                   let scope = await self.currentScopeSnapshot(),
                   self.isCurrentMacSwitchAttempt(switchAttemptID)
-                    || self.foregroundMacDeviceID == macDeviceID else {
+                    || self.foregroundMacKey == ownerKey else {
                 return
             }
             self.enqueueActivePairedMacWrite(
@@ -212,8 +252,12 @@ extension MobileShellComposite {
         guard let pending else { return }
         Task { @MainActor [weak self] in
             await self?.drainTerminalSubscriptionHandoff(pending)
-            guard let self, self.remoteClient === pending.client else { return }
+            guard let self else { return }
+            // Release the fence unconditionally; only the restart is gated on
+            // this client still being focused. A fence left behind after focus
+            // moved on would block a later owner of the same object identity.
             self.finishTerminalSubscriptionHandoff(pending)
+            guard self.remoteClient === pending.client else { return }
             self.startTerminalRefreshPolling()
         }
     }

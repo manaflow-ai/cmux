@@ -280,25 +280,23 @@ final class MobileMacConnectionRegistry {
     }
 
     func removeAllControlSubscriptions() {
-        let ownerKeys = entriesByOwnerKey.compactMap { ownerKey, entry in
-            entry.controlSubscription != nil ? ownerKey : nil
-        }
-        for ownerKey in ownerKeys {
-            guard var entry = entriesByOwnerKey[ownerKey] else { continue }
+        var updated = entriesByOwnerKey
+        for (ownerKey, entry) in updated where entry.controlSubscription != nil {
+            var entry = entry
             entry.controlSubscription = nil
-            entriesByOwnerKey[ownerKey] = entry.isEmpty ? nil : entry
+            updated[ownerKey] = entry.isEmpty ? nil : entry
         }
+        entriesByOwnerKey = updated
     }
 
     func removeAllFocusedConnections() {
-        let ownerKeys = entriesByOwnerKey.compactMap { ownerKey, entry in
-            entry.focusedConnection != nil ? ownerKey : nil
-        }
-        for ownerKey in ownerKeys {
-            guard var entry = entriesByOwnerKey[ownerKey] else { continue }
+        var updated = entriesByOwnerKey
+        for (ownerKey, entry) in updated where entry.focusedConnection != nil {
+            var entry = entry
             entry.focusedConnection = nil
-            entriesByOwnerKey[ownerKey] = entry.isEmpty ? nil : entry
+            updated[ownerKey] = entry.isEmpty ? nil : entry
         }
+        entriesByOwnerKey = updated
     }
 
     func removeAll() {

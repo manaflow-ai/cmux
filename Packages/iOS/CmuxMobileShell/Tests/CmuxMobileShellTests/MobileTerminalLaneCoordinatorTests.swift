@@ -21,6 +21,9 @@ struct MobileTerminalLaneCoordinatorTests {
             try await provider.callAsFunction(request, surfaceID, cursor: cursor)
         }
 
+        let firstReadiness = TerminalLaneReadinessRecorder()
+        var firstReadinessIterator = await firstReadiness.stream()
+            .makeAsyncIterator()
         await coordinator.ensure(Self.configuration(
             providerRequest: try Self.request(
                 peerDeviceID: "mac-a",
@@ -28,12 +31,13 @@ struct MobileTerminalLaneCoordinatorTests {
             ),
             cursor: { nil },
             consume: { _ in .accepted(outputReady: true) },
-            readinessChanged: { _ in }
+            readinessChanged: { await firstReadiness.append($0) }
         ))
-        for _ in 0 ..< 100 where await provider.requestCount() < 1 {
-            await Task.yield()
-        }
+        #expect(await firstReadinessIterator.next() == true)
 
+        let secondReadiness = TerminalLaneReadinessRecorder()
+        var secondReadinessIterator = await secondReadiness.stream()
+            .makeAsyncIterator()
         await coordinator.ensure(Self.configuration(
             providerRequest: try Self.request(
                 peerDeviceID: "mac-b",
@@ -41,20 +45,14 @@ struct MobileTerminalLaneCoordinatorTests {
             ),
             cursor: { nil },
             consume: { _ in .accepted(outputReady: true) },
-            readinessChanged: { _ in }
+            readinessChanged: { await secondReadiness.append($0) }
         ))
-        for _ in 0 ..< 100 where await provider.requestCount() < 2 {
-            await Task.yield()
-        }
+        #expect(await secondReadinessIterator.next() == true)
 
-        var inputResult = MobileTerminalLaneCoordinator.InputResult.unavailable
-        for _ in 0 ..< 100 where inputResult != .sent {
-            inputResult = await coordinator.sendInput(
-                "second peer",
-                surfaceID: Self.surfaceID
-            )
-            if inputResult != .sent { await Task.yield() }
-        }
+        let inputResult = await coordinator.sendInput(
+            "second peer",
+            surfaceID: Self.surfaceID
+        )
 
         #expect(await provider.requestCount() == 2)
         #expect(inputResult == .sent)
