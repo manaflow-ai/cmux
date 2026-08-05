@@ -31004,7 +31004,13 @@ mod tests {
 
     #[test]
     fn selection_drag_and_release_bypass_a_pending_focus_mutation() {
-        let mux = Mux::new("selection-release-barrier-test", SurfaceOptions::default());
+        let mux = Mux::new(
+            "selection-release-barrier-test",
+            SurfaceOptions {
+                command: Some(vec!["/bin/cat".to_string()]),
+                ..SurfaceOptions::default()
+            },
+        );
         let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux));
         app.session.pending_mutations.store(1, Ordering::Release);
