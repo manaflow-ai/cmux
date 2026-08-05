@@ -2746,17 +2746,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     break
                 }
 
-                let result = terminalPanel.hostedView.debugSimulateCommandHoverDetails(at: hitPoint)
-                payload["lastCommandResult"] = result
-                payload["lastCommandHoverActive"] = result["hoverActive"]
-                if let resolvedPath = result["resolvedPath"] as? String {
-                    payload["lastCommandResolvedPath"] = resolvedPath
-                    payload["lastCommandSucceeded"] = "1"
-                } else if let error = result["error"] as? String {
-                    payload["lastCommandError"] = error
-                } else {
-                    payload["lastCommandError"] = "Command hover did not resolve a path"
+                lastHandledCommandID = commandID
+                terminalPanel.hostedView.debugSimulateCommandHoverDetails(at: hitPoint) { result in
+                    var completionPayload: [String: Any] = [
+                        "lastCommandId": commandID,
+                        "lastCommandAction": action,
+                        "lastCommandSucceeded": "0",
+                        "lastCommandResult": result
+                    ]
+                    completionPayload["lastCommandHoverActive"] = result["hoverActive"]
+                    if let resolvedPath = result["resolvedPath"] as? String {
+                        completionPayload["lastCommandResolvedPath"] = resolvedPath
+                        completionPayload["lastCommandSucceeded"] = "1"
+                    } else if let error = result["error"] as? String {
+                        completionPayload["lastCommandError"] = error
+                    } else {
+                        completionPayload["lastCommandError"] = "Command hover did not resolve a path"
+                    }
+                    writeState(
+                        terminalPanel: terminalPanel,
+                        window: window,
+                        ready: true,
+                        additionalPayload: completionPayload
+                    )
                 }
+                return
 
             case "cmd_click_token":
                 guard let hitPoint = commandPoint(
