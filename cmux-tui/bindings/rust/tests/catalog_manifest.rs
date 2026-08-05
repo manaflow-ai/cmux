@@ -1,4 +1,5 @@
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 #[test]
 fn capability_manifest_exactly_matches_the_canonical_catalog() {
@@ -7,10 +8,8 @@ fn capability_manifest_exactly_matches_the_canonical_catalog() {
     let manifest: Value = serde_json::from_str(include_str!("../.cmux-resource-api.json")).unwrap();
 
     assert_eq!(manifest["protocol"], catalog["protocol"]);
-    assert_eq!(
-        manifest["catalog_sha256"],
-        "fa7e3b141ea12851e035cadf7d09040848e426abbc7f30c29aaec62bdf803936"
-    );
+    let canonical_catalog = serde_json::to_vec(&catalog).unwrap();
+    assert_eq!(manifest["catalog_sha256"], format!("{:x}", Sha256::digest(canonical_catalog)));
     let expected = catalog["operations"]
         .as_object()
         .unwrap()

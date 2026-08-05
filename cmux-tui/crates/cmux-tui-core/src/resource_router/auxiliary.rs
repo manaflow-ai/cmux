@@ -74,24 +74,18 @@ fn list_agents(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value,
     let session_id = resolve_session(mux, &request.selectors)?;
     let terminal = request.fields.get("terminal_id").map(parse_terminal_id).transpose()?;
     let state = request.fields.get("state").map(parse_agent_state).transpose()?;
+    let state_filter = state.map(AgentState::as_str);
     // Public agents are durable terminal projections. They remain listable
     // after process exit detaches the runtime and every tab view.
-    let mut values = mux
+    let values = mux
         .with_resource_projection(|registry, _state| {
             Ok(registry
-                .public_agent_projections()?
+                .public_agent_projections(terminal.as_ref(), state_filter)?
                 .into_iter()
-                .filter(|agent| {
-                    terminal.as_ref().is_none_or(|terminal| agent.terminal_id == *terminal)
-                })
-                .filter(|agent| state.is_none_or(|state| agent.state.as_str() == state.as_str()))
                 .map(|agent| agent.into_public_snapshot(&session_id))
                 .collect::<Vec<_>>())
         })
         .map_err(resource_operation_error)?;
-    values.sort_by(|left, right| {
-        left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
-    });
     Ok(Value::Array(values))
 }
 
@@ -747,6 +741,34 @@ mod tests {
         .unwrap();
         assert_eq!(listed.as_array().unwrap().len(), 1);
         assert_eq!(listed[0]["id"], first["value"]["id"]);
+    }
+
+    #[test]
+    fn filtered_agent_list_does_not_decode_unrelated_projections() {
+        let mux = Mux::new_for_test("filtered-agent-list", SurfaceOptions::default());
+        let requested = mux.new_workspace(Some("requested".into()), None).unwrap();
+        let unrelated = mux.new_workspace(Some("unrelated".into()), None).unwrap();
+        let requested_terminal = requested.terminal_public_id().cloned().unwrap();
+        let unrelated_terminal = unrelated.terminal_public_id().cloned().unwrap();
+
+        for (surface, session) in [(requested.id, "requested"), (unrelated.id, "unrelated")] {
+            mux.report_agent(surface, AgentState::Working, AgentSource::Hook, Some(session.into()))
+                .unwrap();
+        }
+        mux.corrupt_agent_projection_for_test(&unrelated_terminal);
+
+        let listed = dispatch(
+            &mux,
+            request(
+                ResourceOperation::AgentList,
+                None,
+                session_selectors(),
+                json!({"terminal_id":requested_terminal,"state":"working"}),
+            ),
+        )
+        .expect("the selected query must not decode an unrelated projection");
+        assert_eq!(listed.as_array().unwrap().len(), 1);
+        assert_eq!(listed[0]["terminal_id"], requested_terminal.as_str());
     }
 
     #[test]

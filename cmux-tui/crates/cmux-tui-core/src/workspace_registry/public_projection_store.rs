@@ -9,12 +9,10 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Context;
+use rusqlite::params;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-
-#[cfg(test)]
-use rusqlite::params;
 
 use super::*;
 use crate::resource::{
@@ -184,7 +182,7 @@ impl WorkspaceRegistry {
     pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
         let live_terminals = self.live_terminal_public_ids()?;
         let notifications = self.durable_notifications(&live_terminals)?;
-        let agents = self.durable_agents(&live_terminals)?;
+        let agents = self.durable_agents(None, None)?;
         let terminal_defaults = self.durable_terminal_defaults()?;
         let frontend_projections = self.public_frontend_projections()?;
         Ok(RegistryPublicProjections {
@@ -195,9 +193,12 @@ impl WorkspaceRegistry {
         })
     }
 
-    pub(crate) fn public_agent_projections(&self) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        let live_terminals = self.live_terminal_public_ids()?;
-        self.durable_agents(&live_terminals)
+    pub(crate) fn public_agent_projections(
+        &self,
+        terminal: Option<&TerminalPublicId>,
+        state: Option<&str>,
+    ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+        self.durable_agents(terminal, state)
     }
 
     fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
@@ -275,15 +276,27 @@ impl WorkspaceRegistry {
 
     fn durable_agents(
         &self,
-        live_terminals: &HashSet<TerminalPublicId>,
+        terminal: Option<&TerminalPublicId>,
+        state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
         let mut statement = self.connection.prepare(
-            "SELECT terminal_id, result_json, committed_revision
-             FROM resource_agent_projections
-             ORDER BY committed_revision ASC, terminal_id ASC",
+            "WITH selected AS MATERIALIZED (
+               SELECT projection.terminal_id,
+                      projection.result_json,
+                      projection.committed_revision
+               FROM resource_agent_projections projection
+               JOIN resource_terminals terminal
+                 ON terminal.public_id = projection.terminal_id
+                AND terminal.deleted_revision IS NULL
+               WHERE (?1 IS NULL OR projection.terminal_id = ?1)
+             )
+             SELECT terminal_id, result_json, committed_revision
+             FROM selected
+             WHERE (?2 IS NULL OR json_extract(result_json, '$.state') = ?2)
+             ORDER BY json_extract(result_json, '$.id') ASC, terminal_id ASC",
         )?;
         let rows = statement
-            .query_map([], |row| {
+            .query_map(params![terminal.map(TerminalPublicId::as_str), state], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -315,9 +328,6 @@ impl WorkspaceRegistry {
                 stored.terminal_id
             );
             let _ = stored.extra;
-            if !live_terminals.contains(&stored.terminal_id) {
-                continue;
-            }
             agents.push(RegistryAgentProjection {
                 id: stored.id,
                 terminal_id: stored.terminal_id,
@@ -455,6 +465,18 @@ impl WorkspaceRegistry {
                    '{\"foreground\":\"red\"}', 9223372036854775807
                  )",
                 [],
+            )
+            .unwrap();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
+        self.connection
+            .execute(
+                "UPDATE resource_agent_projections
+                 SET result_json = '{'
+                 WHERE terminal_id = ?1",
+                [terminal_id.as_str()],
             )
             .unwrap();
     }

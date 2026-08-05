@@ -21,7 +21,8 @@ use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
     FrontendProjection, RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource,
     RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab,
-    RegistryViewport, ResourceEffectOutcome, ResourceEffectPreparation, TerminalLifecycle,
+    RegistryTerminal, RegistryViewport, ResourceEffectOutcome, ResourceEffectPreparation,
+    TerminalLifecycle,
 };
 use crate::{Mux, ResourceSelectors};
 
@@ -392,6 +393,73 @@ fn resource_operation_name(operation: ResourceOperation) -> String {
         .to_string()
 }
 
+pub(crate) fn terminal_tab_ids_in_canonical_order(
+    tabs: impl IntoIterator<Item = (TerminalPublicId, PanePublicId, usize, TabPublicId)>,
+) -> HashMap<TerminalPublicId, Vec<TabPublicId>> {
+    let mut tabs = tabs.into_iter().collect::<Vec<_>>();
+    tabs.sort_by(|left, right| {
+        left.1
+            .as_str()
+            .cmp(right.1.as_str())
+            .then_with(|| left.2.cmp(&right.2))
+            .then_with(|| left.3.as_str().cmp(right.3.as_str()))
+    });
+    let mut ordered = HashMap::<TerminalPublicId, Vec<TabPublicId>>::new();
+    for (terminal_id, _pane_id, _position, tab_id) in tabs {
+        ordered.entry(terminal_id).or_default().push(tab_id);
+    }
+    ordered
+}
+
+pub(crate) fn public_terminal_snapshot(
+    terminal_id: &TerminalPublicId,
+    durable: &RegistryTerminal,
+    surface: Option<&crate::Surface>,
+    tab_ids: Vec<TabPublicId>,
+) -> anyhow::Result<Value> {
+    let lifecycle = match durable.lifecycle {
+        TerminalLifecycle::Launching | TerminalLifecycle::Adopting => "launching",
+        TerminalLifecycle::Running => "running",
+        TerminalLifecycle::Exited => "exited",
+        TerminalLifecycle::Tombstoned => {
+            anyhow::bail!("public terminal projection contains a tombstoned terminal")
+        }
+    };
+    let durable_size = |field: &str, fallback: u16| {
+        durable.launch_spec[field]
+            .as_u64()
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(fallback)
+    };
+    let (cols, rows) = surface
+        .map(crate::Surface::size)
+        .unwrap_or_else(|| (durable_size("cols", 80), durable_size("rows", 24)));
+    let mut terminal = json!({
+        "id": terminal_id,
+        "tab_id": tab_ids.first(),
+        "tab_ids": tab_ids,
+        "title": surface.map(crate::Surface::title).unwrap_or_default(),
+        "cols": cols.max(1),
+        "rows": rows.max(1),
+        "running": durable.lifecycle == TerminalLifecycle::Running,
+        "lifecycle": lifecycle,
+    });
+    if let Some(cwd) = surface.and_then(crate::Surface::spawn_cwd) {
+        terminal["cwd"] = json!(cwd);
+    }
+    if durable.lifecycle == TerminalLifecycle::Exited {
+        terminal["exit"] =
+            durable.exit.clone().context("exited terminal omitted its durable outcome")?;
+    } else {
+        debug_assert!(
+            durable.exit.is_none(),
+            "non-exited terminal unexpectedly has a durable outcome"
+        );
+    }
+    Ok(terminal)
+}
+
 pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError> {
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
@@ -525,18 +593,36 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 
         let mut terminal_order = Vec::new();
         let mut seen_terminals = HashSet::new();
-        let mut tab_ids_by_terminal = HashMap::<TerminalPublicId, Vec<TabPublicId>>::new();
+        let mut terminal_hosts = HashMap::<TerminalPublicId, String>::new();
         for tab in &topology.tabs {
             if let ContentPublicId::Terminal(terminal_id) = &tab.content_id {
-                tab_ids_by_terminal
-                    .entry(terminal_id.clone())
-                    .or_default()
-                    .push(tab.public_id.clone());
                 if seen_terminals.insert(terminal_id.clone()) {
                     terminal_order.push(terminal_id.clone());
                 }
+                if let Some(host_id) = &tab.terminal_id {
+                    if let Some(previous) =
+                        terminal_hosts.insert(terminal_id.clone(), host_id.clone())
+                    {
+                        anyhow::ensure!(
+                            previous == *host_id,
+                            "terminal {terminal_id} references multiple durable hosts"
+                        );
+                    }
+                }
             }
         }
+        let mut tab_ids_by_terminal =
+            terminal_tab_ids_in_canonical_order(topology.tabs.iter().filter_map(|tab| {
+                match &tab.content_id {
+                    ContentPublicId::Terminal(terminal_id) => Some((
+                        terminal_id.clone(),
+                        tab.pane_id.clone(),
+                        tab.position,
+                        tab.public_id.clone(),
+                    )),
+                    ContentPublicId::Browser(_) => None,
+                }
+            }));
         let mut unplaced_terminals = state
             .terminal_catalog
             .keys()
@@ -549,52 +635,19 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
         let terminals = terminal_order
             .into_iter()
             .map(|terminal_id| {
-                let surface = state
-                    .terminal_catalog
-                    .get(&terminal_id)
-                    .with_context(|| format!("terminal catalog is missing {terminal_id}"))?;
-                let host = mux.resource_terminal_host_identity(surface).with_context(|| {
-                    format!("terminal {terminal_id} omitted its durable identity")
-                })?;
-                let durable =
-                    terminals_by_id.get(host.terminal_id.as_str()).with_context(|| {
-                        format!("terminal {terminal_id} references missing {}", host.terminal_id)
+                let surface = state.terminal_catalog.get(&terminal_id);
+                let host_id = surface
+                    .and_then(|surface| mux.resource_terminal_host_identity(surface))
+                    .map(|host| host.terminal_id)
+                    .or_else(|| terminal_hosts.get(&terminal_id).cloned())
+                    .with_context(|| {
+                        format!("terminal {terminal_id} omitted its durable identity")
                     })?;
-                let lifecycle = match durable.lifecycle {
-                    TerminalLifecycle::Launching | TerminalLifecycle::Adopting => "launching",
-                    TerminalLifecycle::Running => "running",
-                    TerminalLifecycle::Exited => "exited",
-                    TerminalLifecycle::Tombstoned => {
-                        anyhow::bail!("live terminal catalog contains a tombstoned terminal")
-                    }
-                };
+                let durable = terminals_by_id.get(host_id.as_str()).with_context(|| {
+                    format!("terminal {terminal_id} references missing {host_id}")
+                })?;
                 let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
-                let (cols, rows) = surface.size();
-                let mut terminal = json!({
-                    "id": terminal_id,
-                    "tab_id": tab_ids.first(),
-                    "tab_ids": tab_ids,
-                    "title": surface.title(),
-                    "cols": cols.max(1),
-                    "rows": rows.max(1),
-                    "running": durable.lifecycle == TerminalLifecycle::Running,
-                    "lifecycle": lifecycle,
-                });
-                if let Some(cwd) = surface.spawn_cwd() {
-                    terminal["cwd"] = json!(cwd);
-                }
-                if durable.lifecycle == TerminalLifecycle::Exited {
-                    terminal["exit"] = durable
-                        .exit
-                        .clone()
-                        .context("exited terminal omitted its durable outcome")?;
-                } else {
-                    debug_assert!(
-                        durable.exit.is_none(),
-                        "non-exited terminal unexpectedly has a durable outcome"
-                    );
-                }
-                Ok(terminal)
+                public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -915,6 +968,27 @@ mod tests {
         assert_eq!(snapshot["cursor"]["revision"], "0");
         assert!(snapshot.get("surface").is_none());
         assert!(snapshot.get("workspace_key").is_none());
+    }
+
+    #[test]
+    fn snapshot_uses_durable_terminal_state_before_runtime_adoption() {
+        let mux = Mux::new_for_test("snapshot-before-adoption", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("restoring".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+
+        mux.remove_surface_runtime_for_test(surface.id).unwrap();
+        mux.remove_terminal_catalog_for_test(&terminal_id).unwrap();
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("durable terminal remains visible while its runtime is not adopted");
+        assert_eq!(terminal["cols"], 80);
+        assert_eq!(terminal["rows"], 24);
+        assert_eq!(terminal["lifecycle"], "running");
     }
 
     #[test]
