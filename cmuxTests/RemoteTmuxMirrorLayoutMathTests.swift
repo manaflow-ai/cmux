@@ -205,6 +205,65 @@ import Testing
         })
     }
 
+    @Test @MainActor
+    func singlePaneWindowHidesPaneBarAndReclaimsChromeAcrossTransitions() throws {
+        let singlePane = RemoteTmuxLayoutNode(
+            width: 80,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .pane(1)
+        )
+        let splitPane = RemoteTmuxLayoutNode(
+            width: 80,
+            height: 24,
+            x: 0,
+            y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 0, y: 0, content: .pane(1)),
+                RemoteTmuxLayoutNode(width: 40, height: 24, x: 40, y: 0, content: .pane(2)),
+            ])
+        )
+        var appearance = BonsplitConfiguration.Appearance.default
+        appearance.tabBarHeight = 30
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: singlePane,
+            appearance: appearance,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16,
+                    cellHeightPx: 34,
+                    surfacePadWidthPx: 8,
+                    surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            makePanel: { _ in nil }
+        )
+        defer { mirror.teardown() }
+
+        #expect(!mirror.bonsplitController.configuration.tabBarVisibility.showsTabBar(tabCount: 1))
+        let singlePaneMetrics = try #require(mirror.nativeLayoutMetrics())
+        #expect(singlePaneMetrics.tabBarHeight == 0)
+
+        mirror.reconcile(layout: splitPane)
+        #expect(mirror.bonsplitController.configuration.tabBarVisibility.showsTabBar(tabCount: 1))
+        let splitPaneMetrics = try #require(mirror.nativeLayoutMetrics())
+        #expect(splitPaneMetrics.tabBarHeight == 30)
+
+        mirror.reconcile(layout: singlePane)
+        #expect(!mirror.bonsplitController.configuration.tabBarVisibility.showsTabBar(tabCount: 1))
+        let collapsedPaneMetrics = try #require(mirror.nativeLayoutMetrics())
+        #expect(collapsedPaneMetrics.tabBarHeight == 0)
+    }
+
     @Test func tinyAreaClampsToMinimumGrid() {
         let layout = RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(1))
         let grid = RemoteTmuxWindowMirror.clientGrid(
