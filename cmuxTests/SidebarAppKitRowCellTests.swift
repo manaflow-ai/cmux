@@ -13,7 +13,8 @@ struct SidebarAppKitRowCellTests {
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
-        metadataEntries: [SidebarStatusEntry] = []
+        metadataEntries: [SidebarStatusEntry] = [],
+        metadataBlocks: [SidebarMetadataBlock] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
@@ -31,7 +32,7 @@ struct SidebarAppKitRowCellTests {
             copyableSidebarSSHError: nil,
             latestConversationMessage: nil,
             metadataEntries: metadataEntries,
-            metadataBlocks: [],
+            metadataBlocks: metadataBlocks,
             latestLog: nil,
             progress: nil,
             activeCodingAgentCount: 0,
@@ -62,6 +63,7 @@ struct SidebarAppKitRowCellTests {
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
+        metadataBlocks: [SidebarMetadataBlock] = [],
         shortcutHintText: String? = nil
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
@@ -72,7 +74,8 @@ struct SidebarAppKitRowCellTests {
             snapshot: makeSnapshot(
                 customDescription: customDescription,
                 isPinned: isPinned,
-                metadataEntries: metadataEntries
+                metadataEntries: metadataEntries,
+                metadataBlocks: metadataBlocks
             ),
             settings: resolvedSettings,
             isActive: isActive,
@@ -596,6 +599,89 @@ struct SidebarAppKitRowCellTests {
             textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
                 == NSUnderlineStyle.single.rawValue
         )
+    }
+
+    private static func metadataBlock(_ markdown: String) -> SidebarMetadataBlock {
+        SidebarMetadataBlock(
+            key: "notes",
+            markdown: markdown,
+            priority: 0,
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+    }
+
+    /// The metadata markdown blocks render through the same
+    /// `SidebarRowPalette.attributed` path as the description, so they carried
+    /// the same AppKit link-color override.
+    @Test(arguments: [true, false])
+    func metadataMarkdownBlockLinkIsRowOwnedInBothSelectionStates(_ isActive: Bool) throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let model = Self.makeModel(
+            isActive: isActive,
+            metadataBlocks: [Self.metadataBlock("Docs [cmux](\(url.absoluteString))")]
+        )
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: "Docs cmux"))
+        let attributed = textView.attributedStringValue
+        let linkLocation = try #require(Self.firstRowLinkLocation(in: attributed))
+
+        #expect(Self.linkURL(from: attributed.attribute(.sidebarRowLink, at: linkLocation, effectiveRange: nil)) == url)
+        #expect(attributed.attribute(.link, at: linkLocation, effectiveRange: nil) == nil)
+        #expect(
+            attributed.attribute(.underlineStyle, at: linkLocation, effectiveRange: nil) as? Int
+                == NSUnderlineStyle.single.rawValue
+        )
+
+        let rendered = try #require(
+            attributed.attribute(.foregroundColor, at: linkLocation, effectiveRange: nil) as? NSColor
+        )
+        if isActive {
+            let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+                for: .dark,
+                sidebarSelectionColorHex: model.settings.selectionColorHex
+            )
+            let expected = try #require(
+                sidebarSelectedWorkspaceForegroundNSColor(on: selectionBackground, opacity: 1.0)
+                    .usingColorSpace(.sRGB)
+            )
+            let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
+            #expect(renderedSRGB == expected)
+            let raster = try Self.raster(of: textView, background: selectionBackground)
+            let systemLink = try #require(NSColor.linkColor.usingColorSpace(.sRGB))
+            #expect(Self.minimumDistance(in: raster, to: systemLink) > 0.15)
+        } else {
+            #expect(rendered == NSColor.linkColor)
+        }
+    }
+
+    @Test
+    func metadataMarkdownBlockDropsUnsafeSchemeLinks() throws {
+        let model = Self.makeModel(
+            isActive: true,
+            metadataBlocks: [Self.metadataBlock("[launch](file:///tmp/not-ok.command)")]
+        )
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: "launch"))
+        let attributed = textView.attributedStringValue
+
+        #expect(Self.firstRowLinkLocation(in: attributed) == nil)
+        #expect(attributed.attribute(.link, at: 0, effectiveRange: nil) == nil)
+        #expect(attributed.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil)
+    }
+
+    private static func firstRowLinkLocation(in attributed: NSAttributedString) -> Int? {
+        var location: Int?
+        attributed.enumerateAttribute(
+            .sidebarRowLink,
+            in: NSRange(location: 0, length: attributed.length)
+        ) { value, range, stop in
+            guard value != nil else { return }
+            location = range.location
+            stop.pointee = true
+        }
+        return location
     }
 
     private static func descriptionTextView(
