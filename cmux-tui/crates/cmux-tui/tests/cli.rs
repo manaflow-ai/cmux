@@ -1,9 +1,6 @@
 use std::fs;
 #[cfg(unix)]
-use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
-#[cfg(unix)]
-use std::os::fd::FromRawFd;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
@@ -799,7 +796,7 @@ fn noun_first_ratio_commands_reject_nonfinite_values_before_connecting() {
 
 #[cfg(unix)]
 struct PtyChild {
-    child: Child,
+    child: Box<dyn cmux_pty::Child + Send + Sync>,
     output_drain: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -810,37 +807,13 @@ impl PtyChild {
     }
 
     fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
-        let mut master = -1;
-        let mut slave = -1;
-        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-        let opened = unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        };
-        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
-        let mut master = unsafe { File::from_raw_fd(master) };
-        let slave = unsafe { File::from_raw_fd(slave) };
+        let spawned = spawn_pty_child(args, env);
+        let mut master = spawned.master.try_clone_reader().unwrap();
         let output_drain = std::thread::spawn(move || {
             let mut buffer = [0; 8192];
             while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
         });
-        let mut command = Command::new(bin());
-        command.args(args).env_remove("CMUX_TUI_SOCKET");
-        for (key, value) in env {
-            command.env(key, value);
-        }
-        let child = command
-            .stdin(Stdio::from(slave.try_clone().unwrap()))
-            .stdout(Stdio::from(slave.try_clone().unwrap()))
-            .stderr(Stdio::from(slave))
-            .spawn()
-            .unwrap();
-        Self { child, output_drain: Some(output_drain) }
+        Self { child: spawned.child, output_drain: Some(output_drain) }
     }
 }
 
@@ -857,47 +830,39 @@ impl Drop for PtyChild {
 
 #[cfg(unix)]
 struct DisconnectablePtyChild {
-    child: Child,
-    master: Option<File>,
+    child: Box<dyn cmux_pty::Child + Send + Sync>,
+    master: Option<Box<dyn cmux_pty::MasterPty + Send>>,
 }
 
 #[cfg(unix)]
 impl DisconnectablePtyChild {
     fn start(args: &[&str]) -> Self {
-        let mut master = -1;
-        let mut slave = -1;
-        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-        let opened = unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        };
-        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
-        let flags = unsafe { libc::fcntl(master, libc::F_GETFD) };
-        assert_ne!(flags, -1, "fcntl(F_GETFD) failed: {}", std::io::Error::last_os_error());
-        let cloexec = unsafe { libc::fcntl(master, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
-        assert_ne!(cloexec, -1, "fcntl(F_SETFD) failed: {}", std::io::Error::last_os_error());
-
-        let master = unsafe { File::from_raw_fd(master) };
-        let slave = unsafe { File::from_raw_fd(slave) };
-        let child = Command::new(bin())
-            .args(args)
-            .env_remove("CMUX_TUI_SOCKET")
-            .stdin(Stdio::from(slave.try_clone().unwrap()))
-            .stdout(Stdio::from(slave.try_clone().unwrap()))
-            .stderr(Stdio::from(slave))
-            .spawn()
-            .unwrap();
-        Self { child, master: Some(master) }
+        let spawned = spawn_pty_child(args, &[]);
+        Self { child: spawned.child, master: Some(spawned.master) }
     }
 
     fn disconnect_host_terminal(&mut self) {
         self.master.take();
     }
+}
+
+#[cfg(unix)]
+fn spawn_pty_child(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> cmux_pty::SpawnedPty {
+    let pair =
+        cmux_pty::open(cmux_pty::PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .unwrap();
+    let mut command = cmux_pty::PtyCommand::new(bin());
+    command.args(args.iter().copied());
+    command.env_clear();
+    for (key, value) in std::env::vars() {
+        if key != "CMUX_TUI_SOCKET" {
+            command.env(key, value);
+        }
+    }
+    for (key, value) in env {
+        command.env(*key, value.to_string_lossy());
+    }
+    pair.spawn(command).unwrap()
 }
 
 #[cfg(unix)]
