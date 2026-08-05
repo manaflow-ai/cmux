@@ -60,6 +60,34 @@ struct BrowserLocalFileReadAccessPolicyTests {
     }
 
     @Test
+    func preparedFileOnlyTargetUsesCanonicalPathWithoutLosingDecorations() throws {
+        let originalURL = try #require(
+            URL(string: "file:///tmp/report.html?case=one%20two#section%202")
+        )
+        let canonicalURL = URL(fileURLWithPath: "/private/tmp/report.html")
+
+        let navigationURL = try #require(
+            BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                for: originalURL,
+                resolvedFileURL: canonicalURL
+            )
+        )
+        let readAccessURL = try #require(
+            BrowserLocalFileReadAccessPolicy.fileOnly.readAccessURL(
+                forResolvedNavigationURL: navigationURL
+            )
+        )
+        let components = try #require(
+            URLComponents(url: navigationURL, resolvingAgainstBaseURL: false)
+        )
+
+        #expect(navigationURL.path == canonicalURL.path)
+        #expect(components.percentEncodedQuery == "case=one%20two")
+        #expect(components.percentEncodedFragment == "section%202")
+        #expect(readAccessURL == canonicalURL)
+    }
+
+    @Test
     func fileOnlyRejectsDirectories() throws {
         let fixture = try BrowserLocalFileTestFixture()
         defer { fixture.remove() }

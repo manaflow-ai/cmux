@@ -30,6 +30,7 @@ struct CommandClickHTMLOpenRoutingTests {
 
         let resolution = await probe.firstExistingPath(in: paths)
         #expect(resolution?.index == 1)
+        #expect(resolution?.candidatePath == "/tmp/second.html")
         #expect(resolution?.resolvedPath == "/private/tmp/second.html")
         let invocation = try #require(await runner.lastInvocation())
         #expect(invocation.directory == "/")
@@ -53,12 +54,32 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func filesystemProbeKeepsClickedExtensionSeparateFromCanonicalTarget() async throws {
+        let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
+            stdout: "0\0/private/tmp/generated-file\n",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        ))
+        let probe = WordPathFilesystemProbe(commands: runner)
+
+        let resolution = try #require(
+            await probe.firstExistingPath(in: ["/tmp/preview.html"])
+        )
+
+        #expect(resolution.candidatePath == "/tmp/preview.html")
+        #expect(resolution.resolvedPath == "/private/tmp/generated-file")
+    }
+
+    @Test
     func hoverFilesystemProbePoolRunsOneAndRetainsOnlyLatestPendingJob() async {
         let pool = WordPathFilesystemResolutionCoordinator()
         let firstStarted = AsyncStream<Void>.makeStream()
         let releaseFirst = AsyncStream<Void>.makeStream()
         let secondDiscarded = AsyncStream<Void>.makeStream()
         let thirdFinished = AsyncStream<Void>.makeStream()
+        let secondPrepared = AtomicBooleanGate(false)
         let secondRan = AtomicBooleanGate(false)
 
         pool.submit(
@@ -78,9 +99,12 @@ struct CommandClickHTMLOpenRoutingTests {
         pool.submit(
             id: UUID(),
             isUserInitiated: false,
-            work: {
-                secondRan.storeRelease(true)
-                return { @MainActor in }
+            prepare: {
+                secondPrepared.storeRelease(true)
+                return {
+                    secondRan.storeRelease(true)
+                    return { @MainActor in }
+                }
             },
             discarded: { secondDiscarded.continuation.yield() }
         )
@@ -99,6 +123,7 @@ struct CommandClickHTMLOpenRoutingTests {
         releaseFirst.continuation.yield()
         var thirdFinishedIterator = thirdFinished.stream.makeAsyncIterator()
         _ = await thirdFinishedIterator.next()
+        #expect(!secondPrepared.loadAcquire())
         #expect(!secondRan.loadAcquire())
 
         firstStarted.continuation.finish()
@@ -252,7 +277,7 @@ struct CommandClickHTMLOpenRoutingTests {
         defer { workspace.teardownAllPanels() }
         let sourcePanelId = try #require(workspace.focusedPanelId)
 
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -297,7 +322,7 @@ struct CommandClickHTMLOpenRoutingTests {
         let sourcePanelId = try #require(workspace.focusedPanelId)
 
         for _ in 0..<2 {
-            #expect(CommandClickFileOpenRouter.openInCmux(
+            #expect(openResolvedHTMLInCmux(
                 workspace: workspace,
                 sourcePanelId: sourcePanelId,
                 filePath: htmlURL.path
@@ -339,7 +364,7 @@ struct CommandClickHTMLOpenRoutingTests {
         defer { workspace.teardownAllPanels() }
         let sourcePanelId = try #require(workspace.focusedPanelId)
 
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -347,7 +372,7 @@ struct CommandClickHTMLOpenRoutingTests {
         let browser = try #require(workspace.panels.values.compactMap { $0 as? BrowserPanel }.first)
         #expect(await waitForDocumentTitle("filesystem alias", in: browser))
 
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -385,7 +410,7 @@ struct CommandClickHTMLOpenRoutingTests {
         defer { workspace.teardownAllPanels() }
         let sourcePanelId = try #require(workspace.focusedPanelId)
 
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -398,7 +423,7 @@ struct CommandClickHTMLOpenRoutingTests {
         browser.isMainFrameProvisionalNavigationActive = true
         browser.navigationDelegate?.recordAttemptedRequest(URLRequest(url: decoratedURL))
 
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -438,7 +463,7 @@ struct CommandClickHTMLOpenRoutingTests {
         defer { workspace.teardownAllPanels() }
         let sourcePanelId = try #require(workspace.focusedPanelId)
 
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -451,7 +476,7 @@ struct CommandClickHTMLOpenRoutingTests {
             atomically: true,
             encoding: .utf8
         )
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -491,7 +516,7 @@ struct CommandClickHTMLOpenRoutingTests {
         defer { workspace.teardownAllPanels() }
         let sourcePanelId = try #require(workspace.focusedPanelId)
 
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -510,7 +535,7 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
-    func restrictedHTMLNewTabPreservesFileOnlyReadAccess() throws {
+    func restrictedHTMLNewTabPreservesFileOnlyReadAccess() async throws {
         _ = NSApplication.shared
 
         let previousShared = AppDelegate.shared
@@ -546,6 +571,7 @@ struct CommandClickHTMLOpenRoutingTests {
             localFileReadAccessPolicy: .fileOnly
         ))
         browser.openLinkInNewTab(url: htmlURL)
+        #expect(await waitForBrowserCount(2, in: workspace))
 
         let browsers = workspace.panels.values.compactMap { $0 as? BrowserPanel }
         #expect(browsers.count == 2)
@@ -558,7 +584,7 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
-    func restrictedHTMLNewTabResolvesSymlinkTarget() throws {
+    func restrictedHTMLNewTabResolvesSymlinkTarget() async throws {
         _ = NSApplication.shared
 
         let defaults = UserDefaults.standard
@@ -611,6 +637,7 @@ struct CommandClickHTMLOpenRoutingTests {
         ))
 
         browser.openLinkInNewTab(url: symlinkURL)
+        #expect(await waitForBrowserCount(2, in: workspace))
 
         let child = try #require(
             workspace.panels.values
@@ -799,7 +826,7 @@ struct CommandClickHTMLOpenRoutingTests {
 
         let workspace = try #require(manager.selectedWorkspace)
         let sourcePanelId = try #require(workspace.focusedPanelId)
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -852,7 +879,7 @@ struct CommandClickHTMLOpenRoutingTests {
         defer { workspace.teardownAllPanels() }
         let sourcePanelId = try #require(workspace.focusedPanelId)
 
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -863,7 +890,7 @@ struct CommandClickHTMLOpenRoutingTests {
             url: fixtureDirectory.appendingPathComponent("different.html")
         ))
 
-        #expect(CommandClickFileOpenRouter.openInCmux(
+        #expect(openResolvedHTMLInCmux(
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path
@@ -939,6 +966,22 @@ struct CommandClickHTMLOpenRoutingTests {
         }
     }
 
+    private func openResolvedHTMLInCmux(
+        workspace: Workspace,
+        sourcePanelId: UUID,
+        filePath: String,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let fileURL = URL(fileURLWithPath: filePath)
+        return CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: filePath,
+            resolvedFileURL: fileURL.standardizedFileURL.resolvingSymlinksInPath(),
+            defaults: defaults
+        )
+    }
+
     private func waitForDocumentTitle(_ expectedTitle: String, in browser: BrowserPanel) async -> Bool {
         for _ in 0..<100 {
             if let result = try? await browser.webView.evaluateJavaScript("document.title"),
@@ -946,6 +989,16 @@ struct CommandClickHTMLOpenRoutingTests {
                 return true
             }
             try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
+    private func waitForBrowserCount(_ expectedCount: Int, in workspace: Workspace) async -> Bool {
+        for _ in 0..<100 {
+            if workspace.panels.values.compactMap({ $0 as? BrowserPanel }).count == expectedCount {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
         }
         return false
     }

@@ -111,16 +111,17 @@ struct TerminalLinkOpenCoordinator {
     @discardableResult
     func openResolvedLocalFile(
         _ fileURL: URL,
+        resolvedFileURL: URL,
         request: TerminalLinkOpenRequest
     ) -> Bool {
-        guard fileURL.isFileURL else { return false }
+        guard fileURL.isFileURL, resolvedFileURL.isFileURL else { return false }
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
         return routeLocalFile(
             fileURL,
             request: request,
             container: container,
             unavailableReason: "resolved file container unavailable",
-            fileURLIsResolved: true
+            resolvedFileURL: resolvedFileURL
         )
     }
 
@@ -129,7 +130,7 @@ struct TerminalLinkOpenCoordinator {
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?,
         unavailableReason: String,
-        fileURLIsResolved: Bool = false
+        resolvedFileURL: URL? = nil
     ) -> Bool {
         guard let sourcePanelId = request.sourcePanelId,
               let container,
@@ -137,13 +138,11 @@ struct TerminalLinkOpenCoordinator {
             return openExternally(fileURL, reason: unavailableReason)
         }
 
-        if let browserURL = TerminalHTMLFileBrowserAction(defaults: defaults).browserURL(
-            for: fileURL,
-            isAlreadyResolved: fileURLIsResolved
-        ) {
+        let browserAction = TerminalHTMLFileBrowserAction(defaults: defaults)
+        if browserAction.canOpenInBrowser(fileURL) {
             return deferHTMLFileOpen(
                 fileURL,
-                browserURL: browserURL,
+                resolvedFileURL: resolvedFileURL,
                 request: request,
                 sourcePanelId: sourcePanelId,
                 container: container
@@ -162,17 +161,17 @@ struct TerminalLinkOpenCoordinator {
 
     private func deferHTMLFileOpen(
         _ fileURL: URL,
-        browserURL: URL,
+        resolvedFileURL: URL?,
         request: TerminalLinkOpenRequest,
         sourcePanelId: UUID,
         container: any TerminalLinkOpenContainer
     ) -> Bool {
         log(
-            "link.openURL target=localHTML url=\(browserURL) " +
+            "link.openURL target=localHTML url=\(fileURL) " +
             "container=\(container.terminalLinkContainerDebugName) surfaceId=\(sourcePanelId)"
         )
 
-        deferOperation { [self] in
+        let finishResolution: @MainActor @Sendable (URL?) -> Void = { [self] currentResolvedFileURL in
             let currentContainer = self.containerResolver(
                 request.sourceWorkspaceId,
                 sourcePanelId
@@ -183,11 +182,18 @@ struct TerminalLinkOpenCoordinator {
                 }
             }
 
-            guard let currentContainer,
+            guard let currentResolvedFileURL,
+                  let currentContainer,
                   !currentContainer.terminalLinkIsRemoteTerminal(sourcePanelId),
-                  CommandClickFileOpenRouter.shouldRouteInCmux(
+                  CommandClickFileOpenRouter.shouldRouteResolvedFileInCmux(
                       path: fileURL.path,
                       defaults: self.defaults
+                  ),
+                  let browserURL = TerminalHTMLFileBrowserAction(
+                      defaults: self.defaults
+                  ).browserURL(
+                      for: fileURL,
+                      resolvedFileURL: currentResolvedFileURL
                   ) else {
                 externalFallback()
                 return
@@ -212,6 +218,30 @@ struct TerminalLinkOpenCoordinator {
                 return
             }
             externalFallback()
+        }
+
+        deferOperation {
+            if let resolvedFileURL {
+                finishResolution(resolvedFileURL)
+                return
+            }
+            WordPathFilesystemResolutionCoordinator.shared.submit(
+                id: UUID(),
+                isUserInitiated: true,
+                work: {
+                    let result = await WordPathFilesystemProbe()
+                        .firstExistingPath(in: [fileURL.path])
+                    let currentResolvedFileURL = result.map {
+                        URL(fileURLWithPath: $0.resolvedPath)
+                    }
+                    return { @MainActor in
+                        finishResolution(currentResolvedFileURL)
+                    }
+                },
+                discarded: {
+                    finishResolution(nil)
+                }
+            )
         }
         return true
     }

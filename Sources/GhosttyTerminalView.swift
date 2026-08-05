@@ -3678,6 +3678,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverRefreshPoint: NSPoint?
     private var wordPathHoverResolutionJobID: UUID?
     private var wordPathHoverResolutionCancellation: AtomicBooleanGate?
+    private var wordPathHoverResolutionTaskIdentity: WordPathHoverResolutionIdentity?
     private var wordPathHoverResolutionTaskRequest: WordPathHoverResolutionRequest?
     private var wordPathClickResolutionJobID: UUID?
     private var wordPathClickResolutionCancellation: AtomicBooleanGate?
@@ -6469,7 +6470,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         return [
             "resolution_source": resolution.source.rawValue,
-            "resolved_path_basename": URL(fileURLWithPath: resolution.path).lastPathComponent,
+            "resolved_path_basename": URL(fileURLWithPath: resolution.resolvedPath).lastPathComponent,
             "raw_token": resolution.rawToken
         ]
     }
@@ -6678,6 +6679,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ).map { candidate in
                 WordPathResolution(
                     path: candidate.path,
+                    resolvedPath: candidate.path,
                     source: .snapshot,
                     rawToken: candidate.rawToken
                 )
@@ -6691,6 +6693,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ).map { path in
                 WordPathResolution(
                     path: path,
+                    resolvedPath: path,
                     source: .quicklook,
                     rawToken: quicklookWord
                 )
@@ -6714,7 +6717,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let candidate = candidates[probeResult.index]
         return WordPathResolution(
-            path: probeResult.resolvedPath,
+            path: probeResult.candidatePath,
+            resolvedPath: probeResult.resolvedPath,
             source: candidate.source,
             rawToken: candidate.rawToken
         )
@@ -6870,13 +6874,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                == wordPathHoverRenderedFrameGeneration {
             return cachedWordPathHover.resolution
         }
-        if wordPathHoverResolutionTaskRequest?.key == key,
-           wordPathHoverResolutionTaskRequest?.renderedFrameGeneration
-               == wordPathHoverRenderedFrameGeneration,
-           wordPathHoverResolutionJobID != nil {
-            return nil
-        }
-
         guard let identity = wordPathHoverResolutionIdentity(key: key) else {
             cancelWordPathHoverResolution()
             cachedWordPathHover = nil
@@ -6893,21 +6890,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
             return cachedWordPathHover.resolution
         }
-        if wordPathHoverResolutionTaskRequest?.identity == identity,
+        if wordPathHoverResolutionTaskIdentity == identity,
            wordPathHoverResolutionJobID != nil {
             return nil
         }
 
-        guard let request = wordPathHoverResolutionRequest(
-            at: point,
-            identity: identity
-        ) else {
-            cancelWordPathHoverResolution()
-            cachedWordPathHover = nil
-            return nil
-        }
         cachedWordPathHover = nil
-        enqueueWordPathHoverResolution(request)
+        enqueueWordPathHoverResolution(identity)
         return nil
     }
 
@@ -6939,40 +6928,56 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func enqueueWordPathHoverResolution(_ request: WordPathHoverResolutionRequest) {
-        if let currentRequest = wordPathHoverResolutionTaskRequest,
-           currentRequest.identity == request.identity,
+    private func enqueueWordPathHoverResolution(_ identity: WordPathHoverResolutionIdentity) {
+        if wordPathHoverResolutionTaskIdentity == identity,
            wordPathHoverResolutionJobID != nil {
             return
         }
         cancelWordPathHoverResolution()
-        startWordPathHoverResolution(request)
+        startWordPathHoverResolution(identity)
     }
 
-    private func startWordPathHoverResolution(_ request: WordPathHoverResolutionRequest) {
+    private func startWordPathHoverResolution(_ identity: WordPathHoverResolutionIdentity) {
         precondition(wordPathHoverResolutionJobID == nil)
         let jobID = UUID()
         let cancellation = AtomicBooleanGate(false)
         wordPathHoverResolutionJobID = jobID
         wordPathHoverResolutionCancellation = cancellation
-        wordPathHoverResolutionTaskRequest = request
+        wordPathHoverResolutionTaskIdentity = identity
+        wordPathHoverResolutionTaskRequest = nil
 
         WordPathFilesystemResolutionCoordinator.shared.submit(
             id: jobID,
             isUserInitiated: false,
-            work: { [weak self, cancellation, request] in
-                let resolution = await Self.resolveWordPathSnapshot(
-                    request.snapshot,
-                    isCancelled: { cancellation.loadAcquire() }
-                )
-                let shouldApply = !cancellation.loadAcquire()
-                return { @MainActor [weak self] in
-                    self?.finishWordPathHoverResolution(
-                        jobID: jobID,
-                        request: request,
-                        resolution: resolution,
-                        shouldApply: shouldApply
+            prepare: { [weak self, cancellation, identity] in
+                guard let self,
+                      self.wordPathHoverResolutionJobID == jobID,
+                      !cancellation.loadAcquire(),
+                      let point = self.wordPathHoverRefreshPoint,
+                      let latestKey = self.wordPathHoverCacheKey(at: point),
+                      let latestIdentity = self.wordPathHoverResolutionIdentity(key: latestKey),
+                      latestIdentity == identity,
+                      let request = self.wordPathHoverResolutionRequest(
+                          at: point,
+                          identity: latestIdentity
+                      ) else {
+                    return nil
+                }
+                self.wordPathHoverResolutionTaskRequest = request
+                return { [weak self, cancellation, request] in
+                    let resolution = await Self.resolveWordPathSnapshot(
+                        request.snapshot,
+                        isCancelled: { cancellation.loadAcquire() }
                     )
+                    let shouldApply = !cancellation.loadAcquire()
+                    return { @MainActor [weak self] in
+                        self?.finishWordPathHoverResolution(
+                            jobID: jobID,
+                            request: request,
+                            resolution: resolution,
+                            shouldApply: shouldApply
+                        )
+                    }
                 }
             },
             discarded: { [weak self] in
@@ -6990,6 +6995,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard jobID == wordPathHoverResolutionJobID else { return }
         wordPathHoverResolutionJobID = nil
         wordPathHoverResolutionCancellation = nil
+        wordPathHoverResolutionTaskIdentity = nil
         wordPathHoverResolutionTaskRequest = nil
 
         guard shouldApply,
@@ -7027,6 +7033,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard jobID == wordPathHoverResolutionJobID else { return }
         wordPathHoverResolutionJobID = nil
         wordPathHoverResolutionCancellation = nil
+        wordPathHoverResolutionTaskIdentity = nil
         wordPathHoverResolutionTaskRequest = nil
         cachedWordPathHover = nil
         setWordPathHoverActive(false)
@@ -7038,6 +7045,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         WordPathFilesystemResolutionCoordinator.shared.cancelPending(id: jobID)
         wordPathHoverResolutionJobID = nil
         wordPathHoverResolutionCancellation = nil
+        wordPathHoverResolutionTaskIdentity = nil
         wordPathHoverResolutionTaskRequest = nil
     }
 
@@ -7480,7 +7488,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // local filesystem. Route supported files through the same container
         // coordinator as structured Ghostty links so Workspace and Dock
         // terminals share browser behavior and deferred state validation.
-        if CommandClickFileOpenRouter.shouldRouteInCmux(path: resolution.path) {
+        if CommandClickFileOpenRouter.shouldRouteResolvedFileInCmux(path: resolution.path) {
             let coordinator = TerminalLinkOpenCoordinator(
                 externalOpen: { url in
                     PreferredEditorService(defaults: .standard).open(url)
@@ -7489,6 +7497,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
             if coordinator.openResolvedLocalFile(
                 URL(fileURLWithPath: resolution.path),
+                resolvedFileURL: URL(fileURLWithPath: resolution.resolvedPath),
                 request: TerminalLinkOpenRequest(
                     rawValue: resolution.path,
                     sourceWorkspaceId: terminalSurface.tabId,

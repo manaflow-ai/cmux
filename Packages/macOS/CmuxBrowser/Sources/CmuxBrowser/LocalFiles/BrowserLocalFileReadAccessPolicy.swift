@@ -13,7 +13,57 @@ public enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Hashab
     /// - Returns: The canonical file target for ``fileOnly``, or the original URL otherwise.
     public func resolvedNavigationURL(for url: URL) -> URL {
         guard self == .fileOnly, url.isFileURL else { return url }
-        return url.standardizedFileURL.resolvingSymlinksInPath()
+        let resolvedFileURL = URL(fileURLWithPath: url.path)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        return navigationURL(
+            for: url,
+            resolvedFileURL: resolvedFileURL
+        ) ?? resolvedFileURL
+    }
+
+    /// Builds a navigation URL from a filesystem target that was resolved off
+    /// the main actor, while preserving the original query and fragment.
+    ///
+    /// This method performs lexical URL work only. `resolvedFileURL` must be a
+    /// path-only canonical file URL supplied by a deadline-bounded resolver.
+    public func navigationURL(
+        for originalURL: URL,
+        resolvedFileURL: URL
+    ) -> URL? {
+        guard originalURL.isFileURL,
+              resolvedFileURL.isFileURL,
+              resolvedFileURL.path.hasPrefix("/"),
+              let originalComponents = URLComponents(
+                  url: originalURL,
+                  resolvingAgainstBaseURL: false
+              ),
+              var resolvedComponents = URLComponents(
+                  url: resolvedFileURL,
+                  resolvingAgainstBaseURL: false
+              ) else {
+            return nil
+        }
+        resolvedComponents.percentEncodedQuery = originalComponents.percentEncodedQuery
+        resolvedComponents.percentEncodedFragment = originalComponents.percentEncodedFragment
+        return resolvedComponents.url
+    }
+
+    /// Returns path-only read access for a file URL already resolved off the
+    /// main actor.
+    public func readAccessURL(forResolvedNavigationURL fileURL: URL) -> URL? {
+        guard self == .fileOnly,
+              fileURL.isFileURL,
+              fileURL.path.hasPrefix("/"),
+              var components = URLComponents(
+                  url: fileURL,
+                  resolvingAgainstBaseURL: false
+              ) else {
+            return nil
+        }
+        components.percentEncodedQuery = nil
+        components.percentEncodedFragment = nil
+        return components.url
     }
 
     /// Returns the narrowest WebKit read-access URL permitted by this policy.

@@ -10,11 +10,12 @@ import Foundation
 final class WordPathFilesystemResolutionCoordinator {
     typealias Completion = @MainActor @Sendable () -> Void
     typealias Work = @Sendable () async -> Completion
+    typealias Prepare = @MainActor @Sendable () -> Work?
     typealias Discarded = @MainActor @Sendable () -> Void
     typealias Job = (
         id: UUID,
         isUserInitiated: Bool,
-        work: Work,
+        prepare: Prepare,
         discarded: Discarded
     )
 
@@ -40,10 +41,24 @@ final class WordPathFilesystemResolutionCoordinator {
         work: @escaping Work,
         discarded: @escaping Discarded
     ) {
+        submit(
+            id: id,
+            isUserInitiated: isUserInitiated,
+            prepare: { work },
+            discarded: discarded
+        )
+    }
+
+    func submit(
+        id: UUID,
+        isUserInitiated: Bool,
+        prepare: @escaping Prepare,
+        discarded: @escaping Discarded
+    ) {
         let job = Job(
             id: id,
             isUserInitiated: isUserInitiated,
-            work: work,
+            prepare: prepare,
             discarded: discarded
         )
 
@@ -76,12 +91,16 @@ final class WordPathFilesystemResolutionCoordinator {
 
     private func start(_ job: Job) {
         cancelScheduledHoverStart()
+        guard let work = job.prepare() else {
+            job.discarded()
+            startNextIfPossible()
+            return
+        }
         runningID = job.id
         if !job.isUserInitiated {
             nextHoverStartDeadline = .now() + minimumHoverInterval
         }
         let id = job.id
-        let work = job.work
         runningTask = Task.detached(priority: .utility) { [weak self, id, work] in
             let completion = await work()
             await MainActor.run { [weak self, id, completion] in

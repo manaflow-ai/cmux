@@ -171,6 +171,7 @@ struct TerminalLinkOpenCoordinatorTests {
             workspace: workspace,
             sourcePanelId: sourcePanelId,
             filePath: htmlURL.path,
+            resolvedFileURL: htmlURL.standardizedFileURL.resolvingSymlinksInPath(),
             defaults: defaults
         ))
 
@@ -183,7 +184,7 @@ struct TerminalLinkOpenCoordinatorTests {
 
     @Test("Dock terminal HTML links open in the cmux Browser")
     @MainActor
-    func dockHTMLLinkOpensInBrowser() throws {
+    func dockHTMLLinkOpensInBrowser() async throws {
         let defaults = makeDefaults()
 
         let remoteWebsiteDataStoreIdentifier = UUID()
@@ -229,6 +230,11 @@ struct TerminalLinkOpenCoordinatorTests {
             sourcePanelId: terminalPanelId,
             workingDirectory: nil
         )))
+        #expect(await waitUntil {
+            store.bonsplitController.allTabIds.contains {
+                store.panel(for: $0) is BrowserPanel
+            }
+        })
 
         let browserPanels = store.bonsplitController.allTabIds.compactMap {
             store.panel(for: $0) as? BrowserPanel
@@ -335,7 +341,7 @@ struct TerminalLinkOpenCoordinatorTests {
 
     @Test("Deferred HTML routing revalidates remote state")
     @MainActor
-    func deferredHTMLRouteRejectsRemoteTerminal() throws {
+    func deferredHTMLRouteRejectsRemoteTerminal() async throws {
         let defaults = makeDefaults()
         let htmlURL = try makeHTMLFixture(pathExtension: "html")
         defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
@@ -363,7 +369,10 @@ struct TerminalLinkOpenCoordinatorTests {
             workingDirectory: nil
         )))
         container.isRemote = true
-        deferredOperation?()
+        #expect(await waitUntil { deferredOperation != nil })
+        let operation = try #require(deferredOperation)
+        operation()
+        #expect(await waitUntil { externallyOpened == [htmlURL] })
 
         #expect(container.browserURLs.isEmpty)
         #expect(externallyOpened == [htmlURL])
@@ -371,7 +380,7 @@ struct TerminalLinkOpenCoordinatorTests {
 
     @Test("Deferred HTML routing revalidates file eligibility")
     @MainActor
-    func deferredHTMLRouteRejectsDeletedFile() throws {
+    func deferredHTMLRouteRejectsDeletedFile() async throws {
         let defaults = makeDefaults()
         let htmlURL = try makeHTMLFixture(pathExtension: "html")
         defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
@@ -399,7 +408,10 @@ struct TerminalLinkOpenCoordinatorTests {
             workingDirectory: nil
         )))
         try FileManager.default.removeItem(at: htmlURL)
-        deferredOperation?()
+        #expect(await waitUntil { deferredOperation != nil })
+        let operation = try #require(deferredOperation)
+        operation()
+        #expect(await waitUntil { externallyOpened == [htmlURL] })
 
         #expect(container.browserURLs.isEmpty)
         #expect(externallyOpened == [htmlURL])
@@ -416,5 +428,14 @@ struct TerminalLinkOpenCoordinatorTests {
             encoding: .utf8
         )
         return fileURL
+    }
+
+    @MainActor
+    private func waitUntil(_ condition: @MainActor () -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
     }
 }

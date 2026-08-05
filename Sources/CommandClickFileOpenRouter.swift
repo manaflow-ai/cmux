@@ -12,11 +12,23 @@ enum CommandClickFileOpenRouter {
             || store.shouldRouteSupportedFile(path: path)
     }
 
+    /// Rechecks route settings after a bounded filesystem probe has already
+    /// established that the candidate is a readable regular file.
+    nonisolated static func shouldRouteResolvedFileInCmux(
+        path: String,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let store = FileRouteSettingsStore(defaults: defaults)
+        return (store.markdownRouteEnabled && FileRouteSettingsStore.isMarkdownPath(path))
+            || store.supportedFileRouteEnabled
+    }
+
     @MainActor
     static func openInCmux(
         workspace: Workspace,
         sourcePanelId: UUID,
         filePath: String,
+        resolvedFileURL: URL? = nil,
         defaults: UserDefaults = .standard
     ) -> Bool {
         let store = FileRouteSettingsStore(defaults: defaults)
@@ -29,8 +41,10 @@ enum CommandClickFileOpenRouter {
             return false
         }
 
-        if TerminalHTMLFileBrowserAction(defaults: defaults).open(
+        if let resolvedFileURL,
+           TerminalHTMLFileBrowserAction(defaults: defaults).open(
             fileURL: URL(fileURLWithPath: filePath),
+            resolvedFileURL: resolvedFileURL,
             sourcePanelId: sourcePanelId,
             container: workspace
         ) {

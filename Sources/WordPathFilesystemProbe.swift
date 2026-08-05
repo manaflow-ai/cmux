@@ -1,7 +1,7 @@
 import CmuxFoundation
 import Foundation
 
-/// Finds the first existing candidate in one deadline-bounded subprocess.
+/// Finds the first readable regular-file candidate in one deadline-bounded subprocess.
 ///
 /// A terminal path can point into an unresponsive filesystem. The child keeps
 /// that filesystem call outside cmux, while `CommandRunner` terminates the
@@ -11,7 +11,7 @@ struct WordPathFilesystemProbe: Sendable {
     private static let firstExistingPathScript = """
     index=0
     for candidate do
-        if [ -e "$candidate" ]; then
+        if [ -f "$candidate" ] && [ -r "$candidate" ]; then
             printf '%s\\0' "$index"
             exec /bin/realpath "$candidate"
         fi
@@ -31,7 +31,9 @@ struct WordPathFilesystemProbe: Sendable {
         self.timeout = timeout
     }
 
-    func firstExistingPath(in paths: [String]) async -> (index: Int, resolvedPath: String)? {
+    func firstExistingPath(
+        in paths: [String]
+    ) async -> (index: Int, candidatePath: String, resolvedPath: String)? {
         guard !paths.isEmpty, !Task.isCancelled else { return nil }
         let result = await commands.run(
             directory: "/",
@@ -55,6 +57,6 @@ struct WordPathFilesystemProbe: Sendable {
             resolvedPath.removeLast()
         }
         guard resolvedPath.hasPrefix("/") else { return nil }
-        return (index, resolvedPath)
+        return (index, paths[index], resolvedPath)
     }
 }

@@ -717,16 +717,12 @@ struct BrowserNewTabNavigationSeed {
 /// Preserves the original request metadata for a retargeted new-tab navigation.
 func browserNewTabNavigationSeed(
     from request: URLRequest,
-    localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy,
     bypassInsecureHTTPHostOnce: String? = nil
 ) -> BrowserNewTabNavigationSeed? {
-    guard let originalURL = request.url else { return nil }
-    let url = localFileReadAccessPolicy.resolvedNavigationURL(for: originalURL)
-    var initialRequest = request
-    initialRequest.url = url
+    guard let url = request.url else { return nil }
     return BrowserNewTabNavigationSeed(
         url: url,
-        initialRequest: initialRequest,
+        initialRequest: request,
         bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
     )
 }
@@ -972,12 +968,27 @@ func browserLoadRequest(
     webView.applyBrowserUserAgentPolicy(for: url)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
-        guard let readAccessURL = localFileReadAccessPolicy.readAccessURL(for: url) else {
-            return nil
+        let navigationURL: URL
+        let readAccessURL: URL
+        switch localFileReadAccessPolicy {
+        case .fileOnly:
+            guard let resolvedReadAccessURL = localFileReadAccessPolicy
+                .readAccessURL(forResolvedNavigationURL: url) else {
+                return nil
+            }
+            navigationURL = url
+            readAccessURL = resolvedReadAccessURL
+        case .containingDirectory:
+            guard let resolvedReadAccessURL = localFileReadAccessPolicy
+                .readAccessURL(for: url) else {
+                return nil
+            }
+            navigationURL = url
+            readAccessURL = resolvedReadAccessURL
         }
         webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
         return webView.loadFileURL(
-            localFileReadAccessPolicy.resolvedNavigationURL(for: url),
+            navigationURL,
             allowingReadAccessTo: readAccessURL
         )
     }
@@ -6754,9 +6765,68 @@ extension BrowserPanel {
 
     /// Opens a request in a sibling browser tab without dropping request metadata.
     func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
+        if localFileReadAccessPolicy == .fileOnly,
+           let fileURL = request.url,
+           fileURL.isFileURL {
+            resolveFileOnlyNewTabNavigation(
+                request: request,
+                fileURL: fileURL,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            )
+            return
+        }
+        openResolvedLinkInNewTab(
+            request: request,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        )
+    }
+
+    private func resolveFileOnlyNewTabNavigation(
+        request: URLRequest,
+        fileURL: URL,
+        bypassInsecureHTTPHostOnce: String?
+    ) {
+        let finishResolution: @MainActor @Sendable (URL?) -> Void = { [weak self] resolvedFileURL in
+            guard let self,
+                  let resolvedFileURL,
+                  let navigationURL = BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                      for: fileURL,
+                      resolvedFileURL: resolvedFileURL
+                  ) else {
+                return
+            }
+            var resolvedRequest = request
+            resolvedRequest.url = navigationURL
+            self.openResolvedLinkInNewTab(
+                request: resolvedRequest,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            )
+        }
+        WordPathFilesystemResolutionCoordinator.shared.submit(
+            id: UUID(),
+            isUserInitiated: true,
+            work: {
+                let result = await WordPathFilesystemProbe()
+                    .firstExistingPath(in: [fileURL.path])
+                let resolvedFileURL = result.map {
+                    URL(fileURLWithPath: $0.resolvedPath)
+                }
+                return { @MainActor in
+                    finishResolution(resolvedFileURL)
+                }
+            },
+            discarded: {
+                finishResolution(nil)
+            }
+        )
+    }
+
+    private func openResolvedLinkInNewTab(
+        request: URLRequest,
+        bypassInsecureHTTPHostOnce: String?
+    ) {
         guard let seed = browserNewTabNavigationSeed(
             from: request,
-            localFileReadAccessPolicy: localFileReadAccessPolicy,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else {
             return
