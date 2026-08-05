@@ -4291,13 +4291,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uses your Tailscale network. Scan the pairing code on your Mac."
+            "value": "Uses only your Tailscale network. Scan the pairing code on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleネットワークを使用します。Macに表示されるペアリングコードをスキャンしてください。"
+            "value": "Tailscaleネットワークのみを使用します。Macに表示されるペアリングコードをスキャンしてください。"
           }
         }
       }
@@ -4444,13 +4444,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on this iPhone and your Mac, then connect both to the same Tailscale network. On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here once."
+            "value": "Connects only over your Tailscale network, with no automatic fallback. Install Tailscale on this iPhone and your Mac, connect both to the same Tailscale network, then open Tailscale Pairing in cmux on the Mac and scan the QR here once. Computers without a scanned code stay unreachable while this is selected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このiPhoneとMacの両方にTailscaleをインストールし、同じTailscaleネットワークに接続してください。Macのcmuxで「Tailscaleペアリング」を開いてQRコードを表示し、ここで一度スキャンします。"
+            "value": "Tailscaleネットワーク経由でのみ接続し、自動フォールバックはありません。このiPhoneとMacの両方にTailscaleをインストールし、同じTailscaleネットワークに接続してから、Macのcmuxで「Tailscaleペアリング」を開いてQRコードをここで一度スキャンしてください。コードをスキャンしていないコンピュータには、この設定の間は接続できません。"
           }
         }
       }
@@ -5424,6 +5424,23 @@
         }
       }
     },
+    "mobile.pairing.guidance.tailscalePairingRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Tailscale Pairing on your Mac and scan its code here, or switch Connection Method back to Auto-Connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macで「Tailscaleペアリング」を開いてコードをスキャンするか、接続方法を「自動接続」に戻してください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.guidance.sameAccount": {
       "extractionState": "manual",
       "localizations": {
@@ -5777,6 +5794,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "このペアリングコードには対応していません。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.tailscalePairingRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection Method is set to Tailscale, but this computer has no Tailscale pairing code authorization yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続方法がTailscaleに設定されていますが、このコンピュータはTailscaleペアリングコードでまだ承認されていません。"
           }
         }
       }

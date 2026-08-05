@@ -6,18 +6,19 @@ public enum MobileConnectionMethod: String, CaseIterable, Sendable {
     /// Dial the built-in encrypted peer-to-peer transport (direct paths with
     /// managed relays as fallback). The default; no setup required.
     case automatic
-    /// Prefer the user's Tailscale network. Requires entering the Tailscale
-    /// pairing code shown on the Mac once, which authorizes that exact peer.
+    /// Use ONLY the user's Tailscale network. Requires entering the Tailscale
+    /// pairing code shown on the Mac once, which authorizes that exact peer;
+    /// Macs without a scanned code are unreachable while this is selected.
     case tailscale
 }
 
 /// Persists the user's connection-method choice.
 ///
-/// The preference only reorders dialing: `tailscale` puts authorized Tailscale
-/// routes ahead of the automatic transport instead of the default pin that
-/// dials the automatic transport exclusively. It never manufactures Tailscale
-/// authorization by itself; a pairing code entry remains the authorization
-/// event for each Mac.
+/// The choice is a determinant: `tailscale` dials only Tailscale destinations
+/// authorized by a user-entered pairing code and never falls back to the
+/// automatic transport, while `automatic` keeps the default Iroh pin. It
+/// never manufactures Tailscale authorization by itself; a pairing code entry
+/// remains the authorization event for each Mac.
 ///
 /// The backing `UserDefaults` is injected so the store is testable without
 /// touching `.standard`; the app constructs it at the composition root.

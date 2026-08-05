@@ -2468,6 +2468,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var firstCandidateNeedingMacUpdate: MobilePairedMac?
         var attemptedAutomaticIroh = false
         var lastDialOutcome: StoredMacReconnectOutcome = .failed(.noRoute)
+        // A candidate whose stored routes were all blocked by the
+        // Tailscale-only method (no granted destination). Lets the sweep fail
+        // closed with the actionable pairing-code error when no dial set a
+        // more specific one.
+        var tailscaleOnlyBlockedACandidate = false
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
         for (candidateIndex, mac) in candidates.enumerated() {
@@ -2497,6 +2502,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
                 && mac.routes.contains { $0.kind == .tailscale }
 
+            if connectionMethodStore?.method == .tailscale,
+               localRoutes.isEmpty,
+               !mac.routes.isEmpty {
+                tailscaleOnlyBlockedACandidate = true
+            }
             // Raw Tailscale/TCP is bearer-capable only for an exact local route
             // grandfathered during the v7-to-v8 migration. Every fresh, changed,
             // restored, or registry route remains a hint for discovering Iroh.
@@ -2553,7 +2563,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // saved candidate failed. This keeps a healthy saved Mac from sitting
         // behind an unrelated account-wide discovery request.
         var zeroTouchCandidates: [MobilePairedMac] = []
+        // Zero-touch candidates are Iroh-only rows by construction; the
+        // Tailscale-only method forbids dialing them, so skip the broker
+        // discovery request entirely.
         if connectionState != .connected,
+           connectionMethodStore?.method != .tailscale,
            !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
                 scope: scope,
@@ -2632,6 +2646,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 applyStoredMacUpdateRequiredFailure(disconnect: true)
                 lastDialOutcome = .failed(.unsupportedRoute)
             }
+        }
+        if connectionState != .connected,
+           !connectionRequiresReauth,
+           connectionError == nil,
+           connectionMethodStore?.method == .tailscale,
+           tailscaleOnlyBlockedACandidate {
+            // Every stored candidate was blocked by the Tailscale-only method
+            // and nothing set a more specific dial error: explain the missing
+            // pairing-code authorization instead of staying silently offline.
+            applyTailscalePairingRequiredFailure(disconnect: true)
+            lastDialOutcome = .failed(.unsupportedRoute)
         }
         if connectionState != .connected,
            !connectionRequiresReauth,
@@ -4185,10 +4210,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> SecondaryClientAttempt {
         guard let runtime else { return .permanentFailure }
         let supportedKinds = runtime.supportedRouteKinds
+        // The Tailscale-only method applies to background aggregation too: a
+        // secondary Mac without a granted Tailscale route is unreachable
+        // rather than silently pooled over Iroh.
         let pinnedRoutes = Self.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscalePreference: connectionMethodStore?.method == .tailscale
+                ? Self.TailscaleRoutePreference(
+                    macDeviceID: mac.macDeviceID,
+                    grantRoutes: mac.legacyTailscaleRoutes ?? []
+                )
+                : nil
         )
         guard let firstRoute = pinnedRoutes.first else {
             return .permanentFailure
@@ -7713,7 +7747,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Establishes the live connection for `ticket`. Returns `nil` on success
     /// (and superseded-generation early exits), or the failure category it applied
     /// when it returned without connecting and without throwing
-    /// (`.noSupportedRoute`), so callers record the matching analytics reason.
+    /// (`.noSupportedRoute` / `.tailscalePairingRequired`), so callers record
+    /// the matching analytics reason.
     @discardableResult
     func connect(
         ticket: CmxAttachTicket,
@@ -7763,10 +7798,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             userTailscalePairingAuthorizations: userTailscalePairingAuthorizations
         )
         guard let firstRoute = supportedRoutes.first else {
-            // No route kind this build can dial: set the specific category;
+            // No dialable route: either no route kind this build supports, or
+            // the Tailscale-only method filtered every route because this Mac
+            // has no pairing-code authorization. Set the specific category;
             // the caller records the matching analytics reason from it.
-            connectionError = MobilePairingFailureCategory.noSupportedRoute.message
-            connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
+            let category: MobilePairingFailureCategory =
+                connectionMethodStore?.method == .tailscale
+                    ? .tailscalePairingRequired
+                    : .noSupportedRoute
+            connectionError = category.message
+            connectionErrorGuidance = category.guidance
             connectionState = .disconnected
             macConnectionStatus = .unavailable
             diagnosticLog?.record(DiagnosticEvent(
@@ -7775,7 +7816,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 b: DiagnosticFailureKind.unsupportedRoute.rawValue
             ))
             clearRemoteConnectionContext()
-            return .noSupportedRoute
+            return category
         }
         let targetsCurrentLogicalMac =
             currentFocusedConnection.map { connection in
@@ -8420,15 +8461,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 supportedKinds.contains(route.kind)
             }
         }
-        let irohRoutes = supportedRoutes.filter { route in
-            route.kind == .iroh
-        }
-        // The user's explicit Tailscale method relaxes only the Iroh pin's
-        // ORDER: authorized Tailscale routes dial first and Iroh remains the
-        // fallback. Routes without a grant or a user-entered code stay
-        // undialable regardless of the preference.
+        // The user's explicit Tailscale method is a determinant: only routes
+        // authorized by a device-local grant or a user-entered pairing code
+        // are dialable, and Iroh is never dialed as a fallback. An empty
+        // result fails closed; ``connect(ticket:)`` surfaces the pairing-code
+        // requirement. Routes without a grant or a user-entered code stay
+        // undialable regardless of the method.
         if connectionMethodStore?.method == .tailscale {
-            let authorizedTailscale = supportedRoutes.filter { route in
+            return supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
                     for: route,
                     macDeviceID: ticket.macDeviceID,
@@ -8439,12 +8479,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         authorizations: userTailscalePairingAuthorizations
                     ) != nil
             }
-            if !authorizedTailscale.isEmpty {
-                let rest = supportedRoutes.filter { route in
-                    route.kind != .iroh && route.kind != .tailscale
-                }
-                return authorizedTailscale + irohRoutes + rest
-            }
+        }
+        let irohRoutes = supportedRoutes.filter { route in
+            route.kind == .iroh
         }
         return irohRoutes.isEmpty ? supportedRoutes : irohRoutes
     }
@@ -9190,6 +9227,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// as the Mac updates and republishes through the authenticated registry.
     private func applyStoredMacUpdateRequiredFailure(disconnect: Bool) {
         applyPairingFailure(.macUpdateRequired, phase: "migration")
+        connectionRequiresReauth = false
+        guard disconnect else { return }
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        clearRemoteConnectionContext()
+    }
+
+    /// The Tailscale-only method blocked every route to this Mac because no
+    /// stored Tailscale destination carries a pairing-code authorization.
+    /// Deliberately not an auth failure: the remedy is scanning the Mac's
+    /// Tailscale pairing code (or switching back to Auto-Connect), never
+    /// signing out or deleting the pairing.
+    func applyTailscalePairingRequiredFailure(disconnect: Bool) {
+        applyPairingFailure(.tailscalePairingRequired, phase: "route-selection")
         connectionRequiresReauth = false
         guard disconnect else { return }
         connectionState = .disconnected

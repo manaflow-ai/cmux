@@ -88,6 +88,11 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The pairing code carried no route kind this device build can dial (for
     /// example an iroh-only ticket on a build without the iroh transport).
     case noSupportedRoute
+    /// The connection method is Tailscale-only, and this computer has no
+    /// Tailscale destination authorized by a user-entered pairing code, so
+    /// there is nothing the method allows dialing. Distinct from
+    /// ``noSupportedRoute``: routes exist, the user's method forbids them.
+    case tailscalePairingRequired
     /// Two cancellation-ignoring route cleanups are still alive. Retrying in
     /// this process cannot start another transport without exceeding the cap.
     case routeCleanupBlocked
@@ -126,6 +131,7 @@ extension MobilePairingFailureCategory {
         case .macUpdateRequired: return "mac_update_required"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
+        case .tailscalePairingRequired: return "tailscale_pairing_required"
         case .routeCleanupBlocked: return "route_cleanup_blocked"
         case .connectAttemptGated: return "connect_attempt_gated"
         case .cancelled: return "cancelled"
@@ -287,6 +293,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.unsupportedRoute",
                 defaultValue: "This pairing code is not supported."
             )
+        case .tailscalePairingRequired:
+            return L10n.string(
+                "mobile.pairing.tailscalePairingRequired",
+                defaultValue: "Connection Method is set to Tailscale, but this computer has no Tailscale pairing code authorization yet."
+            )
         case .routeCleanupBlocked:
             return L10n.string(
                 "mobile.pairing.routeCleanupBlocked",
@@ -360,6 +371,11 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
                 defaultValue: "Open Tailscale Pairing on your Mac and scan a fresh QR or link."
+            )
+        case .tailscalePairingRequired:
+            return L10n.string(
+                "mobile.pairing.guidance.tailscalePairingRequired",
+                defaultValue: "Open Tailscale Pairing on your Mac and scan its code here, or switch Connection Method back to Auto-Connect."
             )
         case .unrecognizedVersion:
             return L10n.string(
