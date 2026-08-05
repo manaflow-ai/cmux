@@ -5,12 +5,14 @@ type CliConfigEnvKey =
   | "NEXT_PUBLIC_STACK_API_URL"
   | "NEXT_PUBLIC_STACK_PROJECT_ID"
   | "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY"
+  | "SUBROUTER_HOSTED_URL"
   | "VERCEL_ENV";
 
 const testEnvironment = {
   NEXT_PUBLIC_STACK_API_URL: "https://stack.example.test/api/v1",
   NEXT_PUBLIC_STACK_PROJECT_ID: "test-stack-project-id",
   NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "test-stack-publishable-key",
+  SUBROUTER_HOSTED_URL: "https://subrouter.example.test",
   VERCEL_ENV: "preview",
 } satisfies Record<CliConfigEnvKey, string>;
 
@@ -46,7 +48,7 @@ async function withCliConfigEnvironment(
 }
 
 describe("CLI config route", () => {
-  test("publishes native Stack Auth and the Vercel CodeRouter data plane", async () => {
+  test("publishes CodeRouter and the hosted Subrouter POST contract", async () => {
     await withCliConfigEnvironment(testEnvironment, async () => {
       const response = GET(new Request("https://cmux.com/api/cli/config"));
       expect(response.status).toBe(200);
@@ -64,6 +66,10 @@ describe("CLI config route", () => {
           sessionUrl: "https://cmux.com/api/coderouter/session",
           accountsUrl: "https://cmux.com/api/coderouter/accounts",
           openaiBaseUrl: "https://cmux.com/v1",
+        },
+        subrouter: {
+          url: testEnvironment.SUBROUTER_HOSTED_URL,
+          exchangeUrl: "https://cmux.com/api/subrouter/tenant-exchange",
         },
       });
     });
