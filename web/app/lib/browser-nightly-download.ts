@@ -55,18 +55,18 @@ const BROWSER_NIGHTLY_TARGETS = {
   },
   "mac-arm64": {
     feedPlatform: "mac-arm64",
-    signedArchive: "cmux-macos-arm64.zip",
+    signedArchive: "cmux-macos-universal.zip",
     artifacts: {
-      dmg: "cmux-macos-arm64.dmg",
-      zip: "cmux-macos-arm64.zip",
+      dmg: "cmux-macos-universal.dmg",
+      zip: "cmux-macos-universal.zip",
     },
   },
   "mac-x64": {
     feedPlatform: "mac-x64",
-    signedArchive: "cmux-macos-x64.zip",
+    signedArchive: "cmux-macos-universal.zip",
     artifacts: {
-      dmg: "cmux-macos-x64.dmg",
-      zip: "cmux-macos-x64.zip",
+      dmg: "cmux-macos-universal.dmg",
+      zip: "cmux-macos-universal.zip",
     },
   },
 } as const satisfies Record<string, BrowserNightlyTarget>;

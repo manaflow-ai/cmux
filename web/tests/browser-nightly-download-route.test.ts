@@ -71,25 +71,55 @@ describe("cmux Browser nightly download route", () => {
     });
   });
 
-  test("follows a future immutable nightly-version tag without website changes", async () => {
+  test("resolves Universal 2 assets for both Mac architectures on an immutable tag", async () => {
     const immutableTag = `nightly-${VERSION}`;
-    const fetchMock = feedFetch(signedFeed({
+    const envelope = signedFeed({
       "mac-arm64": platformEntry(
-        `https://github.com/manaflow-ai/cmux-v2/releases/download/${immutableTag}/cmux-macos-arm64.zip`,
+        `https://github.com/manaflow-ai/cmux-v2/releases/download/${immutableTag}/cmux-macos-universal.zip`,
         "cmux-browser.app",
         "Contents/MacOS/cmux",
       ),
-    }), 302);
+      "mac-x64": platformEntry(
+        `https://github.com/manaflow-ai/cmux-v2/releases/download/${immutableTag}/cmux-macos-universal.zip`,
+        "cmux-browser.app",
+        "Contents/MacOS/cmux",
+      ),
+    });
 
-    const response = await handleBrowserNightlyDownloadRequest(
-      { platform: "mac-arm64", artifact: "dmg" },
-      { fetch: fetchMock, publicKeyPem: TEST_PUBLIC_KEY_PEM },
-    );
+    for (const platform of ["mac-arm64", "mac-x64"]) {
+      for (const [artifact, filename] of [
+        ["dmg", "cmux-macos-universal.dmg"],
+        ["zip", "cmux-macos-universal.zip"],
+      ] as const) {
+        const fetchMock = feedFetch(envelope, 302);
+        const response = await handleBrowserNightlyDownloadRequest(
+          { platform, artifact },
+          { fetch: fetchMock, publicKeyPem: TEST_PUBLIC_KEY_PEM },
+        );
 
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(
-      `https://github.com/manaflow-ai/cmux-v2/releases/download/${immutableTag}/cmux-macos-arm64.dmg`,
-    );
+        expect(response.status).toBe(307);
+        expect(response.headers.get("location")).toBe(
+          `https://github.com/manaflow-ai/cmux-v2/releases/download/${immutableTag}/${filename}`,
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+      }
+    }
+  });
+
+  test("keeps both Mac architectures unavailable in the current production feed", async () => {
+    for (const platform of ["mac-arm64", "mac-x64"]) {
+      const fetchMock = feedFetch(PRODUCTION_SIGNED_FEED, 302);
+      const response = await handleBrowserNightlyDownloadRequest(
+        { platform, artifact: "dmg" },
+        { fetch: fetchMock },
+      );
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        error: "browser_download_unavailable",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
   });
 
   test("keeps a platform unavailable until its signed feed entry exists", async () => {
