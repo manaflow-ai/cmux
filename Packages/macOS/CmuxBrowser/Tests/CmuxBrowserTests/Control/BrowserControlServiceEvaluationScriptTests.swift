@@ -65,7 +65,7 @@ struct BrowserControlServiceEvaluationScriptTests {
         let envelope = try evaluate(
             """
             (() => {
-              let value = {answer: 42};
+              var value = {answer: 42};
               for (let depth = 0; depth < 14; depth += 1) {
                 value = {left: value, right: value};
               }

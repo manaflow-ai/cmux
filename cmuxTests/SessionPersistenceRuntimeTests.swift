@@ -129,14 +129,15 @@ struct SessionPersistenceRuntimeTests {
 
         let first = try #require(terminalPanel.sessionTextBoxDraftSnapshot())
         let second = try #require(terminalPanel.sessionTextBoxDraftSnapshot())
-        let firstStorage = first.parts.withUnsafeBufferPointer { $0.baseAddress }
-        let secondStorage = second.parts.withUnsafeBufferPointer { $0.baseAddress }
-
         #expect(first.parts.count == 1_001)
         #expect(second.parts.count == 1_001)
-        #expect(
-            firstStorage == secondStorage,
-            "Periodic autosave must reuse an unchanged large draft instead of rebuilding every attachment."
-        )
+        first.parts.withUnsafeBufferPointer { firstBuffer in
+            second.parts.withUnsafeBufferPointer { secondBuffer in
+                #expect(
+                    firstBuffer.baseAddress == secondBuffer.baseAddress,
+                    "Periodic autosave must reuse an unchanged large draft instead of rebuilding every attachment."
+                )
+            }
+        }
     }
 }

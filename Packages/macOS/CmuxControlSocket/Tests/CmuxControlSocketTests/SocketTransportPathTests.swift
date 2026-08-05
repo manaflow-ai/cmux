@@ -40,6 +40,32 @@ import Testing
     @Test func pathIdentityReportsMissingPath() {
         #expect(transport.pathIdentity(at: UnixSocketFixture.makeTempSocketPath()) == nil)
     }
+
+    @Test func retainedPathVerificationBoundsPreexistingConnectionDrain() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path, backlog: 128)
+        var clientFDs: [Int32] = []
+        defer {
+            for clientFD in clientFDs {
+                Darwin.close(clientFD)
+            }
+            Darwin.close(listenerFD)
+            Darwin.unlink(path)
+        }
+        for _ in 0..<65 {
+            clientFDs.append(try UnixSocketFixture.connectClient(to: path))
+        }
+
+        guard case .pending(let failure) = transport.verifyRetainedBoundPath(
+            at: path,
+            listenerSocket: listenerFD
+        ) else {
+            Issue.record("Expected a bounded retry after draining the maximum connection batch")
+            return
+        }
+        #expect(failure.stage == "verify_bound_path_drain")
+        #expect(failure.errnoCode == EAGAIN)
+    }
 }
 
 @Suite struct SocketTransportProbeTests {

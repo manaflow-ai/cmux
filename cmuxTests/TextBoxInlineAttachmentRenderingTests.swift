@@ -60,9 +60,11 @@ private final class TextBoxDelegateTestDouble: NSObject, NSTextViewDelegate {}
 
         let firstDraft = try #require(textView.sessionDraftSnapshot(isActive: true))
         let secondDraft = try #require(textView.sessionDraftSnapshot(isActive: true))
-        let firstDraftStorage = firstDraft.parts.withUnsafeBufferPointer { $0.baseAddress }
-        let secondDraftStorage = secondDraft.parts.withUnsafeBufferPointer { $0.baseAddress }
-        #expect(firstDraftStorage == secondDraftStorage)
+        firstDraft.parts.withUnsafeBufferPointer { firstBuffer in
+            secondDraft.parts.withUnsafeBufferPointer { secondBuffer in
+                #expect(firstBuffer.baseAddress == secondBuffer.baseAddress)
+            }
+        }
     }
 
     @Test func normalAttachmentBatchKeepsIndividualCells() {
@@ -148,6 +150,71 @@ private final class TextBoxDelegateTestDouble: NSObject, NSTextViewDelegate {}
         #expect(textView.inlineAttachments().count == 1_000)
         #expect(inlineAttachmentCellCount(in: textView) == 1)
         #expect(textView.plainText() == "before  after")
+    }
+
+    @Test func exactDraftSnapshotDoesNotDuplicateTrailingText() throws {
+        let attachment = TextBoxAttachment(
+            displayName: "first.txt",
+            submissionText: "/tmp/first.txt",
+            submissionPath: "/tmp/first.txt",
+            localURL: nil
+        )
+        let attachmentSnapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+        let expectedParts: [SessionTextBoxInputDraftPart] = [
+            .attachment(attachmentSnapshot),
+            .text("describe this"),
+        ]
+        let cache = TerminalPanelTextBoxDraftCache()
+
+        cache.recordExactSnapshot(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: expectedParts
+        ))
+        cache.updateText("describe this")
+
+        #expect(try #require(cache.currentSnapshot()).parts == expectedParts)
+    }
+
+    @Test func attachmentUpdatePreservesExactDraftPartOrdering() throws {
+        let first = TextBoxAttachment(
+            displayName: "first.txt",
+            submissionText: "/tmp/first.txt",
+            submissionPath: "/tmp/first.txt",
+            localURL: nil
+        )
+        let second = TextBoxAttachment(
+            displayName: "second.txt",
+            submissionText: "/tmp/second.txt",
+            submissionPath: "/tmp/second.txt",
+            localURL: nil
+        )
+        let added = TextBoxAttachment(
+            displayName: "added.txt",
+            submissionText: "/tmp/added.txt",
+            submissionPath: "/tmp/added.txt",
+            localURL: nil
+        )
+        let firstPart = SessionTextBoxInputDraftPart.attachment(
+            SessionTextBoxInputAttachmentSnapshot(first)
+        )
+        let secondPart = SessionTextBoxInputDraftPart.attachment(
+            SessionTextBoxInputAttachmentSnapshot(second)
+        )
+        let addedPart = SessionTextBoxInputDraftPart.attachment(
+            SessionTextBoxInputAttachmentSnapshot(added)
+        )
+        let cache = TerminalPanelTextBoxDraftCache()
+
+        cache.recordExactSnapshot(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [firstPart, .text("compare"), secondPart]
+        ))
+        cache.updateAttachments([first, second, added])
+
+        #expect(
+            try #require(cache.currentSnapshot()).parts
+                == [firstPart, .text("compare"), secondPart, addedPart]
+        )
     }
 
     private func inlineAttachmentCellCount(in textView: TextBoxInputTextView) -> Int {
