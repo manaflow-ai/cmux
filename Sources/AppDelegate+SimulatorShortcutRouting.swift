@@ -1,19 +1,5 @@
 import AppKit
 
-extension cmuxApp {
-    func performNewSimulatorPaneFromMenu() {
-        guard let appDelegate = AppDelegate.shared,
-              appDelegate.executeConfiguredCmuxAction(
-                id: CmuxSurfaceTabBarBuiltInAction.newSimulator.configID,
-                tabManager: activeTabManager,
-                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-              ) else {
-            NSSound.beep()
-            return
-        }
-    }
-}
-
 extension AppDelegate {
     func handleSimulatorShortcutRouting(_ event: NSEvent) -> Bool {
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {

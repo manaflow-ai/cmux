@@ -1,6 +1,566 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "debug.background.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enable Glass Effect" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ガラス効果を有効にする" } }
+      }
+    },
+    "debug.background.hud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "HUD Window" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "HUDウインドウ" } }
+      }
+    },
+    "debug.background.material": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Material" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マテリアル" } }
+      }
+    },
+    "debug.background.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Menu" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メニュー" } }
+      }
+    },
+    "debug.background.popover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Popover" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ポップオーバー" } }
+      }
+    },
+    "debug.background.sidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sidebar" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サイドバー" } }
+      }
+    },
+    "debug.background.tintColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tint Color" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "色合い" } }
+      }
+    },
+    "debug.background.tintOpacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tint Opacity" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "色合いの不透明度" } }
+      }
+    },
+    "debug.background.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Window Background Glass" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウインドウ背景ガラス" } }
+      }
+    },
+    "debug.background.underWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Under Window" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ウインドウの下" } }
+      }
+    },
+    "debug.background.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Background Debug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "背景デバッグ" } }
+      }
+    },
+    "debug.browserImportHint.dismissed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pretend the user dismissed it" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ユーザーが閉じた状態にする" } }
+      }
+    },
+    "debug.browserImportHint.floatingCard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Floating Card" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フローティングカード" } }
+      }
+    },
+    "debug.browserImportHint.inlineStrip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inline Strip" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インラインストリップ" } }
+      }
+    },
+    "debug.browserImportHint.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preview blank-tab import variants and dismissal state." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "空のタブでのインポート表示と非表示状態をプレビューします。" } }
+      }
+    },
+    "debug.browserImportHint.openImport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Import Dialog" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インポートダイアログを開く" } }
+      }
+    },
+    "debug.browserImportHint.openSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Browser Settings" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ設定を開く" } }
+      }
+    },
+    "debug.browserImportHint.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset Hint Debug State" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ヒントのデバッグ状態をリセット" } }
+      }
+    },
+    "debug.browserImportHint.settingsOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Settings Only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "設定のみ" } }
+      }
+    },
+    "debug.browserImportHint.showBlankTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show on blank browser tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "空のブラウザタブに表示" } }
+      }
+    },
+    "debug.browserImportHint.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser Import Hint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザインポートヒント" } }
+      }
+    },
+    "debug.browserImportHint.toolbarChip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Toolbar Chip" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ツールバーチップ" } }
+      }
+    },
+    "debug.browserImportHint.variant": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blank Tab Style" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "空のタブのスタイル" } }
+      }
+    },
+    "debug.browserImportHint.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser Import Hint Debug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザインポートヒントのデバッグ" } }
+      }
+    },
+    "debug.common.color": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Color" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "色" } }
+      }
+    },
+    "debug.common.copyAllConfig": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy All Debug Config" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのデバッグ設定をコピー" } }
+      }
+    },
+    "debug.common.copyConfig": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy Config" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "設定をコピー" } }
+      }
+    },
+    "debug.common.icon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Icon" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイコン" } }
+      }
+    },
+    "debug.common.style": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Style" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "スタイル" } }
+      }
+    },
+    "debug.fileExplorerStyle.finder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Finder sidebar, filled icons, hover tint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Finderサイドバー、塗りつぶしアイコン、ホバー色" } }
+      }
+    },
+    "debug.fileExplorerStyle.highDensity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "VS Code, compact rows, edge-to-edge" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "VS Code、コンパクト行、端まで表示" } }
+      }
+    },
+    "debug.fileExplorerStyle.liquidGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Modern macOS, vibrancy, rounded selections" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最新macOS、透過効果、角丸選択" } }
+      }
+    },
+    "debug.fileExplorerStyle.proStudio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Logic Pro, chunky rows, pill selection" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Logic Pro、太い行、ピル型選択" } }
+      }
+    },
+    "debug.fileExplorerStyle.terminalStealth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Monospace, border selection, desaturated" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "等幅、枠線選択、低彩度" } }
+      }
+    },
+    "debug.fileExplorerStyle.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File Explorer Style" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルエクスプローラのスタイル" } }
+      }
+    },
+    "debug.menu.background": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Background Debug…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "背景デバッグ…" } }
+      }
+    },
+    "debug.menu.browserImportHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser Import Hint Debug…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザインポートヒントのデバッグ…" } }
+      }
+    },
+    "debug.menu.menuBarExtra": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Menu Bar Extra Debug…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メニューバー追加のデバッグ…" } }
+      }
+    },
+    "debug.menu.openAllWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open All Debug Windows" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのデバッグウインドウを開く" } }
+      }
+    },
+    "debug.menu.sidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sidebar Debug…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サイドバーのデバッグ…" } }
+      }
+    },
+    "debug.menuBarExtra.badgeHeight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Badge Height" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バッジの高さ" } }
+      }
+    },
+    "debug.menuBarExtra.badgeWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Badge Width" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バッジの幅" } }
+      }
+    },
+    "debug.menuBarExtra.badgeX": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Badge X" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バッジX" } }
+      }
+    },
+    "debug.menuBarExtra.badgeY": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Badge Y" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "バッジY" } }
+      }
+    },
+    "debug.menuBarExtra.multiSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "2-digit Size" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "2桁サイズ" } }
+      }
+    },
+    "debug.menuBarExtra.multiX": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "2-digit X" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "2桁X" } }
+      }
+    },
+    "debug.menuBarExtra.multiY": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "2-digit Y" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "2桁Y" } }
+      }
+    },
+    "debug.menuBarExtra.overrideCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Override unread count" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未読数を上書き" } }
+      }
+    },
+    "debug.menuBarExtra.singleSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1-digit Size" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1桁サイズ" } }
+      }
+    },
+    "debug.menuBarExtra.singleX": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1-digit X" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1桁X" } }
+      }
+    },
+    "debug.menuBarExtra.singleY": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1-digit Y" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1桁Y" } }
+      }
+    },
+    "debug.menuBarExtra.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Menu Bar Extra Icon" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メニューバー追加アイコン" } }
+      }
+    },
+    "debug.menuBarExtra.unreadCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unread Count" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未読数" } }
+      }
+    },
+    "debug.menuBarExtra.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Menu Bar Extra Debug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "メニューバー追加のデバッグ" } }
+      }
+    },
+    "debug.sidebar.blending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blending" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブレンド" } }
+      }
+    },
+    "debug.sidebar.blurStrength": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blur Strength" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ぼかしの強さ" } }
+      }
+    },
+    "debug.sidebar.cornerRadius": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Corner Radius" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "角の半径" } }
+      }
+    },
+    "debug.sidebar.material": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Material" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マテリアル" } }
+      }
+    },
+    "debug.sidebar.preset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preset" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プリセット" } }
+      }
+    },
+    "debug.sidebar.state": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "State" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "状態" } }
+      }
+    },
+    "debug.sidebar.tintColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tint Color" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "色合い" } }
+      }
+    },
+    "debug.sidebar.tintOpacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tint Opacity" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "色合いの不透明度" } }
+      }
+    },
+    "debug.sidebar.verticalBranches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Render branch list vertically" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブランチ一覧を縦に表示" } }
+      }
+    },
+    "debug.sidebar.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sidebar Debug" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サイドバーのデバッグ" } }
+      }
+    },
+    "debug.sidebarFooterIconBalance.cellGuides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Cell Guides" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セルガイドを表示" } }
+      }
+    },
+    "debug.sidebarFooterIconBalance.helpWeight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Help Weight" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ヘルプの太さ" } }
+      }
+    },
+    "debug.sidebarFooterIconBalance.hoverOpacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hover Opacity" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ホバーの不透明度" } }
+      }
+    },
+    "debug.splitButtonLayout.caretBottom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Caret Bottom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャレット下" } }
+      }
+    },
+    "debug.splitButtonLayout.caretLeading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Caret Leading" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャレット前" } }
+      }
+    },
+    "debug.splitButtonLayout.caretTop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Caret Top" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャレット上" } }
+      }
+    },
+    "debug.splitButtonLayout.caretTrailing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Caret Trailing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キャレット後" } }
+      }
+    },
+    "debug.splitButtonLayout.controlsStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Controls Style" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コントロールのスタイル" } }
+      }
+    },
+    "debug.splitButtonLayout.plusBottom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Plus Bottom" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プラス下" } }
+      }
+    },
+    "debug.splitButtonLayout.plusLeading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Plus Leading" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プラス前" } }
+      }
+    },
+    "debug.splitButtonLayout.plusTop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Plus Top" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プラス上" } }
+      }
+    },
+    "debug.splitButtonLayout.plusTrailing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Plus Trailing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プラス後" } }
+      }
+    },
+    "debug.windows.controls.devToolsButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser DevTools Button" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザDevToolsボタン" } }
+      }
+    },
+    "debug.windows.controls.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開く" } }
+      }
+    },
+    "debug.windows.controls.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Debug Window Controls" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デバッグウインドウコントロール" } }
+      }
+    },
+    "debug.windows.controls.workspaceIndicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active Workspace Indicator" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブワークスペースインジケータ" } }
+      }
+    },
     "debug.feedPreview.expired": {
       "extractionState": "manual",
       "localizations": {

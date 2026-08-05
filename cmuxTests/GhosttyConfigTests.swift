@@ -84,7 +84,7 @@ final class GhosttyConfigTests: XCTestCase {
             withIntermediateDirectories: true
         )
 
-        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+        let resolved = CmuxApplicationComposition.resolvedGhosttyResourcesDirectory(
             currentValue: inheritedResources.path,
             bundleResourceURL: bundleResources,
             ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
@@ -106,7 +106,7 @@ final class GhosttyConfigTests: XCTestCase {
         try fileManager.createDirectory(at: inheritedResources, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: emptyBundleResources, withIntermediateDirectories: true)
 
-        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+        let resolved = CmuxApplicationComposition.resolvedGhosttyResourcesDirectory(
             currentValue: inheritedResources.path,
             bundleResourceURL: emptyBundleResources,
             ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
@@ -132,7 +132,7 @@ final class GhosttyConfigTests: XCTestCase {
         )
         try fileManager.createDirectory(at: bundledGhostty, withIntermediateDirectories: true)
 
-        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+        let resolved = CmuxApplicationComposition.resolvedGhosttyResourcesDirectory(
             currentValue: inheritedResources.path,
             bundleResourceURL: bundleResources,
             ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
@@ -153,7 +153,7 @@ final class GhosttyConfigTests: XCTestCase {
         let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
         try fileManager.createDirectory(at: bundledGhostty, withIntermediateDirectories: true)
 
-        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+        let resolved = CmuxApplicationComposition.resolvedGhosttyResourcesDirectory(
             currentValue: root.appendingPathComponent("missing-inherited", isDirectory: true).path,
             bundleResourceURL: bundleResources,
             ghosttyAppResources: root.appendingPathComponent("missing-app", isDirectory: true).path,
