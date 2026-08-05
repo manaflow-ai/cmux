@@ -10,6 +10,11 @@ mock.module("../services/coderouter/repository", () => ({
     vaultRevision: 1,
   }),
   markAccountCooldown: async () => {},
+  listAccounts: async () => [],
+  findAccountByProviderIdentity: async () => null,
+  upsertAccountMetadata: async () => {},
+  withVaultLease: async (_teamId: string, operation: () => unknown) =>
+    await operation(),
 }));
 mock.module("../services/coderouter/refresh", () => ({
   freshCredential: async () => ({
@@ -22,7 +27,8 @@ mock.module("../services/coderouter/refresh", () => ({
 const originalFetch = globalThis.fetch;
 let upstreamUrl = "";
 beforeAll(() => {
-  globalThis.fetch = mock(async (input: string | URL | Request) => {
+  globalThis.fetch = mock(async (...args: unknown[]) => {
+    const input = args[0] as string | URL | Request;
     upstreamUrl = String(input);
     return Response.json({ models: [{ slug: "gpt-test" }] });
   }) as typeof fetch;
