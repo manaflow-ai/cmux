@@ -2,6 +2,7 @@ import CoreGraphics
 import CmuxMobileShellModel
 import Testing
 #if os(iOS)
+import SwiftUI
 import UIKit
 #endif
 @testable import CmuxMobileShellUI
