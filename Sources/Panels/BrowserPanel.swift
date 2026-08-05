@@ -6216,7 +6216,7 @@ final class BrowserPanel: Panel, ObservableObject {
             discarded: { [weak self] in
                 self?.discardFileOnlyNavigation(id: id)
             },
-            expired: { [weak self] in
+            rejected: { [weak self] in
                 self?.finishFileOnlyNavigation(id: id, navigationURL: nil)
             }
         )

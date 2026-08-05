@@ -2,19 +2,13 @@ import Foundation
 
 /// Bounds command-path and restricted Browser filesystem work process-wide.
 ///
-/// Mutable scheduling state is main-actor isolated. At most one asynchronous,
-/// deadline-bounded probe runs at a time. Discrete clicks use a bounded FIFO,
-/// correctness-critical Browser work coalesces per owner and expires after a
-/// bounded queue wait, hover movement collapses to the newest request, and
-/// hover starts are rate limited. Click and Browser work alternate while both
-/// are pending, and either class runs before hover work.
+/// Mutable scheduling state is main-actor isolated. Click and hover probes share
+/// one interactive lane. Correctness-critical Browser work has a separate,
+/// fixed-width lane, coalesces per owner, and uses a bounded owner queue. Every
+/// probe retains its own subprocess deadline, so unrelated work cannot consume
+/// another navigation's filesystem budget.
 @MainActor
 final class WordPathFilesystemResolutionCoordinator {
-    private enum ForegroundQueueTurn {
-        case click
-        case coalesced
-    }
-
     typealias Completion = @MainActor @Sendable () -> Void
     typealias Work = @Sendable () async -> Completion
     typealias Prepare = @MainActor @Sendable () -> Work?
@@ -23,42 +17,39 @@ final class WordPathFilesystemResolutionCoordinator {
         id: UUID,
         isUserInitiated: Bool,
         coalescingKey: UUID?,
-        queueDeadline: DispatchTime?,
         prepare: Prepare,
-        discarded: Discarded,
-        expired: Discarded?
+        discarded: Discarded
     )
+    private typealias RunningCoalescedJob = (id: UUID, task: Task<Void, Never>)
 
     static let shared = WordPathFilesystemResolutionCoordinator()
 
     private static let maximumPendingClicks = 32
 
     private let minimumHoverInterval: DispatchTimeInterval
-    private let maximumCoalescedQueueWait: DispatchTimeInterval
+    private let maximumConcurrentCoalescedJobs: Int
+    private let maximumPendingCoalescedOwners: Int
     private var runningID: UUID?
-    private var runningCoalescingKey: UUID?
     private var runningTask: Task<Void, Never>?
     private var pendingClicks: [Job] = []
+    private var runningCoalescedJobs: [UUID: RunningCoalescedJob] = [:]
     private var pendingCoalescedOrder: [UUID] = []
     private var pendingCoalescedHead = 0
     private var pendingCoalescedKeys = Set<UUID>()
     private var pendingCoalescedJobs: [UUID: Job] = [:]
     private var pendingCoalescedKeyByJobID: [UUID: UUID] = [:]
-    private var foregroundQueueTurn: ForegroundQueueTurn = .coalesced
-    private var coalescedExpiryTimer: DispatchSourceTimer?
-    private var coalescedExpiryTimerDeadline: DispatchTime?
     private var pendingHover: Job?
     private var nextHoverStartDeadline = DispatchTime.now()
     private var hoverStartTimer: DispatchSourceTimer?
 
     init(
         minimumHoverInterval: DispatchTimeInterval = .milliseconds(100),
-        // Browser work that cannot start within this budget enters its visible
-        // recoverable-failure state instead of waiting behind every restored tab.
-        maximumCoalescedQueueWait: DispatchTimeInterval = .seconds(1)
+        maximumConcurrentCoalescedJobs: Int = 4,
+        maximumPendingCoalescedOwners: Int = 128
     ) {
         self.minimumHoverInterval = minimumHoverInterval
-        self.maximumCoalescedQueueWait = maximumCoalescedQueueWait
+        self.maximumConcurrentCoalescedJobs = max(1, maximumConcurrentCoalescedJobs)
+        self.maximumPendingCoalescedOwners = max(0, maximumPendingCoalescedOwners)
     }
 
     func submit(
@@ -85,10 +76,8 @@ final class WordPathFilesystemResolutionCoordinator {
             id: id,
             isUserInitiated: isUserInitiated,
             coalescingKey: nil,
-            queueDeadline: nil,
             prepare: prepare,
-            discarded: discarded,
-            expired: nil
+            discarded: discarded
         )
 
         if isUserInitiated {
@@ -103,40 +92,46 @@ final class WordPathFilesystemResolutionCoordinator {
         startNextIfPossible()
     }
 
-    /// Queues correctness-critical work without silently evicting an owner.
+    /// Runs correctness-critical work independently from terminal interaction.
     /// Only the latest pending job for each owner is retained. Distinct owners
-    /// remain FIFO, and expired owners receive an explicit recovery callback.
+    /// remain FIFO, and capacity rejection receives an explicit recovery callback.
     func submitCoalesced(
         id: UUID,
         coalescingKey: UUID,
         work: @escaping Work,
         discarded: @escaping Discarded,
-        expired: @escaping Discarded
+        rejected: @escaping Discarded
     ) {
         let job = Job(
             id: id,
             isUserInitiated: true,
             coalescingKey: coalescingKey,
-            queueDeadline: .now() + maximumCoalescedQueueWait,
             prepare: { work },
-            discarded: discarded,
-            expired: expired
+            discarded: discarded
         )
-        if runningCoalescingKey == coalescingKey {
-            runningTask?.cancel()
+
+        if let running = runningCoalescedJobs[coalescingKey] {
+            running.task.cancel()
+            replacePendingCoalescedJob(job, for: coalescingKey)
+            return
         }
-        if let previous = pendingCoalescedJobs.updateValue(job, forKey: coalescingKey) {
-            pendingCoalescedKeyByJobID.removeValue(forKey: previous.id)
-            previous.discarded()
+        if pendingCoalescedJobs[coalescingKey] != nil {
+            replacePendingCoalescedJob(job, for: coalescingKey)
+            return
         }
+        if runningCoalescedJobs.count < maximumConcurrentCoalescedJobs {
+            startCoalesced(job)
+            return
+        }
+        guard pendingCoalescedJobs.count < maximumPendingCoalescedOwners else {
+            rejected()
+            return
+        }
+        pendingCoalescedJobs[coalescingKey] = job
         pendingCoalescedKeyByJobID[id] = coalescingKey
         if pendingCoalescedKeys.insert(coalescingKey).inserted {
             pendingCoalescedOrder.append(coalescingKey)
         }
-        if let queueDeadline = job.queueDeadline {
-            scheduleCoalescedExpiryTimerIfEarlier(at: queueDeadline)
-        }
-        startNextIfPossible()
     }
 
     func cancelPending(id: UUID) {
@@ -146,10 +141,12 @@ final class WordPathFilesystemResolutionCoordinator {
         if let index = pendingClicks.firstIndex(where: { $0.id == id }) {
             pendingClicks.remove(at: index).discarded()
         }
+        if let running = runningCoalescedJobs.first(where: { $0.value.id == id }) {
+            running.value.task.cancel()
+        }
         if let key = pendingCoalescedKeyByJobID.removeValue(forKey: id),
            pendingCoalescedJobs[key]?.id == id {
             pendingCoalescedJobs.removeValue(forKey: key)?.discarded()
-            rescheduleCoalescedExpiryTimer()
         }
         if pendingHover?.id == id {
             let discarded = pendingHover?.discarded
@@ -157,6 +154,20 @@ final class WordPathFilesystemResolutionCoordinator {
             discarded?()
         }
         startNextIfPossible()
+        startPendingCoalescedJobsIfPossible()
+    }
+
+    private func replacePendingCoalescedJob(_ job: Job, for key: UUID) {
+        if let previous = pendingCoalescedJobs.updateValue(job, forKey: key) {
+            pendingCoalescedKeyByJobID.removeValue(forKey: previous.id)
+            previous.discarded()
+        }
+        pendingCoalescedKeyByJobID[job.id] = key
+        guard runningCoalescedJobs[key] == nil,
+              pendingCoalescedKeys.insert(key).inserted else {
+            return
+        }
+        pendingCoalescedOrder.append(key)
     }
 
     private func start(_ job: Job) {
@@ -167,7 +178,6 @@ final class WordPathFilesystemResolutionCoordinator {
             return
         }
         runningID = job.id
-        runningCoalescingKey = job.coalescingKey
         if !job.isUserInitiated {
             nextHoverStartDeadline = .now() + minimumHoverInterval
         }
@@ -184,33 +194,48 @@ final class WordPathFilesystemResolutionCoordinator {
     private func didFinish(id: UUID) {
         guard runningID == id else { return }
         runningID = nil
-        runningCoalescingKey = nil
         runningTask = nil
         startNextIfPossible()
     }
 
+    private func startCoalesced(_ job: Job) {
+        guard let key = job.coalescingKey else {
+            job.discarded()
+            startPendingCoalescedJobsIfPossible()
+            return
+        }
+        guard let work = job.prepare() else {
+            job.discarded()
+            startPendingCoalescedJobsIfPossible()
+            return
+        }
+        let id = job.id
+        let task = Task.detached(priority: .utility) { [weak self, id, key, work] in
+            let completion = await work()
+            await MainActor.run { [weak self, id, key, completion] in
+                completion()
+                self?.didFinishCoalesced(id: id, key: key)
+            }
+        }
+        runningCoalescedJobs[key] = (id: id, task: task)
+    }
+
+    private func didFinishCoalesced(id: UUID, key: UUID) {
+        guard runningCoalescedJobs[key]?.id == id else { return }
+        runningCoalescedJobs.removeValue(forKey: key)
+
+        if let replacement = pendingCoalescedJobs.removeValue(forKey: key) {
+            pendingCoalescedKeyByJobID.removeValue(forKey: replacement.id)
+            startCoalesced(replacement)
+            return
+        }
+        startPendingCoalescedJobsIfPossible()
+    }
+
     private func startNextIfPossible() {
         guard runningID == nil else { return }
-        let now = DispatchTime.now()
-        if let coalescedExpiryTimerDeadline,
-           now >= coalescedExpiryTimerDeadline {
-            expirePendingCoalescedJobs(now: now)
-        }
-
-        if foregroundQueueTurn == .coalesced,
-           let next = dequeueNextCoalescedJob() {
-            foregroundQueueTurn = .click
-            start(next)
-            return
-        }
         if !pendingClicks.isEmpty {
             let next = pendingClicks.removeFirst()
-            foregroundQueueTurn = .coalesced
-            start(next)
-            return
-        }
-        if let next = dequeueNextCoalescedJob() {
-            foregroundQueueTurn = .click
             start(next)
             return
         }
@@ -228,24 +253,19 @@ final class WordPathFilesystemResolutionCoordinator {
         start(next)
     }
 
-    private func dequeueNextCoalescedJob() -> Job? {
-        while pendingCoalescedHead < pendingCoalescedOrder.count {
+    private func startPendingCoalescedJobsIfPossible() {
+        while runningCoalescedJobs.count < maximumConcurrentCoalescedJobs,
+              pendingCoalescedHead < pendingCoalescedOrder.count {
             let key = pendingCoalescedOrder[pendingCoalescedHead]
             pendingCoalescedHead += 1
             pendingCoalescedKeys.remove(key)
             if let next = pendingCoalescedJobs.removeValue(forKey: key) {
                 pendingCoalescedKeyByJobID.removeValue(forKey: next.id)
                 compactPendingCoalescedOrderIfNeeded()
-                if let queueDeadline = next.queueDeadline,
-                   DispatchTime.now() >= queueDeadline {
-                    next.expired?()
-                    continue
-                }
-                return next
+                startCoalesced(next)
             }
         }
         compactPendingCoalescedOrderIfNeeded()
-        return nil
     }
 
     private func compactPendingCoalescedOrderIfNeeded() {
@@ -255,63 +275,6 @@ final class WordPathFilesystemResolutionCoordinator {
         }
         pendingCoalescedOrder.removeFirst(pendingCoalescedHead)
         pendingCoalescedHead = 0
-    }
-
-    private func scheduleCoalescedExpiryTimerIfEarlier(at deadline: DispatchTime) {
-        if let coalescedExpiryTimerDeadline,
-           coalescedExpiryTimerDeadline <= deadline {
-            return
-        }
-        scheduleCoalescedExpiryTimer(at: deadline)
-    }
-
-    private func scheduleCoalescedExpiryTimer(at deadline: DispatchTime) {
-        if let coalescedExpiryTimer {
-            coalescedExpiryTimer.schedule(deadline: deadline)
-        } else {
-            let timer = DispatchSource.makeTimerSource(queue: .main)
-            timer.setEventHandler { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.coalescedExpiryTimerDidFire()
-                }
-            }
-            coalescedExpiryTimer = timer
-            timer.schedule(deadline: deadline)
-            timer.resume()
-        }
-        coalescedExpiryTimerDeadline = deadline
-    }
-
-    private func coalescedExpiryTimerDidFire() {
-        expirePendingCoalescedJobs(now: .now())
-        startNextIfPossible()
-    }
-
-    private func expirePendingCoalescedJobs(now: DispatchTime) {
-        let expiredKeys = pendingCoalescedJobs.compactMap { key, job -> UUID? in
-            guard let queueDeadline = job.queueDeadline,
-                  now >= queueDeadline else {
-                return nil
-            }
-            return key
-        }
-        for key in expiredKeys {
-            guard let job = pendingCoalescedJobs.removeValue(forKey: key) else { continue }
-            pendingCoalescedKeyByJobID.removeValue(forKey: job.id)
-            job.expired?()
-        }
-        rescheduleCoalescedExpiryTimer()
-    }
-
-    private func rescheduleCoalescedExpiryTimer() {
-        let nextDeadline = pendingCoalescedJobs.values.compactMap { $0.queueDeadline }.min()
-        guard let nextDeadline else {
-            coalescedExpiryTimer?.cancel()
-            coalescedExpiryTimer = nil
-            coalescedExpiryTimerDeadline = nil
-            return
-        }
-        scheduleCoalescedExpiryTimer(at: nextDeadline)
     }
 
     private func scheduleHoverStart(at deadline: DispatchTime) {

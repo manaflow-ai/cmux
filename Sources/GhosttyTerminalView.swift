@@ -7027,9 +7027,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         setWordPathHoverActive(resolution != nil)
         if resolution == nil {
-            cachedWordPathHover = nil
-            // Keep observing this surface while Command remains held. A later
-            // rendered frame may replace the hovered cell with a valid path.
+            // Retain the negative result for this exact cell, surface, and CWD.
+            // Command-click always resolves afresh, while stopping frame demand
+            // prevents cursor-blink renders from repeating transcript capture
+            // and filesystem work for a stationary pointer.
+            stopWordPathHoverRenderedFrameObservation()
         }
     }
 

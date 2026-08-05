@@ -235,9 +235,7 @@ struct CommandClickHTMLOpenRoutingTests {
 
     @Test(.timeLimit(.minutes(1)))
     func filesystemProbePoolRunsBrowserWorkIndependentlyOfQueuedClicks() async {
-        let pool = WordPathFilesystemResolutionCoordinator(
-            maximumCoalescedQueueWait: .seconds(60)
-        )
+        let pool = WordPathFilesystemResolutionCoordinator()
         let firstClickStarted = AsyncStream<Void>.makeStream()
         let releaseFirstClick = AsyncStream<Void>.makeStream()
         let events = AsyncStream<String>.makeStream()
@@ -271,7 +269,7 @@ struct CommandClickHTMLOpenRoutingTests {
                 return { @MainActor in events.continuation.yield("browser") }
             },
             discarded: {},
-            expired: {}
+            rejected: {}
         )
 
         var eventIterator = events.stream.makeAsyncIterator()
@@ -288,9 +286,7 @@ struct CommandClickHTMLOpenRoutingTests {
 
     @Test(.timeLimit(.minutes(1)))
     func filesystemProbePoolPreservesDistinctCoalescedOwnersBeyondClickLimit() async {
-        let pool = WordPathFilesystemResolutionCoordinator(
-            maximumCoalescedQueueWait: .seconds(60)
-        )
+        let pool = WordPathFilesystemResolutionCoordinator()
         let blockerStarted = AsyncStream<Void>.makeStream()
         let releaseBlocker = AsyncStream<Void>.makeStream()
         let jobsFinished = AsyncStream<Int>.makeStream()
@@ -317,10 +313,9 @@ struct CommandClickHTMLOpenRoutingTests {
                     return { @MainActor in jobsFinished.continuation.yield(job) }
                 },
                 discarded: {},
-                expired: {}
+                rejected: {}
             )
         }
-        releaseBlocker.continuation.yield()
 
         var finishedIterator = jobsFinished.stream.makeAsyncIterator()
         var completedJobs: [Int] = []
@@ -329,7 +324,9 @@ struct CommandClickHTMLOpenRoutingTests {
                 completedJobs.append(job)
             }
         }
-        #expect(completedJobs == Array(1...40))
+        #expect(completedJobs.sorted() == Array(1...40))
+
+        releaseBlocker.continuation.yield()
 
         blockerStarted.continuation.finish()
         releaseBlocker.continuation.finish()
@@ -338,7 +335,9 @@ struct CommandClickHTMLOpenRoutingTests {
 
     @Test(.timeLimit(.minutes(1)))
     func filesystemProbePoolKeepsOnlyLatestPendingJobForOneCoalescedOwner() async {
-        let pool = WordPathFilesystemResolutionCoordinator()
+        let pool = WordPathFilesystemResolutionCoordinator(
+            maximumConcurrentCoalescedJobs: 1
+        )
         let blockerStarted = AsyncStream<Void>.makeStream()
         let releaseBlocker = AsyncStream<Void>.makeStream()
         let firstDiscarded = AsyncStream<Void>.makeStream()
@@ -346,16 +345,17 @@ struct CommandClickHTMLOpenRoutingTests {
         let firstRan = AtomicBooleanGate(false)
         let owner = UUID()
 
-        pool.submit(
+        pool.submitCoalesced(
             id: UUID(),
-            isUserInitiated: false,
+            coalescingKey: UUID(),
             work: {
                 blockerStarted.continuation.yield()
                 var releaseIterator = releaseBlocker.stream.makeAsyncIterator()
                 _ = await releaseIterator.next()
                 return { @MainActor in }
             },
-            discarded: {}
+            discarded: {},
+            rejected: {}
         )
         var blockerIterator = blockerStarted.stream.makeAsyncIterator()
         _ = await blockerIterator.next()
@@ -368,7 +368,7 @@ struct CommandClickHTMLOpenRoutingTests {
                 return { @MainActor in }
             },
             discarded: { firstDiscarded.continuation.yield() },
-            expired: {}
+            rejected: {}
         )
         pool.submitCoalesced(
             id: UUID(),
@@ -377,7 +377,7 @@ struct CommandClickHTMLOpenRoutingTests {
                 return { @MainActor in latestFinished.continuation.yield() }
             },
             discarded: {},
-            expired: {}
+            rejected: {}
         )
 
         var discardedIterator = firstDiscarded.stream.makeAsyncIterator()
@@ -394,25 +394,28 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func filesystemProbePoolExpiresCoalescedWorkBeforeAnUnboundedQueueWait() async {
+    func filesystemProbePoolRejectsANewOwnerWhenItsBoundedQueueIsFull() async {
         let pool = WordPathFilesystemResolutionCoordinator(
-            maximumCoalescedQueueWait: .nanoseconds(0)
+            maximumConcurrentCoalescedJobs: 1,
+            maximumPendingCoalescedOwners: 1
         )
         let blockerStarted = AsyncStream<Void>.makeStream()
         let releaseBlocker = AsyncStream<Void>.makeStream()
-        let expired = AsyncStream<Void>.makeStream()
-        let workRan = AtomicBooleanGate(false)
+        let pendingFinished = AsyncStream<Void>.makeStream()
+        let rejected = AsyncStream<Void>.makeStream()
+        let rejectedWorkRan = AtomicBooleanGate(false)
 
-        pool.submit(
+        pool.submitCoalesced(
             id: UUID(),
-            isUserInitiated: false,
+            coalescingKey: UUID(),
             work: {
                 blockerStarted.continuation.yield()
                 var releaseIterator = releaseBlocker.stream.makeAsyncIterator()
                 _ = await releaseIterator.next()
                 return { @MainActor in }
             },
-            discarded: {}
+            discarded: {},
+            rejected: {}
         )
         var blockerIterator = blockerStarted.stream.makeAsyncIterator()
         _ = await blockerIterator.next()
@@ -421,71 +424,34 @@ struct CommandClickHTMLOpenRoutingTests {
             id: UUID(),
             coalescingKey: UUID(),
             work: {
-                workRan.storeRelease(true)
-                return { @MainActor in }
+                return { @MainActor in pendingFinished.continuation.yield() }
             },
             discarded: {},
-            expired: { expired.continuation.yield() }
+            rejected: {}
         )
-        releaseBlocker.continuation.yield()
-
-        var expiredIterator = expired.stream.makeAsyncIterator()
-        _ = await expiredIterator.next()
-        #expect(!workRan.loadAcquire())
-
-        blockerStarted.continuation.finish()
-        releaseBlocker.continuation.finish()
-        expired.continuation.finish()
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func filesystemProbePoolExpiresCoalescedWorkBeforeDrainingClicks() async {
-        let pool = WordPathFilesystemResolutionCoordinator(
-            maximumCoalescedQueueWait: .nanoseconds(0)
-        )
-        let blockerStarted = AsyncStream<Void>.makeStream()
-        let releaseBlocker = AsyncStream<Void>.makeStream()
-        let events = AsyncStream<String>.makeStream()
-
-        pool.submit(
-            id: UUID(),
-            isUserInitiated: false,
-            work: {
-                blockerStarted.continuation.yield()
-                var releaseIterator = releaseBlocker.stream.makeAsyncIterator()
-                _ = await releaseIterator.next()
-                return { @MainActor in }
-            },
-            discarded: {}
-        )
-        var blockerIterator = blockerStarted.stream.makeAsyncIterator()
-        _ = await blockerIterator.next()
-
         pool.submitCoalesced(
             id: UUID(),
             coalescingKey: UUID(),
             work: {
-                return { @MainActor in events.continuation.yield("browser-work") }
+                rejectedWorkRan.storeRelease(true)
+                return { @MainActor in }
             },
             discarded: {},
-            expired: { events.continuation.yield("browser-expired") }
+            rejected: { rejected.continuation.yield() }
         )
-        pool.submit(
-            id: UUID(),
-            isUserInitiated: true,
-            work: {
-                return { @MainActor in events.continuation.yield("click") }
-            },
-            discarded: {}
-        )
-        releaseBlocker.continuation.yield()
 
-        var eventIterator = events.stream.makeAsyncIterator()
-        #expect(await eventIterator.next() == "browser-expired")
+        var rejectedIterator = rejected.stream.makeAsyncIterator()
+        _ = await rejectedIterator.next()
+        #expect(!rejectedWorkRan.loadAcquire())
+
+        releaseBlocker.continuation.yield()
+        var pendingFinishedIterator = pendingFinished.stream.makeAsyncIterator()
+        _ = await pendingFinishedIterator.next()
 
         blockerStarted.continuation.finish()
         releaseBlocker.continuation.finish()
-        events.continuation.finish()
+        pendingFinished.continuation.finish()
+        rejected.continuation.finish()
     }
 
     @Test(.timeLimit(.minutes(1)))
