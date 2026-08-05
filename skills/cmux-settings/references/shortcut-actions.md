@@ -44,6 +44,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.reopenClosedBrowserPanel` (legacy ID for **Reopen Last Closed**)
 - `shortcuts.bindings.moveWorkspaceUp`
 - `shortcuts.bindings.moveWorkspaceDown`
+- `shortcuts.bindings.moveWorkspaceToTop`
 
 ## Panes and surfaces
 

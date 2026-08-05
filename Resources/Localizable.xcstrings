@@ -208506,6 +208506,23 @@
         }
       }
     },
+    "shortcut.moveWorkspaceToTop.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Workspace to Top"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを最上部へ移動"
+          }
+        }
+      }
+    },
     "shortcut.moveWorkspaceUp.label": {
       "extractionState": "manual",
       "localizations": {

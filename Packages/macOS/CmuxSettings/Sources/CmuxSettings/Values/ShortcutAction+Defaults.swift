@@ -136,6 +136,7 @@ extension ShortcutAction {
         case .selectWorkspaceByNumber: return ShortcutStroke(key: "1", command: true)
         case .moveWorkspaceUp: return ShortcutStroke(key: "[", command: true, option: true, control: true)
         case .moveWorkspaceDown: return ShortcutStroke(key: "]", command: true, option: true, control: true)
+        case .moveWorkspaceToTop: return nil
         case .newSurface: return ShortcutStroke(key: "t", command: true)
         case .toggleTerminalCopyMode: return ShortcutStroke(key: "m", command: true, shift: true)
         case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)

@@ -1628,6 +1628,7 @@
               "prevSidebarTab",
               "moveWorkspaceUp",
               "moveWorkspaceDown",
+              "moveWorkspaceToTop",
               "focusHistoryBack",
               "focusHistoryForward",
               "selectWorkspaceByNumber",

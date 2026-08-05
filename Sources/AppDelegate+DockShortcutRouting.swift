@@ -84,7 +84,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToFeed,
              .switchRightSidebarToDock,
              .nextSidebarTab, .prevSidebarTab,
-             .moveWorkspaceUp, .moveWorkspaceDown,
+             .moveWorkspaceUp, .moveWorkspaceDown, .moveWorkspaceToTop,
              .selectWorkspaceByNumber,
              .renameWorkspace, .editWorkspaceDescription,
              .markWorkspaceDone, .cycleWorkspaceStatus,

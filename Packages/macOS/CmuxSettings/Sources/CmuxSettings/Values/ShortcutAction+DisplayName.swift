@@ -57,6 +57,7 @@ extension ShortcutAction {
         case .prevSidebarTab: return "Previous Workspace"
         case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
         case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
+        case .moveWorkspaceToTop: return String(localized: "shortcut.moveWorkspaceToTop.label", defaultValue: "Move Workspace to Top")
         case .focusHistoryBack: return "Focus Back"
         case .focusHistoryForward: return "Focus Forward"
         case .selectWorkspaceByNumber: return "Select Workspace 1…9"

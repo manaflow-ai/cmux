@@ -13109,6 +13109,21 @@ extension Workspace: BonsplitDelegate {
         return terminalPanel(for: panelId)
     }
 
+    private func surfaceTabBarCommandBaseCwd(inPane pane: PaneID) -> String {
+        let paneDirectory = selectedTerminalPanel(inPane: pane).flatMap { terminal -> String? in
+            for candidate in [panelDirectories[terminal.id], terminal.requestedWorkingDirectory] {
+                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let trimmed, !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+            return nil
+        }
+        let rawCwd = paneDirectory ?? currentDirectory
+        let trimmedCwd = rawCwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmedCwd
+    }
+
     private func executeSurfaceTabBarCommandButton(identifier: String, inPane pane: PaneID) {
         guard let executable = surfaceTabBarCommandButtons[identifier] else {
             return
@@ -13149,18 +13164,7 @@ extension Workspace: BonsplitDelegate {
                 applyTabSelection(tabId: selectedTab.id, inPane: pane)
             }
 
-            let paneDirectory = selectedTerminalPanel(inPane: pane).flatMap { terminal -> String? in
-                for candidate in [panelDirectories[terminal.id], terminal.requestedWorkingDirectory] {
-                    let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let trimmed, !trimmed.isEmpty {
-                        return trimmed
-                    }
-                }
-                return nil
-            }
-            let rawCwd = paneDirectory ?? currentDirectory
-            let trimmedCwd = rawCwd.trimmingCharacters(in: .whitespacesAndNewlines)
-            let baseCwd = trimmedCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmedCwd
+            let baseCwd = surfaceTabBarCommandBaseCwd(inPane: pane)
             guard let tabManager = owningTabManager else { return }
             let command: CmuxCommandDefinition
             let configSourcePath: String?
@@ -13203,16 +13207,27 @@ extension Workspace: BonsplitDelegate {
             presentingWindow: presentingWindow
         ) { [weak self] shellInput in
             guard let self else { return }
-            self.bonsplitController.focusPane(pane)
             switch target {
             case .currentTerminal:
+                self.bonsplitController.focusPane(pane)
                 self.selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
             case .newTabInCurrentPane:
+                self.bonsplitController.focusPane(pane)
                 _ = self.newTerminalSurface(
                     inPane: pane,
                     focus: true,
                     initialInput: shellInput,
                     inheritWorkingDirectoryFallback: true
+                )
+            case .background:
+                let surfaceID = self.bonsplitController.selectedTab(inPane: pane)
+                    .map(\.id)
+                    .flatMap(self.panelIdFromSurfaceId)
+                _ = CmuxConfigExecutor.runBackgroundCommand(
+                    shellInput,
+                    baseCwd: self.surfaceTabBarCommandBaseCwd(inPane: pane),
+                    workspaceID: self.id,
+                    surfaceID: surfaceID
                 )
             }
         }

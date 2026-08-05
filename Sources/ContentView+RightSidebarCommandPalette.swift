@@ -59,6 +59,8 @@ extension ContentView {
             return .moveWorkspaceUp
         case "palette.moveWorkspaceDown":
             return .moveWorkspaceDown
+        case "palette.moveWorkspaceToTop":
+            return .moveWorkspaceToTop
         case "palette.nextTabInPane":
             return .nextSurface
         case "palette.previousTabInPane":

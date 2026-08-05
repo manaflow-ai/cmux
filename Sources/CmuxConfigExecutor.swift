@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 
 @MainActor
@@ -115,10 +116,11 @@ struct CmuxConfigExecutor {
 
         guard let command = action.terminalCommand else { return false }
         let target = action.terminalCommandTarget ?? .newTabInCurrentPane
+        let selectedWorkspace = tabManager.selectedWorkspace
         let targetTerminal = (target == .currentTerminal)
-            ? tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel
+            ? selectedWorkspace?.focusedTerminalInputTarget()?.panel
             : nil
-        let targetWorkspace = (target == .newTabInCurrentPane) ? tabManager.selectedWorkspace : nil
+        let targetWorkspace = (target == .newTabInCurrentPane) ? selectedWorkspace : nil
         return prepareShellInputIfAuthorized(
             command,
             confirm: action.confirm ?? false,
@@ -137,9 +139,105 @@ struct CmuxConfigExecutor {
             case .newTabInCurrentPane:
                 targetWorkspace?.clearSplitZoom()
                 targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+            case .background:
+                guard runBackgroundCommand(
+                    shellInput,
+                    baseCwd: baseCwd,
+                    workspaceID: selectedWorkspace?.id,
+                    surfaceID: selectedWorkspace?.focusedPanelId
+                ) else { return }
             }
             onExecuted?()
         }
+    }
+
+    /// Launches an authorized action without attaching it to a terminal.
+    @discardableResult
+    static func runBackgroundCommand(
+        _ shellCommand: String,
+        baseCwd: String,
+        workspaceID: UUID?,
+        surfaceID: UUID?
+    ) -> Bool {
+        guard !shellCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", shellCommand]
+        process.environment = backgroundCommandEnvironment(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        process.currentDirectoryURL = backgroundCommandWorkingDirectory(baseCwd)
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            return true
+        } catch {
+            NSLog("cmux background action failed to launch: \(error)")
+            return false
+        }
+    }
+
+    private static func backgroundCommandEnvironment(
+        workspaceID: UUID?,
+        surfaceID: UUID?
+    ) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET"] = ""
+        environment["CMUX_SOCKET_PATH"] = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = nil
+        environment["CMUX_SSH_ATTEMPT_ID"] = nil
+
+        if let workspaceID {
+            environment["CMUX_WORKSPACE_ID"] = workspaceID.uuidString
+            environment["CMUX_TAB_ID"] = workspaceID.uuidString
+        } else {
+            environment["CMUX_WORKSPACE_ID"] = nil
+            environment["CMUX_TAB_ID"] = nil
+        }
+        if let surfaceID {
+            environment["CMUX_SURFACE_ID"] = surfaceID.uuidString
+            environment["CMUX_PANEL_ID"] = surfaceID.uuidString
+        } else {
+            environment["CMUX_SURFACE_ID"] = nil
+            environment["CMUX_PANEL_ID"] = nil
+        }
+
+        for (key, value) in TerminalController.shared.socketClientCapabilityEnvironment() {
+            environment[key] = value
+        }
+        if let bundleIdentifier = Bundle.main.bundleIdentifier, !bundleIdentifier.isEmpty {
+            environment["CMUX_BUNDLE_ID"] = bundleIdentifier
+        }
+        if let bundledCLI = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+           FileManager.default.isExecutableFile(atPath: bundledCLI.path) {
+            environment["CMUX_BUNDLED_CLI_PATH"] = bundledCLI.path
+            let bundledBin = bundledCLI.deletingLastPathComponent().path
+            let inheritedPath = environment["PATH"] ?? ""
+            environment["PATH"] = inheritedPath.isEmpty
+                ? bundledBin
+                : "\(bundledBin):\(inheritedPath)"
+        }
+        return environment
+    }
+
+    private static func backgroundCommandWorkingDirectory(_ baseCwd: String) -> URL {
+        let trimmedCwd = baseCwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        var isDirectory: ObjCBool = false
+        if !trimmedCwd.isEmpty,
+           FileManager.default.fileExists(atPath: trimmedCwd, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            return URL(fileURLWithPath: trimmedCwd, isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
     }
 
     @discardableResult

@@ -71,6 +71,10 @@ extension AppDelegate {
             routedTabs?.moveSelectedWorkspace(by: 1)
             return true
         }
+        if matchConfiguredShortcut(event: event, action: .moveWorkspaceToTop) {
+            routedTabs?.moveSelectedWorkspaceToTop()
+            return true
+        }
         return false
     }
 

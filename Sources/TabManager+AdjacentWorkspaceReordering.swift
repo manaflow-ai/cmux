@@ -18,4 +18,14 @@ extension TabManager {
         selectWorkspace(workspace)
         return true
     }
+
+    /// Moves the selected workspace to the top of its pinned or unpinned tier
+    /// while preserving its selection.
+    @discardableResult
+    func moveSelectedWorkspaceToTop() -> Bool {
+        guard let workspace = selectedWorkspace else { return false }
+        moveTabsToTop([workspace.id])
+        selectWorkspace(workspace)
+        return true
+    }
 }

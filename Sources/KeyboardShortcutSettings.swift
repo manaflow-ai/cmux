@@ -106,7 +106,7 @@ enum KeyboardShortcutSettings {
         case selectSurfaceByNumber
         case nextSidebarTab
         case prevSidebarTab
-        case moveWorkspaceUp, moveWorkspaceDown
+        case moveWorkspaceUp, moveWorkspaceDown, moveWorkspaceToTop
         case focusHistoryBack
         case focusHistoryForward
         case selectWorkspaceByNumber
@@ -255,6 +255,7 @@ enum KeyboardShortcutSettings {
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
             case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
             case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
+            case .moveWorkspaceToTop: return String(localized: "shortcut.moveWorkspaceToTop.label", defaultValue: "Move Workspace to Top")
             case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
             case .focusHistoryForward: return String(localized: "shortcut.focusHistoryForward.label", defaultValue: "Focus Forward")
             case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
@@ -578,6 +579,7 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .moveWorkspaceUp: return StoredShortcut(key: "[", command: true, shift: false, option: true, control: true)
             case .moveWorkspaceDown: return StoredShortcut(key: "]", command: true, shift: false, option: true, control: true)
+            case .moveWorkspaceToTop: return .unbound
             case .toggleRightSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
             case .fileExplorerOpenSelection:

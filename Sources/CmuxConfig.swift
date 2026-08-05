@@ -332,6 +332,7 @@ struct CmuxResolvedNotificationHook: Sendable, Hashable {
 enum CmuxConfigTerminalCommandTarget: String, Codable, Sendable, Hashable {
     case currentTerminal
     case newTabInCurrentPane
+    case background
 
     static let defaultForActions: CmuxConfigTerminalCommandTarget = .newTabInCurrentPane
 }

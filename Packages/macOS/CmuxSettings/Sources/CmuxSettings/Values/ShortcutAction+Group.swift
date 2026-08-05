@@ -18,6 +18,7 @@ extension ShortcutAction {
              .moveSurfaceToPaneUp, .moveSurfaceToPaneDown,
              .selectSurfaceByNumber,
              .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown,
+             .moveWorkspaceToTop,
              .focusHistoryBack, .focusHistoryForward, .selectWorkspaceByNumber,
              .renameTab, .renameWorkspace, .editWorkspaceDescription,
              .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete,
