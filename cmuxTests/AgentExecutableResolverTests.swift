@@ -365,7 +365,7 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
-    func testSkipsCmuxClaudeCommandShim() throws {
+    func testSkipsCmuxAgentCommandShim() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)

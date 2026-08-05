@@ -2,6 +2,40 @@ import Foundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
+    private func hermesAgentApprovalPayload(
+        def: AgentHookDef,
+        input: ClaudeHookParsedInput
+    ) -> (event: String, extra: [String: Any])? {
+        guard def.name == "hermes-agent",
+              let object = input.object ?? input.rawObject,
+              let event = firstString(
+                  in: object,
+                  keys: ["hook_event_name", "hookEventName", "event", "event_name"]
+              )?.lowercased(),
+              event == "pre_approval_request" || event == "post_approval_response" else {
+            return nil
+        }
+        return (event, (object["extra"] as? [String: Any]) ?? [:])
+    }
+
+    func hermesAgentApprovalSessionId(
+        def: AgentHookDef,
+        input: ClaudeHookParsedInput
+    ) -> String? {
+        guard let payload = hermesAgentApprovalPayload(def: def, input: input) else { return nil }
+        return normalizedHookValue(firstString(in: payload.extra, keys: ["session_key", "sessionKey"]))
+    }
+
+    func isHermesAgentAutomaticApprovalObservation(
+        def: AgentHookDef,
+        input: ClaudeHookParsedInput
+    ) -> Bool {
+        guard let payload = hermesAgentApprovalPayload(def: def, input: input) else { return false }
+        return firstString(in: payload.extra, keys: ["surface"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "smart"
+    }
+
     func hermesAgentShellCommand(_ script: String) -> String {
         "sh -c \(shellQuote(script))"
     }
@@ -32,9 +66,24 @@ extension CMUXCLI {
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
-        guard fm.fileExists(atPath: configDir) else {
-            print("\(configDir) does not exist. Install \(def.displayName) first.")
-            return
+        let configDirectoryFileError = String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.error.configDirectoryIsFile",
+                defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+            ),
+            configDir
+        )
+        var isConfigDirectory: ObjCBool = false
+        if fm.fileExists(atPath: configDir, isDirectory: &isConfigDirectory) {
+            guard isConfigDirectory.boolValue else {
+                throw CLIError(message: configDirectoryFileError)
+            }
+        } else {
+            do {
+                try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+            } catch {
+                throw CLIError(message: configDirectoryFileError)
+            }
         }
 
         let events = hermesAgentEvents(def: def)
