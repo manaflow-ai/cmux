@@ -70,18 +70,18 @@ The counts are discovery metrics. Completion is determined by the gates below.
     AppKit composition root.
   - [ ] Replace scene, environment, focused-value, storage, command, window,
     settings, toolbar, sheet, popover, and alert ownership with AppKit owners.
-  - [ ] Replace the 12 importing files remaining under `Sources`, including the
+  - [ ] Replace the 10 importing files remaining under `Sources`, including the
     application root and remaining sidebar auxiliaries. Workspace, terminal,
     browser, Vault, Feed, titlebar controls, notifications popover, the
     right-sidebar root, and the browser design-mode composer are native AppKit.
-    The installed-extension sidebar host, permission review, provider picker,
-    and XPC renderer are also native.
+    The default workspace sidebar, custom-sidebar host, installed-extension
+    host, permission review, provider picker, and XPC renderer are also native.
   - [ ] Remove every `NSHostingView` and `NSHostingController` boundary.
 - [ ] iOS packages and executable
-  - [ ] `CmuxMobileShellUI` (172 import files; notification feed, terminal
+  - [ ] `CmuxMobileShellUI` (177 import files; notification feed, terminal
     composer, artifact chip, shortcut settings, custom-action editor, and the
     workspace-list table host are UIKit)
-  - [ ] `CmuxMobileSupport` (2 shared presentation helper import files)
+  - [x] `CmuxMobileSupport` (0)
   - [x] `CmuxAgentChatUI` (0)
   - [x] `CmuxMobileChanges` (0)
   - [x] `CmuxMobileTerminal` (0)

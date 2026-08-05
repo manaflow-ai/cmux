@@ -6,9 +6,12 @@ import CmuxFoundation
 import CmuxNotifications
 import CmuxSettings
 import CmuxSidebar
+import CmuxSidebarRemoteRender
+import CmuxSwiftRenderUI
 import CmuxUpdater
 import CmuxWorkspaces
 import Observation
+@_spi(CmuxHostTransport) import CmuxExtensionKit
 
 @MainActor
 private final class SidebarNativeRootView: NSView {
@@ -30,11 +33,24 @@ private final class SidebarNativeRootView: NSView {
 /// through the same AppKit row command surface used by the transitional host.
 @MainActor
 final class SidebarNativeViewController: NSViewController {
+    private enum MountedContent: Equatable {
+        case none
+        case workspaceTable
+        case installedExtension
+        case customSidebar(path: String)
+    }
+
     private let updateViewModel: UpdateStateModel
     private let tabManager: TabManager
     private let sidebarSelectionState: SidebarSelectionState
     private let cmuxConfigStore: CmuxConfigStore
     private let sidebarUnread: SidebarUnreadModel
+    private let windowID: UUID
+    private let renderWorkerClientStore: RenderWorkerClientStore
+    private let providerRefreshSleep: @Sendable (Duration) async throws -> Void
+    private let settingsJSONStore = JSONConfigStore(
+        fileURL: CmuxConfigLocation().userConfigFile
+    )
     private let onSendFeedback: () -> Void
     private let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
     private let onToggleSidebar: () -> Void
@@ -50,6 +66,7 @@ final class SidebarNativeViewController: NSViewController {
     private let dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     private let dragState: SidebarDragState
     private let titlebarDragHandle = WindowDragHandleNSView(doubleClickBehavior: .standardAction)
+    private let contentHostView = NSView()
     private lazy var titlebarControlsOverlay = MinimalModeSidebarTitlebarControlsOverlayView(
         unreadModel: sidebarUnread,
         layoutModel: titlebarControlsLayoutModel,
@@ -78,6 +95,14 @@ final class SidebarNativeViewController: NSViewController {
     )
 
     private var selectedWorkspaceIds: Set<UUID> = []
+    private var providerID: String
+    private var mountedContent: MountedContent = .none
+    private weak var mountedContentView: NSView?
+    private var tableContainer: SidebarWorkspaceTableContainerView?
+    private var installedExtensionController: CMUXInstalledExtensionSidebarHostController?
+    private var customSidebarSurface: CustomSidebarSurface?
+    private var providerRefreshTask: Task<Void, Never>?
+    private var providerRefreshToken: UInt64 = 0
     private var lastSelectionIndex: Int?
     private var expandedChecklistWorkspaceIds: Set<UUID> = []
     private var expandedMetadataWorkspaceIds: Set<UUID> = []
@@ -98,16 +123,26 @@ final class SidebarNativeViewController: NSViewController {
         sidebarSelectionState: SidebarSelectionState,
         cmuxConfigStore: CmuxConfigStore,
         sidebarUnread: SidebarUnreadModel,
+        windowID: UUID,
+        providerID: String,
+        renderWorkerClientStore: RenderWorkerClientStore,
         titlebarControlsLayoutModel: TitlebarControlsLayoutModel,
         onSendFeedback: @escaping () -> Void,
         onToggleSidebar: @escaping () -> Void,
-        onNewTab: @escaping () -> Void
+        onNewTab: @escaping () -> Void,
+        providerRefreshSleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await ContinuousClock().sleep(for: $0)
+        }
     ) {
         self.updateViewModel = updateViewModel
         self.tabManager = tabManager
         self.sidebarSelectionState = sidebarSelectionState
         self.cmuxConfigStore = cmuxConfigStore
         self.sidebarUnread = sidebarUnread
+        self.windowID = windowID
+        self.providerID = providerID
+        self.renderWorkerClientStore = renderWorkerClientStore
+        self.providerRefreshSleep = providerRefreshSleep
         self.titlebarControlsLayoutModel = titlebarControlsLayoutModel
         self.onSendFeedback = onSendFeedback
         self.onToggleSidebar = onToggleSidebar
@@ -153,6 +188,7 @@ final class SidebarNativeViewController: NSViewController {
             dragFailsafeMonitor.stop()
             dragAutoScrollController.stop()
             dragState.clearDrag()
+            providerRefreshTask?.cancel()
         }
     }
 
@@ -162,11 +198,10 @@ final class SidebarNativeViewController: NSViewController {
         root.wantsLayer = true
         root.setAccessibilityIdentifier("Sidebar")
 
-        let tableContainer = tableController.makeContainerView()
-        tableContainer.translatesAutoresizingMaskIntoConstraints = false
+        contentHostView.translatesAutoresizingMaskIntoConstraints = false
         footerController.view.translatesAutoresizingMaskIntoConstraints = false
         addChild(footerController)
-        root.addSubview(tableContainer)
+        root.addSubview(contentHostView)
         root.addSubview(footerController.view)
 
         titlebarDragHandle.translatesAutoresizingMaskIntoConstraints = false
@@ -184,10 +219,10 @@ final class SidebarNativeViewController: NSViewController {
         root.addSubview(border)
 
         NSLayoutConstraint.activate([
-            tableContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            tableContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            tableContainer.topAnchor.constraint(equalTo: root.topAnchor),
-            tableContainer.bottomAnchor.constraint(equalTo: footerController.view.topAnchor),
+            contentHostView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            contentHostView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            contentHostView.topAnchor.constraint(equalTo: root.topAnchor),
+            contentHostView.bottomAnchor.constraint(equalTo: footerController.view.topAnchor),
             footerController.view.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             footerController.view.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             footerController.view.bottomAnchor.constraint(equalTo: root.bottomAnchor),
@@ -215,8 +250,16 @@ final class SidebarNativeViewController: NSViewController {
             activateSidebarInteractions()
             scheduleRefresh()
         } else {
+            providerRefreshTask?.cancel()
+            providerRefreshTask = nil
             deactivateSidebarInteractions()
         }
+    }
+
+    func updateProviderID(_ providerID: String) {
+        guard self.providerID != providerID else { return }
+        self.providerID = providerID
+        scheduleRefresh()
     }
 
     func teardown() {
@@ -224,13 +267,13 @@ final class SidebarNativeViewController: NSViewController {
         observationGeneration &+= 1
         notificationTasks.forEach { $0.cancel() }
         notificationTasks.removeAll(keepingCapacity: false)
+        providerRefreshTask?.cancel()
+        providerRefreshTask = nil
         deactivateSidebarInteractions()
         if isViewLoaded {
             footerController.teardown()
         }
-        if isViewLoaded, let container = findTableContainer(in: view) {
-            tableController.dismantleContainerView(container)
-        }
+        if isViewLoaded { unmountContent() }
     }
 
     private func activateSidebarInteractions() {
@@ -465,6 +508,15 @@ final class SidebarNativeViewController: NSViewController {
     private func refresh() {
         guard isViewLoaded, isPresentationActive else { return }
         synchronizeSelection()
+        if refreshHostedProviderIfNeeded() {
+            footerController.update(
+                tabManager: tabManager,
+                modifierKeyMonitor: modifierKeyMonitor,
+                onSendFeedback: onSendFeedback
+            )
+            return
+        }
+        mountWorkspaceTableIfNeeded()
         let workspaces = tabManager.tabs
         let settings = settingsStore.snapshot
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
@@ -534,6 +586,175 @@ final class SidebarNativeViewController: NSViewController {
             modifierKeyMonitor: modifierKeyMonitor,
             onSendFeedback: onSendFeedback
         )
+    }
+
+    private func refreshHostedProviderIfNeeded() -> Bool {
+        if providerID == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
+            refreshInstalledExtension()
+            return true
+        }
+        if let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(
+            forProviderId: providerID
+        ) {
+            refreshCustomSidebar(fileURL: fileURL)
+            return true
+        }
+        return false
+    }
+
+    private var providerSnapshotFactory: SidebarProviderSnapshotFactory {
+        SidebarProviderSnapshotFactory(
+            tabManager: tabManager,
+            sidebarUnread: sidebarUnread,
+            windowID: windowID
+        )
+    }
+
+    private func mountWorkspaceTableIfNeeded() {
+        guard mountedContent != .workspaceTable else { return }
+        unmountContent()
+        let container = tableController.makeContainerView()
+        tableContainer = container
+        mountContentView(container)
+        mountedContent = .workspaceTable
+    }
+
+    private func refreshInstalledExtension() {
+        providerRefreshTask?.cancel()
+        providerRefreshTask = nil
+        providerRefreshToken &+= 1
+        let controller: CMUXInstalledExtensionSidebarHostController
+        if let existing = installedExtensionController,
+           mountedContent == .installedExtension {
+            controller = existing
+        } else {
+            unmountContent()
+            controller = CMUXInstalledExtensionSidebarHostController(
+                snapshotProvider: { [weak self] in
+                    self?.providerSnapshotFactory.extensionSnapshot()
+                        ?? CmuxSidebarSnapshot(sequence: 0, selectedWorkspaceID: nil, workspaces: [])
+                },
+                snapshotUpdateToken: providerRefreshToken,
+                unreadSource: sidebarUnread,
+                actionHandler: { [weak self] action in
+                    guard let self else { return CmuxSidebarActionResult(accepted: false) }
+                    return SidebarExtensionActionRouter(tabManager: tabManager).handle(action)
+                },
+                onUseDefaultSidebar: {
+                    CmuxExtensionSidebarSelection.setProviderId(
+                        CmuxExtensionSidebarSelection.defaultProviderId
+                    )
+                }
+            )
+            installedExtensionController = controller
+            addChild(controller)
+            mountContentView(controller.view)
+            mountedContent = .installedExtension
+        }
+        controller.update(
+            snapshotProvider: { [weak self] in
+                self?.providerSnapshotFactory.extensionSnapshot()
+                    ?? CmuxSidebarSnapshot(sequence: 0, selectedWorkspaceID: nil, workspaces: [])
+            },
+            snapshotUpdateToken: providerRefreshToken,
+            unreadSource: sidebarUnread,
+            actionHandler: { [weak self] action in
+                guard let self else { return CmuxSidebarActionResult(accepted: false) }
+                return SidebarExtensionActionRouter(tabManager: tabManager).handle(action)
+            },
+            onUseDefaultSidebar: {
+                CmuxExtensionSidebarSelection.setProviderId(
+                    CmuxExtensionSidebarSelection.defaultProviderId
+                )
+            }
+        )
+    }
+
+    private func refreshCustomSidebar(fileURL: URL) {
+        let path = fileURL.standardizedFileURL.path
+        let dataContext = providerSnapshotFactory.customDataContext(now: Date())
+        let rendersInProcess = settingsJSONStore.snapshotValue(
+            for: SettingCatalog().customSidebars.renderer
+        ) == .inProcess
+        if let surface = customSidebarSurface,
+           mountedContent == .customSidebar(path: path) {
+            surface.update(
+                fileURL: fileURL,
+                dataContext: dataContext,
+                dispatch: makeCmuxSidebarActionDispatch(),
+                contentInsets: customSidebarContentInsets,
+                rendersInProcess: rendersInProcess
+            )
+        } else {
+            unmountContent()
+            let surface = CustomSidebarSurface(
+                fileURL: fileURL,
+                dataContext: dataContext,
+                dispatch: makeCmuxSidebarActionDispatch(),
+                contentInsets: customSidebarContentInsets,
+                rendersInProcess: rendersInProcess,
+                clientStore: renderWorkerClientStore
+            )
+            customSidebarSurface = surface
+            mountContentView(surface)
+            mountedContent = .customSidebar(path: path)
+        }
+        startCustomSidebarRefreshTaskIfNeeded()
+    }
+
+    private var customSidebarContentInsets: CustomSidebarContentInsets {
+        CustomSidebarContentInsets(
+            top: SidebarWorkspaceScrollInsets.workspaceList.top,
+            bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
+        )
+    }
+
+    private func startCustomSidebarRefreshTaskIfNeeded() {
+        guard providerRefreshTask == nil else { return }
+        let sleep = providerRefreshSleep
+        providerRefreshTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await sleep(.seconds(1))
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                scheduleRefresh()
+            }
+        }
+    }
+
+    private func mountContentView(_ contentView: NSView) {
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentHostView.addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: contentHostView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: contentHostView.trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: contentHostView.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: contentHostView.bottomAnchor),
+        ])
+        mountedContentView = contentView
+    }
+
+    private func unmountContent() {
+        providerRefreshTask?.cancel()
+        providerRefreshTask = nil
+        if let tableContainer {
+            tableController.dismantleContainerView(tableContainer)
+            self.tableContainer = nil
+        }
+        if let installedExtensionController {
+            installedExtensionController.teardown()
+            installedExtensionController.view.removeFromSuperview()
+            installedExtensionController.removeFromParent()
+            self.installedExtensionController = nil
+        }
+        customSidebarSurface?.teardown()
+        customSidebarSurface = nil
+        mountedContentView?.removeFromSuperview()
+        mountedContentView = nil
+        mountedContent = .none
     }
 
     private var showModifierHoldHints: Bool {

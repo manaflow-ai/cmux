@@ -1877,6 +1877,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DEA7710000000000000005 /* SidebarProBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000006 /* SidebarProBadge.swift */; };
 		D75280020000000000000001 /* SidebarProfilingSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280020000000000000002 /* SidebarProfilingSignposts.swift */; };
 		C0DE48000000000000000001 /* SidebarProviderMenuRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */; };
+		A4F70000000000000000000B /* SidebarProviderSnapshotFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F70000000000000000000C /* SidebarProviderSnapshotFactory.swift */; };
 		B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */; };
 		5B0C00010000000000000001 /* SidebarResizerOcclusionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000002 /* SidebarResizerOcclusionResolver.swift */; };
 		5B0C00010000000000000003 /* SidebarResizerOcclusionResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000004 /* SidebarResizerOcclusionResolverTests.swift */; };
@@ -4440,6 +4441,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DEA7710000000000000006 /* SidebarProBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProBadge.swift; sourceTree = "<group>"; };
 		D75280020000000000000002 /* SidebarProfilingSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProfilingSignposts.swift; sourceTree = "<group>"; };
 		C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProviderMenuRegressionTests.swift; sourceTree = "<group>"; };
+		A4F70000000000000000000C /* SidebarProviderSnapshotFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/SidebarProviderSnapshotFactory.swift"; sourceTree = "<group>"; };
 		B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPullRequestInteractivityUITests.swift; sourceTree = "<group>"; };
 		5B0C00010000000000000002 /* SidebarResizerOcclusionResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarResizerOcclusionResolver.swift; sourceTree = "<group>"; };
 		5B0C00010000000000000004 /* SidebarResizerOcclusionResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizerOcclusionResolverTests.swift; sourceTree = "<group>"; };
@@ -5575,6 +5577,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A4F700000000000000000006 /* SidebarNativeViewController.swift */,
 				A4F700000000000000000008 /* SidebarDragFailsafeMonitor.swift */,
 				A4F70000000000000000000A /* CmuxExtensionSidebarSelection.swift */,
+				A4F70000000000000000000C /* SidebarProviderSnapshotFactory.swift */,
 				A9A000000000000000000021 /* ExtensionSidebarWorkspaceRowView.swift */,
 					A77A00010000000000000002 /* NativeAppKitSupportBridges.swift */,
 					A77A00020000000000000002 /* NativeCustomSidebarSurfaceBridge.swift */,
@@ -9431,6 +9434,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */,
 				C0DEA7710000000000000005 /* SidebarProBadge.swift in Sources */,
 				D75280020000000000000001 /* SidebarProfilingSignposts.swift in Sources */,
+				A4F70000000000000000000B /* SidebarProviderSnapshotFactory.swift in Sources */,
 				5B0C00010000000000000001 /* SidebarResizerOcclusionResolver.swift in Sources */,
 				B804A02E000000000000002E /* SidebarRowChecklistAddRow.swift in Sources */,
 				B804A02F000000000000002F /* SidebarRowChecklistAttachmentButton.swift in Sources */,

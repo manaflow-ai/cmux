@@ -1703,10 +1703,13 @@ struct ContentView: View {
 
     private var sidebarView: some View {
         Group {
-            if retainsDefaultAppKitSidebarWhenHidden {
+            if usesNativeAppKitSidebar {
                 NativeSidebarBridge(
                     updateViewModel: updateViewModel,
+                    windowID: windowId,
+                    providerID: effectiveLeftSidebarProviderId,
                     sidebarUnread: sidebarUnread,
+                    renderWorkerClientStore: sidebarRenderWorkerClientStore,
                     titlebarControlsLayoutModel: titlebarControlsLayoutModel,
                     isPresented: sidebarState.isVisible,
                     onSendFeedback: presentFeedbackComposer,
@@ -2536,6 +2539,19 @@ struct ContentView: View {
         Self.retainsDefaultAppKitSidebar(
             effectiveProviderId: effectiveLeftSidebarProviderId
         )
+    }
+
+    private var usesNativeAppKitSidebar: Bool {
+        let providerID = effectiveLeftSidebarProviderId
+        if Self.retainsDefaultAppKitSidebar(effectiveProviderId: providerID) {
+            return true
+        }
+        if providerID == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
+            return true
+        }
+        return CmuxExtensionSidebarSelection.customSidebarFileURL(
+            forProviderId: providerID
+        ) != nil
     }
 
     static func retainsDefaultAppKitSidebar(

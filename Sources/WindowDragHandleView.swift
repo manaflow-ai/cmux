@@ -1088,8 +1088,8 @@ private func windowDragHandleSiblingHitResolutionScope(
 func windowDragHandleShouldCaptureHit(
     _ point: NSPoint,
     in dragHandleView: NSView,
-    eventType: NSEvent.EventType? = NSApp.currentEvent?.type,
-    eventWindow: NSWindow? = NSApp.currentEvent?.window
+    eventType: NSEvent.EventType?,
+    eventWindow: NSWindow?
 ) -> Bool {
     let dragHandleWindow = dragHandleView.window
 

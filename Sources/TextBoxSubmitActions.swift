@@ -2,7 +2,7 @@ import AppKit
 import CmuxWorkspaces
 
 extension TextBoxInputContainer {
-    static let pendingProviderLaunchTimeoutSeconds: TimeInterval = 12
+    nonisolated static let pendingProviderLaunchTimeoutSeconds: TimeInterval = 12
 
     var submitActions: [TextBoxSubmitAction] {
         if cachedSubmitActionsJSON == configuredSubmitActionsJSON {

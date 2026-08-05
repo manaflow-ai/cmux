@@ -2518,7 +2518,10 @@ struct NativeSidebarBridge: NSViewControllerRepresentable {
     @EnvironmentObject private var cmuxConfigStore: CmuxConfigStore
 
     let updateViewModel: UpdateStateModel
+    let windowID: UUID
+    let providerID: String
     let sidebarUnread: SidebarUnreadModel
+    let renderWorkerClientStore: RenderWorkerClientStore
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
     let isPresented: Bool
     let onSendFeedback: () -> Void
@@ -2532,6 +2535,9 @@ struct NativeSidebarBridge: NSViewControllerRepresentable {
             sidebarSelectionState: sidebarSelectionState,
             cmuxConfigStore: cmuxConfigStore,
             sidebarUnread: sidebarUnread,
+            windowID: windowID,
+            providerID: providerID,
+            renderWorkerClientStore: renderWorkerClientStore,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel,
             onSendFeedback: onSendFeedback,
             onToggleSidebar: onToggleSidebar,
@@ -2543,6 +2549,7 @@ struct NativeSidebarBridge: NSViewControllerRepresentable {
         _ controller: SidebarNativeViewController,
         context: Context
     ) {
+        controller.updateProviderID(providerID)
         controller.setPresentationActive(isPresented)
     }
 
