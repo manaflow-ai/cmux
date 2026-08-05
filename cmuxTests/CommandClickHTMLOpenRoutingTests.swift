@@ -1223,7 +1223,7 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
-    func restrictedHTMLSavedLayoutsPreserveFileOnlyReadAccess() throws {
+    func restrictedHTMLSavedLayoutsPreserveFileOnlyReadAccessAndReuse() async throws {
         _ = NSApplication.shared
 
         let defaults = UserDefaults.standard
@@ -1273,6 +1273,18 @@ struct CommandClickHTMLOpenRoutingTests {
                 browser.webView.configuration.websiteDataStore ===
                     BrowserProfileStore.shared.websiteDataStore(for: browser.profileID)
             )
+            #expect(await waitForDocumentTitle("saved restricted browser", in: browser))
+
+            let terminalPanelId = try #require(
+                restored.panels.values.compactMap { $0 as? TerminalPanel }.first?.id
+            )
+            #expect(openResolvedHTMLInCmux(
+                workspace: restored,
+                sourcePanelId: terminalPanelId,
+                filePath: htmlURL.path
+            ))
+            #expect(restored.panels.values.compactMap { $0 as? BrowserPanel }.count == 1)
+            #expect(restored.focusedPanelId == browser.id)
         }
     }
 
