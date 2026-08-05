@@ -969,6 +969,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8777D0018777D0018777D001 /* DockRuntimeParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777D0028777D0028777D002 /* DockRuntimeParityTests.swift */; };
 		DCDC1000000000000000C020 /* DockScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C021 /* DockScope.swift */; };
 		D86840000000000000000001 /* DockSessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000002 /* DockSessionPersistenceTests.swift */; };
+		9518D0C20000000000000001 /* DockShortcutRoutingDisposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9518D0C20000000000000002 /* DockShortcutRoutingDisposition.swift */; };
 		D81390010000000000000001 /* DockShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81390010000000000000002 /* DockShortcutRoutingTests.swift */; };
 		D6212D0C0000000000000001 /* DockSocketLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6212D0C0000000000000002 /* DockSocketLifecycleTests.swift */; };
 		904090409040904090409043 /* DockSplitContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 904090409040904090409044 /* DockSplitContentView.swift */; };
@@ -976,6 +977,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		DCDC1000000000000000B011 /* DockSplitStore+Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B012 /* DockSplitStore+Appearance.swift */; };
 		8777D0038777D0038777D003 /* DockSplitStore+AttentionRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777D0048777D0048777D004 /* DockSplitStore+AttentionRouting.swift */; };
 		DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */; };
+		9518D0C10000000000000001 /* DockSplitStore+ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9518D0C10000000000000002 /* DockSplitStore+ClosedItemHistory.swift */; };
 		DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000A004 /* DockSplitStore+Config.swift */; };
 		DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */; };
 		8997E0038997E0038997E003 /* DockSplitStore+PanelDestruction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0038997F0038997F003 /* DockSplitStore+PanelDestruction.swift */; };
@@ -3592,6 +3594,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8777D0028777D0028777D002 /* DockRuntimeParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockRuntimeParityTests.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000C021 /* DockScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockScope.swift; sourceTree = "<group>"; };
 		D86840000000000000000002 /* DockSessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSessionPersistenceTests.swift; sourceTree = "<group>"; };
+		9518D0C20000000000000002 /* DockShortcutRoutingDisposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockShortcutRoutingDisposition.swift; sourceTree = "<group>"; };
 		D81390010000000000000002 /* DockShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockShortcutRoutingTests.swift; sourceTree = "<group>"; };
 		D6212D0C0000000000000002 /* DockSocketLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSocketLifecycleTests.swift; sourceTree = "<group>"; };
 		904090409040904090409044 /* DockSplitContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockSplitContentView.swift; sourceTree = "<group>"; };
@@ -3599,6 +3602,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		DCDC1000000000000000B012 /* DockSplitStore+Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Appearance.swift"; sourceTree = "<group>"; };
 		8777D0048777D0048777D004 /* DockSplitStore+AttentionRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+AttentionRouting.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+CloseConfirmation.swift"; sourceTree = "<group>"; };
+		9518D0C10000000000000002 /* DockSplitStore+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+ClosedItemHistory.swift"; sourceTree = "<group>"; };
 		DCDC0000000000000000A004 /* DockSplitStore+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Config.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PaneFocus.swift"; sourceTree = "<group>"; };
 		8997F0038997F0038997F003 /* DockSplitStore+PanelDestruction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PanelDestruction.swift"; sourceTree = "<group>"; };
@@ -7113,8 +7117,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				904090409040904090409046 /* DockUnreadProjectionContextBridge.swift */,
 				904090409040904090409042 /* DockUnreadPanelProjection.swift */,
 				DCDC1000000000000000B00C /* DockRemoteBrowserSettings.swift */,
+				9518D0C20000000000000002 /* DockShortcutRoutingDisposition.swift */,
 				8777D0048777D0048777D004 /* DockSplitStore+AttentionRouting.swift */,
 				DCDC1000000000000000B012 /* DockSplitStore+Appearance.swift */,
+				9518D0C10000000000000002 /* DockSplitStore+ClosedItemHistory.swift */,
 				DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */,
 				DCDC0000000000000000A004 /* DockSplitStore+Config.swift */,
 				DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */,
@@ -8988,11 +8994,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				DCDC1000000000000000B00B /* DockRemoteBrowserSettings.swift in Sources */,
 				DCDC1000000000000000C020 /* DockScope.swift in Sources */,
+				9518D0C20000000000000001 /* DockShortcutRoutingDisposition.swift in Sources */,
 				904090409040904090409043 /* DockSplitContentView.swift in Sources */,
 				904090409040904090409047 /* DockSplitPanelContentView.swift in Sources */,
 				DCDC1000000000000000B011 /* DockSplitStore+Appearance.swift in Sources */,
 				8777D0038777D0038777D003 /* DockSplitStore+AttentionRouting.swift in Sources */,
 				DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */,
+				9518D0C10000000000000001 /* DockSplitStore+ClosedItemHistory.swift in Sources */,
 				DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */,
 				DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */,
 				8997E0038997E0038997E003 /* DockSplitStore+PanelDestruction.swift in Sources */,
