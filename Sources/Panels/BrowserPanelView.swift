@@ -255,6 +255,9 @@ struct BrowserPanelView: View {
     /// panels in `DockSplitStore`). When set, it overrides the workspace lookup
     /// in `isCurrentPaneOwner`; `nil` preserves the main-area behavior.
     let paneOwnershipOverride: Bool?
+    /// Resolves current workspace and pane selection at portal-update time so a
+    /// stale SwiftUI visibility snapshot cannot leave a selected browser hidden.
+    var portalVisibilityResolver: (@MainActor () -> Bool)? = nil
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.paneDropZone) private var paneDropZone
@@ -533,6 +536,14 @@ struct BrowserPanelView: View {
         return currentPaneId.id == paneId.id
     }
 
+    @MainActor
+    private func resolvedPresentationVisibility(snapshotVisibleInUI: Bool) -> Bool {
+        if let portalVisibilityResolver {
+            return portalVisibilityResolver()
+        }
+        return snapshotVisibleInUI && isCurrentPaneOwner
+    }
+
     private var currentEventIsCommandPointerActivation: Bool {
         guard let event = NSApp.currentEvent else { return false }
         switch event.type {
@@ -684,7 +695,7 @@ struct BrowserPanelView: View {
         startOmnibarSuggestionRefreshConsumer()
         refreshBrowserChromeStyle()
         panel.noteWebViewVisibility(
-            isVisibleInUI && isCurrentPaneOwner,
+            resolvedPresentationVisibility(snapshotVisibleInUI: isVisibleInUI),
             reason: "view.onAppear"
         )
         panel.refreshAppearanceDrivenColors()
@@ -827,12 +838,12 @@ struct BrowserPanelView: View {
     }
 
     private func handlePanelVisibilityChange(_ visibleInUI: Bool) {
-        let effectiveVisibility = visibleInUI && isCurrentPaneOwner
+        let effectiveVisibility = resolvedPresentationVisibility(snapshotVisibleInUI: visibleInUI)
         panel.noteWebViewVisibility(
             effectiveVisibility,
             reason: effectiveVisibility ? "view.visible" : "view.hidden"
         )
-        if visibleInUI {
+        if effectiveVisibility {
             panel.cancelPendingDeveloperToolsVisibilityLossCheck()
             return
         }
@@ -1704,6 +1715,7 @@ struct BrowserPanelView: View {
                     portalZPriority: portalPriority,
                     paneDropZone: paneDropZone,
                     paneOwnershipOverride: paneOwnershipOverride,
+                    portalVisibilityResolver: portalVisibilityResolver,
                     searchOverlay: panel.searchState.map { searchState in
                         BrowserPortalSearchOverlayConfiguration(
                             panelId: panel.id,
@@ -5319,6 +5331,9 @@ struct WebViewRepresentable: NSViewRepresentable {
     /// main `Workspace` tree, so the portal-visibility gate can resolve ownership
     /// without `Workspace.paneId(forPanelId:)`. `nil` keeps the main-area path.
     var paneOwnershipOverride: Bool? = nil
+    /// Re-reads the owning workspace's current selection during each AppKit
+    /// update, after SwiftUI may already have captured an obsolete tab snapshot.
+    var portalVisibilityResolver: (@MainActor () -> Bool)? = nil
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let designComposer: BrowserPortalDesignComposerConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
@@ -7406,10 +7421,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         let coordinator = context.coordinator
         let paneDropContext = currentPaneDropContext()
         let isCurrentPaneOwner = paneDropContext?.paneId.id == paneId.id
+        let resolvedShouldAttachWebView = resolvedPortalVisibility(
+            isCurrentPaneOwner: isCurrentPaneOwner
+        )
         let hostId = ObjectIdentifier(host)
         let previousVisible = coordinator.desiredPortalVisibleInUI
         let previousZPriority = coordinator.desiredPortalZPriority
-        coordinator.desiredPortalVisibleInUI = shouldAttachWebView && isCurrentPaneOwner
+        coordinator.desiredPortalVisibleInUI = resolvedShouldAttachWebView
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
@@ -7419,7 +7437,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let portalAnchorView = panel.portalAnchorView
         let portalHideReason = !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
         let didReleasePortalHost: Bool
-        if !shouldAttachWebView || !isCurrentPaneOwner {
+        if !resolvedShouldAttachWebView {
             didReleasePortalHost = panel.releasePortalHostIfOwned(
                 hostId: hostId,
                 reason: portalHideReason
@@ -7436,8 +7454,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             didReleasePortalHost = false
         }
         let portalHostAccepted =
-            shouldAttachWebView &&
-            isCurrentPaneOwner &&
+            resolvedShouldAttachWebView &&
             panel.claimPortalHost(
                 hostId: hostId,
                 paneId: paneId,
@@ -7457,7 +7474,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
         }
 #if DEBUG
-        if !isCurrentPaneOwner && (shouldAttachWebView || host.window != nil) {
+        if !isCurrentPaneOwner && (resolvedShouldAttachWebView || host.window != nil) {
             cmuxDebugLog(
                 "browser.portal.owner.skip panel=\(panel.id.uuidString.prefix(5)) " +
                 "viewPane=\(paneId.id.uuidString.prefix(5)) " +
@@ -7546,7 +7563,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
 
-        if !shouldAttachWebView {
+        if !resolvedShouldAttachWebView {
             // In portal mode we no longer detach/re-attach to preserve DevTools state.
             // Sync the inspector preference directly so manual closes are respected.
             panel.syncDeveloperToolsPreferenceFromInspector(
@@ -7561,7 +7578,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 coordinator.lastPortalHostId != hostId ||
                 webView.cmuxBrowserViewportAttachmentSuperview == nil ||
                 portalEntryMissing ||
-                previousVisible != shouldAttachWebView ||
+                previousVisible != resolvedShouldAttachWebView ||
                 previousZPriority != portalZPriority
             if shouldBindNow {
                 Self.installPortalAnchorView(portalAnchorView, in: host)
@@ -7834,5 +7851,27 @@ struct WebViewRepresentable: NSViewRepresentable {
             panelId: panel.id,
             paneId: resolvedPaneId
         )
+    }
+
+    private func resolvedPortalVisibility(isCurrentPaneOwner: Bool) -> Bool {
+        guard isCurrentPaneOwner else { return false }
+        if let portalVisibilityResolver {
+            return portalVisibilityResolver()
+        }
+        if paneOwnershipOverride != nil {
+            return shouldAttachWebView
+        }
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              manager.selectedTabId == panel.workspaceId,
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
+              let livePanel = workspace.panels[panel.id],
+              livePanel === panel,
+              let resolvedPaneId = workspace.paneId(forPanelId: panel.id),
+              resolvedPaneId.id == paneId.id,
+              let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
+            return false
+        }
+        return workspace.bonsplitController.selectedTab(inPane: resolvedPaneId)?.id == tabId
     }
 }

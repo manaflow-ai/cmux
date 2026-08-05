@@ -45,6 +45,8 @@ private struct WorkspacePanelContentHostView: View {
     let workspace: Workspace
     let panel: any Panel
     let paneId: PaneID
+    let isWorkspaceVisible: Bool
+    let isWorkspaceInputActive: Bool
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
@@ -77,6 +79,24 @@ private struct WorkspacePanelContentHostView: View {
             customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            browserPortalVisibilityResolver: { [weak workspace, weak panel] in
+                guard isWorkspaceVisible,
+                      let workspace,
+                      let panel,
+                      let livePanel = workspace.panels[panel.id],
+                      livePanel === panel,
+                      workspace.paneId(forPanelId: panel.id)?.id == paneId.id,
+                      let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
+                    return false
+                }
+                let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+                return WorkspacePanelVisibilityPolicy.panelVisibleInUI(
+                    isWorkspaceVisible: true,
+                    paneHasSelectedTab: selectedTab != nil,
+                    isSelectedInPane: selectedTab?.id == tabId,
+                    isFocused: isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+                )
+            },
             terminalPaneOwnershipResolver: { [weak workspace, weak panel] in
                 guard let workspace,
                       let panel,
@@ -318,6 +338,8 @@ struct WorkspaceContentView: View {
                         workspace: workspace,
                         panel: panel,
                         paneId: paneId,
+                        isWorkspaceVisible: isWorkspaceVisible,
+                        isWorkspaceInputActive: isWorkspaceInputActive,
                         isFocused: isFocused,
                         isSelectedInPane: isSelectedInPane,
                         isVisibleInUI: isVisibleInUI,

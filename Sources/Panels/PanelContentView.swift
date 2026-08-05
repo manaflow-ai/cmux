@@ -28,6 +28,9 @@ struct PanelContentView: View {
     /// Explicit browser pane-ownership signal for hosts whose panels live outside
     /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
     var paneOwnershipOverride: Bool? = nil
+    /// Live browser presentation state. Window-portal updates invoke this instead
+    /// of trusting a SwiftUI snapshot captured before a Bonsplit tab selection.
+    var browserPortalVisibilityResolver: (@MainActor () -> Bool)? = nil
     /// Live terminal pane ownership. Portal callbacks invoke this again instead
     /// of trusting the SwiftUI snapshot captured before a cross-container move.
     var terminalPaneOwnershipResolver: (@MainActor () -> Bool)? = nil
@@ -75,6 +78,7 @@ struct PanelContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     paneOwnershipOverride: paneOwnershipOverride,
+                    portalVisibilityResolver: browserPortalVisibilityResolver,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
                 // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this
