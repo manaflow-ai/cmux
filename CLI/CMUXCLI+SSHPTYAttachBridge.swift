@@ -35,6 +35,20 @@ extension CMUXCLI {
         return exitCode.isWrapperRetryable
     }
 
+    /// True when the persistent attach wrapper will retry this failure itself.
+    ///
+    /// The wrapper prints its own "reattaching (attempt n/limit)" notice, so
+    /// also printing `Error: ...` renders a recovered reconnect as a hard
+    /// failure in the user's terminal. Failures the wrapper will not retry
+    /// still print normally, and so does every non-attach command.
+    func attachWrapperReportsFailureItself(_ error: Error) -> Bool {
+        guard let cliError = error as? CLIError,
+              let exitCode = SSHPTYAttachExitCode(rawValue: cliError.exitCode) else {
+            return false
+        }
+        return sshPTYAttachWrapperWillRetry(exitCode)
+    }
+
     func sshPTYAttachBridgeClosedExitCode(
         receivedLiveOutput: Bool,
         readyUptime: TimeInterval

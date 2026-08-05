@@ -2750,6 +2750,18 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Retracts daemon errors that a later ready daemon resolved.
+    ///
+    /// Call only once the daemon reports `.ready`: every daemon error recorded
+    /// before that point describes an outage the reconnect state machine has
+    /// since healed, so keeping it would leave a red sidebar entry as the last
+    /// word on a working workspace.
+    func clearResolvedRemoteDaemonSidebarArtifacts() {
+        logEntries.removeAll { entry in
+            entry.source == "remote-daemon" && entry.level == .error
+        }
+    }
+
     private func remoteNotificationCooldownKey(target: String) -> String? {
         let rawTarget = (remoteConfiguration?.destination ?? target)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6955,7 +6967,15 @@ final class Workspace: Identifiable, ObservableObject {
                 // #8917: a transport bounce that re-bootstrapped successfully is
                 // not a workspace failure, so retract its sidebar error the same
                 // way the connection-state path retracts on `.connected`.
-                clearProxyOnlyRemoteDaemonSidebarArtifacts()
+                //
+                // A ready daemon has resolved every daemon error recorded before
+                // it, so retract all of them rather than only the proxy-only
+                // subset. Relay bounces publish `.error` details that already say
+                // "retrying in 2 seconds" and always schedule a reconnect; leaving
+                // those behind made a fully recovered reconnect read as a red
+                // failure in the sidebar. Errors the daemon never recovers from
+                // still persist, because this only runs on `.ready`.
+                clearResolvedRemoteDaemonSidebarArtifacts()
             }
             return
         }
