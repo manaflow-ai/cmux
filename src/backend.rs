@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::cli::Error;
 use crate::process;
 
-const SUBROUTER_VERSION: &str = "0.1.57";
+const SUBROUTER_VERSION: &str = "0.1.60";
 const RELEASE_BASE: &str = "https://github.com/manaflow-ai/subrouter/releases/download";
 const DEFAULT_API_URL: &str = "https://coderouter.dev";
 
@@ -93,11 +93,15 @@ fn install_managed(destination: &Path) -> Result<(), Error> {
 
 fn managed_binary_path() -> Result<PathBuf, Error> {
     let data = data_directory()?;
-    Ok(data.join("coderouter").join("bin").join(if cfg!(windows) {
-        "subrouter.exe"
-    } else {
-        "subrouter"
-    }))
+    Ok(data
+        .join("coderouter")
+        .join("bin")
+        .join(format!("v{SUBROUTER_VERSION}"))
+        .join(if cfg!(windows) {
+            "subrouter.exe"
+        } else {
+            "subrouter"
+        }))
 }
 
 fn data_directory() -> Result<PathBuf, Error> {
@@ -259,17 +263,17 @@ fn release_asset() -> Result<String, Error> {
 
 fn release_checksum(asset: &str) -> Option<&'static str> {
     match asset {
-        "subrouter_0.1.57_darwin_amd64" => {
-            Some("3528f05f477f5e84ea75233c77de3f29ed9eb406ccf182af26820f97e9f00525")
+        "subrouter_0.1.60_darwin_amd64" => {
+            Some("5bc8028cc070e59a564636bf45507a548470e41a2134bc0087a1607f9b448dd2")
         }
-        "subrouter_0.1.57_darwin_arm64" => {
-            Some("efa3433d724a9acca11e91f068e712b0a27d27ee95a2c7378fc53da8a375ed82")
+        "subrouter_0.1.60_darwin_arm64" => {
+            Some("769e504b731ef8b43db67e7651dcfe9ae169516570c7d2d2d211a6f997be1a7c")
         }
-        "subrouter_0.1.57_linux_amd64" => {
-            Some("4cf8c7a9a11e55c16786eaf80c0fbf6d1788152418dd47c14ab2de8ffec3adb4")
+        "subrouter_0.1.60_linux_amd64" => {
+            Some("6a8daa1361030311bdbe25a06cd4940e4dd07a45758c13c2dc8d687e70d87303")
         }
-        "subrouter_0.1.57_windows_amd64.exe" => {
-            Some("bbe97ba0c2384fc1b2cc78750d2a98afbb371f2fe168dcbf3693af1df7fed536")
+        "subrouter_0.1.60_windows_amd64.exe" => {
+            Some("aa4f6121afa73d2ab140f696e92bfdabaf290a7dccac4543b3c68262557e7ad6")
         }
         _ => None,
     }
@@ -313,7 +317,11 @@ pub fn ensure_ready(binary: &Path) -> Result<i32, Error> {
         return Ok(0);
     }
     eprintln!("CodeRouter needs one-time local proxy setup.");
-    let setup = run_attached(binary, &[process::os("setup")], &[])?;
+    let setup = run_attached(
+        binary,
+        &[process::os("setup"), process::os("--no-config")],
+        &[],
+    )?;
     if setup == 0 {
         if let Some(parent) = marker.parent() {
             fs::create_dir_all(parent)?;

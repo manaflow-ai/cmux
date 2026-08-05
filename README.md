@@ -8,13 +8,13 @@ cr codex
 cr naked
 ```
 
-`coderouter` and `cr` are equivalent executable names. With no command, `cr`
-behaves like `cr codex` and forwards every argument to Codex.
+`coderouter` and `cr` are equivalent executable names. With no command, they
+show the account and usage summary. Agent routing is always explicit.
 
 ## Commands
 
 ```text
-cr [codex arguments...]       Codex through CodeRouter
+cr                           account and usage summary
 cr codex [arguments...]       Codex through CodeRouter
 cr naked [arguments...]       ordinary Codex, with CodeRouter bypassed
 cr direct [arguments...]      alias for naked

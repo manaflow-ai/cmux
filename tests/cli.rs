@@ -64,7 +64,7 @@ fn codex_command_delegates_to_the_routing_engine() {
          if [ \"$1 $2\" = 'team current' ]; then exit 0; fi\n\
          if [ \"$1\" = storage ]; then printf 'hosted\\n'; exit 0; fi\n\
          if [ \"$1 $2\" = 'daemon status' ]; then exit 1; fi\n\
-         if [ \"$1\" = setup ]; then exit 0; fi\n\
+         if [ \"$1\" = setup ]; then printf '%s\\n' \"$*\"; exit 0; fi\n\
          printf '%s\\n' \"$*\"\n\
          printf 'server=%s\\n' \"${SUBROUTER_CODEX_SERVER-unset}\"\n",
     )
@@ -79,8 +79,36 @@ fn codex_command_delegates_to_the_routing_engine() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("codex exec hello")
+            predicate::str::contains("setup --no-config")
+                .and(predicate::str::contains("codex exec hello"))
                 .and(predicate::str::contains("server=local")),
+        );
+}
+
+#[cfg(unix)]
+#[test]
+fn bare_command_shows_the_routing_engine_account_summary() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = TempDir::new().unwrap();
+    let backend = root.path().join("subrouter");
+    fs::write(
+        &backend,
+        "#!/bin/sh\nprintf 'argc=%s\\n' \"$#\"\nprintf 'args=%s\\n' \"$*\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&backend, fs::Permissions::from_mode(0o755)).unwrap();
+
+    Command::cargo_bin("cr")
+        .unwrap()
+        .env("CODEROUTER_SUBROUTER_BIN", &backend)
+        .env("CODEROUTER_DATA_DIR", root.path().join("data"))
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("argc=1")
+                .and(predicate::str::contains("args=status"))
+                .and(predicate::str::contains("codex").not()),
         );
 }
 

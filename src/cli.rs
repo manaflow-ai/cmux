@@ -12,7 +12,7 @@ const HELP: &str = "\
 CodeRouter — run Codex across your subscription pool
 
 Usage:
-  cr [codex arguments...]       Run Codex through CodeRouter
+  cr                            Show account usage across CodeRouter
   cr codex [arguments...]       Run Codex through CodeRouter
   cr naked [arguments...]       Run the real Codex without CodeRouter
   cr direct [arguments...]      Alias for `cr naked`
@@ -66,8 +66,10 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
         Some("usage") => run_backend(&["status"], &remaining[1..]),
         Some("doctor") => run_backend(&["doctor"], &remaining[1..]),
         Some("codex") => run_routed_codex(&remaining[1..]),
-        Some(value) if value.starts_with('-') => run_routed_codex(&remaining),
-        Some(_) | None => run_routed_codex(&remaining),
+        None => run_backend(&["status"], &[]),
+        Some(value) => Err(Error::Usage(format!(
+            "unknown CodeRouter command `{value}`; run Codex explicitly with `cr codex [arguments...]`"
+        ))),
     }
 }
 
@@ -235,5 +237,11 @@ mod tests {
                 .and_then(|value| value.to_str()),
             Some("naked")
         ));
+    }
+
+    #[test]
+    fn agent_arguments_require_an_explicit_agent_command() {
+        let error = run(args(&["cr", "--yolo"])).unwrap_err();
+        assert!(error.to_string().contains("cr codex"));
     }
 }
