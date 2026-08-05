@@ -118,6 +118,92 @@ import Testing
         #expect(!resumeCommand.contains("HOME="))
     }
 
+    @Test
+    func openCodeHookCapturesTranscriptStorageWithoutReplayingIt() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-storage-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let dataHome = root.appendingPathComponent("custom data", isDirectory: true)
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let socketPath = "/tmp/cmux-opencode-storage-\(UUID().uuidString.prefix(8)).sock"
+        let response = """
+        {"ok":true,"result":{"workspaces":[{"id":"\(workspaceID)"}],"surfaces":[{"id":"\(surfaceID)","workspace_id":"\(workspaceID)"}]}}
+        """
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        let launchArguments = ["/opt/homebrew/bin/opencode"]
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["HOME"] = root.path
+        environment["XDG_DATA_HOME"] = dataHome.path
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PWD"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "opencode"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = launchArguments[0]
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Data(
+            launchArguments.joined(separator: "\0").utf8
+        ).base64EncodedString()
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "opencode", "session-start"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let storeURL = root.appendingPathComponent(
+            "opencode-hook-sessions.json",
+            isDirectory: false
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try #require(object["sessions"] as? [String: Any])
+        let session = try #require(sessions[surfaceID] as? [String: Any])
+        let launchCommandObject = try #require(session["launchCommand"] as? [String: Any])
+        let capturedEnvironment = try #require(
+            launchCommandObject["environment"] as? [String: String]
+        )
+
+        #expect(capturedEnvironment["HOME"] == root.path)
+        #expect(capturedEnvironment["XDG_DATA_HOME"] == dataHome.path)
+
+        let launchCommandData = try JSONSerialization.data(withJSONObject: launchCommandObject)
+        let launchCommand = try JSONDecoder().decode(
+            AgentLaunchCommandSnapshot.self,
+            from: launchCommandData
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: surfaceID,
+            launchCommand: launchCommand,
+            sessionIDProvenance: .authoritative
+        )
+        let source = AgentConversationSource(snapshot: snapshot)
+        #expect(
+            source.openCodeDatabasePath
+                == dataHome.appendingPathComponent("opencode/opencode.db").path
+        )
+        let resumeCommand = try #require(snapshot.resumeCommand)
+        #expect(!resumeCommand.contains("HOME="))
+        #expect(!resumeCommand.contains("XDG_DATA_HOME="))
+    }
+
     @Test func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
         let cliPath = try bundledCLIPath()
         // Pin the socket and the home directory. Without CMUX_SOCKET_PATH the CLI's resolution can

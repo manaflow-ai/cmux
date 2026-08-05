@@ -8,39 +8,49 @@ struct AgentConversationForkRequest: Equatable, Sendable {
 
     typealias TargetHarness = AgentConversationForkTargetHarness
 
-    let targetHarness: TargetHarness
+    let target: AgentConversationForkTarget
     let destination: AgentConversationForkDestination
 
+    var targetHarness: TargetHarness { target.harness }
+
+    init(
+        target: AgentConversationForkTarget,
+        destination: AgentConversationForkDestination
+    ) {
+        self.target = target
+        self.destination = destination
+    }
+
+    /// Convenience for native and deterministic tests. Installed UI targets use
+    /// the resolved-target initializer so their discovered executable is retained.
     init(
         targetHarness: TargetHarness,
         destination: AgentConversationForkDestination
     ) {
-        self.targetHarness = targetHarness
-        self.destination = destination
+        self.init(
+            target: .canonical(targetHarness),
+            destination: destination
+        )
     }
 
     static func sameHarness(
         destination: AgentConversationForkDestination
     ) -> AgentConversationForkRequest {
         AgentConversationForkRequest(
-            targetHarness: .current,
+            target: .current,
             destination: destination
         )
     }
 
-    static var commandPaletteChoiceArguments: [CommandPaletteChoiceArgument] {
-        commandPaletteChoiceArguments(targetHarnesses: TargetHarness.liveInstalledCases)
-    }
-
     static func commandPaletteChoiceArguments(
-        targetHarnesses: [TargetHarness]
+        targets: [AgentConversationForkTarget]
     ) -> [CommandPaletteChoiceArgument] {
         [
             CommandPaletteChoiceArgument(
                 name: harnessArgumentName,
                 title: String(localized: "forkConversation.argument.harness", defaultValue: "Harness"),
-                choices: targetHarnesses.filter { $0 != .current }.map {
-                    .init(value: $0.rawValue, title: $0.title)
+                choices: targets.filter { $0.harness != .current }.map {
+                    .init(value: $0.harness.rawValue, title: $0.title)
                 }
             ),
             CommandPaletteChoiceArgument(
@@ -53,14 +63,26 @@ struct AgentConversationForkRequest: Equatable, Sendable {
         ]
     }
 
-    init?(arguments: [String: String]) {
+    static func commandPaletteChoiceArguments(
+        targetHarnesses: [TargetHarness]
+    ) -> [CommandPaletteChoiceArgument] {
+        commandPaletteChoiceArguments(
+            targets: targetHarnesses.map { .canonical($0) }
+        )
+    }
+
+    init?(
+        arguments: [String: String],
+        installedTargets: [AgentConversationForkTarget]
+    ) {
         guard let harnessValue = arguments[Self.harnessArgumentName],
               let targetHarness = TargetHarness(rawValue: harnessValue),
+              let target = installedTargets.first(where: { $0.harness == targetHarness }),
               let destinationValue = arguments[Self.destinationArgumentName],
               let destination = AgentConversationForkDestination(rawValue: destinationValue) else {
             return nil
         }
-        self.init(targetHarness: targetHarness, destination: destination)
+        self.init(target: target, destination: destination)
     }
 
     func startupCommandOverride(
@@ -74,6 +96,6 @@ struct AgentConversationForkRequest: Equatable, Sendable {
             return nil
         }
         let handoffMessage = try await exportService.message(for: sourceSnapshot)
-        return targetHarness.startupCommand(handoffMessage: handoffMessage)
+        return target.startupCommand(handoffMessage: handoffMessage)
     }
 }

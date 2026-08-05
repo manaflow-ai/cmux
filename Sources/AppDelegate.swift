@@ -1877,6 +1877,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidBecomeActive(_ notification: Notification) {
         PortScanner.shared.setTrackedAgentScanningPaused(false)
+        tabManager?.agentConversationForkTargetCatalog.refreshIfNeeded(force: true)
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -2200,6 +2201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth: MacAuthComposition
     ) {
         self.tabManager = tabManager
+        tabManager.agentConversationForkTargetCatalog.refreshIfNeeded(force: true)
         // SwiftUI constructs the initial TabManager before this delegate is
         // available; adopt its coordinator so every later window shares it.
         pullRequestProbeService = tabManager.pullRequestProbeService
@@ -8943,7 +8945,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            agentConversationForkTargetCatalog: self.tabManager?.agentConversationForkTargetCatalog
+                ?? AgentConversationForkTargetCatalog()
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

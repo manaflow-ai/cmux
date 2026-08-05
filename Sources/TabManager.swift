@@ -466,6 +466,8 @@ class TabManager: ObservableObject {
     /// GitHub transport state injected process-wide by the app composition root.
     /// The fallback initializer is retained for isolated `TabManager` tests.
     let pullRequestProbeService: PullRequestProbeService
+    /// Process-scoped installed harness snapshot, injected into every window.
+    let agentConversationForkTargetCatalog: AgentConversationForkTargetCatalog
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -491,8 +493,11 @@ class TabManager: ObservableObject {
         },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        agentConversationForkTargetCatalog: AgentConversationForkTargetCatalog? = nil,
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
+        self.agentConversationForkTargetCatalog = agentConversationForkTargetCatalog
+            ?? AgentConversationForkTargetCatalog()
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()

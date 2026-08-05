@@ -26,37 +26,73 @@ struct AgentExecutableResolver {
     }
 
     func resolve(_ provider: AgentSessionProviderID) throws -> AgentSessionLaunchPlan {
-        let executableName = provider.executableName
         let searchDirectories = resolvedSearchDirectories()
+        return try resolve(provider, searchDirectories: searchDirectories)
+    }
+
+    /// Resolves a provider against an already-computed search path. Callers that
+    /// resolve several providers can enumerate version-manager directories once.
+    func resolve(
+        _ provider: AgentSessionProviderID,
+        searchDirectories: [String],
+        executableNames: [String]? = nil
+    ) throws -> AgentSessionLaunchPlan {
+        let executableNames = executableNames ?? [provider.executableName]
         if let configuredURL = resolvedConfiguredExecutableURL(for: provider) {
             return launchPlan(provider: provider, executableURL: configuredURL, searchDirectories: searchDirectories)
         }
 
         for directory in searchDirectories {
             guard !shouldSkipSearchDirectory(directory) else { continue }
-            let candidateURL = URL(fileURLWithPath: directory, isDirectory: true)
-                .appendingPathComponent(executableName, isDirectory: false)
-                .standardizedFileURL
-            let candidatePath = candidateURL.path
-            // `isExecutableFile(atPath:)` is true for directories, so a directory named
-            // like the provider binary earlier on PATH would shadow the real executable
-            // and fail at launch (#8743).
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: candidatePath, isDirectory: &isDirectory),
-                  !isDirectory.boolValue,
-                  fileManager.isExecutableFile(atPath: candidatePath) else { continue }
-            guard !isBundledProviderExecutable(candidateURL) else { continue }
-            guard !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider) else { continue }
-            guard !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else { continue }
+            for executableName in executableNames {
+                let candidateURL = URL(fileURLWithPath: directory, isDirectory: true)
+                    .appendingPathComponent(executableName, isDirectory: false)
+                    .standardizedFileURL
+                let candidatePath = candidateURL.path
+                // `isExecutableFile(atPath:)` is true for directories, so a directory named
+                // like the provider binary earlier on PATH would shadow the real executable
+                // and fail at launch (#8743).
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: candidatePath, isDirectory: &isDirectory),
+                      !isDirectory.boolValue,
+                      fileManager.isExecutableFile(atPath: candidatePath) else { continue }
+                guard !isBundledProviderExecutable(candidateURL) else { continue }
+                guard !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider) else { continue }
+                guard !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else { continue }
 
-            return launchPlan(provider: provider, executableURL: candidateURL, searchDirectories: searchDirectories)
+                return launchPlan(provider: provider, executableURL: candidateURL, searchDirectories: searchDirectories)
+            }
         }
 
         throw AgentExecutableResolverError.missing(
             displayName: provider.displayName,
-            executableName: executableName,
+            executableName: executableNames.first ?? provider.executableName,
             searchedDirectories: searchDirectories
         )
+    }
+
+    /// Finds the first executable alias using the same filtered search path as
+    /// provider resolution.
+    func resolveExecutable(
+        named executableNames: [String],
+        searchDirectories: [String]
+    ) -> URL? {
+        for directory in searchDirectories {
+            guard !shouldSkipSearchDirectory(directory) else { continue }
+            for executableName in executableNames {
+                let candidateURL = URL(fileURLWithPath: directory, isDirectory: true)
+                    .appendingPathComponent(executableName, isDirectory: false)
+                    .standardizedFileURL
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: candidateURL.path, isDirectory: &isDirectory),
+                      !isDirectory.boolValue,
+                      fileManager.isExecutableFile(atPath: candidateURL.path) else {
+                    continue
+                }
+                return candidateURL
+            }
+        }
+        return nil
     }
 
     static func cmuxConfiguredExecutablePaths(defaults: UserDefaults = .standard) -> [AgentSessionProviderID: String] {

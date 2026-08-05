@@ -28457,6 +28457,16 @@ struct CMUXCLI {
             // which intentionally does not replay the process-wide HOME value.
             environment["HOME"] = home
         }
+        if launcher == "opencode" || launcher == "omo" {
+            // OpenCode transcript storage is rooted in XDG_DATA_HOME or HOME.
+            // Retain both as read-only provenance in the launch record. Resume
+            // environment filtering below intentionally does not replay them.
+            for key in ["HOME", "XDG_DATA_HOME"] {
+                if let value = normalizedHookValue(env[key]) {
+                    environment[key] = value
+                }
+            }
+        }
 
         // Fallback when the launch argv is genuinely UNAVAILABLE: plain `codex` with no cmux launcher
         // (no CMUX_AGENT_LAUNCH_ARGV_B64) and an unresolved/exited PID, so processArguments returns nil.

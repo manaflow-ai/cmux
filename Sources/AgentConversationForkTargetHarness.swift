@@ -33,18 +33,6 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ?? rawValue
     }
 
-    /// Installed targets are detected once per app launch because command-palette
-    /// contributions are declarative and keep their choice lists for that launch.
-    static let liveInstalledCases: [Self] = installedCases(
-        providerInstalled: { provider in
-            let resolver = AgentExecutableResolver(
-                configuredExecutablePaths: AgentExecutableResolver.cmuxConfiguredExecutablePaths()
-            )
-            return (try? resolver.resolve(provider)) != nil
-        },
-        executableInstalled: liveExecutableInstalled
-    )
-
     static func installedCases(
         providerInstalled: (AgentSessionProviderID) -> Bool,
         executableInstalled: ([String]) -> Bool
@@ -66,52 +54,63 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         !isRemoteSource || usesNativeFork(for: sourceKind)
     }
 
-    func startupCommand(handoffMessage: String) -> String? {
+    func startupCommand(
+        handoffMessage: String,
+        executablePath: String? = nil
+    ) -> String? {
         // These interactive CLIs require their seed through an argv or documented
         // first-message adapter; writing it to their live stdin would race TUI startup.
         let quotedMessage = TerminalStartupShellQuoting.singleQuoted(handoffMessage)
+        let executable = executablePath.map { path in
+            path.contains("/")
+                ? TerminalStartupShellQuoting.singleQuoted(path)
+                : path
+        } ?? preferredExecutableName
         return switch self {
         case .current:
             nil
         case .claude:
-            "claude \(quotedMessage)"
+            "\(executable) \(quotedMessage)"
         case .codex:
-            "codex \(quotedMessage)"
+            "\(executable) \(quotedMessage)"
         case .grok:
-            "grok \(quotedMessage)"
+            "\(executable) \(quotedMessage)"
         case .opencode:
-            Self.openCodeStartupCommand(handoffMessage: handoffMessage)
+            Self.openCodeStartupCommand(
+                handoffMessage: handoffMessage,
+                executable: executable
+            )
         case .omp:
-            "omp \(quotedMessage)"
+            "\(executable) \(quotedMessage)"
         case .pi:
-            "pi -- \(quotedMessage)"
+            "\(executable) -- \(quotedMessage)"
         case .amp:
             // Amp documents piped stdin as the first user message in interactive mode.
-            "printf '%s\\n' \(quotedMessage) | amp"
+            "printf '%s\\n' \(quotedMessage) | \(executable)"
         case .cursor:
-            "cursor-agent \(quotedMessage)"
+            "\(executable) \(quotedMessage)"
         case .gemini:
-            "gemini --prompt-interactive \(quotedMessage)"
+            "\(executable) --prompt-interactive \(quotedMessage)"
         case .kiro:
-            "kiro-cli chat \(quotedMessage)"
+            "\(executable) chat \(quotedMessage)"
         case .antigravity:
-            "agy --prompt-interactive \(quotedMessage)"
+            "\(executable) --prompt-interactive \(quotedMessage)"
         case .hermesAgent:
-            "hermes chat --tui --query \(quotedMessage)"
+            "\(executable) chat --tui --query \(quotedMessage)"
         case .copilot:
-            "copilot --interactive \(quotedMessage)"
+            "\(executable) --interactive \(quotedMessage)"
         case .codebuddy:
-            "codebuddy \(quotedMessage)"
+            "\(executable) \(quotedMessage)"
         case .factory:
-            "droid \(quotedMessage)"
+            "\(executable) \(quotedMessage)"
         case .qoder:
-            "qodercli --prompt-interactive \(quotedMessage)"
+            "\(executable) --prompt-interactive \(quotedMessage)"
         case .kimi:
-            "kimi --prompt \(quotedMessage)"
+            "\(executable) --prompt \(quotedMessage)"
         }
     }
 
-    private var providerID: AgentSessionProviderID? {
+    var providerID: AgentSessionProviderID? {
         switch self {
         case .claude: .claude
         case .codex: .codex
@@ -122,10 +121,16 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         }
     }
 
-    private var executableNames: [String] {
+    var executableNames: [String] {
         switch self {
-        case .current, .claude, .codex, .opencode:
+        case .current:
             []
+        case .claude:
+            ["claude", "claude-code", "claude_code"]
+        case .codex:
+            ["codex"]
+        case .opencode:
+            ["opencode", "opencode-ai", "open-code"]
         case .grok:
             ["grok", "grok-macos-aarch64", "grok-macos-aarch"]
         case .omp:
@@ -157,47 +162,20 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         }
     }
 
-    private static func liveExecutableInstalled(_ names: [String]) -> Bool {
-        let resolver = AgentExecutableResolver()
-        let home = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
-        let supplementalDirectories = [
-            ".grok/bin",
-            ".amp/bin",
-            ".cursor/bin",
-            ".gemini/bin",
-            ".kiro/bin",
-            ".antigravity/bin",
-            ".factory/bin",
-            ".qoder/bin",
-            ".hermes/bin",
-            ".kimi/bin",
-        ].map { "\(home)/\($0)" }
-        let directories = resolver.resolvedSearchDirectories() + supplementalDirectories
-        for directory in directories {
-            for name in names {
-                let path = URL(fileURLWithPath: directory, isDirectory: true)
-                    .appendingPathComponent(name, isDirectory: false)
-                    .standardizedFileURL
-                    .path
-                var isDirectory: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
-                      !isDirectory.boolValue,
-                      FileManager.default.isExecutableFile(atPath: path) else {
-                    continue
-                }
-                return true
-            }
-        }
-        return false
+    var preferredExecutableName: String {
+        executableNames.first ?? rawValue
     }
 
-    private static func openCodeStartupCommand(handoffMessage: String) -> String {
+    private static func openCodeStartupCommand(
+        handoffMessage: String,
+        executable: String
+    ) -> String {
         let quotedMessage = TerminalStartupShellQuoting.singleQuoted(handoffMessage)
         return """
-        opencode_output=$(opencode run --format json -- \(quotedMessage)) || { printf '%s\\n' "$opencode_output"; exit 1; }
+        opencode_output=$(\(executable) run --format json -- \(quotedMessage)) || { printf '%s\\n' "$opencode_output"; exit 1; }
         opencode_session=$(printf '%s\\n' "$opencode_output" | sed -n 's/.*"sessionID":"\\([^"]*\\)".*/\\1/p' | head -n 1)
         [ -n "$opencode_session" ] || { printf '%s\\n' "$opencode_output"; exit 1; }
-        exec opencode --session "$opencode_session"
+        exec \(executable) --session "$opencode_session"
         """
     }
 }

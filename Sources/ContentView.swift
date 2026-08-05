@@ -2879,6 +2879,13 @@ struct ContentView: View {
             toggleCommandPalette()
         })
 
+        view = AnyView(view.onReceive(
+            tabManager.agentConversationForkTargetCatalog.$installedTargets.dropFirst()
+        ) { _ in
+            guard isCommandPalettePresented else { return }
+            scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
@@ -6739,7 +6746,7 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.panelSupportsCrossHarnessFork,
-                !AgentConversationForkRequest.TargetHarness.liveInstalledCases.isEmpty
+                !tabManager.agentConversationForkTargetCatalog.installedTargets.isEmpty
                     && workspace.hasAgentConversationTransferSource(forPanelId: panelId)
             )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
@@ -7814,7 +7821,9 @@ struct ContentView: View {
                     "terminal", "agent", "fork", "conversation", "session", "harness",
                     "claude", "codex", "opencode", "direction", "destination",
                 ],
-                choiceArguments: AgentConversationForkRequest.commandPaletteChoiceArguments,
+                choiceArguments: AgentConversationForkRequest.commandPaletteChoiceArguments(
+                    targets: tabManager.agentConversationForkTargetCatalog.installedTargets
+                ),
                 when: {
                     $0.bool(CommandPaletteContextKeys.panelIsTerminal) &&
                     $0.bool(CommandPaletteContextKeys.panelSupportsCrossHarnessFork)
@@ -8614,7 +8623,10 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.forkAgentConversation") { arguments in
-            guard let request = AgentConversationForkRequest(arguments: arguments) else {
+            guard let request = AgentConversationForkRequest(
+                arguments: arguments,
+                installedTargets: tabManager.agentConversationForkTargetCatalog.installedTargets
+            ) else {
                 NSSound.beep()
                 return
             }
@@ -9375,6 +9387,7 @@ struct ContentView: View {
     }
 
     private func presentCommandPalette(initialQuery: String) {
+        tabManager.agentConversationForkTargetCatalog.refreshIfNeeded()
         refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
         commandPaletteFocusRestoreCoordinator.clear()
         if let panelContext = focusedPanelContext {

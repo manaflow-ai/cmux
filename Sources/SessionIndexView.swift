@@ -3,7 +3,6 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CMUXAgentLaunch
-import Observation
 import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
@@ -1133,39 +1132,11 @@ enum SessionTranscriptLoader {
         + grokSystemRoleNeedles
         + grokToolRoleNeedles
 
-    struct Source: Sendable {
-        let agent: SessionAgent
-        let sessionId: String
-        let fileURL: URL?
-        let usesGrokTranscriptLayout: Bool
-        let openCodeDatabasePath: String?
-        let hermesStateDatabaseURL: URL?
-        let retention: SessionTranscriptRetention
-
-        init(
-            agent: SessionAgent,
-            sessionId: String,
-            fileURL: URL?,
-            usesGrokTranscriptLayout: Bool = false,
-            openCodeDatabasePath: String? = nil,
-            hermesStateDatabaseURL: URL? = nil,
-            retention: SessionTranscriptRetention = .prefix(500)
-        ) {
-            self.agent = agent
-            self.sessionId = sessionId
-            self.fileURL = fileURL
-            self.usesGrokTranscriptLayout = usesGrokTranscriptLayout
-            self.openCodeDatabasePath = openCodeDatabasePath
-            self.hermesStateDatabaseURL = hermesStateDatabaseURL
-            self.retention = retention
-        }
-    }
-
     static func load(
         entry: SessionEntry,
         retention: SessionTranscriptRetention = .prefix(maxPreviewTurns)
     ) async throws -> [SessionTranscriptTurn] {
-        try await load(source: Source(
+        try await load(source: SessionTranscriptSource(
             agent: entry.agent,
             sessionId: entry.sessionId,
             fileURL: entry.fileURL,
@@ -1174,7 +1145,7 @@ enum SessionTranscriptLoader {
         ))
     }
 
-    static func load(source: Source) async throws -> [SessionTranscriptTurn] {
+    static func load(source: SessionTranscriptSource) async throws -> [SessionTranscriptTurn] {
         if source.agent == .opencode {
             let sessionId = source.sessionId
             let databasePath = source.openCodeDatabasePath

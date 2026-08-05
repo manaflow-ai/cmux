@@ -176,13 +176,111 @@ struct AgentConversationTransferSourceTests {
         let panelID = try #require(workspace.focusedPanelId)
         workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelID)
 
-        let harnesses = workspace.actionableAgentConversationForkTargetHarnesses(
+        let targets = workspace.actionableAgentConversationForkTargets(
             forPanelId: panelID,
             liveAgentIndex: .shared,
-            targetHarnesses: [.opencode]
+            targets: [.canonical(.opencode)]
         )
 
-        #expect(harnesses == [.opencode])
+        #expect(targets.map(\.harness) == [.opencode])
+    }
+
+    @Test
+    func installedTargetDiscoveryRetainsConfiguredProviderExecutable() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("custom claude")
+        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data()))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+
+        let targets = AgentConversationForkTargetDiscoverer(
+            environment: ["HOME": root.path, "PATH": ""],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [.claude: executable.path],
+            includeStandardSearchDirectories: false
+        ).discover()
+
+        #expect(targets == [AgentConversationForkTarget(
+            harness: .claude,
+            executablePath: executable.path
+        )])
+    }
+
+    @Test
+    func installedTargetDiscoveryRetainsExecutableAliasPath() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let executable = bin.appendingPathComponent("cbc")
+        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data()))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+
+        let targets = AgentConversationForkTargetDiscoverer(
+            environment: ["HOME": root.path, "PATH": bin.path],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [:],
+            includeStandardSearchDirectories: false
+        ).discover()
+
+        #expect(targets == [AgentConversationForkTarget(
+            harness: .codebuddy,
+            executablePath: executable.path
+        )])
+    }
+
+    @Test
+    func resolvedTargetPathSurvivesIntoStartupCommand() throws {
+        let target = AgentConversationForkTarget(
+            harness: .claude,
+            executablePath: "/tmp/Custom Tools/claude"
+        )
+        let command = try #require(target.startupCommand(handoffMessage: "User: keep context"))
+
+        #expect(command.hasPrefix("'/tmp/Custom Tools/claude' "))
+        #expect(command.contains("User: keep context"))
+    }
+
+    @Test
+    func targetCatalogRefreshesInstalledExecutableChanges() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("codex")
+        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data()))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let discoverer = AgentConversationForkTargetDiscoverer(
+            environment: ["HOME": root.path, "PATH": root.path],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [:],
+            includeStandardSearchDirectories: false
+        )
+        let catalog = AgentConversationForkTargetCatalog(
+            minimumRefreshInterval: 0,
+            discovery: { discoverer.discover() }
+        )
+
+        await catalog.refresh(force: true)
+        #expect(catalog.installedTargets == [AgentConversationForkTarget(
+            harness: .codex,
+            executablePath: executable.path
+        )])
+
+        try FileManager.default.removeItem(at: executable)
+        await catalog.refresh(force: true)
+
+        #expect(catalog.installedTargets.isEmpty)
     }
 
     @Test(arguments: [RestorableAgentKind.opencode, .hermesAgent])

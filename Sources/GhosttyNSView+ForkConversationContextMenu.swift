@@ -12,14 +12,14 @@ extension GhosttyNSView {
     @discardableResult
     func appendForkCurrentAgentConversationMenuItems(to menu: NSMenu) -> Bool {
         let nativeAvailability = currentAgentConversationForkAvailability()
-        let transferHarnesses = availableForkTargetHarnesses()
+        let transferTargets = availableForkTargets()
         guard nativeAvailability.isAvailable
             || nativeAvailability == .agentIndexRefreshing
-            || !transferHarnesses.isEmpty else {
+            || !transferTargets.isEmpty else {
             return false
         }
 
-        if nativeAvailability == .agentIndexRefreshing, transferHarnesses.isEmpty {
+        if nativeAvailability == .agentIndexRefreshing, transferTargets.isEmpty {
             let item = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.forkConversation", defaultValue: "Fork Conversation"),
                 action: nil,
@@ -53,7 +53,7 @@ extension GhosttyNSView {
             menu.addItem(submenuItem)
         }
 
-        if !transferHarnesses.isEmpty {
+        if !transferTargets.isEmpty {
             let harnessItem = NSMenuItem(
                 title: String(
                     localized: "terminalContextMenu.forkConversationWith",
@@ -64,11 +64,11 @@ extension GhosttyNSView {
             )
             harnessItem.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
             let harnessMenu = NSMenu()
-            for harness in transferHarnesses {
-                let targetItem = NSMenuItem(title: harness.title, action: nil, keyEquivalent: "")
+            for target in transferTargets {
+                let targetItem = NSMenuItem(title: target.title, action: nil, keyEquivalent: "")
                 targetItem.submenu = makeForkDestinationSubmenu { destination in
                     AgentConversationForkRequest(
-                        targetHarness: harness,
+                        target: target,
                         destination: destination
                     )
                 }
@@ -100,12 +100,12 @@ extension GhosttyNSView {
         return menu
     }
 
-    private func availableForkTargetHarnesses() -> [AgentConversationForkRequest.TargetHarness] {
+    private func availableForkTargets() -> [AgentConversationForkTarget] {
         guard let panelId = terminalSurface?.id,
               let workspace = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId)?.workspace else {
             return []
         }
-        return workspace.actionableAgentConversationForkTargetHarnesses(forPanelId: panelId)
+        return workspace.actionableAgentConversationForkTargets(forPanelId: panelId)
     }
 
     private func currentAgentConversationForkAvailability() -> WorkspaceForkAgentConversationAvailability {

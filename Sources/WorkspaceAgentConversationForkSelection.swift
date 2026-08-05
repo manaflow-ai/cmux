@@ -7,32 +7,37 @@ struct WorkspaceAgentConversationForkSelection {
 }
 
 extension Workspace {
-    func actionableAgentConversationForkTargetHarnesses(
+    func actionableAgentConversationForkTargets(
         forPanelId panelId: UUID
-    ) -> [AgentConversationForkRequest.TargetHarness] {
-        actionableAgentConversationForkTargetHarnesses(
+    ) -> [AgentConversationForkTarget] {
+        guard let catalog = owningTabManager?.agentConversationForkTargetCatalog else {
+            return []
+        }
+        catalog.refreshIfNeeded()
+        return actionableAgentConversationForkTargets(
             forPanelId: panelId,
-            liveAgentIndex: .shared
+            liveAgentIndex: .shared,
+            targets: catalog.installedTargets
         )
     }
 
-    func actionableAgentConversationForkTargetHarnesses(
+    func actionableAgentConversationForkTargets(
         forPanelId panelId: UUID,
         liveAgentIndex: SharedLiveAgentIndex,
-        targetHarnesses: [AgentConversationForkRequest.TargetHarness] = AgentConversationForkRequest.TargetHarness.liveInstalledCases
-    ) -> [AgentConversationForkRequest.TargetHarness] {
+        targets: [AgentConversationForkTarget]
+    ) -> [AgentConversationForkTarget] {
         guard agentConversationTransferSnapshot(
             forPanelId: panelId,
             liveAgentIndex: liveAgentIndex
         ) != nil else {
             return []
         }
-        return targetHarnesses.filter { targetHarness in
-            guard targetHarness != .current else { return false }
+        return targets.filter { target in
+            guard target.harness != .current else { return false }
             return agentConversationForkSelection(
                 forPanelId: panelId,
                 request: AgentConversationForkRequest(
-                    targetHarness: targetHarness,
+                    target: target,
                     destination: .right
                 ),
                 liveAgentIndex: liveAgentIndex
