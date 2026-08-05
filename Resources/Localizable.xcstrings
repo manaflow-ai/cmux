@@ -136949,16 +136949,124 @@
     "notifications.forwardToPhone.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل إشعارات الوكيل إلى تطبيق cmux على iPhone. تكون الميزة متوقفة افتراضيًا، ولا يتم رفع أي شيء إلا عند تشغيلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalji obavještenja agenata u cmux aplikaciju za iPhone. Isključeno je po zadanim postavkama; ništa se ne šalje dok ovo ne uključite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send agentnotifikationer til cmux-appen på iPhone. Funktionen er slået fra som standard; intet uploades, medmindre den er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenmitteilungen an die cmux-App auf dem iPhone senden. Standardmäßig deaktiviert; ohne Aktivierung wird nichts hochgeladen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."
+            "value": "Send local agent notifications to cmux on your iPhone. Enabled by default; turn this off to stop this Mac from forwarding them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía notificaciones de agentes a la app cmux del iPhone. Está desactivado de forma predeterminada; no se carga nada a menos que lo actives."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyez les notifications des agents à l’app cmux sur iPhone. Cette option est désactivée par défaut ; rien n’est téléversé tant qu’elle ne l’est pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia le notifiche degli agenti all’app cmux per iPhone. L’opzione è disattivata per impostazione predefinita; non viene caricato nulla finché non la attivi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントの通知を cmux の iPhone アプリに送信します。デフォルトはオフで、オンにしない限り何もアップロードされません。"
+            "value": "ローカルエージェントの通知を iPhone の cmux に送信します。デフォルトでオンです。この Mac からの転送を停止するにはオフにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើការជូនដំណឹងរបស់ភ្នាក់ងារទៅកម្មវិធី cmux លើ iPhone។ មុខងារនេះបិទតាមលំនាំដើម ហើយគ្មានអ្វីត្រូវបានផ្ទុកឡើងទេ លុះត្រាតែអ្នកបើកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 알림을 iPhone용 cmux 앱으로 보냅니다. 기본적으로 꺼져 있으며, 이 설정을 켜기 전에는 아무것도 업로드되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send agentvarslinger til cmux-appen på iPhone. Funksjonen er av som standard; ingenting lastes opp med mindre den er slått på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyłaj powiadomienia agentów do aplikacji cmux na iPhonie. Funkcja jest domyślnie wyłączona; nic nie jest przesyłane, dopóki jej nie włączysz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie notificações dos agentes ao app cmux no iPhone. O recurso vem desativado; nada é enviado até que você o ative."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправлять уведомления агентов в приложение cmux на iPhone. По умолчанию выключено; данные не загружаются, пока вы не включите эту функцию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งการแจ้งเตือนของเอเจนต์ไปยังแอป cmux บน iPhone ปิดไว้ตามค่าเริ่มต้น และจะไม่มีการอัปโหลดข้อมูลจนกว่าจะเปิดใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı bildirimlerini iPhone’daki cmux uygulamasına gönderir. Varsayılan olarak kapalıdır; açılmadıkça hiçbir şey yüklenmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилати сповіщення агентів у застосунок cmux на iPhone. Типово вимкнено; нічого не завантажується, доки ви не ввімкнете цю функцію."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将代理通知发送到 iPhone 上的 cmux App。默认关闭；只有开启后才会上传内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將代理程式通知傳送到 iPhone 上的 cmux App。預設關閉；只有開啟後才會上傳內容。"
           }
         }
       }
@@ -136966,16 +137074,124 @@
     "notifications.forwardToPhone.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة توجيه الإشعارات إلى iPhone الخاص بي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedi obavještenja na moj iPhone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videresend notifikationer til min iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitteilungen an mein iPhone weiterleiten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Forward notifications to my iPhone"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reenviar notificaciones a mi iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transférer les notifications vers mon iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inoltra le notifiche al mio iPhone"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "通知を iPhone に転送する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូនការជូនដំណឹងទៅ iPhone របស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 iPhone으로 알림 전달"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videresend varslinger til min iPhone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekazuj powiadomienia na mój iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encaminhar notificações para meu iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пересылать уведомления на мой iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งต่อการแจ้งเตือนไปยัง iPhone ของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirimleri iPhone'uma ilet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пересилати сповіщення на мій iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将通知转发到我的 iPhone"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將通知轉寄到我的 iPhone"
           }
         }
       }
@@ -174693,6 +174909,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "iOS アプリがローカルネットワーク上でこの Mac を検出し、同期できるようにします。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forward Notifications to iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone に通知を転送"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stops this Mac from sending local agent alerts to mobile devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac からモバイルデバイスへのローカルエージェント通知の送信を停止します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のローカルエージェント通知を iPhone や iPad の cmux に送信します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.hideContent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Notification Content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知内容を非表示"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.hideContent.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends a generic message instead of agent and terminal text."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントやターミナルのテキストの代わりに一般的なメッセージを送信します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When to Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信するタイミング"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.onlyWhenAway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only When Away"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離席中のみ"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always sends every local agent alert. Away mode waits until this Mac is locked, asleep, or idle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「常に」はすべてのローカルエージェント通知を送信します。「離席中」は、この Mac がロック中、スリープ中、またはアイドル状態になるまで待機します。"
           }
         }
       }
@@ -262710,6 +263079,381 @@
           "stringUnit": {
             "state": "translated",
             "value": "到達可能"
+          }
+        }
+      }
+    },
+    "push.hidden.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نشاط جديد في الوحدة الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova aktivnost u terminalu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny terminalaktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Terminalaktivität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New terminal activity"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva actividad en la terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle activité dans le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova attività nel terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルアクティビティ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាពស្ថានីយថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 터미널 활동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny terminalaktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowa aktywność terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova atividade no terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая активность в терминале"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีกิจกรรมใหม่ในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni terminal etkinliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова активність у терміналі"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的终端活动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的終端活動"
+          }
+        }
+      }
+    },
+    "push.test.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل Mac تنبيهًا تجريبيًا إلى cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš Mac je poslao probno upozorenje u cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din Mac sendte en testadvarsel til cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Mac hat eine Testmitteilung an cmux gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac sent a test alert to cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu Mac envió una alerta de prueba a cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre Mac a envoyé une alerte de test à cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il Mac ha inviato un avviso di prova a cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac から cmux にテスト通知が送信されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac របស់អ្នកបានផ្ញើការជូនដំណឹងសាកល្បងទៅ cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 cmux로 테스트 알림을 보냈습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macen sendte et testvarsel til cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac wysłał alert testowy do cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu Mac enviou um alerta de teste ao cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш Mac отправил тестовое уведомление в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac ของคุณส่งการแจ้งเตือนทดสอบไปยัง cmux แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac’iniz cmux’a bir test uyarısı gönderdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш Mac надіслав тестове сповіщення в cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 已向 cmux 发送测试提醒。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 已向 cmux 傳送測試提醒。"
+          }
+        }
+      }
+    },
+    "push.test.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختبار إشعارات cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux test obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-notifikationstest"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Mitteilungstest"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Notification Test"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prueba de notificaciones de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test de notification cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test notifiche cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知テスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសាកល្បងការជូនដំណឹង cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 알림 테스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-varslingstest"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test powiadomień cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teste de notificações do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест уведомлений cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทดสอบการแจ้งเตือน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bildirim testi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест сповіщень cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知测试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知測試"
           }
         }
       }
