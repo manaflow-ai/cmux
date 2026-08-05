@@ -29,11 +29,17 @@ struct AgentConversationForkRequest: Equatable, Sendable {
     }
 
     static var commandPaletteChoiceArguments: [CommandPaletteChoiceArgument] {
+        commandPaletteChoiceArguments(targetHarnesses: TargetHarness.liveInstalledCases)
+    }
+
+    static func commandPaletteChoiceArguments(
+        targetHarnesses: [TargetHarness]
+    ) -> [CommandPaletteChoiceArgument] {
         [
             CommandPaletteChoiceArgument(
                 name: harnessArgumentName,
                 title: String(localized: "forkConversation.argument.harness", defaultValue: "Harness"),
-                choices: TargetHarness.allCases.filter { $0 != .current }.map {
+                choices: targetHarnesses.filter { $0 != .current }.map {
                     .init(value: $0.rawValue, title: $0.title)
                 }
             ),

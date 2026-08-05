@@ -71,14 +71,30 @@ struct AgentConversationTransferSourceTests {
 
     @Test
     func commandPaletteHarnessChoicesLeaveCurrentHarnessToNativeCommands() throws {
+        let targetHarnesses = AgentConversationForkRequest.TargetHarness.allCases.filter { $0 != .current }
         let harnessArgument = try #require(
-            AgentConversationForkRequest.commandPaletteChoiceArguments.first {
+            AgentConversationForkRequest.commandPaletteChoiceArguments(
+                targetHarnesses: targetHarnesses
+            ).first {
                 $0.name == AgentConversationForkRequest.harnessArgumentName
             }
         )
 
         #expect(!harnessArgument.choices.contains { $0.value == "current" })
-        #expect(Set(harnessArgument.choices.map(\.value)) == ["claude", "codex", "opencode"])
+        #expect(Set(harnessArgument.choices.map(\.value)) == Set(targetHarnesses.map(\.rawValue)))
+    }
+
+    @Test
+    func installedHarnessCatalogUsesProviderAndExecutableCapabilities() {
+        let installedProviders: Set<AgentSessionProviderID> = [.codex, .opencode]
+        let installedExecutables = Set(["gemini", "hermes"])
+
+        let harnesses = AgentConversationForkRequest.TargetHarness.installedCases(
+            providerInstalled: { installedProviders.contains($0) },
+            executableInstalled: { names in !installedExecutables.isDisjoint(with: names) }
+        )
+
+        #expect(harnesses == [.codex, .opencode, .gemini, .hermesAgent])
     }
 
     @Test
@@ -112,8 +128,11 @@ struct AgentConversationTransferSourceTests {
             panelId: panelId,
             fallbackSnapshot: snapshot
         )
+        let targetHarnesses = AgentConversationForkRequest.TargetHarness.allCases.filter { $0 != .current }
         let harnessArgument = try #require(
-            AgentConversationForkRequest.commandPaletteChoiceArguments.first {
+            AgentConversationForkRequest.commandPaletteChoiceArguments(
+                targetHarnesses: targetHarnesses
+            ).first {
                 $0.name == AgentConversationForkRequest.harnessArgumentName
             }
         )
@@ -135,7 +154,7 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
-    func contextMenuOffersSameHarnessWhenNativeProbeIsUnavailable() throws {
+    func actionableTargetsOfferSameHarnessWhenNativeProbeIsUnavailable() throws {
         let home = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: home) }
         let snapshot = SessionRestorableAgentSnapshot(
@@ -153,39 +172,17 @@ struct AgentConversationTransferSourceTests {
                 environment: ["HOME": home.path]
             )
         )
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        let tabManager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = tabManager
-        let workspace = tabManager.addWorkspace(select: true)
-        defer {
-            tabManager.closeWorkspace(workspace)
-            appDelegate.tabManager = nil
-            AppDelegate.shared = previousAppDelegate
-        }
+        let workspace = Workspace()
         let panelID = try #require(workspace.focusedPanelId)
-        let terminalPanel = try #require(workspace.terminalPanel(for: panelID))
         workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelID)
 
-        let surfaceView = GhosttyNSView(frame: .zero)
-        surfaceView.terminalSurface = terminalPanel.surface
-        let menu = NSMenu()
+        let harnesses = workspace.actionableAgentConversationForkTargetHarnesses(
+            forPanelId: panelID,
+            liveAgentIndex: .shared,
+            targetHarnesses: [.opencode]
+        )
 
-        #expect(surfaceView.appendForkCurrentAgentConversationMenuItems(to: menu))
-        let harnessMenu = try #require(
-            menu.items.first {
-                $0.title == String(
-                    localized: "terminalContextMenu.forkConversationWith",
-                    defaultValue: "Fork Conversation with"
-                )
-            }?.submenu
-        )
-        #expect(
-            harnessMenu.items.contains {
-                $0.title == AgentConversationForkRequest.TargetHarness.opencode.title
-            }
-        )
+        #expect(harnesses == [.opencode])
     }
 
     @Test(arguments: [RestorableAgentKind.opencode, .hermesAgent])

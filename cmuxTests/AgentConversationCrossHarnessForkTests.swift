@@ -13,6 +13,41 @@ import Testing
 @Suite(.serialized)
 struct AgentConversationCrossHarnessForkTests {
     @Test
+    func everyAdvertisedHarnessBuildsAnInteractiveTransferCommand() throws {
+        let message = "User: don't drop this\nAI: preserved"
+        let commands = Dictionary(uniqueKeysWithValues: try AgentConversationForkTargetHarness.allCases
+            .filter { $0 != .current }
+            .map { harness in
+                (harness, try #require(harness.startupCommand(handoffMessage: message)))
+            })
+
+        #expect(commands[.claude]?.hasPrefix("claude ") == true)
+        #expect(commands[.codex]?.hasPrefix("codex ") == true)
+        #expect(commands[.grok]?.hasPrefix("grok ") == true)
+        #expect(commands[.opencode]?.contains("opencode run --format json") == true)
+        #expect(commands[.omp]?.hasPrefix("omp ") == true)
+        #expect(commands[.pi]?.hasPrefix("pi -- ") == true)
+        #expect(commands[.amp]?.hasPrefix("printf '%s\\n' ") == true)
+        #expect(commands[.cursor]?.hasPrefix("cursor-agent ") == true)
+        #expect(commands[.gemini]?.hasPrefix("gemini --prompt-interactive ") == true)
+        #expect(commands[.kiro]?.hasPrefix("kiro-cli chat ") == true)
+        #expect(commands[.antigravity]?.hasPrefix("agy --prompt-interactive ") == true)
+        #expect(commands[.hermesAgent]?.hasPrefix("hermes chat --tui --query ") == true)
+        #expect(commands[.copilot]?.hasPrefix("copilot --interactive ") == true)
+        #expect(commands[.codebuddy]?.hasPrefix("codebuddy ") == true)
+        #expect(commands[.factory]?.hasPrefix("droid ") == true)
+        #expect(commands[.qoder]?.hasPrefix("qodercli --prompt-interactive ") == true)
+        #expect(commands[.kimi]?.hasPrefix("kimi --prompt ") == true)
+        #expect(commands.values.allSatisfy { $0.contains("don'\\''t drop this") })
+    }
+
+    @Test
+    func registeredHarnessIDUsesNativeForkForMatchingSource() {
+        #expect(AgentConversationForkTargetHarness.omp.usesNativeFork(for: .custom("omp")))
+        #expect(!AgentConversationForkTargetHarness.pi.usesNativeFork(for: .custom("omp")))
+    }
+
+    @Test
     func explicitSameHarnessRetainsNativeForkWithoutReadingTranscript() async throws {
         let snapshot = SessionRestorableAgentSnapshot(kind: .codex, sessionId: "codex-session")
         let service = AgentConversationExportService(

@@ -18,7 +18,8 @@ extension Workspace {
 
     func actionableAgentConversationForkTargetHarnesses(
         forPanelId panelId: UUID,
-        liveAgentIndex: SharedLiveAgentIndex
+        liveAgentIndex: SharedLiveAgentIndex,
+        targetHarnesses: [AgentConversationForkRequest.TargetHarness] = AgentConversationForkRequest.TargetHarness.liveInstalledCases
     ) -> [AgentConversationForkRequest.TargetHarness] {
         guard agentConversationTransferSnapshot(
             forPanelId: panelId,
@@ -26,7 +27,7 @@ extension Workspace {
         ) != nil else {
             return []
         }
-        return AgentConversationForkRequest.TargetHarness.allCases.filter { targetHarness in
+        return targetHarnesses.filter { targetHarness in
             guard targetHarness != .current else { return false }
             return agentConversationForkSelection(
                 forPanelId: panelId,

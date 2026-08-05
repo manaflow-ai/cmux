@@ -6739,7 +6739,8 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.panelSupportsCrossHarnessFork,
-                workspace.hasAgentConversationTransferSource(forPanelId: panelId)
+                !AgentConversationForkRequest.TargetHarness.liveInstalledCases.isEmpty
+                    && workspace.hasAgentConversationTransferSource(forPanelId: panelId)
             )
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
