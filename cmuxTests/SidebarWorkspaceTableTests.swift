@@ -416,7 +416,7 @@ struct SidebarWorkspaceTableTests {
             controller.tableView(container.tableView, pasteboardWriterForRow: 1)
                 != nil
         )
-        #expect(controller.updateReorderDrag(windowPoint: NSPoint(x: 40, y: 120)))
+        #expect(controller.updateReorderDrag(targetWorkspaceId: ids[3], edge: .top))
         #expect(controller.displayedWorkspaceIdsForTesting == [ids[0], ids[2], ids[1], ids[3]])
 
         controller.reorderDropDragExited()
