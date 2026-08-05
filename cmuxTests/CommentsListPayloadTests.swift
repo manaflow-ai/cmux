@@ -74,6 +74,20 @@ final class CommentsListPayloadTests: XCTestCase {
         )
     }
 
+    /// The shared mapper keeps lifecycle state for non-socket callers such as
+    /// the diff-viewer bridge.
+    func testSharedJSONCarriesConsumedTimestamp() {
+        let consumedAt = Date(timeIntervalSince1970: 2_000)
+        let comment = DiffCommentPayload().json(
+            makeComment(message: "already delivered", consumedAt: consumedAt)
+        )
+
+        XCTAssertEqual(
+            comment["consumedAt"] as? String,
+            ISO8601DateFormatter().string(from: consumedAt)
+        )
+    }
+
     /// A listed comment keeps the anchor fields a caller re-anchors from.
     func testListedCommentCarriesAnchorFields() {
         let payload = DiffCommentPayload().list(
