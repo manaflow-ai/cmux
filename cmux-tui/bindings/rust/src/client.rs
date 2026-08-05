@@ -674,7 +674,8 @@ mod tests {
             BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
             let id = serde_json::from_str::<Value>(&request).unwrap()["id"].clone();
             writeln!(stream, "{}", serde_json::json!({"id": id, "ok": true, "data": {}})).unwrap();
-            thread::sleep(Duration::from_millis(100));
+            let mut trailing = String::new();
+            let _ = BufReader::new(stream).read_line(&mut trailing);
         });
         let mut client = CmuxClient::connect(
             ClientConfig::from_socket_path(&path).with_timeout(Duration::from_secs(5)),
