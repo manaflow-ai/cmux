@@ -412,6 +412,47 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	}
 }
 
+func TestTerminalSnapshotsRejectMalformedTabIdentities(t *testing.T) {
+	const tabID = "tab_00000000000000000000000000000006"
+	tests := []struct {
+		name       string
+		selected   any
+		projected  []any
+		omitTabID  bool
+		omitTabIDs bool
+	}{
+		{name: "missing compatibility alias", projected: []any{}, omitTabID: true},
+		{name: "empty legacy compatibility alias", selected: "", omitTabIDs: true},
+		{name: "empty selected identity", selected: "", projected: []any{""}},
+		{name: "empty projected identity", selected: tabID, projected: []any{tabID, ""}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fields := map[string]any{
+				"id":        "term_00000000000000000000000000000007",
+				"title":     "job",
+				"cols":      80,
+				"rows":      24,
+				"running":   true,
+				"lifecycle": "running",
+			}
+			if !test.omitTabID {
+				fields["tab_id"] = test.selected
+			}
+			if !test.omitTabIDs {
+				fields["tab_ids"] = test.projected
+			}
+			raw, err := json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeValue[TerminalSnapshot](raw, "terminal snapshot"); !errors.Is(err, ErrProtocol) {
+				t.Fatalf("malformed terminal identity error = %T %v", err, err)
+			}
+		})
+	}
+}
+
 func TestCreationResolveAndWaitExitFacades(t *testing.T) {
 	client, requests := pipeClient(t, nil, 2)
 	defer client.Close(context.Background()) //nolint:errcheck
