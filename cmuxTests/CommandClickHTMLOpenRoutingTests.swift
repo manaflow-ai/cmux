@@ -42,6 +42,27 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func filesystemProbeValidatesTheCanonicalTargetAfterResolvingIt() async throws {
+        let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
+            stdout: "0\0readable-file\0/private/tmp/index.html\n",
+            stderr: "",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        ))
+        let probe = WordPathFilesystemProbe(commands: runner)
+
+        _ = await probe.firstExistingPath(in: ["/tmp/index.html"])
+
+        let invocation = try #require(await runner.lastInvocation())
+        let script = try #require(invocation.arguments.dropFirst().first)
+        let resolution = try #require(script.range(of: "resolved_candidate=$("))
+        let validation = try #require(script.range(of: "[ -f \"$resolved_candidate\" ]"))
+        #expect(resolution.lowerBound < validation.lowerBound)
+        #expect(!script.contains("[ -f \"$candidate\" ]"))
+    }
+
+    @Test
     func filesystemProbeFailsClosedWhenDeadlineExpires() async {
         let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
             stdout: "0\n",
@@ -933,6 +954,60 @@ struct CommandClickHTMLOpenRoutingTests {
             $0.webView.configuration.websiteDataStore ===
                 BrowserProfileStore.shared.websiteDataStore(for: $0.profileID)
         })
+    }
+
+    @Test
+    func restrictedHTMLNewTabShowsRecoveryWhenTheTargetIsMissing() async throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousShared
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: sourcePanelId))
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let openerURL = fixtureDirectory.appendingPathComponent("opener.html")
+        let missingURL = fixtureDirectory.appendingPathComponent("missing.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>restricted opener</title>".write(
+            to: openerURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let browser = try #require(workspace.newBrowserSurface(
+            inPane: paneId,
+            url: openerURL,
+            focus: true,
+            localFileReadAccessPolicy: .fileOnly
+        ))
+        browser.openLinkInNewTab(url: missingURL)
+
+        #expect(await waitForBrowserCount(2, in: workspace))
+        let child = try #require(
+            workspace.panels.values
+                .compactMap { $0 as? BrowserPanel }
+                .first(where: { $0.id != browser.id })
+        )
+        #expect(await waitForNavigationRecovery(in: child))
+        #expect(child.currentURL == missingURL)
     }
 
     @Test
