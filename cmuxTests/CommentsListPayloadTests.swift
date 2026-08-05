@@ -11,6 +11,7 @@ import XCTest
 /// Covers the `comments.list` reply shape built by `DiffCommentPayload`: which comments a caller sees by
 /// default, and how a delivered comment is reported.
 final class CommentsListPayloadTests: XCTestCase {
+    /// Builds a comment fixture; pass `consumedAt` for a delivered one.
     private func makeComment(
         message: String,
         startLine: Int = 10,
@@ -32,6 +33,7 @@ final class CommentsListPayloadTests: XCTestCase {
         )
     }
 
+    /// A delivered comment must not appear in the default listing.
     func testDefaultListingOmitsConsumedComments() {
         let payload = DiffCommentPayload().list(
             comments: [
@@ -50,6 +52,7 @@ final class CommentsListPayloadTests: XCTestCase {
         XCTAssertNil(comments?.first?["consumedAt"])
     }
 
+    /// `include_consumed` adds delivered comments and stamps `consumedAt`.
     func testIncludeConsumedListsDeliveredCommentsWithTimestamp() {
         let consumedAt = Date(timeIntervalSince1970: 2_000)
         let payload = DiffCommentPayload().list(
@@ -71,6 +74,7 @@ final class CommentsListPayloadTests: XCTestCase {
         )
     }
 
+    /// A listed comment keeps the anchor fields a caller re-anchors from.
     func testListedCommentCarriesAnchorFields() {
         let payload = DiffCommentPayload().list(
             comments: [makeComment(message: "needs a guard")],
@@ -86,6 +90,7 @@ final class CommentsListPayloadTests: XCTestCase {
         XCTAssertEqual(comment?["lineText"] as? String, "    let value = compute()")
     }
 
+    /// An empty store reports zero rather than omitting the count.
     func testEmptyStoreReportsZeroCount() {
         let payload = DiffCommentPayload().list(
             comments: [],

@@ -1,9 +1,13 @@
 import Foundation
 
 /// `cmux comments` — read-only access to diff-viewer review comments.
+///
+/// Strings resolve through `CMUXDiffViewerLocalization`, which reads the enclosing
+/// app bundle: the CLI executable carries no string catalog of its own, so
+/// `String(localized:)` here would always fall back to its default value.
 extension CMUXCLI {
-    static let commentsUsage = String(
-        localized: "cli.comments.usage",
+    static let commentsUsage = CMUXDiffViewerLocalization.string(
+        "cli.comments.usage",
         defaultValue: """
         Usage: cmux comments <subcommand> [options]
 
@@ -31,8 +35,8 @@ extension CMUXCLI {
             return
         }
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: String(
-                localized: "cli.comments.error.subcommandRequired",
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.comments.error.subcommandRequired",
                 defaultValue: "comments requires a subcommand. Try: list"
             ))
         }
@@ -44,8 +48,8 @@ extension CMUXCLI {
             // would resolve a repository named "--all". A path that starts with
             // a dash can still be passed as `./-name`.
             if let repoOption, repoOption.hasPrefix("--") {
-                throw CLIError(message: String(
-                    localized: "cli.comments.error.repoRequiresPath",
+                throw CLIError(message: CMUXDiffViewerLocalization.string(
+                    "cli.comments.error.repoRequiresPath",
                     defaultValue: "--repo requires a path. For a path starting with a dash, pass it as ./-name"
                 ))
             }
@@ -53,8 +57,8 @@ extension CMUXCLI {
             // nor a stray positional may read as a supported request.
             if let unexpected = remainder.first(where: { $0 != "--all" }) {
                 throw CLIError(message: String.localizedStringWithFormat(
-                    String(
-                        localized: "cli.comments.error.unexpectedArgument",
+                    CMUXDiffViewerLocalization.string(
+                        "cli.comments.error.unexpectedArgument",
                         defaultValue: "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
                     ),
                     unexpected
@@ -70,8 +74,8 @@ extension CMUXCLI {
             printCommentsListPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         default:
             throw CLIError(message: String.localizedStringWithFormat(
-                String(
-                    localized: "cli.comments.error.unknownSubcommand",
+                CMUXDiffViewerLocalization.string(
+                    "cli.comments.error.unknownSubcommand",
                     defaultValue: "Unknown comments subcommand '%@'. Try: list"
                 ),
                 sub
@@ -90,8 +94,8 @@ extension CMUXCLI {
         let root = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !result.timedOut, result.status == 0, !root.isEmpty else {
             throw CLIError(message: String.localizedStringWithFormat(
-                String(
-                    localized: "cli.comments.error.notARepository",
+                CMUXDiffViewerLocalization.string(
+                    "cli.comments.error.notARepository",
                     defaultValue: "cmux comments requires a git repository: %@"
                 ),
                 directory
@@ -102,24 +106,24 @@ extension CMUXCLI {
 
     /// Builds the count line.
     ///
-    /// The CLI resolves localized strings against its own bundle, which does not
-    /// contain the app's string catalog, so what ships is each key's
-    /// `defaultValue`. Selecting the form here keeps the singular correct; the
-    /// catalog's plural entries avoid numeral-governed nouns, so one form stays
-    /// grammatical for every count above one in Slavic and Arabic locales.
+    /// Selection stays here rather than in catalog plural variations: the count is
+    /// resolved before the string is, so a `variations.plural` entry could not see
+    /// it. The catalog's non-singular values therefore avoid numeral-governed
+    /// nouns, keeping one form grammatical for every count above one in Slavic and
+    /// Arabic locales.
     private func commentsListHeaderText(count: Int, repoRoot: String) -> String {
         if count == 1 {
             return String.localizedStringWithFormat(
-                String(
-                    localized: "cli.comments.list.header.one",
+                CMUXDiffViewerLocalization.string(
+                    "cli.comments.list.header.one",
                     defaultValue: "1 review comment (repo: %@)"
                 ),
                 repoRoot
             )
         }
         return String.localizedStringWithFormat(
-            String(
-                localized: "cli.comments.list.header.other",
+            CMUXDiffViewerLocalization.string(
+                "cli.comments.list.header.other",
                 defaultValue: "%1$lld review comments (repo: %2$@)"
             ),
             Int64(count),
@@ -142,8 +146,8 @@ extension CMUXCLI {
         let repoRoot = payload["repo_root"] as? String ?? ""
         guard !comments.isEmpty else {
             print(String.localizedStringWithFormat(
-                String(
-                    localized: "cli.comments.list.empty",
+                CMUXDiffViewerLocalization.string(
+                    "cli.comments.list.empty",
                     defaultValue: "No review comments. (repo: %@)"
                 ),
                 repoRoot
@@ -157,13 +161,13 @@ extension CMUXCLI {
             let endLine = intFromAny(comment["endLine"]) ?? startLine
             let range = endLine > startLine ? "\(startLine)-\(endLine)" : "\(startLine)"
             let state = comment["consumedAt"] == nil
-                ? String(localized: "cli.comments.list.statePending", defaultValue: "pending")
-                : String(localized: "cli.comments.list.stateConsumed", defaultValue: "consumed")
+                ? CMUXDiffViewerLocalization.string("cli.comments.list.statePending", defaultValue: "pending")
+                : CMUXDiffViewerLocalization.string("cli.comments.list.stateConsumed", defaultValue: "consumed")
             print("- \(filePath):\(range) [\(state)]")
             if let lineText = comment["lineText"] as? String, !lineText.isEmpty {
                 print(String.localizedStringWithFormat(
-                    String(
-                        localized: "cli.comments.list.anchor",
+                    CMUXDiffViewerLocalization.string(
+                        "cli.comments.list.anchor",
                         defaultValue: "    anchor: %@"
                     ),
                     lineText

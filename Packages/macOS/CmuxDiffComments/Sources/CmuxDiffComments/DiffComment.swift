@@ -23,6 +23,8 @@ public struct DiffComment: Codable, Equatable, Identifiable, Sendable {
     public var createdAt: Date
     public var updatedAt: Date
 
+    /// Creates a comment. Callers supply the anchor (`side`, `startLine`,
+    /// `endLine`, `lineText`) captured when the comment was saved.
     public init(
         id: UUID,
         filePath: String,
