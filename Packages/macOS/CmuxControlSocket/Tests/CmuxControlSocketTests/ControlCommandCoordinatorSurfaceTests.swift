@@ -16,7 +16,7 @@ struct ControlCommandCoordinatorSurfaceTests {
     private func capturedInitialCommand(
         method: String,
         initialCommand: JSONValue?
-    ) -> String? {
+    ) -> (wasCaptured: Bool, initialCommand: String?) {
         let context = FakeSurfaceControlCommandContext()
         context.paneCreateResolution = .createFailed
         context.splitResolution = .createFailed
@@ -38,14 +38,14 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         switch method {
         case "surface.split":
-            return context.splitInputs?.initialCommand
+            return (context.splitInputs != nil, context.splitInputs?.initialCommand)
         case "pane.create":
-            return context.paneCreateInputs?.initialCommand
+            return (context.paneCreateInputs != nil, context.paneCreateInputs?.initialCommand)
         case "surface.create":
-            return context.createInputs?.initialCommand
+            return (context.createInputs != nil, context.createInputs?.initialCommand)
         default:
             Issue.record("unexpected creation method \(method)")
-            return nil
+            return (false, nil)
         }
     }
 
@@ -55,11 +55,13 @@ struct ControlCommandCoordinatorSurfaceTests {
     )
     func terminalCreationPreservesInitialCommandQuoting(method: String) {
         let command = #"printf '%s\n' "spaces 'single' \"double\" $HOME $(printf nested) \\tail 日本語"#
-
-        #expect(capturedInitialCommand(
+        let capture = capturedInitialCommand(
             method: method,
             initialCommand: .string(command)
-        ) == command)
+        )
+
+        #expect(capture.wasCaptured)
+        #expect(capture.initialCommand == command)
     }
 
     @Test(
@@ -67,10 +69,13 @@ struct ControlCommandCoordinatorSurfaceTests {
         arguments: ["surface.split", "pane.create", "surface.create"]
     )
     func terminalCreationOmitsInitialCommand(method: String) {
-        #expect(capturedInitialCommand(
+        let capture = capturedInitialCommand(
             method: method,
             initialCommand: nil
-        ) == nil)
+        )
+
+        #expect(capture.wasCaptured)
+        #expect(capture.initialCommand == nil)
     }
 
     @Test func surfaceCreateDockPayloadUsesDockScopedIDs() throws {
