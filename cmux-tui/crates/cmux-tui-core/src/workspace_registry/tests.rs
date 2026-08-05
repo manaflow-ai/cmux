@@ -2824,6 +2824,191 @@ fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
     fs::remove_dir_all(root).unwrap();
 }
 
+fn rewrite_resource_tabs_with_legacy_single_view_schema(connection: &Connection) {
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             DROP INDEX IF EXISTS live_resource_tab_position;
+             DROP INDEX IF EXISTS live_resource_browser_view;
+             CREATE TABLE resource_tabs_legacy (
+               public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+               pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               position INTEGER,
+               content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+               content_id TEXT UNIQUE NOT NULL REFERENCES resource_identities(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               name TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER,
+               CHECK (
+                 (deleted_revision IS NULL AND position IS NOT NULL) OR
+                 (deleted_revision IS NOT NULL AND position IS NULL)
+               )
+             );
+             INSERT INTO resource_tabs_legacy(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             )
+             SELECT public_id, pane_id, position, content_kind, content_id, name,
+                    created_revision, updated_revision, deleted_revision
+             FROM resource_tabs;
+             DROP TABLE resource_tabs;
+             ALTER TABLE resource_tabs_legacy RENAME TO resource_tabs;
+             CREATE UNIQUE INDEX live_resource_tab_position
+               ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+}
+
+#[test]
+fn current_schema_normalizes_legacy_single_view_resource_tabs() {
+    let root = temp_root("current-schema-terminal-multiview");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "current-schema-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    rewrite_resource_tabs_with_legacy_single_view_schema(&legacy);
+    drop(legacy);
+
+    let mut reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let second_tab = tab_id(2);
+    reopened
+        .commit_resource_patch(
+            &WorkspaceMutation::new("current-schema-project", "test").unwrap(),
+            "terminal.project",
+            &json!({"operation":"terminal.project"}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: Some(tab_id(1)),
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::UpsertTab(RegistryTab {
+                        public_id: second_tab.clone(),
+                        pane_id: pane_id(1),
+                        position: 1,
+                        content_id: ContentPublicId::Terminal(terminal_resource(TERMINAL_ONE)),
+                        name: Some("second view".into()),
+                        browser_url: None,
+                        terminal_id: Some(TERMINAL_ONE.into()),
+                    }),
+                    ResourceChange::SetTabOrder {
+                        pane_id: pane_id(1),
+                        tab_ids: vec![tab_id(1), second_tab.clone()],
+                    },
+                ],
+            },
+            &json!({"tab_id":second_tab}),
+            &json!([]),
+        )
+        .unwrap();
+    assert_eq!(
+        reopened
+            .resource_topology_snapshot()
+            .unwrap()
+            .tabs
+            .into_iter()
+            .filter(|tab| {
+                tab.content_id == ContentPublicId::Terminal(terminal_resource(TERMINAL_ONE))
+            })
+            .count(),
+        2
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_eight_rejects_multiple_live_views_for_one_browser() {
+    let root = temp_root("schema-eight-duplicate-browser-views");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "duplicate-browser-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             DROP INDEX live_resource_browser_view;
+             CREATE INDEX live_resource_browser_view ON resource_tabs(content_id);
+             UPDATE resource_tabs SET content_kind = 'browser';
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';",
+        )
+        .unwrap();
+    let second_tab = tab_id(2);
+    legacy
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 1, 1, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 1, 1, NULL)",
+            params![
+                second_tab.as_str(),
+                pane_id(1).as_str(),
+                terminal_resource(TERMINAL_ONE).as_str()
+            ],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("workspace registry contains multiple live views for one browser"),
+        "unexpected migration error: {error:#}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_eight_rejects_both_terminal_storage_tables() {
+    let root = temp_root("schema-eight-duplicate-terminal-storage");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        drop(registry);
+    }
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "CREATE TABLE terminal_placements AS SELECT * FROM terminal_hosts WHERE 0;
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert!(
+        error.to_string().contains(
+            "workspace registry contains both legacy terminal placements and terminal hosts"
+        ),
+        "unexpected migration error: {error:#}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn saved_session_integrity_failure_has_actionable_public_copy() {
     let root = temp_root("saved-session-integrity-public-copy");

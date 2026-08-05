@@ -35032,6 +35032,19 @@ mod tests {
     }
 
     #[test]
+    fn missing_pane_resource_identity_is_deferred_to_the_session_worker() {
+        let mux = Mux::new("missing-pane-resource-identity", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(11, false);
+
+        assert_eq!(
+            app.pane_creation_selector_candidates(2, None)
+                .expect("a transient missing selector must not terminate the event loop"),
+            Vec::new()
+        );
+    }
+
+    #[test]
     fn remote_tree_refresh_keeps_restored_zoom_and_focus_aligned() {
         let mut previous = notify_tree(11, false);
         let screen = &mut previous.workspaces[0].screens[0];

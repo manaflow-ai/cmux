@@ -5429,6 +5429,23 @@ mod unix {
         }
 
         #[test]
+        fn dropping_liveness_lease_releases_inherited_descriptor_lock() {
+            let (record_path, record, lease) = record_fixture("inherited-liveness-fd");
+            let inherited = lease.file.try_clone().unwrap();
+
+            drop(lease);
+            assert_eq!(
+                terminal_host_record_liveness(&record_path, &record).unwrap(),
+                TerminalHostLiveness::Dead,
+                "the lease owner must explicitly unlock before an inherited descriptor closes"
+            );
+
+            drop(inherited);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
         fn record_loader_rejects_noncanonical_filenames_and_identity_spellings() {
             let (record_path, record, lease) = record_fixture("canonical");
             let root = record_path.parent().unwrap();
@@ -5629,6 +5646,87 @@ mod unix {
             );
             assert!(started.elapsed() < Duration::from_secs(1));
             stalled.join().unwrap();
+            let _ = fs::remove_file(endpoint);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
+        fn transient_current_protocol_handshake_timeout_retries_without_downgrade() {
+            let (record_path, record, lease) = record_fixture("handshake-timeout-retry");
+            let endpoint = PathBuf::from(&record.endpoint);
+            prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+            let _ = fs::remove_file(&endpoint);
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            let terminal_id =
+                TerminalId::from_bytes(decode_hex_array(&record.terminal_id).unwrap());
+            let incarnation =
+                HostIncarnation::from_bytes(decode_hex_array(&record.incarnation).unwrap());
+            let fake_host = thread::spawn(move || {
+                let (mut delayed, _) = listener.accept().unwrap();
+                let hello = read_required_frame(&mut delayed, "delayed current hello").unwrap();
+                assert_eq!(hello.version, PROTOCOL_VERSION);
+                thread::sleep(Duration::from_millis(250));
+                drop(delayed);
+
+                let (mut retried, _) = listener.accept().unwrap();
+                retried.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                let hello = read_required_frame(&mut retried, "retried current hello").unwrap();
+                assert_eq!(hello.version, PROTOCOL_VERSION);
+                let response = HostHello {
+                    selected_version: PROTOCOL_VERSION,
+                    granted_rights: CapabilityRights::ADMIN,
+                    terminal_id,
+                    incarnation,
+                };
+                let mut frame = Frame::new(MessageKind::HostHello, response.encode());
+                frame.version = PROTOCOL_VERSION;
+                frame.request_id = hello.request_id;
+                write_frame(&mut retried, &frame).unwrap();
+
+                let colors = TerminalColorOverrides {
+                    cursor_visual: Some((CursorShape::Block, true)),
+                    ..TerminalColorOverrides::default()
+                };
+                let snapshot = HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: colors.clone(),
+                    pid: Some(42),
+                    command: vec!["/bin/cat".into()],
+                    cwd: Some("/tmp".into()),
+                };
+                let mut frame =
+                    Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot).unwrap());
+                frame.version = PROTOCOL_VERSION;
+                write_frame(&mut retried, &frame).unwrap();
+
+                let mut frame =
+                    Frame::new(MessageKind::Colors, encode_terminal_color_overrides(&colors));
+                frame.version = PROTOCOL_VERSION;
+                write_frame(&mut retried, &frame).unwrap();
+
+                let release = read_required_frame(&mut retried, "viewer release").unwrap();
+                assert_eq!(release.kind, MessageKind::ReleaseViewer);
+                assert_eq!(release.version, PROTOCOL_VERSION);
+            });
+
+            let attachment = connect_record_with_timeout(
+                record.clone(),
+                record_path.clone(),
+                Duration::from_millis(200),
+            )
+            .unwrap();
+            assert_eq!(attachment.protocol_version(), PROTOCOL_VERSION);
+            drop(attachment);
+            fake_host.join().unwrap();
+
             let _ = fs::remove_file(endpoint);
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());

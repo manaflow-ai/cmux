@@ -803,6 +803,40 @@ mod tests {
             decode_host_launch_failure(&encode_host_launch_failure(&bounded).unwrap()).unwrap(),
             bounded
         );
+
+        let mut wrong_version = payload.clone();
+        wrong_version[..2].copy_from_slice(&(LAUNCH_FAILURE_PAYLOAD_VERSION + 1).to_le_bytes());
+        assert!(matches!(
+            decode_host_launch_failure(&wrong_version),
+            Err(ProtocolError::MalformedLaunchFailurePayload)
+        ));
+
+        let mut unknown_kind = payload.clone();
+        unknown_kind[2..4].copy_from_slice(&u16::MAX.to_le_bytes());
+        assert!(matches!(
+            decode_host_launch_failure(&unknown_kind),
+            Err(ProtocolError::MalformedLaunchFailurePayload)
+        ));
+
+        let mut invalid_utf8 = payload.clone();
+        *invalid_utf8.last_mut().unwrap() = 0xff;
+        assert!(matches!(
+            decode_host_launch_failure(&invalid_utf8),
+            Err(ProtocolError::MalformedLaunchFailurePayload)
+        ));
+        assert!(matches!(
+            decode_host_launch_failure(&vec![0; LAUNCH_FAILURE_PAYLOAD_HEADER_LEN]),
+            Err(ProtocolError::MalformedLaunchFailurePayload)
+        ));
+        assert!(matches!(
+            decode_host_launch_failure(&vec![
+                0;
+                LAUNCH_FAILURE_PAYLOAD_HEADER_LEN
+                    + MAX_LAUNCH_FAILURE_MESSAGE_BYTES
+                    + 1
+            ]),
+            Err(ProtocolError::MalformedLaunchFailurePayload)
+        ));
     }
 
     #[test]

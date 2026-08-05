@@ -966,6 +966,28 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_keeps_exited_terminal_receipt_after_its_last_view_detaches() {
+        let mux = Mux::new_for_test("snapshot-exited-receipt", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("exiting".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+
+        mux.surface_exited(surface.id);
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("durable exit receipt remains publicly addressable until terminal.close");
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+        assert!(terminal["exit"].is_object());
+        mux.shutdown();
+    }
+
+    #[test]
     fn snapshot_cursor_and_auxiliary_values_share_one_durable_cut() {
         let mux = Mux::new_for_test("snapshot-cut", SurfaceOptions::default());
         let created = resource_request(
