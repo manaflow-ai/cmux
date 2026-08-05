@@ -149,9 +149,30 @@ fn bare_command_lists_vercel_accounts_without_debug_timing() {
                 "usage": {
                     "plan_type": "pro",
                     "rate_limit": {
-                        "primary_window": { "used_percent": 20 },
-                        "secondary_window": { "used_percent": 50 }
-                    }
+                        "primary_window": {
+                            "used_percent": 20,
+                            "limit_window_seconds": 18000,
+                            "reset_after_seconds": 3600
+                        },
+                        "secondary_window": {
+                            "used_percent": 50,
+                            "limit_window_seconds": 604800,
+                            "reset_after_seconds": 172800
+                        }
+                    },
+                    "additional_rate_limits": [{
+                        "limit_name": "GPT-5.3-Codex-Spark",
+                        "rate_limit": {
+                            "primary_window": null,
+                            "secondary_window": {
+                                "used_percent": 10,
+                                "limit_window_seconds": 604800,
+                                "reset_after_seconds": 259200
+                            }
+                        }
+                    }],
+                    "credits": { "balance": "0" },
+                    "rate_limit_reset_credits": { "available_count": 0 }
                 }
             }]
         }),
@@ -163,12 +184,22 @@ fn bare_command_lists_vercel_accounts_without_debug_timing() {
     Command::cargo_bin("cr")
         .unwrap()
         .env("CODEROUTER_DATA_DIR", root.path())
+        .env("COLUMNS", "180")
+        .env("FORCE_COLOR", "1")
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("person@example.com")
-                .and(predicate::str::contains("80% left"))
-                .and(predicate::str::contains("50% weekly")),
+            predicate::str::contains("Codex accounts")
+                .and(predicate::str::contains("Account"))
+                .and(predicate::str::contains("State"))
+                .and(predicate::str::contains("Use"))
+                .and(predicate::str::contains("5h"))
+                .and(predicate::str::contains("7d"))
+                .and(predicate::str::contains("Spark wk"))
+                .and(predicate::str::contains("person@example.com"))
+                .and(predicate::str::contains("80%/1h"))
+                .and(predicate::str::contains("50%/2d"))
+                .and(predicate::str::contains("\u{1b}[")),
         )
         .stderr(predicate::str::contains("cr timing:").not());
 }

@@ -249,60 +249,9 @@ fn run_accounts(rest: &[OsString]) -> Result<i32, Error> {
         return Err(Error::Usage("usage: cr accounts".into()));
     }
     let value = control_plane::accounts()?;
-    let accounts = value
-        .get("accounts")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if accounts.is_empty() {
-        println!("No subscriptions. Run `cr add`.");
-    } else {
-        println!("Subscriptions\n");
-        for account in accounts {
-            let provider = account
-                .get("provider")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("unknown");
-            let label = account
-                .get("label")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("unknown");
-            let state = account
-                .get("state")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("unknown");
-            let usage = account.get("usage").map(format_usage).unwrap_or_default();
-            println!("{provider:<12} {label:<36} {state:<12} {usage}");
-        }
-    }
+    let config = crate::config::load()?;
+    crate::status::render(&value, &config.team_name, &config.team_id);
     Ok(0)
-}
-
-fn format_usage(value: &serde_json::Value) -> String {
-    let plan = value
-        .get("plan_type")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let rate = value.get("rate_limit");
-    let five_hour = rate
-        .and_then(|value| value.get("primary_window"))
-        .and_then(|value| value.get("used_percent"))
-        .and_then(serde_json::Value::as_f64)
-        .map(|used| format!("{:.0}% left", (100.0 - used).clamp(0.0, 100.0)));
-    let weekly = rate
-        .and_then(|value| value.get("secondary_window"))
-        .and_then(|value| value.get("used_percent"))
-        .and_then(serde_json::Value::as_f64)
-        .map(|used| format!("{:.0}% weekly", (100.0 - used).clamp(0.0, 100.0)));
-    [
-        (!plan.is_empty()).then_some(plan.to_owned()),
-        five_hour,
-        weekly,
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" · ")
 }
 
 fn run_doctor(rest: &[OsString]) -> Result<i32, Error> {
