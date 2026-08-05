@@ -5,7 +5,7 @@ import Testing
 @Suite("Browser local-file read access")
 struct BrowserLocalFileReadAccessPolicyTests {
     @Test
-    func fileOnlyCanonicalizesSymlinkAndRestrictsReadAccessToTarget() throws {
+    func fileOnlyUsesCanonicalTargetSuppliedByBoundedResolver() throws {
         let fixture = try BrowserLocalFileTestFixture()
         defer { fixture.remove() }
 
@@ -18,15 +18,15 @@ struct BrowserLocalFileReadAccessPolicyTests {
         )
         try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
 
-        let navigationURL = BrowserLocalFileReadAccessPolicy.fileOnly
-            .resolvedNavigationURL(for: symlink)
+        let canonicalTarget = target.standardizedFileURL.resolvingSymlinksInPath()
         let readAccessURL = try #require(
-            BrowserLocalFileReadAccessPolicy.fileOnly.readAccessURL(for: symlink)
+            BrowserLocalFileReadAccessPolicy.fileOnly.readAccessURL(
+                forResolvedNavigationURL: canonicalTarget
+            )
         )
 
-        let canonicalTarget = target.standardizedFileURL.resolvingSymlinksInPath()
-        #expect(navigationURL == canonicalTarget)
         #expect(readAccessURL == canonicalTarget)
+        #expect(BrowserLocalFileReadAccessPolicy.fileOnly.readAccessURL(for: symlink) == nil)
     }
 
     @Test
@@ -48,13 +48,18 @@ struct BrowserLocalFileReadAccessPolicyTests {
         components.percentEncodedFragment = "section%202"
         let decoratedSymlink = try #require(components.url)
 
-        let navigationURL = BrowserLocalFileReadAccessPolicy.fileOnly
-            .resolvedNavigationURL(for: decoratedSymlink)
+        let canonicalTarget = target.standardizedFileURL.resolvingSymlinksInPath()
+        let navigationURL = try #require(
+            BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                for: decoratedSymlink,
+                resolvedFileURL: canonicalTarget
+            )
+        )
         let resolvedComponents = try #require(
             URLComponents(url: navigationURL, resolvingAgainstBaseURL: false)
         )
 
-        #expect(navigationURL.path == target.standardizedFileURL.resolvingSymlinksInPath().path)
+        #expect(navigationURL.path == canonicalTarget.path)
         #expect(resolvedComponents.percentEncodedQuery == "case=one%20two")
         #expect(resolvedComponents.percentEncodedFragment == "section%202")
     }
@@ -148,13 +153,10 @@ struct BrowserLocalFileReadAccessPolicyTests {
         )
         try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
 
-        let navigationURL = BrowserLocalFileReadAccessPolicy.containingDirectory
-            .resolvedNavigationURL(for: symlink)
         let readAccessURL = try #require(
             BrowserLocalFileReadAccessPolicy.containingDirectory.readAccessURL(for: symlink)
         )
 
-        #expect(navigationURL == symlink)
         #expect(readAccessURL == fixture.linkDirectory)
     }
 
