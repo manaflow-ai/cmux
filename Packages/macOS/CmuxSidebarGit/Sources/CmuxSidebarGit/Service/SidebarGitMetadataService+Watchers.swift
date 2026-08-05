@@ -65,6 +65,7 @@ extension SidebarGitMetadataService {
 
         let watchedPathsKey = WorkspaceGitMetadataWatchedPathsKey(paths: watchedPaths)
         if workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] != nil {
+            removePendingWorkspaceGitMetadataWatcherRequest(for: key)
             workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
             setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: key)
             moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
@@ -72,7 +73,11 @@ extension SidebarGitMetadataService {
         }
 
         detachWorkspaceGitMetadataWatcherResources(for: key)
-        workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey[watchedPathsKey, default: [:]][key] = request
+        setPendingWorkspaceGitMetadataWatcherRequest(
+            request,
+            for: key,
+            watchedPathsKey: watchedPathsKey
+        )
         guard workspaceGitMetadataWatcherCreationTasksByWatchedPathsKey[watchedPathsKey] == nil else {
             return
         }
@@ -110,6 +115,10 @@ extension SidebarGitMetadataService {
         workspaceGitMetadataWatcherCreationTasksByWatchedPathsKey.removeValue(forKey: watchedPathsKey)
         let pendingRequests = workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey
             .removeValue(forKey: watchedPathsKey) ?? [:]
+        for key in pendingRequests.keys
+        where workspaceGitMetadataWatcherPendingWatchedPathsKeyByProbeKey[key] == watchedPathsKey {
+            workspaceGitMetadataWatcherPendingWatchedPathsKeyByProbeKey.removeValue(forKey: key)
+        }
         let validRequests = pendingRequests.filter { key, request in
             workspaceGitMetadataWatcherDescriptorRequestsByKey[key] == request
                 && sidebarGitMetadataActivePollingEnabled
@@ -154,6 +163,30 @@ extension SidebarGitMetadataService {
             } else {
                 setWorkspaceGitMetadataWatcherWatchedPathsKey(nil, for: key)
             }
+        }
+    }
+
+    func setPendingWorkspaceGitMetadataWatcherRequest(
+        _ request: WorkspaceGitMetadataWatcherDescriptorRequest,
+        for key: WorkspaceGitProbeKey,
+        watchedPathsKey: WorkspaceGitMetadataWatchedPathsKey
+    ) {
+        removePendingWorkspaceGitMetadataWatcherRequest(for: key)
+        workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey[watchedPathsKey, default: [:]][key] = request
+        workspaceGitMetadataWatcherPendingWatchedPathsKeyByProbeKey[key] = watchedPathsKey
+    }
+
+    private func removePendingWorkspaceGitMetadataWatcherRequest(for key: WorkspaceGitProbeKey) {
+        guard let watchedPathsKey = workspaceGitMetadataWatcherPendingWatchedPathsKeyByProbeKey
+            .removeValue(forKey: key) else {
+            return
+        }
+        workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey[watchedPathsKey]?.removeValue(forKey: key)
+        if workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey[watchedPathsKey]?.isEmpty == true {
+            workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey.removeValue(forKey: watchedPathsKey)
+            workspaceGitMetadataWatcherCreationTasksByWatchedPathsKey
+                .removeValue(forKey: watchedPathsKey)?
+                .cancel()
         }
     }
 
@@ -292,15 +325,7 @@ extension SidebarGitMetadataService {
 
     func stopWorkspaceGitMetadataWatcher(for key: WorkspaceGitProbeKey) {
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
-        for watchedPathsKey in Array(workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey.keys) {
-            workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey[watchedPathsKey]?.removeValue(forKey: key)
-            if workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey[watchedPathsKey]?.isEmpty == true {
-                workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey.removeValue(forKey: watchedPathsKey)
-                workspaceGitMetadataWatcherCreationTasksByWatchedPathsKey
-                    .removeValue(forKey: watchedPathsKey)?
-                    .cancel()
-            }
-        }
+        removePendingWorkspaceGitMetadataWatcherRequest(for: key)
         detachWorkspaceGitMetadataWatcherResources(for: key)
     }
 
@@ -323,6 +348,9 @@ extension SidebarGitMetadataService {
         let keys = Set(workspaceGitMetadataWatcherSourceDirectoryByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitMetadataWatcherDescriptorRequestsByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitMetadataWatcherPendingWatchedPathsKeyByProbeKey.keys.filter {
+                $0.workspaceId == workspaceId
+            })
         for key in keys {
             stopWorkspaceGitMetadataWatcher(for: key)
         }
@@ -334,6 +362,7 @@ extension SidebarGitMetadataService {
         }
         workspaceGitMetadataWatcherCreationTasksByWatchedPathsKey.removeAll()
         workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey.removeAll()
+        workspaceGitMetadataWatcherPendingWatchedPathsKeyByProbeKey.removeAll()
         for task in workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey.values {
             task.cancel()
         }

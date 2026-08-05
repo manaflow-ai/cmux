@@ -73,6 +73,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey: [
         WorkspaceGitMetadataWatchedPathsKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest]
     ] = [:]
+    var workspaceGitMetadataWatcherPendingWatchedPathsKeyByProbeKey: [
+        WorkspaceGitProbeKey: WorkspaceGitMetadataWatchedPathsKey
+    ] = [:]
     var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     var workspaceGitMetadataFilesystemEventGeneration: UInt64 = 0
     let workspaceGitSnapshotCacheNamespace = UUID()
