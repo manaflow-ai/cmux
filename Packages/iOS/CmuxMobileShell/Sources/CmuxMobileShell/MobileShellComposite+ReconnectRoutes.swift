@@ -110,8 +110,9 @@ extension MobileShellComposite {
         return nil
     }
 
-    /// The Tailscale ordering preference for one paired Mac: which grant routes
-    /// may promote an exact stored Tailscale route ahead of the Iroh pin.
+    /// The Tailscale-only constraint for one paired Mac: which grant routes
+    /// make an exact stored Tailscale route dialable while the user's
+    /// connection method is Tailscale.
     struct TailscaleRoutePreference {
         let macDeviceID: String
         let grantRoutes: [CmxAttachRoute]
@@ -128,10 +129,12 @@ extension MobileShellComposite {
     /// grant. Pairings without an authenticated Iroh identity remain fail-closed.
     ///
     /// `tailscalePreference` (the user's explicit Tailscale connection-method
-    /// choice) relaxes only the ORDER of that pin: stored Tailscale routes that
-    /// carry a device-local grant dial first, and the Iroh routes stay as the
-    /// fallback instead of being exclusive. Unauthorized Tailscale routes are
-    /// still never dialable, so a preference flip alone grants nothing.
+    /// choice) is a determinant, not an ordering hint: only stored Tailscale
+    /// routes that carry a device-local grant are dialable, and Iroh is never
+    /// dialed as a fallback. With no granted route the result is EMPTY, so the
+    /// caller fails closed and surfaces the pairing-code requirement instead
+    /// of silently riding another transport. Unauthorized Tailscale routes are
+    /// still never dialable, so a method flip alone grants nothing.
     static func storedReconnectRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
@@ -148,22 +151,16 @@ extension MobileShellComposite {
         if preferNonLoopback {
             ordered.removeAll { $0.kind == .debugLoopback }
         }
-        let irohRoutes = ordered.filter { $0.kind == .iroh }
         if let tailscalePreference {
-            let authorizedTailscale = ordered.filter { route in
+            return ordered.filter { route in
                 legacyTailscaleAuthorizationEvidence(
                     for: route,
                     macDeviceID: tailscalePreference.macDeviceID,
                     persistedRoutes: tailscalePreference.grantRoutes
                 ) != nil
             }
-            if !authorizedTailscale.isEmpty {
-                let rest = ordered.filter { route in
-                    route.kind != .iroh && route.kind != .tailscale
-                }
-                return authorizedTailscale + irohRoutes + rest
-            }
         }
+        let irohRoutes = ordered.filter { $0.kind == .iroh }
         if !irohRoutes.isEmpty {
             return irohRoutes
         }
@@ -430,6 +427,14 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot,
         snapshot: ReconnectRefreshSnapshot?
     ) async -> ReconnectRouteRefreshOutcome {
+        // This rescue exists to recover an Iroh dial from fresh registry
+        // routes, which is exactly the fallback the Tailscale-only method
+        // forbids. Stay inconclusive so the failure surfaces as the
+        // pairing-code requirement, not an Iroh rescue or a misleading
+        // mac-update diagnosis.
+        guard connectionMethodStore?.method != .tailscale else {
+            return .inconclusive
+        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         guard let snapshot,
               await isScopeCurrent(scope),

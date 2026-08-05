@@ -111,6 +111,87 @@ extension ReconnectRouteSelectionTests {
         #expect(factory.attemptedKinds() == [.iroh])
     }
 
+    @Test func tailscaleOnlyMethodConnectsOverTheGrantedRoute() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let granted = try tailscale()
+        let store = try await makeReconnectStore(
+            routes: [granted, try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            connectionMethod: .tailscale,
+            userAuthorizedTailscaleRoutes: [granted]
+        )
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.connectionState == .connected)
+        #expect(factory.attemptedKinds() == [.tailscale])
+        #expect(store.activeRoute?.kind == .tailscale)
+    }
+
+    @Test func tailscaleOnlyMethodNeverFallsBackToIrohAfterAFailedDial() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingKinds: [.tailscale]
+        )
+        let granted = try tailscale()
+        let store = try await makeReconnectStore(
+            routes: [granted, try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            connectionMethod: .tailscale,
+            userAuthorizedTailscaleRoutes: [granted]
+        )
+
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+        #expect(store.connectionState == .disconnected)
+        // The granted Tailscale dial failed; the Tailscale-only method must
+        // never dial the stored Iroh route as a fallback.
+        #expect(factory.attemptedKinds() == [.tailscale])
+    }
+
+    @Test func tailscaleOnlyMethodWithoutGrantFailsClosedWithPairingGuidance() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let store = try await makeReconnectStore(
+            routes: [try tailscale(), try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            connectionMethod: .tailscale
+        )
+
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+        #expect(store.connectionState == .disconnected)
+        // Nothing is dialable without a pairing-code grant, and the failure
+        // explains the missing authorization instead of staying silent.
+        #expect(factory.attemptedKinds().isEmpty)
+        #expect(
+            store.connectionError
+                == MobilePairingFailureCategory.tailscalePairingRequired.message
+        )
+        #expect(
+            store.connectionErrorGuidance
+                == MobilePairingFailureCategory.tailscalePairingRequired.guidance
+        )
+    }
+
     @Test func legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
