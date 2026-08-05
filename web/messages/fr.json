@@ -3573,7 +3573,6 @@
     "title": "cmux pour {platform}",
     "tagline": "Un navigateur Chromium et un espace de travail pour agents, conçus ensemble.",
     "logoAlt": "Icône de l’application cmux",
-    "portableCta": "ZIP portable",
     "featuresTitle": "Conçu pour le travail avec des agents",
     "features": {
       "chromium": {
@@ -3595,7 +3594,7 @@
     },
     "installTitle": "Installation",
     "releaseTitle": "Versions et mises à jour",
-    "releaseBody": "Ces liens pointent toujours vers la dernière version stable sur <github>GitHub Releases</github>. cmux vérifie les manifestes de mise à jour signés avant d’installer une mise à jour.",
+    "releaseBody": "Ces liens pointent toujours vers la dernière version nightly sur <github>GitHub Releases</github>. cmux vérifie les manifestes de mise à jour signés avant d’installer une mise à jour.",
     "sourceLink": "Voir le code source sur GitHub",
     "otherPlatform": "cmux pour {platform}",
     "macLink": "Terminal cmux pour Mac",
@@ -3605,6 +3604,7 @@
       "metaDescription": "Téléchargez cmux pour Windows x64 : un navigateur Chromium et un espace de travail pour agents, gratuits et open source, avec des onglets par tâche et des surfaces de terminal.",
       "subtitle": "Une version x64 native avec des onglets Chromium, des espaces de travail cmux et les conventions clavier familières de Windows.",
       "primaryCta": "Télécharger le programme d’installation (.exe)",
+      "secondaryCta": "ZIP portable",
       "requirements": "Windows 10 ou version ultérieure · x64",
       "installBody": "Exécutez le programme d’installation et suivez les instructions de Windows. Choisissez le ZIP portable si vous préférez conserver cmux dans un dossier sans installation à l’échelle du système."
     },
@@ -3613,9 +3613,10 @@
       "metaTitle": "Télécharger cmux pour Linux",
       "metaDescription": "Téléchargez cmux pour Linux x64 : un navigateur Chromium et un espace de travail pour agents, gratuits et open source, avec des onglets par tâche et des surfaces de terminal.",
       "subtitle": "Une version x64 native avec des onglets Chromium, des espaces de travail cmux et des surfaces de terminal intégrées.",
-      "primaryCta": "Télécharger le .deb",
-      "requirements": "Debian ou Ubuntu · x64",
-      "installBody": "Téléchargez le paquet Debian et installez-le avec votre gestionnaire de paquets. Choisissez le ZIP portable pour une installation par utilisateur et les mises à jour dans l’application."
+      "primaryCta": "Télécharger le programme d’installation avec mise à jour automatique (.run)",
+      "secondaryCta": "Paquet Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Exécutez une seule fois le programme d’installation pour votre compte utilisateur. Il installe cmux dans ~/.local sans droits root et active les mises à jour signées dans l’application. Si vous souhaitez que votre gestionnaire de paquets gère les mises à jour, choisissez plutôt le paquet Debian."
     }
   },
   "emails": {

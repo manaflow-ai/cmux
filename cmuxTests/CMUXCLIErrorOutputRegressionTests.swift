@@ -395,7 +395,7 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["TTY"] = "/dev/ttys9258"
+        environment["CMUX_CLI_TTY_NAME"] = "ttys9258"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -418,7 +418,7 @@ import Testing
             )
             return try XCTUnwrap(object["method"] as? String)
         }
-        XCTAssertEqual(methods, ["agent.resolve_delivery_target", "surface.resume.get"])
+        XCTAssertEqual(methods, ["system.identify", "surface.resume.get"])
     }
 
     @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {
@@ -746,6 +746,310 @@ import Testing
         )
     }
 
+    @Test func testRestorePositionalFormUsesCallerTTYAcrossSurfaceEnvironmentStates() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "issue-9624-\(UUID().uuidString.lowercased())"
+        let workspaceID = UUID().uuidString
+        let trueSurfaceID = UUID().uuidString
+        let staleSurfaceID = UUID().uuidString
+        let identifyResponse = try jsonResponse(result: [
+            "caller": [
+                "workspace_id": workspaceID,
+                "surface_id": trueSurfaceID,
+            ],
+            "focused": [:],
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let surfaceEnvironmentStates: [(label: String, surfaceID: String?)] = [
+            ("unset", nil),
+            ("correct", trueSurfaceID),
+            ("stale-valid", staleSurfaceID),
+        ]
+
+        for (index, state) in surfaceEnvironmentStates.enumerated() {
+            let socketPath = "/tmp/cmux-r9624-\(UUID().uuidString.prefix(8))-\(index).sock"
+            let responder = try UnixSocketResponder(
+                path: socketPath,
+                responses: [identifyResponse, recordResponse]
+            )
+            defer { responder.stop() }
+            var environment = ProcessInfo.processInfo.environment
+            for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+                environment.removeValue(forKey: key)
+            }
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_WORKSPACE_ID"] = workspaceID
+            environment["CMUX_CLI_TTY_NAME"] = "ttys9624"
+            if let surfaceID = state.surfaceID {
+                environment["CMUX_SURFACE_ID"] = surfaceID
+            }
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["restore", "custom", checkpointID],
+                environment: environment,
+                timeout: 5
+            )
+
+            #expect(
+                !result.timedOut,
+                Comment(rawValue: "\(state.label): \(result.diagnostics)")
+            )
+            #expect(
+                result.status == 0,
+                Comment(rawValue: "\(state.label): \(result.diagnostics)")
+            )
+            let requests = try responder.receivedRequests.map { request in
+                let data = try #require(request.data(using: .utf8))
+                return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            }
+            #expect(
+                requests.compactMap { $0["method"] as? String } == [
+                    "system.identify",
+                    "surface.resume.get",
+                ],
+                Comment(rawValue: "\(state.label): \(requests)")
+            )
+            let identifyParams = try #require(requests.first?["params"] as? [String: Any])
+            #expect(identifyParams["caller_tty"] as? String == "ttys9624")
+            #expect(identifyParams["caller"] == nil)
+            let restoreParams = try #require(requests.last?["params"] as? [String: Any])
+            #expect(restoreParams["surface_id"] as? String == trueSurfaceID)
+            #expect(restoreParams["surface_id"] as? String != staleSurfaceID)
+        }
+    }
+
+    @Test func testRestoreFallsBackToAmbientSurfaceWhenCallerTTYIsUnavailable() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "issue-9624-env-\(UUID().uuidString.lowercased())"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let identifyResponse = try jsonResponse(result: [
+            "caller": [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ],
+            "focused": [:],
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-r9624-env-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [identifyResponse, recordResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "custom", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "system.identify",
+            "surface.resume.get",
+        ])
+        let identifyParams = try #require(requests.first?["params"] as? [String: Any])
+        let caller = try #require(identifyParams["caller"] as? [String: Any])
+        #expect(caller["workspace_id"] as? String == workspaceID)
+        #expect(caller["surface_id"] as? String == surfaceID)
+        let restoreParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == surfaceID)
+    }
+
+    @Test func testRestoreBareSurfaceFormUsesCallerTTY() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "issue-9624-bare-\(UUID().uuidString.lowercased())"
+        let workspaceID = UUID().uuidString
+        let callerSurfaceID = UUID().uuidString
+        let staleSurfaceID = UUID().uuidString
+        let identifyResponse = try jsonResponse(result: [
+            "caller": [
+                "workspace_id": workspaceID,
+                "surface_id": callerSurfaceID,
+            ],
+            "focused": [:],
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let socketPath = "/tmp/cmux-r9624-bare-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [identifyResponse, recordResponse]
+        )
+        defer { responder.stop() }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = staleSurfaceID
+        environment["CMUX_CLI_TTY_NAME"] = "ttys9624"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "--surface"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        let requests = try responder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "system.identify",
+            "surface.resume.get",
+        ])
+        let identifyParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(identifyParams["caller_tty"] as? String == "ttys9624")
+        #expect(identifyParams["caller"] == nil)
+        let restoreParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(restoreParams["surface_id"] as? String == callerSurfaceID)
+        #expect(restoreParams["surface_id"] as? String != staleSurfaceID)
+    }
+
+    @Test func testRestorePositionalFormAcceptsExplicitSurfaceFlag() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = "issue-9624-explicit-\(UUID().uuidString.lowercased())"
+        let surfaceID = UUID().uuidString
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "direct",
+                "kind": "custom",
+                "checkpoint_id": checkpointID,
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                ],
+                "prepared_arguments": ["/usr/bin/true"],
+            ],
+        ])
+        let argumentOrders = [
+            ["custom", checkpointID, "--surface", surfaceID],
+            ["--surface", surfaceID, "custom", checkpointID],
+            ["--surface=\(surfaceID)", "custom", checkpointID],
+        ]
+
+        for (index, restoreArguments) in argumentOrders.enumerated() {
+            let socketPath = "/tmp/cmux-r9624-flag-\(UUID().uuidString.prefix(8))-\(index).sock"
+            let responder = try UnixSocketResponder(path: socketPath, response: recordResponse)
+            defer { responder.stop() }
+            var environment = ProcessInfo.processInfo.environment
+            for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+                environment.removeValue(forKey: key)
+            }
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            environment["CMUX_SOCKET_PATH"] = socketPath
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["restore"] + restoreArguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+            #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+            let request = try #require(responder.receivedRequests.first)
+            let data = try #require(request.data(using: .utf8))
+            let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(payload["method"] as? String == "surface.resume.get")
+            let params = try #require(payload["params"] as? [String: Any])
+            #expect(params["surface_id"] as? String == surfaceID)
+        }
+
+        var duplicateEnvironment = ProcessInfo.processInfo.environment
+        for key in Array(duplicateEnvironment.keys) where key.hasPrefix("CMUX_") {
+            duplicateEnvironment.removeValue(forKey: key)
+        }
+        let duplicateSocketPath = "/tmp/cmux-r9624-dup-\(UUID().uuidString.prefix(8)).sock"
+        let duplicateResponder = try UnixSocketResponder(
+            path: duplicateSocketPath,
+            response: recordResponse
+        )
+        defer { duplicateResponder.stop() }
+        duplicateEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        duplicateEnvironment["CMUX_SOCKET_PATH"] = duplicateSocketPath
+        let duplicateResult = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "restore",
+                "custom",
+                checkpointID,
+                "--surface",
+                surfaceID,
+                "--surface=\(surfaceID)",
+            ],
+            environment: duplicateEnvironment,
+            timeout: 5
+        )
+
+        #expect(!duplicateResult.timedOut, Comment(rawValue: duplicateResult.diagnostics))
+        #expect(duplicateResult.status == 1, Comment(rawValue: duplicateResult.diagnostics))
+        #expect(
+            duplicateResult.stderr.contains("Usage: cmux restore --surface [id|ref]"),
+            Comment(rawValue: duplicateResult.diagnostics)
+        )
+        #expect(duplicateResponder.receivedRequests.isEmpty)
+    }
+
     @Test func testRestorePositionalFormRequiresSurfaceContext() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment
@@ -859,7 +1163,19 @@ import Testing
     @Test func testRestoreWaitsForControlSocketDuringAppStartup() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = UUID().uuidString.lowercased()
-        let response = try restoreResponse(result: [
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let currentWorkspaceResponse = try jsonResponse(result: [
+            "workspace_id": workspaceID,
+        ])
+        let identifyResponse = try jsonResponse(result: [
+            "caller": [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ],
+            "focused": [:],
+        ])
+        let recordResponse = try jsonResponse(result: [
             "restore_record": [
                 "mode": "direct",
                 "kind": "custom",
@@ -888,7 +1204,7 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["CMUX_SURFACE_ID"] = surfaceID
 
         let result = runProcess(
             executablePath: cliPath,
@@ -904,34 +1220,41 @@ import Testing
                 close(startupSocketFD)
                 startupSocketFD = -1
                 unlink(socketPath)
-                responder = try? UnixSocketResponder(path: socketPath, response: response)
+                responder = try? UnixSocketResponder(
+                    path: socketPath,
+                    responses: [currentWorkspaceResponse, identifyResponse, recordResponse]
+                )
             }
         )
 
         let requiredResponder = try #require(responder)
         XCTAssertFalse(result.timedOut, result.diagnostics)
         XCTAssertEqual(result.status, 0, result.diagnostics)
-        XCTAssertEqual(requiredResponder.receivedRequests.count, 2)
+        let methods = try requiredResponder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            return try #require(payload["method"] as? String)
+        }
+        #expect(methods == [
+            "workspace.current",
+            "system.identify",
+            "surface.resume.get",
+        ])
     }
 
     @Test(arguments: ["pi", "grok"])
-    func testRestorePrefersLiveProcessTargetOverStaleAmbientRouting(kind: String) throws {
+    func testRestorePrefersCallerTTYOverStaleAmbientRouting(kind: String) throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "\(kind)-\(UUID().uuidString.lowercased())"
         let staleSurfaceID = UUID().uuidString
-        let staleTTYSurfaceID = UUID().uuidString
         let currentSurfaceID = UUID().uuidString
         let workspaceID = UUID().uuidString
         let callerTargetResponse = try jsonResponse(result: [
-            "terminals": [[
-                "tty": "ttys9380",
-                "workspace_id": UUID().uuidString,
-                "surface_id": staleTTYSurfaceID,
-            ]],
-            "source": "pid",
-            "pid_resolution": "controlling_tty",
-            "workspace_id": workspaceID,
-            "surface_id": currentSurfaceID,
+            "caller": [
+                "workspace_id": workspaceID,
+                "surface_id": currentSurfaceID,
+            ],
+            "focused": [:],
         ])
         let restoreResponse = try restoreResponse(result: [
             "restore_record": [
@@ -959,7 +1282,7 @@ import Testing
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = staleSurfaceID
-        environment["TTY"] = "/dev/ttys9380"
+        environment["CMUX_CLI_TTY_NAME"] = "ttys9380"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -975,18 +1298,17 @@ import Testing
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
         #expect(requests.compactMap { $0["method"] as? String } == [
-            "agent.resolve_delivery_target",
+            "system.identify",
             "surface.resume.get",
         ])
         let callerTargetRequest = try #require(requests.first)
         let callerTargetParams = try #require(callerTargetRequest["params"] as? [String: Any])
-        #expect((callerTargetParams["pid"] as? Int).map { $0 > 0 } == true)
-        #expect(callerTargetParams["pid_resolution"] as? String == "controlling_tty")
+        #expect(callerTargetParams["caller_tty"] as? String == "ttys9380")
+        #expect(callerTargetParams["caller"] == nil)
         let restoreRequest = try #require(requests.last)
         let restoreParams = try #require(restoreRequest["params"] as? [String: Any])
         #expect(restoreParams["surface_id"] as? String == currentSurfaceID)
         #expect(restoreParams["surface_id"] as? String != staleSurfaceID)
-        #expect(restoreParams["surface_id"] as? String != staleTTYSurfaceID)
     }
 
     @Test func testRelayRestoreFailsClosedOnFirstMissingTTYTarget() throws {
@@ -1042,18 +1364,36 @@ import Testing
         #expect(params["workspace_id"] as? String == workspaceID)
     }
 
-    @Test func testRestoreFailsClosedWhenLiveProcessTargetIsNotFound() throws {
+    @Test func testRestoreFallsBackToAmbientSurfaceWhenCallerTTYIsNotFound() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
-        let staleSurfaceID = UUID().uuidString
-        let callerTargetResponse = try jsonErrorResponse(
-            code: "not_found",
-            message: "No live delivery target"
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let callerTargetResponse = try jsonResponse(result: [
+            "caller": NSNull(),
+            "focused": [:],
+        ])
+        let ambientResponse = try restoreResponse(
+            result: [
+                "restore_record": [
+                    "mode": "direct",
+                    "kind": "pi",
+                    "checkpoint_id": checkpointID,
+                    "environment": [:],
+                    "launch_command": [
+                        "arguments": ["/usr/bin/true"],
+                        "executable_path": "/usr/bin/true",
+                    ],
+                    "prepared_arguments": ["/usr/bin/true"],
+                ],
+            ],
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
         )
         let socketPath = "/tmp/cmux-restore-ambiguous-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(
             path: socketPath,
-            response: callerTargetResponse
+            responses: [callerTargetResponse, ambientResponse, ambientResponse]
         )
         defer { responder.stop() }
         var environment = ProcessInfo.processInfo.environment
@@ -1062,8 +1402,9 @@ import Testing
         }
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_SURFACE_ID"] = staleSurfaceID
-        environment["TTY"] = "/dev/ttys9380"
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_CLI_TTY_NAME"] = "ttys9380"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1073,20 +1414,23 @@ import Testing
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
-        #expect(result.status != 0, Comment(rawValue: result.diagnostics))
-        #expect(
-            result.stderr.contains("the current cmux surface could not be identified"),
-            Comment(rawValue: result.diagnostics)
-        )
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
         let requests = try responder.receivedRequests.map { request in
             let data = try #require(request.data(using: .utf8))
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
-        #expect(
-            requests.compactMap { $0["method"] as? String } == [
-                "agent.resolve_delivery_target"
-            ]
-        )
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "system.identify",
+            "system.identify",
+            "surface.resume.get",
+        ])
+        let ttyParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(ttyParams["caller_tty"] as? String == "ttys9380")
+        #expect(ttyParams["caller"] == nil)
+        let environmentParams = try #require(requests.dropFirst().first?["params"] as? [String: Any])
+        let caller = try #require(environmentParams["caller"] as? [String: Any])
+        #expect(caller["workspace_id"] as? String == workspaceID)
+        #expect(caller["surface_id"] as? String == surfaceID)
     }
 
     @Test func testRestoreUsesUniqueTTYBindingWhenLiveTargetMethodIsUnsupported() throws {
@@ -1147,7 +1491,7 @@ import Testing
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
         #expect(requests.compactMap { $0["method"] as? String } == [
-            "agent.resolve_delivery_target",
+            "system.identify",
             "debug.terminals",
             "surface.resume.get",
         ])
@@ -1318,15 +1662,15 @@ import Testing
         #expect(restoreParams["surface_id"] as? String != siblingSurfaceID)
     }
 
-    @Test func testRestoreRejectsMalformedLiveProcessTargetWithoutFallingBack() throws {
+    @Test func testRestoreRejectsMalformedCallerTTYTargetWithoutFallingBack() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
         let callerTargetResponse = try jsonResponse(result: [
-            "terminals": [],
-            "source": "pid",
-            "pid_resolution": "controlling_tty",
-            "workspace_id": UUID().uuidString,
-            "surface_id": "not-a-surface-id",
+            "caller": [
+                "workspace_id": UUID().uuidString,
+                "surface_id": "not-a-surface-id",
+            ],
+            "focused": [:],
         ])
         let restoreResponse = try restoreResponse(result: [
             "restore_record": [
@@ -1354,7 +1698,7 @@ import Testing
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
-        environment["TTY"] = "/dev/ttys9380"
+        environment["CMUX_CLI_TTY_NAME"] = "ttys9380"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1374,24 +1718,20 @@ import Testing
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
         #expect(requests.compactMap { $0["method"] as? String } == [
-            "agent.resolve_delivery_target",
+            "system.identify",
         ])
     }
 
-    @Test func testRestoreDoesNotReuseSocketAfterCallerTargetTimeout() throws {
+    @Test func testRestoreDoesNotReuseSocketAfterCallerIdentifyTimeout() throws {
         let cliPath = try bundledCLIPath()
         let checkpointID = "pi-\(UUID().uuidString.lowercased())"
         let currentSurfaceID = UUID().uuidString
         let callerTargetResponse = try jsonResponse(result: [
-            "terminals": [[
-                "tty": "ttys9380",
+            "caller": [
                 "workspace_id": UUID().uuidString,
                 "surface_id": currentSurfaceID,
-            ]],
-            "source": "pid",
-            "pid_resolution": "controlling_tty",
-            "workspace_id": UUID().uuidString,
-            "surface_id": currentSurfaceID,
+            ],
+            "focused": [:],
         ])
         let restoreResponse = try restoreResponse(result: [
             "restore_record": [
@@ -1421,7 +1761,7 @@ import Testing
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.2"
-        environment["TTY"] = "/dev/ttys9380"
+        environment["CMUX_CLI_TTY_NAME"] = "ttys9380"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1442,7 +1782,7 @@ import Testing
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
         #expect(requests.compactMap { $0["method"] as? String } == [
-            "agent.resolve_delivery_target",
+            "system.identify",
         ])
     }
 
@@ -2783,10 +3123,11 @@ import Testing
         surfaceID: String? = nil
     ) throws -> String {
         var result = result
-        result["source"] = "pid"
-        result["pid_resolution"] = "controlling_tty"
-        result["workspace_id"] = workspaceID ?? UUID().uuidString
-        result["surface_id"] = surfaceID ?? UUID().uuidString
+        result["caller"] = [
+            "workspace_id": workspaceID ?? UUID().uuidString,
+            "surface_id": surfaceID ?? UUID().uuidString,
+        ]
+        result["focused"] = [String: Any]()
         return try jsonResponse(result: result)
     }
 
