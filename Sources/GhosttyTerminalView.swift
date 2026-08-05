@@ -6663,53 +6663,56 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     nonisolated private static func resolveWordPathSnapshot(
         _ snapshot: WordPathResolutionSnapshot,
         isCancelled: @escaping @Sendable () -> Bool
-    ) -> WordPathResolution? {
-        let resolver = TerminalPathResolver(fileExists: { path in
-            guard !isCancelled() else { return false }
-            let exists = FileManager.default.fileExists(atPath: path)
-            return !isCancelled() && exists
-        })
+    ) async -> WordPathResolution? {
+        guard !isCancelled(), !Task.isCancelled else { return nil }
+        let resolver = TerminalPathResolver()
 
-        func resolveVisibleLine(
+        func visibleLineCandidates(
             _ visibleLine: WordPathVisibleLineSnapshot?
-        ) -> WordPathResolution? {
-            guard let visibleLine,
-                  let resolution = resolver.resolveVisibleLinePath(
-                      visibleLine.line,
-                      column: visibleLine.column,
-                      cwd: snapshot.workingDirectory
-                  ) else {
-                return nil
+        ) -> [WordPathResolution] {
+            guard let visibleLine else { return [] }
+            return resolver.visibleLinePathCandidates(
+                visibleLine.line,
+                column: visibleLine.column,
+                cwd: snapshot.workingDirectory
+            ).map { candidate in
+                WordPathResolution(
+                    path: candidate.path,
+                    source: .snapshot,
+                    rawToken: candidate.rawToken
+                )
             }
-            return WordPathResolution(
-                path: resolution.path,
-                source: .snapshot,
-                rawToken: resolution.rawToken
-            )
         }
 
-        let pointResolution = resolveVisibleLine(snapshot.point)
-        let quicklookResolution = snapshot.quicklook?.word.flatMap { quicklookWord in
-            resolver.resolveQuicklookPath(
+        let quicklookCandidates = snapshot.quicklook?.word.map { quicklookWord in
+            resolver.quicklookPathCandidates(
                 quicklookWord,
                 cwd: snapshot.workingDirectory
-            ).map {
+            ).map { path in
                 WordPathResolution(
-                    path: $0,
+                    path: path,
                     source: .quicklook,
                     rawToken: quicklookWord
                 )
             }
-        }
-        let viewportResolution = resolveVisibleLine(snapshot.viewport)
+        } ?? []
 
         // The pointer-anchored snapshot is the only source tied directly to the
         // actual click location. Prefer it over quicklook and viewport offsets,
         // which can lag or target a sibling entry in multi-column `ls` output.
-        if let viewportResolution {
-            return pointResolution ?? viewportResolution
+        var candidates = visibleLineCandidates(snapshot.point)
+        candidates.append(contentsOf: visibleLineCandidates(snapshot.viewport))
+        candidates.append(contentsOf: quicklookCandidates)
+
+        var seenPaths: Set<String> = []
+        candidates = candidates.filter { seenPaths.insert($0.path).inserted }
+        guard !isCancelled(), !Task.isCancelled,
+              let index = await WordPathFilesystemProbe()
+                  .firstExistingPathIndex(in: candidates.map(\.path)),
+              !isCancelled(), !Task.isCancelled else {
+            return nil
         }
-        return pointResolution ?? quicklookResolution
+        return candidates[index]
     }
 
     private func wordPathQuicklookSnapshot(surface: ghostty_surface_t) -> WordPathQuicklookSnapshot? {
@@ -6953,7 +6956,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             id: jobID,
             isUserInitiated: false,
             work: { [weak self, cancellation, request] in
-                let resolution = Self.resolveWordPathSnapshot(
+                let resolution = await Self.resolveWordPathSnapshot(
                     request.snapshot,
                     isCancelled: { cancellation.loadAcquire() }
                 )
@@ -7010,7 +7013,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         setWordPathHoverActive(resolution != nil)
         if resolution == nil {
             cachedWordPathHover = nil
-            stopWordPathHoverRenderedFrameObservation()
+            // Keep observing this surface while Command remains held. A later
+            // rendered frame may replace the hovered cell with a valid path.
         }
     }
 
@@ -7021,7 +7025,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         wordPathHoverResolutionTaskRequest = nil
         cachedWordPathHover = nil
         setWordPathHoverActive(false)
-        stopWordPathHoverRenderedFrameObservation()
     }
 
     private func cancelWordPathHoverResolution() {
@@ -7339,7 +7342,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             id: jobID,
             isUserInitiated: true,
             work: { [weak self, cancellation, snapshot] in
-                let resolution = Self.resolveWordPathSnapshot(
+                let resolution = await Self.resolveWordPathSnapshot(
                     snapshot,
                     isCancelled: { cancellation.loadAcquire() }
                 )

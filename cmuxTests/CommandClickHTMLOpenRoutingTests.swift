@@ -52,11 +52,9 @@ struct CommandClickHTMLOpenRoutingTests {
 
     @Test
     func hoverFilesystemProbePoolRunsOneAndRetainsOnlyLatestPendingJob() async {
-        let pool = WordPathFilesystemResolutionCoordinator(
-            label: "command-hover-probe-test-\(UUID().uuidString)"
-        )
+        let pool = WordPathFilesystemResolutionCoordinator()
         let firstStarted = AsyncStream<Void>.makeStream()
-        let releaseFirst = DispatchSemaphore(value: 0)
+        let releaseFirst = AsyncStream<Void>.makeStream()
         let secondDiscarded = AsyncStream<Void>.makeStream()
         let thirdFinished = AsyncStream<Void>.makeStream()
         let secondRan = AtomicBooleanGate(false)
@@ -66,7 +64,8 @@ struct CommandClickHTMLOpenRoutingTests {
             isUserInitiated: false,
             work: {
                 firstStarted.continuation.yield()
-                releaseFirst.wait()
+                var releaseIterator = releaseFirst.stream.makeAsyncIterator()
+                _ = await releaseIterator.next()
                 return { @MainActor in }
             },
             discarded: {}
@@ -95,12 +94,13 @@ struct CommandClickHTMLOpenRoutingTests {
 
         var secondDiscardedIterator = secondDiscarded.stream.makeAsyncIterator()
         _ = await secondDiscardedIterator.next()
-        releaseFirst.signal()
+        releaseFirst.continuation.yield()
         var thirdFinishedIterator = thirdFinished.stream.makeAsyncIterator()
         _ = await thirdFinishedIterator.next()
         #expect(!secondRan.loadAcquire())
 
         firstStarted.continuation.finish()
+        releaseFirst.continuation.finish()
         secondDiscarded.continuation.finish()
         thirdFinished.continuation.finish()
     }

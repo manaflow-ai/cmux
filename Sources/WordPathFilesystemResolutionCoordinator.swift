@@ -2,26 +2,22 @@ import Foundation
 
 /// Bounds command-hover and command-click filesystem work process-wide.
 ///
-/// Mutable scheduling state is main-actor isolated. A dedicated serial queue
-/// runs at most one potentially blocking filesystem probe, while the actor
-/// retains only the newest pending click and hover jobs. Clicks run first.
+/// Mutable scheduling state is main-actor isolated. At most one asynchronous,
+/// deadline-bounded probe runs at a time, while the actor retains only the
+/// newest pending click and hover jobs. Clicks run first.
 @MainActor
 final class WordPathFilesystemResolutionCoordinator {
     typealias Completion = @MainActor @Sendable () -> Void
-    typealias Work = @Sendable () -> Completion
+    typealias Work = @Sendable () async -> Completion
     typealias Discarded = @MainActor @Sendable () -> Void
     typealias Job = (id: UUID, work: Work, discarded: Discarded)
 
     static let shared = WordPathFilesystemResolutionCoordinator()
 
-    private let queue: DispatchQueue
     private var runningID: UUID?
+    private var runningTask: Task<Void, Never>?
     private var pendingClick: Job?
     private var pendingHover: Job?
-
-    init(label: String = "com.cmux.word-path-filesystem-resolution") {
-        queue = DispatchQueue(label: label, qos: .utility)
-    }
 
     func submit(
         id: UUID,
@@ -45,6 +41,9 @@ final class WordPathFilesystemResolutionCoordinator {
     }
 
     func cancelPending(id: UUID) {
+        if runningID == id {
+            runningTask?.cancel()
+        }
         if pendingClick?.id == id {
             let discarded = pendingClick?.discarded
             pendingClick = nil
@@ -61,9 +60,9 @@ final class WordPathFilesystemResolutionCoordinator {
         runningID = job.id
         let id = job.id
         let work = job.work
-        queue.async { [weak self, id, work] in
-            let completion = work()
-            Task { @MainActor [weak self, id, completion] in
+        runningTask = Task.detached(priority: .utility) { [weak self, id, work] in
+            let completion = await work()
+            await MainActor.run { [weak self, id, completion] in
                 completion()
                 self?.didFinish(id: id)
             }
@@ -73,6 +72,7 @@ final class WordPathFilesystemResolutionCoordinator {
     private func didFinish(id: UUID) {
         guard runningID == id else { return }
         runningID = nil
+        runningTask = nil
 
         if let next = pendingClick {
             pendingClick = nil

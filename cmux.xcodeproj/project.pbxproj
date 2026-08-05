@@ -2443,6 +2443,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		905200000000000000000003 /* WKWebView+BrowserUserAgentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 905200000000000000000004 /* WKWebView+BrowserUserAgentPolicy.swift */; };
 		805600000000000000000003 /* WKWebView+BrowserViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805600000000000000000004 /* WKWebView+BrowserViewport.swift */; };
 		D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */; };
+		B89390000000000000000013 /* WordPathFilesystemProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89390000000000000000014 /* WordPathFilesystemProbe.swift */; };
 		B89390000000000000000001 /* WordPathFilesystemResolutionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89390000000000000000002 /* WordPathFilesystemResolutionCoordinator.swift */; };
 		B89390000000000000000011 /* WordPathHoverCacheEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B89390000000000000000012 /* WordPathHoverCacheEntry.swift */; };
 		859130000000000000000001 /* WordPathHoverCacheKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859130000000000000000002 /* WordPathHoverCacheKey.swift */; };
@@ -5044,6 +5045,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		905200000000000000000004 /* WKWebView+BrowserUserAgentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+BrowserUserAgentPolicy.swift"; sourceTree = "<group>"; };
 		805600000000000000000004 /* WKWebView+BrowserViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+BrowserViewport.swift"; sourceTree = "<group>"; };
 		D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/WKWebView+CmuxPrintOperation.swift"; sourceTree = "<group>"; };
+		B89390000000000000000014 /* WordPathFilesystemProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathFilesystemProbe.swift; sourceTree = "<group>"; };
 		B89390000000000000000002 /* WordPathFilesystemResolutionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathFilesystemResolutionCoordinator.swift; sourceTree = "<group>"; };
 		B89390000000000000000012 /* WordPathHoverCacheEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathHoverCacheEntry.swift; sourceTree = "<group>"; };
 		859130000000000000000002 /* WordPathHoverCacheKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordPathHoverCacheKey.swift; sourceTree = "<group>"; };
@@ -6196,6 +6198,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E89950010000000000000002 /* GhosttyFlashOverlayView.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
 				B89390000000000000000002 /* WordPathFilesystemResolutionCoordinator.swift */,
+				B89390000000000000000014 /* WordPathFilesystemProbe.swift */,
 				B89390000000000000000012 /* WordPathHoverCacheEntry.swift */,
 				859130000000000000000002 /* WordPathHoverCacheKey.swift */,
 				B8939000000000000000000E /* WordPathHoverResolutionIdentity.swift */,
@@ -10005,6 +10008,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				905200000000000000000003 /* WKWebView+BrowserUserAgentPolicy.swift in Sources */,
 				805600000000000000000003 /* WKWebView+BrowserViewport.swift in Sources */,
 				D7632B13A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift in Sources */,
+				B89390000000000000000013 /* WordPathFilesystemProbe.swift in Sources */,
 				B89390000000000000000001 /* WordPathFilesystemResolutionCoordinator.swift in Sources */,
 				B89390000000000000000011 /* WordPathHoverCacheEntry.swift in Sources */,
 				859130000000000000000001 /* WordPathHoverCacheKey.swift in Sources */,
