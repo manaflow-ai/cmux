@@ -344,6 +344,30 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(liveDirectoryQueries == 1)
     }
 
+    @Test("Dock link-open CWD rejects stale cached directories")
+    @MainActor
+    func dockLinkOpenCWDFailsClosedWithoutLiveOrReportedDirectory() throws {
+        let staleDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { staleDirectory.path },
+            browserAvailabilityProvider: { true },
+            terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver(
+                liveDirectoryProvider: { _ in nil }
+            )
+        )
+        defer { store.closeAllPanels() }
+
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+
+        #expect(store.terminalLinkHoverWorkingDirectory(for: terminalPanelId) == staleDirectory.path)
+        #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) == nil)
+    }
+
     @Test("Deferred HTML routing revalidates remote state")
     @MainActor
     func deferredHTMLRouteRejectsRemoteTerminal() async throws {

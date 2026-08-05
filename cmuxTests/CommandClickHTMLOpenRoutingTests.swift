@@ -315,6 +315,51 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func filesystemProbePoolExpiresCoalescedWorkBeforeAnUnboundedQueueWait() async {
+        let pool = WordPathFilesystemResolutionCoordinator(
+            maximumCoalescedQueueWait: .nanoseconds(0)
+        )
+        let blockerStarted = AsyncStream<Void>.makeStream()
+        let releaseBlocker = AsyncStream<Void>.makeStream()
+        let expired = AsyncStream<Void>.makeStream()
+        let workRan = AtomicBooleanGate(false)
+
+        pool.submit(
+            id: UUID(),
+            isUserInitiated: false,
+            work: {
+                blockerStarted.continuation.yield()
+                var releaseIterator = releaseBlocker.stream.makeAsyncIterator()
+                _ = await releaseIterator.next()
+                return { @MainActor in }
+            },
+            discarded: {}
+        )
+        var blockerIterator = blockerStarted.stream.makeAsyncIterator()
+        _ = await blockerIterator.next()
+
+        pool.submitCoalesced(
+            id: UUID(),
+            coalescingKey: UUID(),
+            work: {
+                workRan.storeRelease(true)
+                return { @MainActor in }
+            },
+            discarded: {},
+            expired: { expired.continuation.yield() }
+        )
+        releaseBlocker.continuation.yield()
+
+        var expiredIterator = expired.stream.makeAsyncIterator()
+        _ = await expiredIterator.next()
+        #expect(!workRan.loadAcquire())
+
+        blockerStarted.continuation.finish()
+        releaseBlocker.continuation.finish()
+        expired.continuation.finish()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func filesystemProbePoolRateLimitsConsecutiveHovers() async {
         let pool = WordPathFilesystemResolutionCoordinator(
             minimumHoverInterval: .milliseconds(80)
@@ -479,6 +524,39 @@ struct CommandClickHTMLOpenRoutingTests {
 
         #expect(navigation == nil)
         webView.stopLoading()
+    }
+
+    @Test
+    func resolvedSupportedFileRouteDoesNotRevalidateTheCandidate() throws {
+        _ = NSApplication.shared
+
+        let suiteName = "resolved-supported-file-route-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            true,
+            forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        )
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resolved-route-\(UUID().uuidString).txt")
+        try "validated before dispatch".write(to: fileURL, atomically: true, encoding: .utf8)
+        let validatedURL = fileURL.standardizedFileURL.resolvingSymlinksInPath()
+        try FileManager.default.removeItem(at: fileURL)
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        #expect(CommandClickFileOpenRouter.openInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: fileURL.path,
+            resolvedFileURL: validatedURL,
+            defaults: defaults
+        ))
+        #expect(workspace.panels.values.contains { $0 is FilePreviewPanel })
     }
 
     @Test
