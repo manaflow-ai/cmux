@@ -44,7 +44,7 @@ def action_cases() -> set[str]:
     source = ACTION_SOURCE.read_text(encoding="utf-8")
     enum_body = source_between(
         source,
-        "enum Action: String, CaseIterable, Identifiable {",
+        "enum Action: String, CaseIterable, Identifiable, Sendable {",
         "var id: String",
         ACTION_SOURCE.name,
     )
