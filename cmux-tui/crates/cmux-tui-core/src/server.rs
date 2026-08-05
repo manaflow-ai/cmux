@@ -16533,6 +16533,18 @@ mod tests {
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let events = mux.subscribe();
+        let attached_stream = writer.start_stream(&json!({"event": "attach-overflow"})).unwrap();
+        mux.control_clients
+            .attach_surface(client, surface.id, attached_stream.clone())
+            .unwrap();
+        mux.control_clients
+            .commit_surface(client, surface.id, attached_stream.id, None)
+            .unwrap();
+        let subscription_stream =
+            writer.start_stream(&json!({"event": "subscription-overflow"})).unwrap();
+        writer
+            .send_stream(&json!({"event": "stale-subscription"}), &subscription_stream)
+            .unwrap();
         mux.resize_surface_for_client(surface.id, client, 80, 24).unwrap();
 
         assert!(!handle_message(
@@ -16545,6 +16557,9 @@ mod tests {
         let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(response["id"], 9);
         assert_eq!(response["ok"], true);
+        let detached: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(detached, json!({"event": "detached", "surface": surface.id}));
+        assert_eq!(outbound.try_pop(), None, "stream data followed the terminal detach marker");
         assert_eq!(mux.client_surface_size(surface.id, client), None);
         assert!(mux.control_clients_json(client).as_array().unwrap().is_empty());
         assert!((0..4).any(|_| matches!(
