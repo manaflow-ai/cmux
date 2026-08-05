@@ -266,24 +266,39 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui
 
-      - name: Select Zig SDK toolchain
-        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: 0.15.2
+      - name: Resolve Zig SDK version
+        id: zig-sdk-version
+        shell: bash
+        run: |
+          version="$(
+            sed -nE 's/^[[:space:]]*\.minimum_zig_version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+              cmux-tui/bindings/zig/build.zig.zon | head -1
+          )"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid Zig SDK version: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Zig for SDK conformance
+        env:
+          ZIG_REQUIRED: ${{ steps.zig-sdk-version.outputs.version }}
+          ZIG_FORCE_LOCAL_INSTALL: "1"
+        run: ./scripts/install-zig-ci.sh
 
       - name: Install TypeScript adapter build tools
         working-directory: cmux-tui/bindings/typescript
         run: npm ci --no-audit --no-fund
 
       - name: Python conformance fixtures
-        env:
-          CMUX_ZIG: zig
-        run: python3 cmux-tui/bindings/conformance/runner.py
+        run: |
+          test "$("$CMUX_ZIG" version)" = "${{ steps.zig-sdk-version.outputs.version }}"
+          python3 cmux-tui/bindings/conformance/runner.py
 
       - name: Binding e2e
-        env:
-          CMUX_ZIG: zig
-        run: bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
+        run: |
+          test "$("$CMUX_ZIG" version)" = "${{ steps.zig-sdk-version.outputs.version }}"
+          bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
 
   windows-experimental:
     name: windows experimental (x86_64-gnu)

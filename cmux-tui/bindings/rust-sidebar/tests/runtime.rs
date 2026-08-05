@@ -379,7 +379,9 @@ fn bounded_queue_overflow_cancels_and_reports_recovery() {
         SidebarConfig { queue_capacity: 1, ..SidebarConfig::default() },
     )
     .unwrap();
-    overflow_rx.recv_timeout(test_duration(Duration::from_secs(2))).unwrap();
+    overflow_rx
+        .recv_timeout(test_duration(Duration::from_secs(2)))
+        .expect("sidebar worker did not cancel the overflowing stream");
     let deadline = Instant::now() + test_duration(Duration::from_secs(2));
     loop {
         runtime.poll_updates();
