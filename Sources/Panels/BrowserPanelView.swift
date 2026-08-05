@@ -7600,6 +7600,16 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
                 coordinator.lastPortalHostId = hostId
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+            } else if BrowserWindowPortalRegistry.updateEntryVisibility(
+                for: webView,
+                visibleInUI: coordinator.desiredPortalVisibleInUI,
+                zPriority: coordinator.desiredPortalZPriority
+            ) {
+                // External lifecycle events can hide a registry entry without
+                // changing SwiftUI's desired visibility. Reconcile that drift
+                // immediately so the selected browser does not retain a hidden slot.
+                BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
+                coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
             }
             BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                 for: webView,
