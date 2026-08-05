@@ -903,6 +903,91 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    @MainActor
+    func browserPortalRestoresRegistryVisibilityAfterExternalHideWithUnchangedViewState() async throws {
+        _ = NSApplication.shared
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(
+            initialSurface: .cloudVMLoading,
+            autoWelcomeIfNeeded: false
+        )
+        appDelegate.tabManager = tabManager
+        defer { appDelegate.tabManager = previousTabManager }
+
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let browserPanel = try #require(
+            workspace.newBrowserSurface(inPane: paneId, focus: true)
+        )
+        defer { browserPanel.close() }
+
+        let representable = WebViewRepresentable(
+            panel: browserPanel,
+            paneId: paneId,
+            shouldAttachWebView: true,
+            useLocalInlineHosting: false,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            designComposer: nil,
+            omnibarSuggestions: nil,
+            paneTopChromeHeight: 0
+        )
+        let hostingView = NSHostingView(rootView: representable)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        let visibleSnapshot = try #require(
+            BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
+        )
+        #expect(visibleSnapshot.visibleInUI)
+        #expect(!visibleSnapshot.containerHidden)
+
+        BrowserWindowPortalRegistry.hide(
+            webView: browserPanel.webView,
+            source: "test.externalTabDeselection"
+        )
+        let hiddenSnapshot = try #require(
+            BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
+        )
+        #expect(!hiddenSnapshot.visibleInUI)
+        #expect(hiddenSnapshot.containerHidden)
+
+        // Model the selected browser's next SwiftUI update. Its desired visibility,
+        // host, and geometry are unchanged, but the registry was hidden externally.
+        hostingView.rootView = representable
+        await Self.drainMainRunLoop(for: window)
+
+        let restoredSnapshot = try #require(
+            BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
+        )
+        #expect(
+            restoredSnapshot.visibleInUI,
+            "The selected browser must make its registry entry visible again after a transient external hide."
+        )
+        #expect(
+            !restoredSnapshot.containerHidden,
+            "The selected browser's portal container must be presented again in the same update."
+        )
+    }
+
+    @Test
     func testRenderedVisiblePanelPolicyPrefersSelectedTabOverStaleFocusedPanel() {
         let paneId = UUID()
         let selectedPanelId = UUID()
