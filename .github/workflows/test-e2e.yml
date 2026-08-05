@@ -171,6 +171,11 @@ jobs:
           echo "Resolved selector: $test_selector"
 
       - name: Select Xcode
+        env:
+          # The macOS 26 image currently exposes Xcode 27 as the newest stable
+          # toolchain, but its separately-installed Metal component is absent.
+          # Pin the repository's Xcode 26 generation for issue #5158 verification.
+          CMUX_CI_XCODE_APP: /Applications/Xcode_26.0.1.app
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
