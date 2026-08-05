@@ -103,7 +103,11 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         guard let targetIdentity = BrowserLocalFileIdentity(resolvedURL: resolvedURL) else { return false }
         if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
             $0.canReuseTerminalFile(resolvedURL, identity: targetIdentity)
-        }), existing.reloadTerminalFileForReuse(resolvedURL, identity: targetIdentity) {
+        }), existing.openValidatedTerminalFile(
+            resolvedURL,
+            identity: targetIdentity,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        ) {
             focusPanel(existing.id)
             return true
         }
@@ -116,29 +120,31 @@ extension DockSplitStore: TerminalLinkOpenContainer {
             guard let browserID = newSurface(
                 kind: .browser,
                 inPane: targetPane,
-                url: resolvedURL,
                 focus: true,
                 bypassRemoteProxy: true,
                 localFileReadAccessPolicy: .fileOnly
             ), let browser = panels[browserID] as? BrowserPanel else {
                 return false
             }
-            browser.rememberTerminalFileForReuse(resolvedURL, identity: targetIdentity)
-            return true
+            return browser.openValidatedTerminalFile(
+                resolvedURL,
+                identity: targetIdentity
+            )
         }
         guard let browserID = newSplit(
             kind: .browser,
             orientation: .horizontal,
             insertFirst: false,
             sourcePanelId: sourcePanelId,
-            url: resolvedURL,
             bypassRemoteProxy: true,
             localFileReadAccessPolicy: .fileOnly,
             focus: true
         ), let browser = panels[browserID] as? BrowserPanel else {
             return false
         }
-        browser.rememberTerminalFileForReuse(resolvedURL, identity: targetIdentity)
-        return true
+        return browser.openValidatedTerminalFile(
+            resolvedURL,
+            identity: targetIdentity
+        )
     }
 }

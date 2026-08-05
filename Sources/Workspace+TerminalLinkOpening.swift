@@ -68,7 +68,11 @@ extension Workspace: TerminalLinkOpenContainer {
         guard let targetIdentity = BrowserLocalFileIdentity(resolvedURL: resolvedURL) else { return false }
         if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
             $0.canReuseTerminalFile(resolvedURL, identity: targetIdentity)
-        }), existing.reloadTerminalFileForReuse(resolvedURL, identity: targetIdentity) {
+        }), existing.openValidatedTerminalFile(
+            resolvedURL,
+            identity: targetIdentity,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        ) {
             focusPanel(existing.id)
             return true
         }
@@ -76,26 +80,28 @@ extension Workspace: TerminalLinkOpenContainer {
         if let targetPane = preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
             guard let browser = newBrowserSurface(
                 inPane: targetPane,
-                url: resolvedURL,
                 focus: true,
                 bypassRemoteProxy: true,
                 localFileReadAccessPolicy: .fileOnly
             ) else {
                 return false
             }
-            browser.rememberTerminalFileForReuse(resolvedURL, identity: targetIdentity)
-            return true
+            return browser.openValidatedTerminalFile(
+                resolvedURL,
+                identity: targetIdentity
+            )
         }
         guard let browser = newBrowserSplit(
             from: sourcePanelId,
             orientation: .horizontal,
-            url: resolvedURL,
             bypassRemoteProxy: true,
             localFileReadAccessPolicy: .fileOnly
         ) else {
             return false
         }
-        browser.rememberTerminalFileForReuse(resolvedURL, identity: targetIdentity)
-        return true
+        return browser.openValidatedTerminalFile(
+            resolvedURL,
+            identity: targetIdentity
+        )
     }
 }

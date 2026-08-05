@@ -711,7 +711,7 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         activeErrorPageDisplayURL = failedURL
         let canBypass = BrowserErrorPage(
             failedURL: failedURL.absoluteString,
-            retry: .disabled,
+            retry: .request(request),
             error: NSError(
                 domain: NSCocoaErrorDomain,
                 code: NSFileReadNoSuchFileError
@@ -762,6 +762,13 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
            url.host == "bypass-ssl" {
             decisionHandler(.cancel)
             handleSSLTrustBypassAction(url, in: webView)
+            return
+        }
+
+        if let url = navigationAction.request.url,
+           BrowserErrorPage.isLocalFileRetryAction(url) {
+            decisionHandler(.cancel)
+            retryLocalFileNavigation(in: webView)
             return
         }
 
@@ -1015,6 +1022,18 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         recordSSLTrustBypassReplayRequest(request)
+        controller?.loadRequest(request, in: webView)
+    }
+
+    private func retryLocalFileNavigation(in webView: WKWebView) {
+        guard let failedURL = activeErrorPageDisplayURL,
+              failedURL.isFileURL,
+              let request = lastAttemptedRequest,
+              request.url?.isFileURL == true,
+              request.browserMatchesFailedNavigationURLString(failedURL.absoluteString) else {
+            return
+        }
+        clearAttemptedRequest(discardPendingBypasses: true)
         controller?.loadRequest(request, in: webView)
     }
 

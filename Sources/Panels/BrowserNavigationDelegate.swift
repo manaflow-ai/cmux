@@ -279,6 +279,13 @@ import WebKit
         }
 
         if let url = navigationAction.request.url,
+           BrowserErrorPage.isLocalFileRetryAction(url) {
+            decisionHandler(.cancel)
+            retryLocalFileNavigation()
+            return
+        }
+
+        if let url = navigationAction.request.url,
            BrowserFileDropNavigationGuard.isDropFallbackNavigation(
                url: url,
                isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
@@ -628,6 +635,18 @@ import WebKit
         activeSSLTrustBypassErrorPageFailedURL = nil
         recordSSLTrustBypassReplayRequest(request)
         browserLoadRequest(request, in: webView)
+    }
+
+    private func retryLocalFileNavigation() {
+        guard let failedURL = activeErrorPageDisplayURL,
+              failedURL.isFileURL,
+              let request = lastAttemptedRequest,
+              request.url?.isFileURL == true,
+              request.browserMatchesFailedNavigationURLString(failedURL.absoluteString) else {
+            return
+        }
+        clearAttemptedRequest(discardPendingBypasses: true)
+        requestNavigation?(request, .currentTab, nil)
     }
 
     private func recordSSLTrustBypassReplayRequest(_ request: URLRequest) {

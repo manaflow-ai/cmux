@@ -6079,28 +6079,30 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func reloadTerminalFileForReuse(
+    func openValidatedTerminalFile(
         _ fileURL: URL,
-        identity: BrowserLocalFileIdentity
+        identity: BrowserLocalFileIdentity,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) -> Bool {
-        // Terminal file reuse receives the canonical readable-file URL from
-        // TerminalLinkOpenCoordinator's bounded probe, so it can load without
-        // repeating the filesystem operation.
+        // Terminal file routing receives the canonical readable-file URL from
+        // TerminalLinkOpenCoordinator's bounded probe, so creation and reuse
+        // both load it without repeating the filesystem operation.
         guard localFileReadAccessPolicy == .fileOnly, fileURL.isFileURL else { return false }
         cancelPendingFileOnlyNavigation()
         forgetTerminalFileReuseIdentity()
         let request = URLRequest(
             url: fileURL,
-            cachePolicy: .reloadIgnoringLocalCacheData
+            cachePolicy: cachePolicy
         )
-        guard startNavigation(
+        let navigation = startNavigation(
             request: request,
             originalURL: fileURL,
             recordTypedNavigation: false,
             preserveRestoredSessionHistory: false,
             validatedReadableFileURL: fileURL
-        ) != nil else {
-            return false
+        )
+        if navigation == nil {
+            noteFileOnlyNavigationResolutionFailure(request: request)
         }
         rememberTerminalFileForReuse(fileURL, identity: identity)
         return true
