@@ -3571,7 +3571,6 @@
     "title": "cmux za {platform}",
     "tagline": "Chromium preglednik i radni prostor za agente, izrađeni kao jedna cjelina.",
     "logoAlt": "Ikona aplikacije cmux",
-    "portableCta": "Prijenosni ZIP",
     "featuresTitle": "Napravljeno za rad s agentima",
     "features": {
       "chromium": {
@@ -3603,6 +3602,7 @@
       "metaDescription": "Preuzmite cmux za Windows x64: besplatan Chromium preglednik otvorenog koda i radni prostor za agente s karticama usmjerenim na zadatke i terminalskim površinama.",
       "subtitle": "Izvorna x64 verzija s Chromium karticama, cmux radnim prostorima i poznatim Windows prečicama na tastaturi.",
       "primaryCta": "Preuzmite instalacijski program (.exe)",
+      "secondaryCta": "Prijenosni ZIP",
       "requirements": "Windows 10 ili noviji · x64",
       "installBody": "Pokrenite instalacijski program i slijedite Windows upute. Odaberite prijenosni ZIP ako želite držati cmux u mapi bez instalacije na cijelom sistemu."
     },
@@ -3611,9 +3611,10 @@
       "metaTitle": "Preuzmite cmux za Linux",
       "metaDescription": "Preuzmite cmux za Linux x64: besplatan Chromium preglednik otvorenog koda i radni prostor za agente s karticama usmjerenim na zadatke i terminalskim površinama.",
       "subtitle": "Izvorna x64 verzija s Chromium karticama, cmux radnim prostorima i integriranim terminalskim površinama.",
-      "primaryCta": "Preuzmite .deb",
-      "requirements": "Debian ili Ubuntu · x64",
-      "installBody": "Preuzmite Debian paket i instalirajte ga pomoću upravitelja paketa. Odaberite prijenosni ZIP za instalaciju po korisniku i ažuriranja unutar aplikacije."
+      "primaryCta": "Preuzmite instalacijski program s automatskim ažuriranjima (.run)",
+      "secondaryCta": "Debian paket (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Jednom pokrenite instalacijski program za trenutnog korisnika. Instalirat će cmux u ~/.local bez root ovlaštenja i omogućiti potpisana ažuriranja unutar aplikacije. Ako želite da ažuriranjima upravlja vaš upravitelj paketa, umjesto toga odaberite Debian paket."
     }
   },
   "emails": {

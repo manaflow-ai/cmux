@@ -54,7 +54,7 @@ export const PLATFORM_DOWNLOADS = {
       artifact: "installer",
       url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/windows-x64/installer`,
     },
-    portable: {
+    secondary: {
       artifact: "portable-zip",
       url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/windows-x64/zip`,
     },
@@ -62,12 +62,12 @@ export const PLATFORM_DOWNLOADS = {
   linux: {
     page: "/linux",
     primary: {
+      artifact: "run-installer",
+      url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/linux-x64/run`,
+    },
+    secondary: {
       artifact: "deb",
       url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/linux-x64/deb`,
-    },
-    portable: {
-      artifact: "portable-zip",
-      url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/linux-x64/zip`,
     },
   },
 } as const;

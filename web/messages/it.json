@@ -3571,7 +3571,6 @@
     "title": "cmux per {platform}",
     "tagline": "Un browser Chromium e uno spazio di lavoro per agenti, progettati insieme.",
     "logoAlt": "Icona dell’app cmux",
-    "portableCta": "ZIP portatile",
     "featuresTitle": "Progettato per il lavoro con agenti",
     "features": {
       "chromium": {
@@ -3603,6 +3602,7 @@
       "metaDescription": "Scarica cmux per Windows x64: un browser Chromium e uno spazio di lavoro per agenti, gratuito e open source, con schede per attività e superfici terminale.",
       "subtitle": "Una build x64 nativa con schede Chromium, spazi di lavoro cmux e le familiari convenzioni da tastiera di Windows.",
       "primaryCta": "Scarica il programma di installazione (.exe)",
+      "secondaryCta": "ZIP portatile",
       "requirements": "Windows 10 o versioni successive · x64",
       "installBody": "Esegui il programma di installazione e segui le indicazioni di Windows. Scegli lo ZIP portatile se preferisci conservare cmux in una cartella senza un’installazione a livello di sistema."
     },
@@ -3611,9 +3611,10 @@
       "metaTitle": "Scarica cmux per Linux",
       "metaDescription": "Scarica cmux per Linux x64: un browser Chromium e uno spazio di lavoro per agenti, gratuito e open source, con schede per attività e superfici terminale.",
       "subtitle": "Una build x64 nativa con schede Chromium, spazi di lavoro cmux e superfici terminale integrate.",
-      "primaryCta": "Scarica .deb",
-      "requirements": "Debian o Ubuntu · x64",
-      "installBody": "Scarica il pacchetto Debian e installalo con il gestore pacchetti. Scegli lo ZIP portatile per un’installazione per utente e gli aggiornamenti nell’app."
+      "primaryCta": "Scarica il programma di installazione con aggiornamenti automatici (.run)",
+      "secondaryCta": "Pacchetto Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Esegui una volta il programma di installazione per utente. Installa cmux in ~/.local senza privilegi di root e abilita gli aggiornamenti firmati nell’app. Se vuoi che gli aggiornamenti siano gestiti dal tuo gestore pacchetti, scegli invece il pacchetto Debian."
     }
   },
   "emails": {
