@@ -31,8 +31,8 @@ use crate::terminal_host_protocol::{
     FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure, HostLaunchFailureKind,
     KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD,
     MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
-    TerminalExit, decode_host_launch_failure, encode_host_launch_failure, encode_terminal_exit,
-    read_frame, wait_for_native_child_status, write_frame,
+    TerminalExit, decode_host_launch_failure, decode_terminal_exit, encode_host_launch_failure,
+    encode_terminal_exit, read_frame, wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -426,6 +426,7 @@ mod unix {
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
     const HOST_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+    const HOST_HANDSHAKE_TRANSIENT_RETRIES: usize = 1;
     const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
     const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
     const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
@@ -1257,6 +1258,72 @@ mod unix {
             self.send(MessageKind::Terminate, &[])
         }
 
+        pub fn terminate_and_wait_for_exit(&mut self) -> anyhow::Result<TerminalHostExitRecord> {
+            let deadline = Instant::now()
+                .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
+                .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
+            self.terminate().context("send terminal-host termination")?;
+            let identity = self.identity();
+            let record_path = self.record_path.clone();
+            let protocol_version = self.protocol_version;
+            let reader = self
+                .reader
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("terminal-host reader already taken"))?;
+            let previous_timeout =
+                reader.read_timeout().context("read terminal-host timeout before termination")?;
+            let result = (|| -> anyhow::Result<TerminalHostExitRecord> {
+                loop {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    anyhow::ensure!(
+                        !remaining.is_zero(),
+                        "terminal host did not exit before the termination deadline"
+                    );
+                    reader
+                        .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                        .context("set terminal-host termination timeout")?;
+                    let frame = match read_frame(reader, MAX_FRAME_PAYLOAD) {
+                        Ok(Some(frame)) => frame,
+                        Ok(None) | Err(_) => {
+                            if let Some((_, record)) = terminal_host_exit_record(&record_path)?
+                                && record.terminal_id == identity.terminal_id
+                                && record.incarnation == identity.incarnation
+                            {
+                                return Ok(record);
+                            }
+                            anyhow::bail!("terminal host disconnected before its exit receipt");
+                        }
+                    };
+                    anyhow::ensure!(
+                        frame.version == protocol_version,
+                        "terminal host changed protocol while terminating"
+                    );
+                    if frame.kind != MessageKind::Exit {
+                        continue;
+                    }
+                    anyhow::ensure!(
+                        frame.flags == 0 && frame.request_id == 0,
+                        "terminal host returned a malformed exit frame"
+                    );
+                    let exit = decode_terminal_exit(&frame.payload)?;
+                    return Ok(TerminalHostExitRecord::new(&identity, exit));
+                }
+            })();
+            let restored = reader
+                .set_read_timeout(previous_timeout)
+                .context("restore terminal-host timeout after termination");
+            match result {
+                Ok(record) => {
+                    restored?;
+                    Ok(record)
+                }
+                Err(error) => {
+                    let _ = restored;
+                    Err(error)
+                }
+            }
+        }
+
         pub fn disconnect(&self) {
             let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
         }
@@ -1415,10 +1482,21 @@ mod unix {
             // a wedged host that exceeds that bound is SIGKILLed by the
             // SpawnedHostProcess fallback below.
             let _ = self.terminate();
-            if process.wait_timeout(HOST_LAUNCH_ROLLBACK_WAIT) {
-                return;
+            if !process.wait_timeout(HOST_LAUNCH_ROLLBACK_WAIT) {
+                drop(process);
             }
-            drop(process);
+
+            // This attachment still owns an uncommitted launch, so no
+            // registry transition can consume its crash-recovery evidence.
+            // Process exit is ordered after durable sidecar publication.
+            // Remove only the receipt for this exact launch incarnation.
+            let identity = self.identity();
+            if let Ok(Some((exit_path, exit))) = terminal_host_exit_record(&self.record_path)
+                && exit.terminal_id == identity.terminal_id
+                && exit.incarnation == identity.incarnation
+            {
+                let _ = acknowledge_terminal_host_exit_record(&exit_path, &exit);
+            }
         }
     }
 
@@ -2000,18 +2078,39 @@ mod unix {
                 .with_context(|| format!("connect terminal host at {}", endpoint.display()))?,
         );
         let mut failures = Vec::new();
-        for protocol_version in (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev() {
-            match connect_record_at_version(
-                record.clone(),
-                record_path.clone(),
-                handshake_timeout,
-                protocol_version,
-                stream.take().expect("protocol attempt has a connected stream"),
-            ) {
-                Ok(attachment) => return Ok(attachment),
-                Err(error) => {
-                    failures.push(format!("protocol {protocol_version}: {error:#}"));
+        'protocols: for protocol_version in (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev() {
+            let mut transient_retries = 0;
+            loop {
+                let error = match connect_record_at_version(
+                    record.clone(),
+                    record_path.clone(),
+                    handshake_timeout,
+                    protocol_version,
+                    stream.take().expect("protocol attempt has a connected stream"),
+                ) {
+                    Ok(attachment) => return Ok(attachment),
+                    Err(error) => error,
+                };
+                if transient_retries < HOST_HANDSHAKE_TRANSIENT_RETRIES
+                    && is_transient_handshake_transport(&error)
+                {
+                    transient_retries += 1;
+                    failures.push(format!(
+                        "protocol {protocol_version} transient attempt {transient_retries}: {error:#}"
+                    ));
+                    match connect_with_retry(&endpoint) {
+                        Ok(next_stream) => {
+                            stream = Some(next_stream);
+                            continue;
+                        }
+                        Err(reconnect_error) => {
+                            failures.push(format!("protocol retry reconnect: {reconnect_error:#}"));
+                            break 'protocols;
+                        }
+                    }
                 }
+                failures.push(format!("protocol {protocol_version}: {error:#}"));
+                break;
             }
             if protocol_version > LEGACY_PROTOCOL_VERSION {
                 match connect_with_retry(&endpoint) {
@@ -2024,6 +2123,19 @@ mod unix {
             }
         }
         anyhow::bail!("terminal-host adoption failed: {}", failures.join("; "))
+    }
+
+    fn is_transient_handshake_transport(error: &anyhow::Error) -> bool {
+        error.chain().any(|cause| {
+            cause.downcast_ref::<std_io::Error>().is_some_and(|error| {
+                matches!(
+                    error.kind(),
+                    std_io::ErrorKind::Interrupted
+                        | std_io::ErrorKind::TimedOut
+                        | std_io::ErrorKind::WouldBlock
+                )
+            })
+        })
     }
 
     fn connect_record_at_version(
@@ -3420,6 +3532,18 @@ mod unix {
             }
             file.sync_all()?;
             Ok(Self { file, path })
+        }
+    }
+
+    impl Drop for HostLivenessLease {
+        fn drop(&mut self) {
+            // Closing the owner's descriptor does not release flock while a
+            // concurrently forked child still holds an inherited duplicate.
+            // The lease lifetime belongs to this owner, so end it explicitly
+            // before closing the descriptor.
+            // SAFETY: flock only changes the advisory lock associated with
+            // this valid, owned file descriptor.
+            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
         }
     }
 
@@ -6279,11 +6403,7 @@ mod unix {
                 assert_eq!(frames[0].sequence, 1);
                 assert_eq!(frames[1].kind, MessageKind::Exit);
                 assert_eq!(frames[1].sequence, 2);
-                assert_eq!(
-                    crate::terminal_host_protocol::decode_terminal_exit(&frames[1].payload)
-                        .unwrap(),
-                    exit
-                );
+                assert_eq!(decode_terminal_exit(&frames[1].payload).unwrap(), exit);
             }
         }
 

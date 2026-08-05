@@ -20,9 +20,10 @@ use cmux_tui_core::terminal_host_protocol::{
     PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
-    TerminalHostLiveness, TerminalHostRecord, adopt_terminal_host, decode_terminal_color_overrides,
-    load_terminal_host_exit_records, load_terminal_host_records, remove_stale_terminal_host_record,
-    terminal_host_record_liveness, terminal_host_root,
+    TerminalHostLiveness, TerminalHostRecord, acknowledge_terminal_host_exit_record,
+    adopt_terminal_host, decode_terminal_color_overrides, load_terminal_host_exit_records,
+    load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_record_liveness,
+    terminal_host_root,
 };
 use ghostty_vt::{Rgb, TerminalColorOverrides};
 
@@ -382,9 +383,13 @@ fn terminal_host_survives_daemon_process_group_hangup() {
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Live,
     );
-    let host = adopt_terminal_host(record, record_path).unwrap();
-    host.terminate().unwrap();
+    let mut host = adopt_terminal_host(record, record_path.clone()).unwrap();
+    let exit = host.terminate_and_wait_for_exit().unwrap();
     host.disconnect();
+    assert!(
+        acknowledge_terminal_host_exit_record(&record_path.with_extension("exit"), &exit).unwrap(),
+        "terminated host exit receipt was not acknowledged"
+    );
     wait_for_no_host_records(&harness.host_root());
 }
 

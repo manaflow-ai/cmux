@@ -11,6 +11,7 @@ use crate::resource::{
     ScreenPublicId, SplitPublicId, TabPublicId, TabResourceIdentity, WorkspacePublicId,
 };
 use crate::resource_mutation::ResourceMutationPlan;
+use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
     ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, TerminalLifecycle,
@@ -61,6 +62,50 @@ struct ResourceClosePlan {
     delta: Option<TreeDelta>,
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
+}
+
+struct ResourceCloseEffects {
+    removed: Vec<Arc<Surface>>,
+    terminal_runtime: Option<Arc<Surface>>,
+    closed_terminal_public_id: Option<TerminalPublicId>,
+    delta: Option<TreeDelta>,
+    changed_screens: Vec<ScreenId>,
+    selection_resync: bool,
+    empty_revision: Option<u64>,
+}
+
+struct CommittedResourceClose {
+    commit: ResourcePatchCommit,
+    effects: ResourceCloseEffects,
+}
+
+impl ResourceClosePlan {
+    fn install(
+        mut self,
+        state: &mut State,
+        resource_revision: u64,
+        workspace_revision: Option<u64>,
+    ) -> ResourceCloseEffects {
+        self.state.resource_revision = resource_revision;
+        if let Some(revision) = workspace_revision {
+            self.state.workspace_revision = revision;
+            if let Some(delta) = &mut self.delta {
+                delta.workspace_revision = Some(revision);
+            }
+        }
+        let empty_revision =
+            self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
+        *state = self.state;
+        ResourceCloseEffects {
+            removed: self.removed,
+            terminal_runtime: self.terminal_runtime,
+            closed_terminal_public_id: self.closed_terminal_public_id,
+            delta: self.delta,
+            changed_screens: self.changed_screens,
+            selection_resync: self.selection_resync,
+            empty_revision,
+        }
+    }
 }
 
 pub(super) struct TerminalExitDetachProjection {
@@ -438,9 +483,11 @@ impl Mux {
             "{} is not a destination-creating operation",
             operation_name(operation)
         );
+        anyhow::ensure!(!selector_candidates.is_empty(), "creation requires one primary selector");
         anyhow::ensure!(
-            !selector_candidates.is_empty() && selector_candidates.len() <= 8,
-            "creation requires between one and eight selector candidates"
+            selector_candidates.len() <= MAX_CREATION_SELECTOR_FALLBACKS + 1,
+            "creation accepts one primary selector and at most \
+             {MAX_CREATION_SELECTOR_FALLBACKS} fallbacks"
         );
         if selector_candidates.len() > 1 {
             anyhow::ensure!(
@@ -1893,14 +1940,14 @@ impl Mux {
                     fingerprint,
                 )?;
                 if is_resource_close_operation(operation) {
-                    return match self.commit_resource_close_effect(
+                    let committed = match self.commit_resource_close_effect(
                         operation,
                         &intent,
                         &mutation.id,
                         &operation_name,
                         fingerprint,
                     ) {
-                        Ok(commit) => Ok(commit),
+                        Ok(committed) => committed,
                         Err(error) => {
                             let error = ResourceError::operation_failed(
                                 &operation_name,
@@ -1917,16 +1964,19 @@ impl Mux {
                                 )
                                 .is_ok()
                             {
-                                Err(anyhow::Error::new(error))
+                                return Err(anyhow::Error::new(error));
                             } else {
                                 let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                                Err(anyhow::Error::new(resource_effect_indeterminate(
+                                return Err(anyhow::Error::new(resource_effect_indeterminate(
                                     &mutation.id,
                                     &operation_name,
-                                )))
+                                )));
                             }
                         }
                     };
+                    drop(_creation_fence);
+                    drop(_creation_handoff);
+                    return Ok(self.finish_resource_close(committed));
                 }
                 let result = match self.execute_resource_topology_effect(operation, &intent) {
                     Ok(result) => result,
@@ -2059,7 +2109,7 @@ impl Mux {
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
-    ) -> anyhow::Result<ResourcePatchCommit> {
+    ) -> anyhow::Result<CommittedResourceClose> {
         debug_assert!(is_resource_close_operation(operation));
         let path: ResolvedResourcePath = serde_json::from_value(intent["path"].clone())
             .context("stored topology close intent has an invalid path")?;
@@ -2088,7 +2138,7 @@ impl Mux {
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let workspace =
             self.surface_workspace(surface).context("content close target has no workspace")?;
-        self.commit_resource_close_with(
+        let committed = self.commit_resource_close_with(
             ResourceOperation::TabClose,
             Some(workspace),
             idempotency_key,
@@ -2106,7 +2156,10 @@ impl Mux {
                     tab: Some(surface),
                 })
             },
-        )
+        )?;
+        drop(_creation_fence);
+        drop(_creation_handoff);
+        Ok(self.finish_resource_close(committed))
     }
 
     pub(crate) fn commit_resource_terminal_close_effect(
@@ -2118,7 +2171,7 @@ impl Mux {
     ) -> anyhow::Result<ResourcePatchCommit> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
-        self.commit_resource_close_with(
+        let committed = self.commit_resource_close_with(
             ResourceOperation::TerminalClose,
             None,
             idempotency_key,
@@ -2131,7 +2184,10 @@ impl Mux {
                 );
                 Ok(EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) })
             },
-        )
+        )?;
+        drop(_creation_fence);
+        drop(_creation_handoff);
+        Ok(self.finish_resource_close(committed))
     }
 
     pub(super) fn terminal_exit_detach_projection_locked(
@@ -2224,18 +2280,13 @@ impl Mux {
             .changes
             .as_array_mut()
             .context("terminal exit topology changes are not an array")?;
-        let has_terminal_delete = public_changes.iter().any(|change| {
-            change["kind"] == "delete"
+        public_changes.retain(|change| {
+            !(change["kind"] == "delete"
                 && change["resource"] == "terminal"
-                && change["id"].as_str() == Some(terminal_public_id.as_str())
+                && change["id"].as_str() == Some(terminal_public_id.as_str()))
         });
-        if !has_terminal_delete {
-            public_changes.push(json!({
-                "kind":"delete",
-                "sequence":public_changes.len(),
-                "resource":"terminal",
-                "id":terminal_public_id,
-            }));
+        for (sequence, change) in public_changes.iter_mut().enumerate() {
+            change["sequence"] = json!(sequence);
         }
 
         Ok(Some(TerminalExitDetachProjection {
@@ -2338,7 +2389,7 @@ impl Mux {
         operation_name: &str,
         fingerprint: &Value,
         resolve_slots: impl FnOnce(&State) -> anyhow::Result<EffectSlots>,
-    ) -> anyhow::Result<ResourcePatchCommit> {
+    ) -> anyhow::Result<CommittedResourceClose> {
         let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
         let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
         let notifications = self.surface_notifications();
@@ -2373,24 +2424,19 @@ impl Mux {
         if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
             hook();
         }
-        plan.state.resource_revision = close.resource.revision;
-        if let Some(revision) = close.workspace_revision {
-            plan.state.workspace_revision = revision;
-            if let Some(delta) = &mut plan.delta {
-                delta.workspace_revision = Some(revision);
-            }
-        }
-        let empty_revision =
-            plan.state.workspaces.is_empty().then_some(plan.state.workspace_revision);
-        *state = plan.state;
+        let effects = plan.install(&mut state, close.resource.revision, close.workspace_revision);
         drop(state);
         if close.terminal_batch.closed != 0 {
             self.emit_terminal_registry_changed(&registry, close.terminal_batch.revision);
         }
         drop(registry);
         drop(workspace_lifecycle);
+        Ok(CommittedResourceClose { commit: close.resource, effects })
+    }
 
-        if let Some(terminal_id) = plan.closed_terminal_public_id.clone() {
+    fn finish_resource_close(&self, committed: CommittedResourceClose) -> ResourcePatchCommit {
+        let effects = committed.effects;
+        if let Some(terminal_id) = effects.closed_terminal_public_id {
             self.notify_terminal_exit_waiters(Some(terminal_id));
         }
 
@@ -2399,29 +2445,29 @@ impl Mux {
             hook();
         }
         self.publish_resource_event();
-        for surface in plan.removed {
+        for surface in effects.removed {
             self.purge_surface_side_tables(surface.id);
             if surface.kind() == SurfaceKind::Browser {
                 surface.kill();
             }
         }
-        if let Some(runtime) = plan.terminal_runtime {
+        if let Some(runtime) = effects.terminal_runtime {
             self.purge_terminal_runtime_side_tables(&runtime);
-            runtime.kill();
+            self.terminate_terminal_runtime(&runtime);
         }
-        if let Some(delta) = plan.delta {
-            self.emit_tree_delta(delta, plan.selection_resync);
+        if let Some(delta) = effects.delta {
+            self.emit_tree_delta(delta, effects.selection_resync);
         } else {
             self.emit(MuxEvent::TreeChanged);
-            if plan.selection_resync {
+            if effects.selection_resync {
                 self.emit(MuxEvent::TreeSelectionChanged);
             }
         }
-        for screen in plan.changed_screens {
+        for screen in effects.changed_screens {
             self.emit(MuxEvent::LayoutChanged(screen));
         }
-        self.emit_empty_if_current(empty_revision);
-        Ok(close.resource)
+        self.emit_empty_if_current(effects.empty_revision);
+        committed.commit
     }
 
     fn resource_close_plan_locked(

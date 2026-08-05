@@ -255,6 +255,18 @@ pub enum HostLaunchFailureKind {
     LaunchFailed = 2,
 }
 
+impl TryFrom<u16> for HostLaunchFailureKind {
+    type Error = ProtocolError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            value if value == Self::PtyCapacityExhausted as u16 => Ok(Self::PtyCapacityExhausted),
+            value if value == Self::LaunchFailed as u16 => Ok(Self::LaunchFailed),
+            _ => Err(ProtocolError::MalformedLaunchFailurePayload),
+        }
+    }
+}
+
 /// Bounded launch failure returned on the bootstrap pipe before the hidden
 /// host exits.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -298,11 +310,9 @@ pub fn decode_host_launch_failure(payload: &[u8]) -> Result<HostLaunchFailure, P
     if version != LAUNCH_FAILURE_PAYLOAD_VERSION {
         return Err(ProtocolError::MalformedLaunchFailurePayload);
     }
-    let kind = match u16::from_le_bytes(payload[2..4].try_into().expect("fixed kind slice")) {
-        1 => HostLaunchFailureKind::PtyCapacityExhausted,
-        2 => HostLaunchFailureKind::LaunchFailed,
-        _ => return Err(ProtocolError::MalformedLaunchFailurePayload),
-    };
+    let kind = HostLaunchFailureKind::try_from(u16::from_le_bytes(
+        payload[2..4].try_into().expect("fixed kind slice"),
+    ))?;
     let message = std::str::from_utf8(&payload[LAUNCH_FAILURE_PAYLOAD_HEADER_LEN..])
         .map_err(|_| ProtocolError::MalformedLaunchFailurePayload)?
         .to_string();
@@ -818,14 +828,14 @@ mod tests {
             Err(ProtocolError::MalformedLaunchFailurePayload)
         ));
 
-        let mut invalid_utf8 = payload.clone();
+        let mut invalid_utf8 = payload;
         *invalid_utf8.last_mut().unwrap() = 0xff;
         assert!(matches!(
             decode_host_launch_failure(&invalid_utf8),
             Err(ProtocolError::MalformedLaunchFailurePayload)
         ));
         assert!(matches!(
-            decode_host_launch_failure(&vec![0; LAUNCH_FAILURE_PAYLOAD_HEADER_LEN]),
+            decode_host_launch_failure(&[0; LAUNCH_FAILURE_PAYLOAD_HEADER_LEN]),
             Err(ProtocolError::MalformedLaunchFailurePayload)
         ));
         assert!(matches!(

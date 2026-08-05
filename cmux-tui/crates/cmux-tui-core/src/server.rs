@@ -87,6 +87,7 @@ pub const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
 pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
+pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -7308,7 +7309,8 @@ fn create_surface_with_receipt(
     let (resource_operation, selectors) = match operation.as_str() {
         "new-tab" => {
             anyhow::ensure!(
-                workspace.is_none() && argv.is_none() && url.is_none() && width.is_none()
+                workspace.is_none() && argv.is_none() && url.is_none() && width.is_none(),
+                "new-tab received fields that belong to another creation operation"
             );
             if let Some(cwd) = cwd {
                 fields.insert("cwd".to_string(), json!(cwd));
@@ -7316,7 +7318,10 @@ fn create_surface_with_receipt(
             (ResourceOperation::TabCreateTerminal, pane_selectors(pane)?)
         }
         "run-command" => {
-            anyhow::ensure!(workspace.is_none() && url.is_none() && width.is_none());
+            anyhow::ensure!(
+                workspace.is_none() && url.is_none() && width.is_none(),
+                "run-command received fields that belong to another creation operation"
+            );
             let argv = argv
                 .filter(|argv| !argv.is_empty())
                 .ok_or_else(|| anyhow::anyhow!("run-command omitted argv"))?;
@@ -7328,7 +7333,8 @@ fn create_surface_with_receipt(
         }
         "new-browser-tab" => {
             anyhow::ensure!(
-                workspace.is_none() && argv.is_none() && cwd.is_none() && width.is_none()
+                workspace.is_none() && argv.is_none() && cwd.is_none() && width.is_none(),
+                "new-browser-tab received fields that belong to another creation operation"
             );
             let url = url
                 .filter(|url| !url.is_empty())
@@ -7354,7 +7360,8 @@ fn create_surface_with_receipt(
                     && argv.is_none()
                     && cwd.is_none()
                     && url.is_none()
-                    && width.is_none()
+                    && width.is_none(),
+                "new-workspace received fields that belong to another creation operation"
             );
             fields.insert("initial_content".to_string(), json!("terminal"));
             (
@@ -7368,7 +7375,8 @@ fn create_surface_with_receipt(
                     && argv.is_none()
                     && cwd.is_none()
                     && url.is_none()
-                    && width.is_none()
+                    && width.is_none(),
+                "new-screen received fields that belong to another creation operation"
             );
             (ResourceOperation::ScreenCreate, workspace_selectors(workspace)?)
         }
@@ -7378,13 +7386,15 @@ fn create_surface_with_receipt(
                     && argv.is_none()
                     && cwd.is_none()
                     && url.is_none()
-                    && width.is_none()
+                    && width.is_none(),
+                "new-pane received fields that belong to another creation operation"
             );
             (ResourceOperation::PaneCreate, pane_selectors(pane)?)
         }
         "new-pane-right" => {
             anyhow::ensure!(
-                workspace.is_none() && argv.is_none() && cwd.is_none() && url.is_none()
+                workspace.is_none() && argv.is_none() && cwd.is_none() && url.is_none(),
+                "new-pane-right received fields that belong to another creation operation"
             );
             let width =
                 width.ok_or_else(|| anyhow::anyhow!("new-pane-right omitted viewport width"))?;
@@ -7398,7 +7408,8 @@ fn create_surface_with_receipt(
                     && argv.is_none()
                     && cwd.is_none()
                     && url.is_none()
-                    && width.is_none()
+                    && width.is_none(),
+                "split creation received fields that belong to another creation operation"
             );
             fields.insert(
                 "direction".to_string(),
@@ -7408,7 +7419,10 @@ fn create_surface_with_receipt(
         }
         other => anyhow::bail!("unknown receipted creation operation {other:?}"),
     };
-    anyhow::ensure!(selector_fallbacks.len() <= 7, "too many creation selector fallbacks");
+    anyhow::ensure!(
+        selector_fallbacks.len() <= MAX_CREATION_SELECTOR_FALLBACKS,
+        "creation accepts at most {MAX_CREATION_SELECTOR_FALLBACKS} selector fallbacks"
+    );
     anyhow::ensure!(
         selector_fallbacks.is_empty()
             || mux

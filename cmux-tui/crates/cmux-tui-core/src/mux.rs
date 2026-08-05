@@ -107,6 +107,7 @@ const CELL_PIXEL_RETRY_MAX_ATTEMPTS: u8 = 4;
 const KITTY_IMAGE_BUDGET_RETRY_INITIAL: Duration = Duration::from_millis(25);
 const KITTY_IMAGE_BUDGET_RETRY_MAX: Duration = Duration::from_secs(1);
 const KITTY_IMAGE_BUDGET_RETRY_MAX_ATTEMPTS: u32 = 4;
+const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
 pub(crate) const RENDER_ATTACHMENT_LIMIT: usize = 64;
 const KITTY_IMAGE_PROCESS_BUDGET_BYTES: u64 = 128 * 1024 * 1024;
 // libghostty owns independent primary and alternate screen stores. cmux also
@@ -2778,9 +2779,10 @@ impl Mux {
                         if terminal.lifecycle == TerminalLifecycle::Exited
                             && let Err(error) = mux.detach_exited_terminal_topology(&terminal_id)
                         {
-                            mux.emit(MuxEvent::Status(format!(
-                                "could not detach exited terminal {terminal_id}: {error}"
-                            )));
+                            eprintln!(
+                                "cmux-tui: could not detach exited terminal \
+                                 {terminal_id}: {error:#}"
+                            );
                             delay = (delay * 2).min(Duration::from_secs(5));
                             continue;
                         }
@@ -2801,9 +2803,10 @@ impl Mux {
                             "host-incarnation-mismatch",
                             &options,
                         ) {
-                            mux.emit(MuxEvent::Status(format!(
-                                "could not reconcile exited terminal {terminal_id}: {error}"
-                            )));
+                            eprintln!(
+                                "cmux-tui: could not reconcile exited terminal \
+                                 {terminal_id}: {error:#}"
+                            );
                             delay = (delay * 2).min(Duration::from_secs(5));
                             continue;
                         }
@@ -2845,9 +2848,10 @@ impl Mux {
                             "host-process-ended-before-adoption",
                             &options,
                         ) {
-                            mux.emit(MuxEvent::Status(format!(
-                                "could not reconcile exited terminal {terminal_id}: {error}"
-                            )));
+                            eprintln!(
+                                "cmux-tui: could not reconcile exited terminal \
+                                 {terminal_id}: {error:#}"
+                            );
                             delay = (delay * 2).min(Duration::from_secs(5));
                             continue;
                         }
@@ -2893,9 +2897,10 @@ impl Mux {
                                 "host-exited-during-adoption",
                                 &options,
                             ) {
-                                mux.emit(MuxEvent::Status(format!(
-                                    "could not reconcile exited terminal {terminal_id}: {error}"
-                                )));
+                                eprintln!(
+                                    "cmux-tui: could not reconcile exited terminal \
+                                     {terminal_id}: {error:#}"
+                                );
                                 delay = (delay * 2).min(Duration::from_secs(5));
                                 continue;
                             }
@@ -2917,9 +2922,10 @@ impl Mux {
                             "host-process-ended-before-adoption",
                             &options,
                         ) {
-                            mux.emit(MuxEvent::Status(format!(
-                                "could not reconcile exited terminal {terminal_id}: {error}"
-                            )));
+                            eprintln!(
+                                "cmux-tui: could not reconcile exited terminal \
+                                 {terminal_id}: {error:#}"
+                            );
                             delay = (delay * 2).min(Duration::from_secs(5));
                             continue;
                         }
@@ -6719,9 +6725,10 @@ impl Mux {
         for surface in removed {
             self.purge_surface_side_tables(surface.id);
         }
+        let had_runtime = runtime.is_some();
         if let Some(runtime) = runtime {
             self.purge_terminal_runtime_side_tables(&runtime);
-            runtime.kill();
+            self.terminate_terminal_runtime(&runtime);
         }
         if target.is_some() {
             self.emit(MuxEvent::TreeChanged);
@@ -6729,7 +6736,9 @@ impl Mux {
         for screen in changed_screens {
             self.emit(MuxEvent::LayoutChanged(screen));
         }
-        self.terminate_discovered_terminal_host(terminal_id, terminal_incarnation.as_deref());
+        if !had_runtime {
+            self.terminate_discovered_terminal_host(terminal_id, terminal_incarnation.as_deref());
+        }
         self.emit_empty_if_current(empty_revision);
         Ok(TerminalCloseResult {
             surface: target,
@@ -6798,9 +6807,41 @@ impl Mux {
                     terminate_host_record(record, path);
                 }
             }
+            let record_path = root.join(format!("{terminal_id}.json"));
+            let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation);
         }
         #[cfg(not(unix))]
         let _ = (terminal_id, incarnation);
+    }
+
+    fn terminate_terminal_runtime(&self, runtime: &Arc<Surface>) {
+        let identity = self.resource_terminal_host_identity(runtime);
+        #[cfg(unix)]
+        let acknowledged = match runtime
+            .terminate_host_and_wait_for_exit(Instant::now() + TERMINAL_HOST_CLOSE_WAIT)
+        {
+            Ok(Some((path, exit))) => acknowledge_exact_terminal_host_exit(&path, &exit),
+            Ok(None) => false,
+            Err(error) => {
+                if let Some(identity) = identity.as_ref() {
+                    eprintln!(
+                        "cmux-tui: terminal {} close could not await host exit: {error:#}",
+                        identity.terminal_id
+                    );
+                }
+                false
+            }
+        };
+        runtime.kill();
+        #[cfg(unix)]
+        if !acknowledged && let Some(identity) = identity {
+            self.terminate_discovered_terminal_host(
+                &identity.terminal_id,
+                Some(&identity.incarnation),
+            );
+        }
+        #[cfg(not(unix))]
+        let _ = identity;
     }
 
     /// Run `f` with the session state.
@@ -7260,12 +7301,7 @@ impl Mux {
             state_snapshot
                 .surfaces
                 .get(&surface)
-                .or_else(|| {
-                    state_snapshot
-                        .terminal_catalog
-                        .values()
-                        .find(|candidate| candidate.id == surface)
-                })
+                .or_else(|| state_snapshot.terminal_runtime_by_id(surface))
                 .and_then(|surface| surface.terminal_public_id().cloned())
         });
         let mut records = records
@@ -11469,18 +11505,19 @@ impl Mux {
                     match reconciled {
                         Ok(()) => break,
                         Err(error) => {
-                            mux.emit(MuxEvent::Status(format!(
-                                "could not detach exited terminal {terminal_id}: {error}"
-                            )));
+                            eprintln!(
+                                "cmux-tui: could not detach exited terminal \
+                                 {terminal_id}: {error:#}"
+                            );
                             delay = (delay * 2).min(Duration::from_secs(5));
                         }
                     }
                 }
             });
         if let Err(error) = spawn_result {
-            self.emit(MuxEvent::Status(format!(
-                "could not schedule exited terminal {cleanup_id} detach: {error}"
-            )));
+            eprintln!(
+                "cmux-tui: could not schedule exited terminal {cleanup_id} detach: {error:#}"
+            );
         }
     }
 
@@ -13050,6 +13087,7 @@ impl Mux {
             pane.tabs.push(surface);
             pane.active_tab = pane.tabs.len() - 1;
             pane.active_at = active_at;
+            state.resource_indexes.tab_pane.insert(surface, target_pane);
             fence_layout_undo_for_tab_membership(state, &[target_pane]);
         }
         restore_focus_identity(state, preserved_focus);
@@ -13664,12 +13702,50 @@ fn terminate_host_record(
     record: crate::terminal_host_runtime::TerminalHostRecord,
     record_path: std::path::PathBuf,
 ) -> bool {
-    if let Ok(host) = crate::terminal_host_runtime::adopt_terminal_host(record, record_path) {
-        let terminated = host.terminate().is_ok();
-        host.disconnect();
-        terminated
-    } else {
-        false
+    let Ok(mut host) = crate::terminal_host_runtime::adopt_terminal_host(record, record_path)
+    else {
+        return false;
+    };
+    let exit_path = host.exit_record_path();
+    let exit = host.terminate_and_wait_for_exit();
+    host.disconnect();
+    let Ok(exit) = exit else { return false };
+    acknowledge_exact_terminal_host_exit(&exit_path, &exit)
+}
+
+#[cfg(unix)]
+fn acknowledge_exact_terminal_host_exit(
+    exit_path: &Path,
+    exit: &crate::terminal_host_runtime::TerminalHostExitRecord,
+) -> bool {
+    match crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(exit_path, exit) {
+        Ok(true) => true,
+        Ok(false) => !exit_path.exists(),
+        Err(_) => false,
+    }
+}
+
+#[cfg(unix)]
+fn acknowledge_terminal_exit_sidecar(
+    record_path: &Path,
+    terminal_id: &str,
+    incarnation: Option<&str>,
+) -> bool {
+    let exit_path = record_path.with_extension("exit");
+    let exit = match crate::terminal_host_runtime::terminal_host_exit_record(record_path) {
+        Ok(Some((_, exit))) => exit,
+        Ok(None) => return !exit_path.exists(),
+        Err(_) => return false,
+    };
+    if exit.terminal_id != terminal_id
+        || incarnation.is_some_and(|expected| exit.incarnation != expected)
+    {
+        return false;
+    }
+    match crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(&exit_path, &exit) {
+        Ok(true) => true,
+        Ok(false) => !exit_path.exists(),
+        Err(_) => false,
     }
 }
 
@@ -15030,6 +15106,7 @@ fn move_tab_in_state(
     let new_idx = index.min(target.tabs.len());
     target.tabs.insert(new_idx, surface);
     target.active_tab = new_idx;
+    state.resource_indexes.tab_pane.insert(surface, target_pane);
     let destination_path = if let Some((wi, si)) = state.screen_of(target_pane) {
         state.active_workspace = wi;
         let ws = &mut state.workspaces[wi];
@@ -22885,7 +22962,7 @@ mod tests {
                 && change["resource"] == "tab"
                 && change["id"] == tab.as_str()
         }));
-        assert!(changes.iter().any(|change| {
+        assert!(!changes.iter().any(|change| {
             change["kind"] == "delete"
                 && change["resource"] == "terminal"
                 && change["id"] == terminal_public_id.as_str()

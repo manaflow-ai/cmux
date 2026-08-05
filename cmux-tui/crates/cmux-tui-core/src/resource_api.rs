@@ -445,6 +445,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let terminal_registry = registry.terminal_snapshot()?;
+        let terminal_resource_ids = registry.live_terminal_resource_ids()?;
         let public_projections = registry.public_projections()?;
         anyhow::ensure!(
             registry_snapshot.generation == topology.generation
@@ -483,6 +484,12 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             .terminals
             .iter()
             .map(|terminal| (terminal.terminal_id.as_str(), terminal))
+            .collect::<HashMap<_, _>>();
+        let terminal_resources_by_host =
+            terminal_resource_ids.iter().cloned().collect::<HashMap<_, _>>();
+        let terminal_hosts_by_resource = terminal_resource_ids
+            .into_iter()
+            .map(|(host_id, terminal_id)| (terminal_id, host_id))
             .collect::<HashMap<_, _>>();
 
         let workspaces = registry_snapshot
@@ -564,19 +571,18 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 
         let mut terminal_order = Vec::new();
         let mut seen_terminals = HashSet::new();
-        let mut terminal_hosts = HashMap::<TerminalPublicId, String>::new();
         for tab in &topology.tabs {
             if let ContentPublicId::Terminal(terminal_id) = &tab.content_id {
                 if seen_terminals.insert(terminal_id.clone()) {
                     terminal_order.push(terminal_id.clone());
                 }
-                if let Some(host_id) = &tab.terminal_id
-                    && let Some(previous) =
-                        terminal_hosts.insert(terminal_id.clone(), host_id.clone())
-                {
+                let host_id = terminal_hosts_by_resource.get(terminal_id).with_context(|| {
+                    format!("terminal {terminal_id} omitted its durable identity")
+                })?;
+                if let Some(tab_host_id) = &tab.terminal_id {
                     anyhow::ensure!(
-                        previous == *host_id,
-                        "terminal {terminal_id} references multiple durable hosts"
+                        tab_host_id == host_id,
+                        "terminal {terminal_id} references a mismatched durable host"
                     );
                 }
             }
@@ -593,26 +599,37 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                     ContentPublicId::Browser(_) => None,
                 }
             }));
-        let mut unplaced_terminals = state
-            .terminal_catalog
-            .keys()
-            .filter(|terminal_id| !seen_terminals.contains(*terminal_id))
-            .cloned()
-            .collect::<Vec<_>>();
-        unplaced_terminals.sort_by(|left, right| left.as_str().cmp(right.as_str()));
-        terminal_order.extend(unplaced_terminals);
+        for durable in &terminal_registry.terminals {
+            if let Some(terminal_id) = terminal_resources_by_host.get(&durable.terminal_id)
+                && seen_terminals.insert(terminal_id.clone())
+            {
+                terminal_order.push(terminal_id.clone());
+            }
+        }
+        for (host_id, terminal_id) in &terminal_resources_by_host {
+            anyhow::ensure!(
+                terminals_by_id.contains_key(host_id.as_str()),
+                "terminal {terminal_id} references missing {host_id}"
+            );
+        }
 
         let terminals = terminal_order
             .into_iter()
             .map(|terminal_id| {
                 let surface = state.terminal_catalog.get(&terminal_id);
-                let host_id = surface
-                    .and_then(|surface| mux.resource_terminal_host_identity(surface))
-                    .map(|host| host.terminal_id)
-                    .or_else(|| terminal_hosts.get(&terminal_id).cloned())
-                    .with_context(|| {
-                        format!("terminal {terminal_id} omitted its durable identity")
-                    })?;
+                let host_id = terminal_hosts_by_resource.get(&terminal_id).with_context(|| {
+                    format!("terminal {terminal_id} omitted its durable identity")
+                })?;
+                if let Some(surface) = surface {
+                    let runtime_host =
+                        mux.resource_terminal_host_identity(surface).with_context(|| {
+                            format!("terminal {terminal_id} runtime omitted its durable identity")
+                        })?;
+                    anyhow::ensure!(
+                        runtime_host.terminal_id == *host_id,
+                        "terminal {terminal_id} runtime references a mismatched durable host"
+                    );
+                }
                 let durable = terminals_by_id.get(host_id.as_str()).with_context(|| {
                     format!("terminal {terminal_id} references missing {host_id}")
                 })?;

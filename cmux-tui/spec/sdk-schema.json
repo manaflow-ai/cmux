@@ -4860,7 +4860,8 @@
           "selector_fallbacks": {
             "type": {
               "kind": "array",
-              "items": {"kind": "ref", "name": "ResourceSelectors"}
+              "items": {"kind": "ref", "name": "ResourceSelectors"},
+              "max_items": 7
             },
             "presence": "optional",
             "nullable": false,

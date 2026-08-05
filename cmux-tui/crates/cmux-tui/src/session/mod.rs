@@ -16,8 +16,8 @@ use std::sync::atomic::Ordering;
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
     CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY, LAYOUT_UNDO_CAPABILITY,
-    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-    VIEWPORT_SPLITS_CAPABILITY,
+    MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
     BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, DefaultColors, GuardedMouseEncode,
@@ -794,7 +794,11 @@ impl Session {
                 unique.push(candidate);
             }
         }
-        anyhow::ensure!(unique.len() <= 8, "too many creation selector candidates");
+        anyhow::ensure!(
+            unique.len() <= MAX_CREATION_SELECTOR_FALLBACKS + 1,
+            "creation accepts one primary selector and at most \
+             {MAX_CREATION_SELECTOR_FALLBACKS} fallbacks"
+        );
         Ok(unique)
     }
 
