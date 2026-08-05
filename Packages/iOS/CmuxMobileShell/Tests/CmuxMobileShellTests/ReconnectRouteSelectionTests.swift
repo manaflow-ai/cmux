@@ -589,9 +589,12 @@ import Testing
     @Test func changingToUnavailableTailscaleDropsLiveIrohWithoutFallback() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
+        // The factory boxes the live Iroh transport it hands out, so the test
+        // can observe physical teardown, not just the store's logical route.
+        let liveTransportBox = TransportBox()
         let factory = KindRecordingTransportFactory(
             router: router,
-            box: TransportBox(),
+            box: liveTransportBox,
             failingKinds: [.tailscale]
         )
         let tailscale = try tailscale()
@@ -643,10 +646,16 @@ import Testing
 
         methodStore.method = .tailscale
 
+        // `activeRoute == nil` only proves the store cleared its logical
+        // route; the dropped live Iroh transport must also finish closing so
+        // no physical cleanup work is still pending when the test completes.
         let applied = try await pollUntil {
-            factory.attemptedKinds().contains(.tailscale)
+            let liveTransportClosed =
+                await liveTransportBox.get()?.isClosedForTesting() == true
+            return factory.attemptedKinds().contains(.tailscale)
                 && store.connectionState == .disconnected
                 && store.activeRoute == nil
+                && liveTransportClosed
         }
         #expect(applied)
         #expect(store.activeRoute == nil)

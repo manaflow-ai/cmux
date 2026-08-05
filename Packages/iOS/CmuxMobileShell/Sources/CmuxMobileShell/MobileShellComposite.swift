@@ -717,8 +717,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
-    /// The user's connection-method choice. `nil` (previews/tests without one)
-    /// behaves like the default automatic method.
+    /// The user's connection-method choice. The shipping app always injects
+    /// this at the composition root (`AppCompositionRoot` holds it
+    /// non-optional), so a user-selected Tailscale Only choice can never be
+    /// dropped at runtime. `nil` exists only for DEBUG previews, the
+    /// hide-computers verifier, and unit-test fixtures, which have no user
+    /// preference and behave like the default automatic method.
     let connectionMethodStore: MobileConnectionMethodStore?
     /// Single compatibility authority shared by registry, persistence, and live connections.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
