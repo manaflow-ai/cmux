@@ -15,6 +15,8 @@ struct TerminalLinkOpenCoordinatorTests {
     private final class MutableTerminalLinkContainer: TerminalLinkOpenContainer {
         var isRemote = false
         var browserURLs: [URL] = []
+        var acceptsDeferredFileOpen = false
+        var deferredFileOpenCompletion: (@MainActor @Sendable () -> Void)?
 
         var terminalLinkContainerDebugName: String { "test" }
 
@@ -37,9 +39,12 @@ struct TerminalLinkOpenCoordinatorTests {
         func deferTerminalFileLinkOpen(
             sourcePanelId: UUID,
             filePath: String,
-            fallback: @escaping @MainActor @Sendable () -> Void
+            fallback: @escaping @MainActor @Sendable () -> Void,
+            completion: @escaping @MainActor @Sendable () -> Void
         ) -> Bool {
-            false
+            guard acceptsDeferredFileOpen else { return false }
+            deferredFileOpenCompletion = completion
+            return true
         }
 
         func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
@@ -415,6 +420,86 @@ struct TerminalLinkOpenCoordinatorTests {
 
         #expect(container.browserURLs.isEmpty)
         #expect(externallyOpened == [htmlURL])
+    }
+
+    @Test("Command-click completion waits for the deferred HTML open")
+    @MainActor
+    func resolvedHTMLCompletionWaitsForDeferredOpen() throws {
+        let defaults = makeDefaults()
+        let htmlURL = try makeHTMLFixture(pathExtension: "html")
+        defer { try? FileManager.default.removeItem(at: htmlURL.deletingLastPathComponent()) }
+
+        let sourcePanelId = UUID()
+        let container = MutableTerminalLinkContainer()
+        var deferredOperation: (@MainActor @Sendable () -> Void)?
+        var didComplete = false
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == sourcePanelId ? container : nil
+            },
+            externalOpen: { _ in false },
+            deferOperation: { operation in deferredOperation = operation }
+        )
+
+        #expect(coordinator.openResolvedLocalFile(
+            htmlURL,
+            resolvedFileURL: htmlURL.standardizedFileURL.resolvingSymlinksInPath(),
+            request: TerminalLinkOpenRequest(
+                rawValue: htmlURL.path,
+                sourceWorkspaceId: nil,
+                sourcePanelId: sourcePanelId,
+                workingDirectory: nil
+            ),
+            completion: { didComplete = true }
+        ))
+        #expect(!didComplete)
+        #expect(container.browserURLs.isEmpty)
+
+        let operation = try #require(deferredOperation)
+        operation()
+
+        #expect(didComplete)
+        #expect(container.browserURLs.count == 1)
+    }
+
+    @Test("Command-click completion waits for the deferred preview open")
+    @MainActor
+    func resolvedPreviewCompletionWaitsForDeferredOpen() throws {
+        let defaults = makeDefaults()
+        let fileURL = try makeHTMLFixture(pathExtension: "txt")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        let sourcePanelId = UUID()
+        let container = MutableTerminalLinkContainer()
+        container.acceptsDeferredFileOpen = true
+        var didComplete = false
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == sourcePanelId ? container : nil
+            },
+            externalOpen: { _ in false },
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(coordinator.openResolvedLocalFile(
+            fileURL,
+            resolvedFileURL: fileURL.standardizedFileURL,
+            request: TerminalLinkOpenRequest(
+                rawValue: fileURL.path,
+                sourceWorkspaceId: nil,
+                sourcePanelId: sourcePanelId,
+                workingDirectory: nil
+            ),
+            completion: { didComplete = true }
+        ))
+        #expect(!didComplete)
+
+        let completion = try #require(container.deferredFileOpenCompletion)
+        completion()
+
+        #expect(didComplete)
     }
 
     private func makeHTMLFixture(pathExtension: String) throws -> URL {
