@@ -5639,8 +5639,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         cancelHiddenWebViewDiscard()
-        cancelPendingFileOnlyNavigation()
         isClosingWebViewLifecycle = true
+        cancelPendingFileOnlyNavigation()
         automationNavigationCoordinator.invalidate()
         navigationDelegate?.cancelPendingAuthenticationPrompts()
         mobileBrowserDialogBroker.resolveAll()
@@ -6692,6 +6692,7 @@ extension BrowserPanel {
     ) {
         let shouldReset = forceWebViewReplacement || needsWorkspaceContextReset
         cancelPendingFileOnlyNavigation()
+        forgetTerminalFileReuseIdentity()
         guard shouldReset else {
             resetWebViewLifecycleMetadata()
 #if DEBUG
