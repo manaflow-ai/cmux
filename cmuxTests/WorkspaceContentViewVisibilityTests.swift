@@ -839,6 +839,70 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    @MainActor
+    func browserPortalUsesLiveSelectedSurfaceWhenVisibilitySnapshotIsStale() async throws {
+        _ = NSApplication.shared
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(
+            initialSurface: .cloudVMLoading,
+            autoWelcomeIfNeeded: false
+        )
+        appDelegate.tabManager = tabManager
+        defer { appDelegate.tabManager = previousTabManager }
+
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let browserPanel = try #require(
+            workspace.newBrowserSurface(inPane: paneId, focus: true)
+        )
+        defer { browserPanel.close() }
+        let browserTabId = try #require(workspace.surfaceIdFromPanelId(browserPanel.id))
+
+        #expect(tabManager.selectedTabId == workspace.id)
+        #expect(workspace.bonsplitController.selectedTab(inPane: paneId)?.id == browserTabId)
+
+        let representable = WebViewRepresentable(
+            panel: browserPanel,
+            paneId: paneId,
+            shouldAttachWebView: false,
+            useLocalInlineHosting: false,
+            shouldFocusWebView: false,
+            isPanelFocused: false,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            designComposer: nil,
+            omnibarSuggestions: nil,
+            paneTopChromeHeight: 0
+        )
+        let hostingView = NSHostingView(rootView: representable)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+
+        let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
+        #expect(
+            snapshot?.visibleInUI == true,
+            "A selected browser must attach from live workspace state even when its SwiftUI visibility snapshot is stale."
+        )
+        #expect(snapshot?.containerHidden == false)
+    }
+
+    @Test
     func testRenderedVisiblePanelPolicyPrefersSelectedTabOverStaleFocusedPanel() {
         let paneId = UUID()
         let selectedPanelId = UUID()
