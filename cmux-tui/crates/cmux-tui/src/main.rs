@@ -2035,7 +2035,7 @@ mod tests {
     }
 
     #[test]
-    fn static_machine_controller_commits_and_aborts_connection_leases_transactionally() {
+    fn static_machine_controller_retains_committed_connection_leases() {
         use std::sync::atomic::AtomicUsize;
 
         struct CountedLease(Arc<AtomicUsize>);
@@ -2070,11 +2070,19 @@ mod tests {
         controller.pending =
             Some(PendingStaticMachine { machine: machine::MachineKey(3), lease: lease(&dropped) });
         controller.commit_replacement().unwrap();
-        assert_eq!(dropped.load(Ordering::SeqCst), 2, "commit drops the previous active lease");
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            1,
+            "commit must keep the previous machine connection warm"
+        );
         assert_eq!(controller.active, machine::MachineKey(3));
 
         drop(controller);
-        assert_eq!(dropped.load(Ordering::SeqCst), 3, "the active lease lives with the controller");
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            3,
+            "every committed lease lives with the controller"
+        );
     }
 
     #[cfg(unix)]

@@ -31528,6 +31528,16 @@ mod tests {
             app.machine_ui.as_ref().and_then(|ui| ui.request.as_ref()),
             Some(&MachineRequest::Switch(MachineKey(42)))
         );
+        assert_eq!(app.machine_ui.as_ref().unwrap().snapshot.active, Some(MachineKey(41)));
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let selected = &terminal.backend().buffer()[(hit.x + 3, hit.y)];
+        assert_eq!(
+            selected.style().bg,
+            Some(app.chrome.sidebar_selected_bg),
+            "mouse-down must paint the selected machine before its connection commits"
+        );
     }
 
     #[test]
