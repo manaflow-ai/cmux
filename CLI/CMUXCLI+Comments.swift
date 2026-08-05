@@ -38,6 +38,15 @@ extension CMUXCLI {
         switch sub {
         case "list", "ls":
             let (repoOption, remainder) = parseOption(rest, name: "--repo")
+            // `parseOption` takes the next token verbatim, so `--repo --all`
+            // would resolve a repository named "--all". A path that starts with
+            // a dash can still be passed as `./-name`.
+            if let repoOption, repoOption.hasPrefix("--") {
+                throw CLIError(message: String(
+                    localized: "cli.comments.error.repoRequiresPath",
+                    defaultValue: "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+                ))
+            }
             // Fail closed on anything unrecognized: neither a typo like `--al`
             // nor a stray positional may read as a supported request.
             if let unexpected = remainder.first(where: { $0 != "--all" }) {
@@ -87,6 +96,26 @@ extension CMUXCLI {
         return root
     }
 
+    private func commentsListHeaderText(count: Int, repoRoot: String) -> String {
+        if count == 1 {
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "cli.comments.list.header.one",
+                    defaultValue: "1 review comment (repo: %@)"
+                ),
+                repoRoot
+            )
+        }
+        return String.localizedStringWithFormat(
+            String(
+                localized: "cli.comments.list.header.other",
+                defaultValue: "%1$lld review comments (repo: %2$@)"
+            ),
+            count,
+            repoRoot
+        )
+    }
+
     private func printCommentsListPayload(
         _ payload: [String: Any],
         jsonOutput: Bool,
@@ -108,14 +137,7 @@ extension CMUXCLI {
             ))
             return
         }
-        print(String.localizedStringWithFormat(
-            String(
-                localized: "cli.comments.list.header",
-                defaultValue: "%1$d review comment(s) (repo: %2$@)"
-            ),
-            comments.count,
-            repoRoot
-        ))
+        print(commentsListHeaderText(count: comments.count, repoRoot: repoRoot))
         for comment in comments {
             let filePath = comment["filePath"] as? String ?? "?"
             let startLine = intFromAny(comment["startLine"]) ?? 0

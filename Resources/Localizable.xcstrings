@@ -35311,6 +35311,131 @@
         }
       }
     },
+    "cli.comments.error.repoRequiresPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo にはパスが必要です。ダッシュで始まるパスは ./-name の形式で指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+          }
+        }
+      }
+    },
     "cli.comments.error.subcommandRequired": {
       "extractionState": "manual",
       "localizations": {
@@ -35936,127 +36061,252 @@
         }
       }
     },
-    "cli.comments.list.header": {
+    "cli.comments.list.header.one": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レビューコメント %1$d 件 (リポジトリ: %2$@)"
+            "value": "レビューコメント 1 件 (リポジトリ: %@)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$d review comment(s) (repo: %2$@)"
+            "value": "1 review comment (repo: %@)"
+          }
+        }
+      }
+    },
+    "cli.comments.list.header.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューコメント %1$lld 件 (リポジトリ: %2$@)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld review comments (repo: %2$@)"
           }
         }
       }
