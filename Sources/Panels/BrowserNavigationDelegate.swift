@@ -371,7 +371,11 @@ import WebKit
         if validatedFileOnlyNavigationAllowance.routeRestrictedFileNewTabIntent(
             isFileOnly: owner?.localFileReadAccessPolicy == .fileOnly,
             isFileURL: requestURL?.isFileURL == true,
-            shouldOpenInNewTab: shouldOpenInNewTab,
+            hasExplicitNewTabIntent: shouldOpenInNewTab,
+            hasNilTargetNewTabIntent: navigationAction.targetFrame == nil
+                && browserNavigationShouldFallbackNilTargetToNewTab(
+                    navigationType: navigationAction.navigationType
+                ),
             route: {
                 guard let requestURL else { return }
 #if DEBUG

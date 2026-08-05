@@ -8,10 +8,15 @@ struct BrowserValidatedFileNavigationAllowance {
     func routeRestrictedFileNewTabIntent(
         isFileOnly: Bool,
         isFileURL: Bool,
-        shouldOpenInNewTab: Bool,
+        hasExplicitNewTabIntent: Bool,
+        hasNilTargetNewTabIntent: Bool,
         route: () -> Void
     ) -> Bool {
-        guard isFileOnly, isFileURL, shouldOpenInNewTab else { return false }
+        guard isFileOnly,
+              isFileURL,
+              hasExplicitNewTabIntent || hasNilTargetNewTabIntent else {
+            return false
+        }
         route()
         return true
     }
