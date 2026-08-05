@@ -24,21 +24,6 @@ enum WorkspacePanelVisibilityPolicy {
         return isSelectedInPane || (isFocused && !paneHasSelectedTab)
     }
 
-    nonisolated static func workspaceVisibleForPortal(
-        isWorkspaceVisibleSnapshot: Bool,
-        isWorkspaceInputActiveSnapshot: Bool,
-        isSelectedWorkspace: Bool
-    ) -> Bool {
-        if isSelectedWorkspace {
-            return true
-        }
-
-        // A visible, non-input-active snapshot represents the retiring workspace
-        // during the handoff animation. An active snapshot can become stale after
-        // selection moves, so live TabManager selection must own that state.
-        return isWorkspaceVisibleSnapshot && !isWorkspaceInputActiveSnapshot
-    }
-
     nonisolated static func visiblePanelIdForRenderedPane(
         paneId: UUID,
         selectedPanelId: UUID?,
@@ -95,7 +80,8 @@ private struct WorkspacePanelContentHostView: View {
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
             browserPortalVisibilityResolver: { [weak workspace, weak panel] in
-                guard let workspace,
+                guard isWorkspaceVisible,
+                      let workspace,
                       let panel,
                       let livePanel = workspace.panels[panel.id],
                       livePanel === panel,
@@ -103,22 +89,12 @@ private struct WorkspacePanelContentHostView: View {
                       let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
                     return false
                 }
-                let manager = workspace.owningTabManager
-                    ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
-                let isSelectedWorkspace = manager?.selectedTabId == workspace.id
-                guard WorkspacePanelVisibilityPolicy.workspaceVisibleForPortal(
-                    isWorkspaceVisibleSnapshot: isWorkspaceVisible,
-                    isWorkspaceInputActiveSnapshot: isWorkspaceInputActive,
-                    isSelectedWorkspace: isSelectedWorkspace
-                ) else {
-                    return false
-                }
                 let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
                 return WorkspacePanelVisibilityPolicy.panelVisibleInUI(
                     isWorkspaceVisible: true,
                     paneHasSelectedTab: selectedTab != nil,
                     isSelectedInPane: selectedTab?.id == tabId,
-                    isFocused: isSelectedWorkspace && workspace.focusedPanelId == panel.id
+                    isFocused: isWorkspaceInputActive && workspace.focusedPanelId == panel.id
                 )
             },
             terminalPaneOwnershipResolver: { [weak workspace, weak panel] in
