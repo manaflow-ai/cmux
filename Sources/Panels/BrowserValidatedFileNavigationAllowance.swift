@@ -1,16 +1,28 @@
 import CmuxBrowser
 import Foundation
 
-func browserFileNavigationTargetsSameDocument(_ candidate: URL, as current: URL) -> Bool {
-    guard candidate.browserIsLocalFileURL, current.browserIsLocalFileURL else {
-        return false
-    }
-    return candidate.standardizedFileURL.path == current.standardizedFileURL.path
-        && candidate.query == current.query
-}
-
 struct BrowserValidatedFileNavigationAllowance {
     private var expectedURLString: String?
+
+    @discardableResult
+    func routeRestrictedFileNewTabIntent(
+        isFileOnly: Bool,
+        isFileURL: Bool,
+        shouldOpenInNewTab: Bool,
+        route: () -> Void
+    ) -> Bool {
+        guard isFileOnly, isFileURL, shouldOpenInNewTab else { return false }
+        route()
+        return true
+    }
+
+    func targetsSameDocument(_ candidate: URL, as current: URL) -> Bool {
+        guard candidate.browserIsLocalFileURL, current.browserIsLocalFileURL else {
+            return false
+        }
+        return candidate.standardizedFileURL.path == current.standardizedFileURL.path
+            && candidate.query == current.query
+    }
 
     mutating func authorize(_ url: URL) -> Bool {
         guard url.browserIsLocalFileURL else {

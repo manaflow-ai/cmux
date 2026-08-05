@@ -2,18 +2,6 @@ import AppKit
 import Foundation
 import WebKit
 
-@discardableResult
-func browserRouteRestrictedFileNewTabIntent(
-    isFileOnly: Bool,
-    isFileURL: Bool,
-    shouldOpenInNewTab: Bool,
-    route: () -> Void
-) -> Bool {
-    guard isFileOnly, isFileURL, shouldOpenInNewTab else { return false }
-    route()
-    return true
-}
-
 func browserNavigationShouldOpenInNewTab(
     navigationType: WKNavigationType,
     modifierFlags: NSEvent.ModifierFlags,

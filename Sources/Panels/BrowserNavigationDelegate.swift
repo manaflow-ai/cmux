@@ -53,6 +53,7 @@ import WebKit
     private var validatedFileOnlyNavigationAllowance = BrowserValidatedFileNavigationAllowance()
     // WKNavigation is WebKit's only public identity linking a load to its lifecycle callbacks.
     private var activeMainFrameNavigation: WKNavigation?
+    private var suppressedMainFrameNavigationIDs = Set<ObjectIdentifier>()
 
     func cancelPendingAuthenticationPrompts(allowFuturePrompts: Bool = false) {
         basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
@@ -102,6 +103,7 @@ import WebKit
         lastAttemptedRequestWasDiscardedForReplay = false
         lastAttemptedURL = nil
         validatedFileOnlyNavigationAllowance.clear()
+        suppressedMainFrameNavigationIDs.removeAll()
     }
 
     func authorizeValidatedFileOnlyNavigation(_ url: URL) -> Bool {
@@ -110,6 +112,17 @@ import WebKit
 
     func cancelValidatedFileOnlyNavigationAllowance() {
         validatedFileOnlyNavigationAllowance.clear()
+    }
+
+    func stopAndSuppressActiveMainFrameNavigation(in webView: WKWebView) {
+        if let activeMainFrameNavigation {
+            suppressedMainFrameNavigationIDs.insert(
+                ObjectIdentifier(activeMainFrameNavigation)
+            )
+            self.activeMainFrameNavigation = nil
+            didCancelProvisionalNavigation?(webView, activeMainFrameNavigation)
+        }
+        webView.stopLoading()
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -122,6 +135,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard !isSuppressedMainFrameNavigation(navigation) else { return }
         if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
         }
@@ -130,6 +144,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard !consumeSuppressedMainFrameNavigation(navigation) else { return }
         didFinish?(webView)
         clearActiveMainFrameNavigation(ifMatching: navigation)
         if shouldPrintAfterCurrentNavigationFinishes {
@@ -139,6 +154,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard !consumeSuppressedMainFrameNavigation(navigation) else { return }
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
@@ -148,6 +164,7 @@ import WebKit
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        guard !consumeSuppressedMainFrameNavigation(navigation) else { return }
         let nsError = error as NSError
         NSLog("BrowserPanel provisional navigation failed: %@", error.localizedDescription)
 
@@ -351,7 +368,7 @@ import WebKit
 #endif
 
         let requestURL = navigationAction.request.url
-        if browserRouteRestrictedFileNewTabIntent(
+        if validatedFileOnlyNavigationAllowance.routeRestrictedFileNewTabIntent(
             isFileOnly: owner?.localFileReadAccessPolicy == .fileOnly,
             isFileURL: requestURL?.isFileURL == true,
             shouldOpenInNewTab: shouldOpenInNewTab,
@@ -385,7 +402,10 @@ import WebKit
             )
             let targetsSameDocument = navigationAction.targetFrame?.isMainFrame == true
                 && webView.url.map {
-                    browserFileNavigationTargetsSameDocument(requestURL, as: $0)
+                    validatedFileOnlyNavigationAllowance.targetsSameDocument(
+                        requestURL,
+                        as: $0
+                    )
                 } == true
             guard hasValidatedAllowance || targetsSameDocument else {
                 clearAttemptedRequest(discardPendingBypasses: true)
@@ -866,6 +886,18 @@ import WebKit
     private func clearActiveMainFrameNavigation(ifMatching navigation: WKNavigation?) {
         guard activeMainFrameNavigation === navigation else { return }
         activeMainFrameNavigation = nil
+    }
+
+    private func isSuppressedMainFrameNavigation(_ navigation: WKNavigation?) -> Bool {
+        guard let navigation else { return false }
+        return suppressedMainFrameNavigationIDs.contains(ObjectIdentifier(navigation))
+    }
+
+    private func consumeSuppressedMainFrameNavigation(_ navigation: WKNavigation?) -> Bool {
+        guard let navigation else { return false }
+        return suppressedMainFrameNavigationIDs.remove(
+            ObjectIdentifier(navigation)
+        ) != nil
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

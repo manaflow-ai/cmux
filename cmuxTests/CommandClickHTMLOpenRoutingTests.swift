@@ -675,8 +675,9 @@ struct CommandClickHTMLOpenRoutingTests {
 
     @Test
     func fileOnlyUserNewTabIntentPrecedesUnvalidatedFileRejection() {
+        let policy = BrowserValidatedFileNavigationAllowance()
         var routed = false
-        let handledCommandClick = browserRouteRestrictedFileNewTabIntent(
+        let handledCommandClick = policy.routeRestrictedFileNewTabIntent(
             isFileOnly: true,
             isFileURL: true,
             shouldOpenInNewTab: true,
@@ -687,7 +688,7 @@ struct CommandClickHTMLOpenRoutingTests {
         #expect(routed)
 
         routed = false
-        let handledPlainClick = browserRouteRestrictedFileNewTabIntent(
+        let handledPlainClick = policy.routeRestrictedFileNewTabIntent(
             isFileOnly: true,
             isFileURL: true,
             shouldOpenInNewTab: false,
@@ -842,14 +843,15 @@ struct CommandClickHTMLOpenRoutingTests {
 
     @Test
     func fileOnlySameDocumentNavigationAllowsOnlyFragmentChanges() throws {
+        let policy = BrowserValidatedFileNavigationAllowance()
         let currentURL = try #require(URL(string: "file:///tmp/index.html?mode=preview#first"))
         let nextFragment = try #require(URL(string: "file:///tmp/index.html?mode=preview#second"))
         let otherQuery = try #require(URL(string: "file:///tmp/index.html?mode=edit#second"))
         let otherFile = try #require(URL(string: "file:///tmp/other.html?mode=preview#second"))
 
-        #expect(browserFileNavigationTargetsSameDocument(nextFragment, as: currentURL))
-        #expect(!browserFileNavigationTargetsSameDocument(otherQuery, as: currentURL))
-        #expect(!browserFileNavigationTargetsSameDocument(otherFile, as: currentURL))
+        #expect(policy.targetsSameDocument(nextFragment, as: currentURL))
+        #expect(!policy.targetsSameDocument(otherQuery, as: currentURL))
+        #expect(!policy.targetsSameDocument(otherFile, as: currentURL))
     }
 
     @Test(.timeLimit(.minutes(1)))

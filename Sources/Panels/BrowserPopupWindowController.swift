@@ -869,7 +869,10 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             )
             let targetsSameDocument = navigationAction.targetFrame?.isMainFrame == true
                 && webView.url.map {
-                    browserFileNavigationTargetsSameDocument(url, as: $0)
+                    validatedFileOnlyNavigationAllowance.targetsSameDocument(
+                        url,
+                        as: $0
+                    )
                 } == true
             guard hasValidatedAllowance || targetsSameDocument else {
                 clearAttemptedRequest(discardPendingBypasses: true)

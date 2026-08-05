@@ -6329,6 +6329,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func noteFileOnlyNavigationResolutionFailure(request: URLRequest) {
         guard let url = request.url else { return }
+        navigationDelegate?.stopAndSuppressActiveMainFrameNavigation(in: webView)
+        loadingGeneration &+= 1
+        loadingEndScheduler.cancel()
+        loadingStartedAt = nil
+        isLoading = false
+        estimatedProgress = 0
         pendingNavigationRecoveryURL = url
         hasRecoverableNavigationFailure = true
         currentURL = url
