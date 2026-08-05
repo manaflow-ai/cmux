@@ -1322,9 +1322,6 @@
       "hooksIOTitle": "钩子输入和输出",
       "hooksDetails": "钩子会从全局 <globalConfig>~/.config/cmux/cmux.json</globalConfig> 以及从父目录到当前 workspace 的项目 <projectConfig>.cmux/cmux.json</projectConfig> 文件继承。项目钩子运行前会使用与其他项目 <config>cmux.json</config> 命令相同的信任提示。Feed 审批横幅也会经过这些钩子；禁用 <desktop>desktop</desktop> 会抑制原生横幅，同时在 cmux 中保留 Feed 项。若要忽略继承的钩子，请在项目配置中将 <hooksMode>notifications.hooksMode</hooksMode> 设为 <replace>replace</replace>。如果钩子失败、超时或返回无效 JSON，cmux 会使用默认通知行为并显示钩子失败提醒。"
     },
-    "ssh": {
-      "notificationsDesc": "远程机器上的进程可以运行会在你的本地实例上执行的 cmux 命令。当编码代理在远程机器上调用 cmux notify 时，即使是在 tmux 内，通知也会出现在你的本地侧边栏中。工作区标签上的蓝色圆环会亮起，Cmd+Shift+U 会跳转到该位置。来自不稳定连接的通知刷屏会通过按主机设置的冷却时间来抑制。"
-    },
     "browserAutomation": {
       "title": "浏览器自动化",
       "metaDescription": "cmux 浏览器命令参考，涵盖导航、DOM 交互、等待、检查、JavaScript 执行、标签页、对话框、框架、下载和浏览器状态。",
@@ -1566,7 +1563,7 @@
       "dragDropTitle": "拖放",
       "dragDropDesc": "将图像或文件拖到远程终端中，cmux 通过现有 SSH 连接通过 scp 上传。 cmux 通过 TTY 检测前台 SSH 进程，并通过 ControlMaster 多路复用路由上传。",
       "notificationsTitle": "通知",
-      "notificationsDesc": "远程计算机上的进程可以运行在本地实例上执行的 cmux 命令。当编码代理在远程盒子上调用 cmux 通知时，通知会显示在本地侧边栏中。工作区选项卡上的蓝色环亮起。 Cmd+Shift+U 跳转到它。通过每台主机的冷却时间来抑制来自不稳定连接的通知垃圾邮件。",
+      "notificationsDesc": "远程机器上的进程可以运行会在你的本地实例上执行的 cmux 命令。当编码代理在远程机器上调用 cmux notify 时，即使是在 tmux 内，通知也会出现在你的本地侧边栏中。工作区标签上的蓝色圆环会亮起，Cmd+Shift+U 会跳转到该位置。来自不稳定连接的通知刷屏会通过按主机设置的冷却时间来抑制。",
       "agentsTitle": "通过 SSH 编码代理",
       "agentsDesc": "cmux claude-teams 和 cmux omo 都在 SSH 会话中工作。远程主机上的 Go 中继守护进程处理与本地 Swift CLI 相同的 tmux-compat 转换。当计算在远程机器上运行时，队友代理会在本地计算机上本地 cmux 拆分时生成。",
       "reconnectTitle": "重新连接",

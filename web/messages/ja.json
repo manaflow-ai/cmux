@@ -2163,9 +2163,6 @@
       "hooksIOTitle": "フックの入力と出力",
       "hooksDetails": "フックはグローバル <globalConfig>~/.config/cmux/cmux.json</globalConfig> と、現在のワークスペースまでの親ディレクトリにあるプロジェクト <projectConfig>.cmux/cmux.json</projectConfig> から継承されます。プロジェクトフックは、他のプロジェクト <config>cmux.json</config> コマンドと同じ信頼プロンプトを実行前に使用します。Feed の承認バナーもこれらのフックを通ります。<desktop>desktop</desktop> を無効にすると、Feed 項目は cmux に残したままネイティブバナーを抑制します。継承したフックを無視するには、プロジェクト設定で <hooksMode>notifications.hooksMode</hooksMode> を <replace>replace</replace> に設定します。フックが失敗、タイムアウト、または無効な JSON を返した場合、cmux は既定の通知動作を使用し、フック失敗アラートを表示します。"
     },
-    "ssh": {
-      "notificationsDesc": "リモートマシン上のプロセスは、ローカルインスタンスで実行されるcmuxコマンドを実行できます。コーディングエージェントがリモートボックスでcmux notifyを呼び出すと、tmux内からでも通知がローカルサイドバーに表示されます。ワークスペースタブの青いリングが点灯し、Cmd+Shift+Uでそこへ移動できます。不安定な接続からの通知スパムはホストごとのクールダウンで抑制されます。"
-    },
     "browserAutomation": {
       "title": "ブラウザ自動化",
       "metaDescription": "cmuxブラウザコマンドリファレンス。ナビゲーション、DOM操作、待機、インスペクション、JavaScript実行、タブ、ダイアログ、フレーム、ダウンロード、ブラウザ状態。",
@@ -2607,7 +2604,7 @@
       "dragDropTitle": "ドラッグアンドドロップ",
       "dragDropDesc": "画像またはファイルをリモート端末にドラッグすると、cmux は既存の SSH 接続を介して scp 経由でアップロードします。 cmux は、TTY によってフォアグラウンド SSH プロセスを検出し、ControlMaster 多重化を通じてアップロードをルーティングします。",
       "notificationsTitle": "通知",
-      "notificationsDesc": "リモート マシン上のプロセスは、ローカル インスタンス上で実行される cmux コマンドを実行できます。コーディング エージェントがリモート ボックス上で cmux Notice を呼び出すと、通知がローカル サイドバーに表示されます。ワークスペースタブで青いリングが点灯します。 Cmd+Shift+U でそこにジャンプします。不安定な接続からの通知スパムは、ホストごとのクールダウンによって抑制されます。",
+      "notificationsDesc": "リモートマシン上のプロセスは、ローカルインスタンスで実行されるcmuxコマンドを実行できます。コーディングエージェントがリモートボックスでcmux notifyを呼び出すと、tmux内からでも通知がローカルサイドバーに表示されます。ワークスペースタブの青いリングが点灯し、Cmd+Shift+Uでそこへ移動できます。不安定な接続からの通知スパムはホストごとのクールダウンで抑制されます。",
       "agentsTitle": "SSH 経由でエージェントをコーディングする",
       "agentsDesc": "cmux claude-teams と cmux omo はどちらも SSH セッション内で動作します。リモート ホスト上の Go リレー デーモンは、ローカルの Swift CLI と同じ tmux-compat 変換を処理します。 Teammate エージェントは、リモート ボックスで計算が実行されている間、ローカル マシン上でネイティブ cmux スプリットとして生成されます。",
       "reconnectTitle": "再接続",

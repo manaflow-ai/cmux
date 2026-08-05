@@ -1321,9 +1321,6 @@
       "hooksIOTitle": "Hook-Eingabe und -Ausgabe",
       "hooksDetails": "Hooks werden aus der globalen Datei <globalConfig>~/.config/cmux/cmux.json</globalConfig> und aus Projektdateien <projectConfig>.cmux/cmux.json</projectConfig> von übergeordneten Ordnern bis zum aktuellen Workspace geerbt. Projekt-Hooks verwenden vor dem Ausführen denselben Vertrauensdialog wie andere Projektbefehle in <config>cmux.json</config>. Feed-Freigabebanner laufen ebenfalls durch diese Hooks. Wenn <desktop>desktop</desktop> deaktiviert ist, wird das native Banner unterdrückt, während der Feed-Eintrag in cmux verfügbar bleibt. Setze <hooksMode>notifications.hooksMode</hooksMode> in einer Projektkonfiguration auf <replace>replace</replace>, um geerbte Hooks zu ignorieren. Wenn ein Hook fehlschlägt, abläuft oder ungültiges JSON zurückgibt, verwendet cmux das Standardverhalten und zeigt eine Hook-Fehlerwarnung."
     },
-    "ssh": {
-      "notificationsDesc": "Prozesse auf dem entfernten Rechner können cmux-Befehle ausführen, die auf deiner lokalen Instanz ausgeführt werden. Wenn ein Coding-Agent auf der Remote-Box cmux notify aufruft, auch aus tmux heraus, erscheint die Benachrichtigung in deiner lokalen Seitenleiste. Der blaue Ring am Workspace-Tab leuchtet auf. Cmd+Shift+U springt dorthin. Benachrichtigungsfluten durch instabile Verbindungen werden mit einem Cooldown pro Host unterdrückt."
-    },
     "browserAutomation": {
       "title": "Browser-Automatisierung",
       "metaDescription": "cmux Browser-Befehlsreferenz für Navigation, DOM-Interaktion, Warten, Inspektion, JavaScript-Ausführung, Tabs, Dialoge, Frames, Downloads und Browser-Zustand.",
@@ -1566,7 +1563,7 @@
       "dragDropTitle": "Ziehen und ablegen",
       "dragDropDesc": "Ziehen Sie ein Bild oder eine Datei in ein Remote-Terminal und cmux lädt es über scp über die bestehende SSH-Verbindung hoch. cmux erkennt den Vordergrund-SSH-Prozess per TTY und leitet den Upload über ControlMaster-Multiplexing weiter.",
       "notificationsTitle": "Benachrichtigungen",
-      "notificationsDesc": "Prozesse auf dem Remote-Computer können cmux-Befehle ausführen, die auf Ihrer lokalen Instanz ausgeführt werden. Wenn ein Coding-Agent cmux notify auf der Remote-Box aufruft, wird die Benachrichtigung in Ihrer lokalen Seitenleiste angezeigt. Auf der Registerkarte „Arbeitsbereich“ leuchtet der blaue Ring auf. Befehl+Umschalt+U springt dorthin. Benachrichtigungs-Spam von instabilen Verbindungen wird mit einer Abklingzeit pro Host unterdrückt.",
+      "notificationsDesc": "Prozesse auf dem entfernten Rechner können cmux-Befehle ausführen, die auf deiner lokalen Instanz ausgeführt werden. Wenn ein Coding-Agent auf der Remote-Box cmux notify aufruft, auch aus tmux heraus, erscheint die Benachrichtigung in deiner lokalen Seitenleiste. Der blaue Ring am Workspace-Tab leuchtet auf. Cmd+Shift+U springt dorthin. Benachrichtigungsfluten durch instabile Verbindungen werden mit einem Cooldown pro Host unterdrückt.",
       "agentsTitle": "Codierungsagenten über SSH",
       "agentsDesc": "cmux claude-teams und cmux omo funktionieren beide in SSH-Sitzungen. Der Go-Relay-Daemon auf dem Remote-Host übernimmt die gleiche tmux-compat-Übersetzung wie die lokale Swift-CLI. Teamkollegen-Agenten erscheinen als native cmux-Splits auf Ihrem lokalen Computer, während die Berechnung auf der Remote-Box ausgeführt wird.",
       "reconnectTitle": "Wieder verbinden",

@@ -1321,9 +1321,6 @@
       "hooksIOTitle": "Input e output dell’hook",
       "hooksDetails": "Gli hook vengono ereditati dal file globale <globalConfig>~/.config/cmux/cmux.json</globalConfig> e dai file di progetto <projectConfig>.cmux/cmux.json</projectConfig>, dalle directory padre fino al workspace corrente. Gli hook di progetto usano lo stesso prompt di fiducia degli altri comandi di progetto <config>cmux.json</config> prima dell’esecuzione. Anche i banner di approvazione del Feed passano da questi hook; disattivare <desktop>desktop</desktop> sopprime il banner nativo mantenendo l’elemento Feed disponibile in cmux. Imposta <hooksMode>notifications.hooksMode</hooksMode> su <replace>replace</replace> in una configurazione di progetto per ignorare gli hook ereditati. Se un hook fallisce, scade o restituisce JSON non valido, cmux usa il comportamento di notifica predefinito e mostra un avviso di errore dell’hook."
     },
-    "ssh": {
-      "notificationsDesc": "I processi sulla macchina remota possono eseguire comandi cmux che vengono eseguiti sulla tua istanza locale. Quando un agente di coding chiama cmux notify sulla macchina remota, anche da tmux, la notifica appare nella barra laterale locale. L'anello blu si illumina sulla scheda del workspace. Cmd+Shift+U porta a quella notifica. Lo spam di notifiche da connessioni instabili viene limitato con un cooldown per host."
-    },
     "browserAutomation": {
       "title": "Automazione del browser",
       "metaDescription": "Riferimento comandi browser cmux per navigazione, interazione DOM, attesa, ispezione, valutazione JavaScript, tab, dialoghi, frame, download e stato del browser.",
@@ -1566,7 +1563,7 @@
       "dragDropTitle": "Trascina e rilascia",
       "dragDropDesc": "Trascina un'immagine o un file in un terminale remoto e cmux lo carica tramite scp tramite la connessione SSH esistente. cmux rileva il processo SSH in primo piano tramite TTY e instrada il caricamento tramite il multiplexing ControlMaster.",
       "notificationsTitle": "Notifiche",
-      "notificationsDesc": "I processi sul computer remoto possono eseguire comandi cmux eseguiti sull'istanza locale. Quando un agente di codifica chiama cmux notify sulla casella remota, la notifica viene visualizzata nella barra laterale locale. L'anello blu si illumina nella scheda dell'area di lavoro. Cmd+Shift+U salta ad esso. Lo spam di notifiche proveniente da connessioni instabili viene soppresso con un tempo di recupero per host.",
+      "notificationsDesc": "I processi sulla macchina remota possono eseguire comandi cmux che vengono eseguiti sulla tua istanza locale. Quando un agente di coding chiama cmux notify sulla macchina remota, anche da tmux, la notifica appare nella barra laterale locale. L'anello blu si illumina sulla scheda del workspace. Cmd+Shift+U porta a quella notifica. Lo spam di notifiche da connessioni instabili viene limitato con un cooldown per host.",
       "agentsTitle": "Agenti di codifica su SSH",
       "agentsDesc": "cmux claude-teams e cmux omo funzionano entrambi all'interno delle sessioni SSH. Il demone di inoltro Go sull'host remoto gestisce la stessa traduzione tmux-compat eseguita dalla CLI Swift locale. Gli agenti dei compagni di squadra vengono generati come suddivisioni cmux native sul computer locale mentre il calcolo viene eseguito sul dispositivo remoto.",
       "reconnectTitle": "Riconnettiti",

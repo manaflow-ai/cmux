@@ -1321,9 +1321,6 @@
       "hooksIOTitle": "Ulaz i izlaz hooka",
       "hooksDetails": "Hookovi se nasljeđuju iz globalnog <globalConfig>~/.config/cmux/cmux.json</globalConfig> i projektnih <projectConfig>.cmux/cmux.json</projectConfig> datoteka od nadređenih direktorija do trenutnog workspacea. Projektni hookovi koriste isti prompt povjerenja kao druge projektne <config>cmux.json</config> komande prije pokretanja. Feed banneri za odobrenje također prolaze kroz ove hookove; isključivanje <desktop>desktop</desktop> skriva nativni banner dok Feed stavka ostaje dostupna u cmuxu. Postavite <hooksMode>notifications.hooksMode</hooksMode> na <replace>replace</replace> u konfiguraciji projekta da zanemarite naslijeđene hookove. Ako hook ne uspije, istekne ili vrati neispravan JSON, cmux koristi zadano ponašanje notifikacija i prikazuje upozorenje o grešci hooka."
     },
-    "ssh": {
-      "notificationsDesc": "Procesi na udaljenoj mašini mogu pokretati cmux komande koje se izvršavaju na tvojoj lokalnoj instanci. Kada coding agent pozove cmux notify na udaljenoj mašini, uključujući i iz tmux-a, obavijest se pojavi u lokalnoj bočnoj traci. Plavi prsten zasvijetli na tabu workspacea. Cmd+Shift+U skače na njega. Spam obavijesti iz nestabilnih veza potiskuje se cooldownom po hostu."
-    },
     "browserAutomation": {
       "title": "Automatizacija preglednika",
       "metaDescription": "Referenca cmux browser komandi za navigaciju, DOM interakciju, čekanje, inspekciju, JavaScript evaluaciju, tabove, dijaloge, okvire, preuzimanja i stanje preglednika.",
@@ -1566,7 +1563,7 @@
       "dragDropTitle": "Prevucite i ispustite",
       "dragDropDesc": "Prevucite sliku ili datoteku na udaljeni terminal i cmux je otprema putem scp-a preko postojeće SSH veze. cmux otkriva SSH proces u prvom planu putem TTY-a i usmjerava upload kroz ControlMaster multipleksiranje.",
       "notificationsTitle": "Obavještenja",
-      "notificationsDesc": "Procesi na udaljenom stroju mogu pokrenuti cmux komande koje se izvršavaju na vašoj lokalnoj instanci. Kada agent za kodiranje pozove cmux notify na udaljenom kutiju, obavijest se pojavljuje na vašoj lokalnoj bočnoj traci. Plavi prsten svijetli na kartici radnog prostora. Cmd+Shift+U skače na njega. Neželjena pošta obavještenja od neispravnih veza suzbija se hlađenjem po hostu.",
+      "notificationsDesc": "Procesi na udaljenoj mašini mogu pokretati cmux komande koje se izvršavaju na tvojoj lokalnoj instanci. Kada coding agent pozove cmux notify na udaljenoj mašini, uključujući i iz tmux-a, obavijest se pojavi u lokalnoj bočnoj traci. Plavi prsten zasvijetli na tabu workspacea. Cmd+Shift+U skače na njega. Spam obavijesti iz nestabilnih veza potiskuje se cooldownom po hostu.",
       "agentsTitle": "Agenti za kodiranje preko SSH-a",
       "agentsDesc": "cmux claude-teams i cmux omo oba rade unutar SSH sesija. Go relejni demon na udaljenom hostu rukuje istim tmux-compat prijevodom kao lokalni Swift CLI. Timski agenti se pokreću dok se izvorni cmux dijeli na vašoj lokalnoj mašini dok se računanje izvodi na udaljenoj kutiji.",
       "reconnectTitle": "Ponovo se povežite",

@@ -1322,9 +1322,6 @@
       "hooksIOTitle": "Wejście i wyjście hooka",
       "hooksDetails": "Hooki są dziedziczone z globalnego pliku <globalConfig>~/.config/cmux/cmux.json</globalConfig> oraz plików projektu <projectConfig>.cmux/cmux.json</projectConfig>, od katalogów nadrzędnych do bieżącego workspace. Hooki projektu przed uruchomieniem używają tego samego monitu zaufania co inne polecenia projektu <config>cmux.json</config>. Banery akceptacji Feed też przechodzą przez te hooki; wyłączenie <desktop>desktop</desktop> ukrywa natywny baner, ale zostawia element Feed dostępny w cmux. Ustaw <hooksMode>notifications.hooksMode</hooksMode> na <replace>replace</replace> w konfiguracji projektu, aby ignorować odziedziczone hooki. Jeśli hook zawiedzie, przekroczy limit czasu albo zwróci nieprawidłowy JSON, cmux użyje domyślnego zachowania powiadomień i pokaże alert błędu hooka."
     },
-    "ssh": {
-      "notificationsDesc": "Procesy na maszynie zdalnej mogą uruchamiać polecenia cmux wykonywane w lokalnej instancji. Gdy agent programistyczny wywoła cmux notify na zdalnym hoście, także z wnętrza tmux, powiadomienie pojawi się w lokalnym pasku bocznym. Niebieski pierścień zaświeci się na karcie obszaru roboczego. Cmd+Shift+U przechodzi do niego. Spam powiadomień z niestabilnych połączeń jest ograniczany przez cooldown dla każdego hosta."
-    },
     "browserAutomation": {
       "title": "Automatyzacja przeglądarki",
       "metaDescription": "Dokumentacja poleceń przeglądarki cmux: nawigacja, interakcja z DOM, oczekiwanie, inspekcja, ewaluacja JavaScript, karty, dialogi, ramki, pobieranie i stan przeglądarki.",
@@ -1567,7 +1564,7 @@
       "dragDropTitle": "Przeciągnij i upuść",
       "dragDropDesc": "Przeciągnij obraz lub plik do zdalnego terminala, a cmux prześle go przez scp poprzez istniejące połączenie SSH. cmux wykrywa proces SSH na pierwszym planie przez TTY i kieruje przesyłanie przez multipleksowanie ControlMaster.",
       "notificationsTitle": "Powiadomienia",
-      "notificationsDesc": "Procesy na komputerze zdalnym mogą uruchamiać polecenia cmux, które są wykonywane na instancji lokalnej. Kiedy agent kodujący wywoła cmux notify na zdalnej skrzynce, powiadomienie pojawi się na lokalnym pasku bocznym. Na karcie obszaru roboczego zaświeci się niebieski pierścień. Cmd+Shift+U przeskakuje do niego. Spam z powiadomieniami z niestabilnych połączeń jest tłumiony przez czas odnowienia dla każdego hosta.",
+      "notificationsDesc": "Procesy na maszynie zdalnej mogą uruchamiać polecenia cmux wykonywane w lokalnej instancji. Gdy agent programistyczny wywoła cmux notify na zdalnym hoście, także z wnętrza tmux, powiadomienie pojawi się w lokalnym pasku bocznym. Niebieski pierścień zaświeci się na karcie obszaru roboczego. Cmd+Shift+U przechodzi do niego. Spam powiadomień z niestabilnych połączeń jest ograniczany przez cooldown dla każdego hosta.",
       "agentsTitle": "Agenci kodujący przez SSH",
       "agentsDesc": "Zarówno cmux claude-teams, jak i cmux omo działają w sesjach SSH. Demon przekaźnika Go na zdalnym hoście obsługuje to samo tłumaczenie zgodne z tmux, co lokalny interfejs CLI Swift. Agenci członków zespołu pojawiają się w miarę podziału natywnego cmux na komputerze lokalnym, podczas gdy obliczenia są wykonywane na urządzeniu zdalnym.",
       "reconnectTitle": "Połącz ponownie",

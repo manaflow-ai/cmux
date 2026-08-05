@@ -1321,9 +1321,6 @@
       "hooksIOTitle": "Hook-input og -output",
       "hooksDetails": "Hooks nedarves fra den globale <globalConfig>~/.config/cmux/cmux.json</globalConfig> og projektets <projectConfig>.cmux/cmux.json</projectConfig>-filer fra overordnede mapper til det aktuelle workspace. Projekt-hooks bruger samme tillidsprompt som andre projektkommandoer i <config>cmux.json</config>, før de kører. Feed-godkendelsesbannere går også gennem disse hooks; deaktivering af <desktop>desktop</desktop> skjuler det native banner, mens Feed-elementet stadig er tilgængeligt i cmux. Sæt <hooksMode>notifications.hooksMode</hooksMode> til <replace>replace</replace> i en projektkonfiguration for at ignorere nedarvede hooks. Hvis et hook fejler, får timeout eller returnerer ugyldig JSON, bruger cmux standardnotifikationsadfærden og viser en hook-fejladvarsel."
     },
-    "ssh": {
-      "notificationsDesc": "Processer på den eksterne maskine kan køre cmux-kommandoer, der udføres på din lokale instans. Når en kodeagent kalder cmux notify på den eksterne maskine, også inde fra tmux, vises notifikationen i din lokale sidebar. Den blå ring lyser på workspace-fanen. Cmd+Shift+U hopper til den. Notifikationsspam fra ustabile forbindelser undertrykkes med en cooldown pr. host."
-    },
     "browserAutomation": {
       "title": "Browserautomatisering",
       "metaDescription": "cmux browser-kommandoreference til navigation, DOM-interaktion, ventetilstande, inspektion, JavaScript-evaluering, faner, dialoger, frames, downloads og browsertilstand.",
@@ -1565,7 +1562,7 @@
       "dragDropTitle": "Træk og slip",
       "dragDropDesc": "Træk et billede eller en fil til en fjernterminal, og cmux uploader det via scp gennem den eksisterende SSH-forbindelse. cmux registrerer SSH-processen i forgrunden af TTY og dirigerer uploaden gennem ControlMaster-multipleksing.",
       "notificationsTitle": "Meddelelser",
-      "notificationsDesc": "Processer på den eksterne maskine kan køre cmux-kommandoer, der udføres på din lokale instans. Når en kodningsagent ringer til cmux notify på fjernboksen, vises beskeden i din lokale sidebjælke. Den blå ring lyser på arbejdsområdefanen. Cmd+Shift+U springer til det. Meddelelsesspam fra ustabile forbindelser undertrykkes med en nedkøling pr. vært.",
+      "notificationsDesc": "Processer på den eksterne maskine kan køre cmux-kommandoer, der udføres på din lokale instans. Når en kodeagent kalder cmux notify på den eksterne maskine, også inde fra tmux, vises notifikationen i din lokale sidebar. Den blå ring lyser på workspace-fanen. Cmd+Shift+U hopper til den. Notifikationsspam fra ustabile forbindelser undertrykkes med en cooldown pr. host.",
       "agentsTitle": "Kodningsmidler over SSH",
       "agentsDesc": "cmux claude-teams og cmux omo arbejder begge i SSH-sessioner. Go relay-dæmonen på fjernværten håndterer den samme tmux-compat-oversættelse, som den lokale Swift CLI gør. Teamkammerat-agenter afføder, når native cmux-opdelinger på din lokale maskine, mens beregningen kører på fjernboksen.",
       "reconnectTitle": "Tilslut igen",

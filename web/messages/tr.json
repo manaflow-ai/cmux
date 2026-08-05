@@ -1321,9 +1321,6 @@
       "hooksIOTitle": "Hook girişi ve çıkışı",
       "hooksDetails": "Hooklar global <globalConfig>~/.config/cmux/cmux.json</globalConfig> dosyasından ve üst dizinlerden geçerli workspace’e kadar olan proje <projectConfig>.cmux/cmux.json</projectConfig> dosyalarından miras alınır. Proje hookları, çalışmadan önce diğer proje <config>cmux.json</config> komutlarıyla aynı güven istemini kullanır. Feed onay bannerları da bu hooklardan geçer; <desktop>desktop</desktop> devre dışı bırakılırsa yerel banner bastırılır ve Feed öğesi cmux içinde kullanılabilir kalır. Miras alınan hookları yok saymak için proje yapılandırmasında <hooksMode>notifications.hooksMode</hooksMode> değerini <replace>replace</replace> yapın. Bir hook başarısız olursa, zaman aşımına uğrarsa veya geçersiz JSON döndürürse cmux varsayılan bildirim davranışını kullanır ve hook hatası uyarısı gösterir."
     },
-    "ssh": {
-      "notificationsDesc": "Uzak makinedeki süreçler, yerel örneğinizde çalışan cmux komutlarını çalıştırabilir. Bir kodlama ajanı uzak makinede cmux notify çağırdığında, tmux içinden olsa bile bildirim yerel kenar çubuğunuzda görünür. Çalışma alanı sekmesindeki mavi halka yanar. Cmd+Shift+U oraya atlar. Sorunlu bağlantılardan gelen bildirim spam'i, ana makine başına cooldown ile bastırılır."
-    },
     "browserAutomation": {
       "title": "Tarayıcı Otomasyonu",
       "metaDescription": "Gezinme, DOM etkileşimi, bekleme, inceleme, JavaScript değerlendirmesi, sekmeler, diyaloglar, çerçeveler, indirmeler ve tarayıcı durumu için cmux browser komut referansı.",
@@ -1565,7 +1562,7 @@
       "dragDropTitle": "Sürükle ve bırak",
       "dragDropDesc": "Bir görüntüyü veya dosyayı uzak bir terminale sürükleyin ve cmux bunu mevcut SSH bağlantısı üzerinden scp aracılığıyla yükler. cmux, TTY tarafından ön plandaki SSH işlemini algılar ve yüklemeyi ControlMaster çoğullaması yoluyla yönlendirir.",
       "notificationsTitle": "Bildirimler",
-      "notificationsDesc": "Uzak makinedeki işlemler, yerel örneğinizde yürütülen cmux komutlarını çalıştırabilir. Bir kodlama aracısı uzak kutuda cmux notify'ı çağırdığında, bildirim yerel kenar çubuğunuzda görünür. Çalışma alanı sekmesinde mavi halka yanar. Cmd+Shift+U ona atlar. Kesintili bağlantılardan gelen spam bildirimleri, ana bilgisayar başına bekleme süresiyle bastırılır.",
+      "notificationsDesc": "Uzak makinedeki süreçler, yerel örneğinizde çalışan cmux komutlarını çalıştırabilir. Bir kodlama ajanı uzak makinede cmux notify çağırdığında, tmux içinden olsa bile bildirim yerel kenar çubuğunuzda görünür. Çalışma alanı sekmesindeki mavi halka yanar. Cmd+Shift+U oraya atlar. Sorunlu bağlantılardan gelen bildirim spam'i, ana makine başına cooldown ile bastırılır.",
       "agentsTitle": "SSH üzerinden kodlama aracıları",
       "agentsDesc": "cmux Claude-teams ve cmux omo'nun her ikisi de SSH oturumlarında çalışır. Uzak ana bilgisayardaki Go geçiş arka plan programı, yerel Swift CLI'nin yaptığı tmux uyumlu çevirinin aynısını işler. Ekip arkadaşı ajanları, hesaplama uzak kutuda çalışırken yerel makinenizde yerel cmux bölünmeleri olarak ortaya çıkar.",
       "reconnectTitle": "Yeniden bağlan",
