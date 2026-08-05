@@ -1,6 +1,97 @@
 import Foundation
 
 extension TerminalController {
+    /// Mobile-gated pane-content reorder within one workspace split tree.
+    func v2MobileWorkspacePaneReorder(params: [String: Any]) -> V2CallResult {
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        guard let workspaceID = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let orderedPaneIDStrings = params["ordered_pane_ids"] as? [String],
+              !orderedPaneIDStrings.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid ordered_pane_ids", data: nil)
+        }
+        let orderedPaneIDs = orderedPaneIDStrings.compactMap(UUID.init(uuidString:))
+        guard orderedPaneIDs.count == orderedPaneIDStrings.count,
+              Set(orderedPaneIDs).count == orderedPaneIDs.count else {
+            return .err(code: "invalid_params", message: "ordered_pane_ids must be unique UUIDs", data: nil)
+        }
+        let baseLayoutVersion = v2Int(params, "base_layout_version")
+        if v2HasNonNullParam(params, "base_layout_version"), baseLayoutVersion == nil {
+            return .err(code: "invalid_params", message: "base_layout_version must be an integer", data: nil)
+        }
+        guard let tabManager = v2ResolveMobileWorkspaceOwner(workspaceID: workspaceID, params: params) else {
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+        }
+
+        var mutationError: V2CallResult?
+        v2MainSync {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                mutationError = .err(
+                    code: "not_found",
+                    message: "Workspace not found",
+                    data: ["workspace_id": workspaceID.uuidString]
+                )
+                return
+            }
+            // Slot IDs stay stable across content reorders, so the set check alone
+            // cannot see that another reorder landed after the phone captured its
+            // snapshot. The phone's observed layout version is the precondition
+            // that makes concurrent reorders (second phone, Mac-local drag) fail
+            // closed as a conflict instead of silently permuting the wrong panes.
+            if let baseLayoutVersion, workspace.paneLayoutVersion != baseLayoutVersion {
+                mutationError = .err(
+                    code: "conflict",
+                    message: "Pane layout changed before the reorder completed",
+                    data: ["workspace_id": workspaceID.uuidString]
+                )
+                return
+            }
+            let authoritativePaneIDs = workspace.spatiallyOrderedPaneIds
+            guard orderedPaneIDs.count == authoritativePaneIDs.count,
+                  Set(orderedPaneIDs) == Set(authoritativePaneIDs) else {
+                mutationError = .err(
+                    code: "conflict",
+                    message: "Pane layout changed before the reorder completed",
+                    data: ["workspace_id": workspaceID.uuidString]
+                )
+                return
+            }
+            guard workspace.applyMobilePaneOrder(orderedPaneIDs) else {
+                mutationError = .err(
+                    code: "rejected",
+                    message: "Pane reorder could not be applied",
+                    data: ["workspace_id": workspaceID.uuidString]
+                )
+                return
+            }
+        }
+        if let mutationError {
+            return mutationError
+        }
+
+        var listParams = params
+        listParams.removeValue(forKey: "ordered_pane_ids")
+        listParams.removeValue(forKey: "base_layout_version")
+        return v2MobileWorkspaceList(params: listParams, tabManager: tabManager)
+    }
+
+    /// Mobile mutations route to the workspace's owning window first: the phone's
+    /// snapshot can carry a stale `window_id` after the workspace moved windows,
+    /// and honoring that id would reject a valid mutation instead of reaching the
+    /// owner. Falls back to the shared resolver for workspaces not found by id.
+    private nonisolated func v2ResolveMobileWorkspaceOwner(
+        workspaceID: UUID,
+        params: [String: Any]
+    ) -> TabManager? {
+        if let owner = v2MainSync({ AppDelegate.shared?.tabManagerFor(tabId: workspaceID) }) {
+            return owner
+        }
+        return v2ResolveTabManager(params: params)
+    }
+
     /// Mobile-gated workspace reorder/group move.
     func v2MobileWorkspaceMove(params: [String: Any]) -> V2CallResult {
         let hasMoveGroup = v2HasNonNullParam(params, "move_group")
@@ -51,7 +142,7 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "move_group must be a boolean", data: nil)
         }
         let moveGroup = parsedMoveGroup ?? false
-        guard let tabManager = v2ResolveTabManager(params: params) else {
+        guard let tabManager = v2ResolveMobileWorkspaceOwner(workspaceID: workspaceID, params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
 

@@ -4,9 +4,9 @@ public import Bonsplit
 
 /// The per-workspace pane-tree sub-model: owns the panel registry and the
 /// pane-layout bookkeeping the legacy `Workspace` god object kept in its
-/// `panels` / `paneLayoutVersion` / `surfaceIdToPanelId` /
-/// `lastOrderedPanelIds` stored properties. The split tree itself lives in
-/// `BonsplitController`; this model owns the workspace-side mapping onto it.
+/// `panels` / `paneLayoutVersion` / `surfaceIdToPanelId` stored properties.
+/// The split tree itself lives in `BonsplitController`; this model owns the
+/// workspace-side mapping onto it.
 ///
 /// The owning `Workspace` composition root holds one instance, forwards its
 /// legacy accessors here, and implements `PaneTreeHosting` to receive the
@@ -40,11 +40,6 @@ public final class PaneTreeModel<Panel> {
     /// surface entries for that panel so focus and input never resolve two
     /// tabs to one live PTY.
     public private(set) var surfaceIdToPanelId: [TabID: UUID] = [:]
-
-    /// Snapshot of the spatially ordered panel ids from the last geometry
-    /// notification, used to gate `paneLayoutVersion` bumps to genuine
-    /// reorder events (legacy `Workspace.lastOrderedPanelIds`).
-    public var lastOrderedPanelIds: [UUID] = []
 
     /// Reverse index for targeted panel lookups and stale-surface removal.
     @ObservationIgnored

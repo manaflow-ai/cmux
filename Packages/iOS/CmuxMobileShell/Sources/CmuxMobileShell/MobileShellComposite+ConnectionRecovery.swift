@@ -901,6 +901,7 @@ extension MobileShellComposite {
         if stateSyncActive {
             return await performStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds)
         }
+        let authorityGeneration = foregroundWorkspaceListAuthorityGeneration
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.workspace.list",
@@ -912,6 +913,14 @@ extension MobileShellComposite {
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
             guard remoteClient === client, connectionState == .connected else { return false }
+            // A mutation applied a newer authoritative list while this fetch
+            // was in flight; applying the captured snapshot would roll that
+            // mutation back in the UI. The round-trip already proved liveness,
+            // and any later Mac change re-triggers an event refresh under the
+            // new generation, so dropping the stale payload is safe.
+            guard foregroundWorkspaceListAuthorityGeneration == authorityGeneration else {
+                return true
+            }
             // Re-check authority AFTER the await: negotiation can grant v2 in
             // the window while this legacy request was in flight, and applying
             // the captured full list then would overwrite newer mirror state.

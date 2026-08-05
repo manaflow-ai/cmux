@@ -6,6 +6,7 @@ struct WorkspaceTitleMenuValue: Equatable {
     let hasBackButton: Bool
     let hasTrailingCluster: Bool
     let hasChatToggle: Bool
+    let reservesPaneMapControls: Bool
     let isEnabled: Bool
     let workspaceName: String
     let hasUnread: Bool
@@ -15,4 +16,14 @@ struct WorkspaceTitleMenuValue: Equatable {
     let canCloseWorkspace: Bool
     let labelToken: WorkspaceTitleMenuLabelToken
     let terminalTheme: TerminalTheme
+
+    var titleWidth: CGFloat {
+        MobileLeadingToolbarTitleWidth(
+            contentWidth: contentWidth,
+            hasBackButton: hasBackButton,
+            hasTrailingCluster: hasTrailingCluster,
+            hasChatToggle: hasChatToggle,
+            reservesPaneMapControls: reservesPaneMapControls
+        ).cap
+    }
 }

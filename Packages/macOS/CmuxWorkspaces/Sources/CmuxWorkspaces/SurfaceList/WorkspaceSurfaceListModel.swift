@@ -3,17 +3,14 @@ public import Observation
 
 /// The per-workspace surface-list derivation model: turns the live bonsplit
 /// split tree and panel registry into the ordered panel-id lists the rest of
-/// the app navigates by, and owns the reorder-detection that bumps the
-/// workspace's pane-layout version.
+/// the app navigates by.
 ///
 /// This is the navigation-state half of what the legacy `Workspace` god object
 /// computed inline: `orderedPanelIds`, `focusedPanelId`,
 /// `representativePanelIdForWorkspaceManualUnread()`,
-/// `effectiveSelectedPanelId(inPane:)`, the `tabIdsToLeft/Right/CloseOthers`
-/// pane queries, and the `paneLayoutVersion` bump in the geometry-change
-/// handler. It owns no stored panel state itself; the registry and the
-/// `lastOrderedPanelIds`/`paneLayoutVersion` bookkeeping live in the
-/// workspace's `PaneTreeModel`, reached through ``WorkspaceSurfaceTreeReading``.
+/// `effectiveSelectedPanelId(inPane:)`, and the `tabIdsToLeft/Right/CloseOthers`
+/// pane queries. It owns no stored panel state itself; the registry lives in
+/// the workspace's `PaneTreeModel`, reached through ``WorkspaceSurfaceTreeReading``.
 ///
 /// The owning `Workspace` composition root holds one instance, attaches itself
 /// as the tree-reading host (weak, to avoid a retain cycle), and forwards its
@@ -129,28 +126,5 @@ public final class WorkspaceSurfaceListModel {
     public func surfaceIdsToCloseOthers(of anchorSurfaceId: UUID, inPaneId paneId: UUID) -> [UUID] {
         guard let tree else { return [] }
         return tree.surfaceIdsInTabOrder(inPaneId: paneId).filter { $0 != anchorSurfaceId }
-    }
-
-    /// Reconciles the reorder-detection bookkeeping after a geometry change.
-    ///
-    /// Every order/membership mutation (same-pane reorder, cross-pane move,
-    /// split, close) routes through the workspace's geometry-change handler. A
-    /// pure reorder mutates only bonsplit's internal state, which is not
-    /// observed, so observers would miss it. This bumps `paneLayoutVersion`
-    /// only when the ordered panel-id sequence actually changed, so divider
-    /// drags and selection-only events (also routed through that handler) do
-    /// not fire an app-wide change (legacy gate in
-    /// `Workspace.splitTabBar(_:didChangeGeometry:)`).
-    ///
-    /// Returns whether the layout version was bumped, for callers that want to
-    /// observe the decision in tests.
-    @discardableResult
-    public func registerGeometryChange() -> Bool {
-        guard let tree else { return false }
-        let currentOrder = orderedPanelIds
-        guard currentOrder != tree.lastOrderedPanelIds else { return false }
-        tree.lastOrderedPanelIds = currentOrder
-        tree.bumpPaneLayoutVersion()
-        return true
     }
 }

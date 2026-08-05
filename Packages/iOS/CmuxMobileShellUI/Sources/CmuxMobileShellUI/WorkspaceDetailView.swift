@@ -56,7 +56,7 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
-    /// Drives the rename-workspace dialog launched from the picker menu, and its
+    /// Drives the rename-workspace dialog launched from the title menu, and its
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
@@ -66,7 +66,10 @@ struct WorkspaceDetailView: View {
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
-    @State var terminalPickerRows: [TerminalPickerMenuRow] = []
+    @Namespace private var paneZoomNamespace
+    @State private var paneZoomPresentation = PaneZoomPresentationState()
+    @State private var paneMapRefreshTrigger = 0
+    @State private var isPaneMapRefreshing = false
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -121,14 +124,113 @@ struct WorkspaceDetailView: View {
     }
     #endif
     var body: some View {
+        #if os(iOS)
+        Group {
+            if let layout = workspace.layout {
+                PaneZoomNavigationStack(
+                    presentation: $paneZoomPresentation,
+                    terminalTheme: store.activeTerminalTheme
+                ) {
+                    paneMapRoot(layout: layout)
+                        .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+                        .navigationTitle(systemNavigationTitle)
+                        .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
+                        .toolbar { workspaceDetailToolbar(mode: .paneMap) }
+                        .navigationBarBackButtonHidden(true)
+                } terminal: {
+                    terminalWorkspaceEndpoint
+                        .mobileSurfaceDeckInset(
+                            isVisible: shouldShowSurfaceDeck,
+                            value: surfaceDeckValue,
+                            actions: surfaceDeckActions,
+                            terminalTheme: store.activeTerminalTheme
+                        )
+                        .navigationBarBackButtonHidden(true)
+                        .navigationTransition(
+                            .zoom(
+                                sourceID: paneZoomSourceSurfaceID,
+                                in: paneZoomNamespace
+                            )
+                        )
+                }
+            } else {
+                terminalWorkspaceEndpoint
+                    .mobileSurfaceDeckInset(
+                        isVisible: shouldShowSurfaceDeck,
+                        value: surfaceDeckValue,
+                        actions: surfaceDeckActions,
+                        terminalTheme: store.activeTerminalTheme
+                    )
+            }
+        }
+        .background {
+            store.activeTerminalTheme.terminalBackgroundColor
+                .ignoresSafeArea()
+        }
+        .onChange(of: workspace.layout != nil) { _, hasLayout in
+            paneZoomPresentation.layoutAvailabilityDidChange(hasLayout: hasLayout)
+        }
+        .closeWorkspaceConfirmation(
+            isPresented: $isConfirmingClose,
+            confirm: confirmCloseWorkspaceFromMenu
+        )
+        .sheet(isPresented: $isFeedbackComposerPresented) {
+            feedbackComposer
+        }
+        .sheet(isPresented: $isTextSheetPresented) {
+            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+        }
+        .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
+            WorkspaceChangesSheet(
+                store: store,
+                workspaceID: workspace.rpcWorkspaceID.rawValue,
+                workspaceTitle: workspace.name
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .workspaceRenameDialog(
+            isPresented: $isRenamePresented,
+            text: $renameText,
+            onSave: commitRenameFromDialog
+        )
+        .sheet(isPresented: $isCustomizationPresented) {
+            WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
+                    ?? .failure()
+            }
+        }
+        .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+        #else
+        Group { detailSurfaceContent }
+            .closeWorkspaceConfirmation(
+                isPresented: $isConfirmingClose,
+                confirm: confirmCloseWorkspaceFromMenu
+            )
+            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+        #endif
+    }
+
+    #if os(iOS)
+    private var shouldShowSurfaceDeck: Bool {
+        // The deck is the workspace's surface picker, including the documented
+        // exit path from a browser stream (BrowserStreamPane has no close
+        // affordance of its own). Hiding it during a stream would strand
+        // no-layout workspaces on the stream with no way back to a terminal.
+        (activeSurface == .terminal || activeSurface == .browserStream)
+            && paneZoomPresentation.isTerminalPresented
+            && surfaceDeckValue.shouldShow
+    }
+
+    private var terminalWorkspaceEndpoint: some View {
         let content = Group { detailSurfaceContent }
 
-        #if os(iOS)
-        content
+        return content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
-            .toolbar { workspaceDetailToolbar }
+            .toolbar { workspaceDetailToolbar(mode: .terminal) }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
@@ -141,7 +243,6 @@ struct WorkspaceDetailView: View {
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
                 refreshCachedChatToggleAnchor()
-                syncTerminalPickerRows(includeTitleChanges: true)
             }
             .onChange(of: store.supportsTerminalArtifacts) { _, supportsArtifacts in
                 visibleArtifactCount = 0
@@ -149,50 +250,51 @@ struct WorkspaceDetailView: View {
             .onChange(of: store.supportsChatArtifactGallery) { _, _ in
                 visibleArtifactCount = 0
             }
-            .closeWorkspaceConfirmation(
-                isPresented: $isConfirmingClose,
-                confirm: confirmCloseWorkspaceFromMenu
-            )
-            .sheet(isPresented: $isFeedbackComposerPresented) {
-                feedbackComposer
-            }
-            .sheet(isPresented: $isTextSheetPresented) {
-                TerminalTextSheetView(surfaceID: textSheetSurfaceID)
-            }
-            .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
-                WorkspaceChangesSheet(
-                    store: store,
-                    workspaceID: workspace.rpcWorkspaceID.rawValue,
-                    workspaceTitle: workspace.name
-                )
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-            }
-            .workspaceRenameDialog(
-                isPresented: $isRenamePresented,
-                text: $renameText,
-                onSave: commitRenameFromDialog
-            )
-            .sheet(isPresented: $isCustomizationPresented) {
-                WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
-                    await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
-                        ?? .failure()
-                }
-            }
-            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
-        #else
-        content
-            .closeWorkspaceConfirmation(
-                isPresented: $isConfirmingClose,
-                confirm: confirmCloseWorkspaceFromMenu
-            )
-            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
-        #endif
     }
 
-    #if os(iOS)
+    private func paneMapRoot(layout: MobilePaneLayout) -> some View {
+        PaneMapOverlay(
+            value: PaneMapValue(
+                layout: layout,
+                phoneSelectedSurfaceID: selectedTerminal?.id.rawValue,
+                agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds
+            ),
+            terminalTheme: store.activeTerminalTheme,
+            zoomNamespace: paneZoomNamespace,
+            isVisible: !paneZoomPresentation.isTerminalPresented,
+            allowsReordering: workspace.actionCapabilities.supportsPaneReorder,
+            refreshTrigger: paneMapRefreshTrigger,
+            fetchPreviews: { selectedSurfaceIDs, remainingSurfaceIDs in
+                await store.fetchPaneMapPreviewGrids(
+                    remoteWorkspaceID: workspace.rpcWorkspaceID.rawValue,
+                    selectedSurfaceIDs: selectedSurfaceIDs,
+                    remainingSurfaceIDs: remainingSurfaceIDs
+                )
+            },
+            selectTerminal: presentTerminalFromPaneMap,
+            reorderPanes: reorderPanesFromMap,
+            refreshingChanged: { isPaneMapRefreshing = $0 }
+        )
+    }
+
+    private var paneZoomSourceSurfaceID: String {
+        paneZoomPresentation.sourceSurfaceID
+            ?? selectedTerminal?.id.rawValue
+            ?? workspace.layout?.orderedPanes
+                .compactMap(\.selectedSurfaceID)
+                .first
+            ?? ""
+    }
+
+    private enum WorkspaceDetailToolbarMode {
+        case paneMap
+        case terminal
+    }
+
     @ToolbarContentBuilder
-    private var workspaceDetailToolbar: some ToolbarContent {
+    private func workspaceDetailToolbar(
+        mode: WorkspaceDetailToolbarMode
+    ) -> some ToolbarContent {
         if backButtonConfiguration != nil {
             ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
                 workspaceBackToolbarButton
@@ -202,16 +304,7 @@ struct WorkspaceDetailView: View {
             }
         }
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
-            workspaceTitleToolbarMenu
-        }
-        if let selectedTerminalID,
-           store.isAlternateScreen(surfaceID: selectedTerminalID),
-           displaySettings.showAltScreenNotice {
-            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
-                AltScreenNoticeButton {
-                    displaySettings.showAltScreenNotice = false
-                }
-            }
+            workspaceTitleToolbarMenu(mode: mode)
         }
         if workspaceChangesAreAvailable {
             ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
@@ -225,17 +318,35 @@ struct WorkspaceDetailView: View {
                 .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
             }
         }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
+        switch mode {
+        case .terminal:
+            ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+                workspaceToolbarTrailingContent
+            }
+        case .paneMap:
+            ToolbarItem(id: "pane-map-refresh", placement: .topBarTrailing) {
+                PaneMapRefreshToolbarButton(
+                    isRefreshing: isPaneMapRefreshing,
+                    refresh: refreshPaneMapFromToolbar
+                )
+            }
+            ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+                PaneMapDoneToolbarButton(done: returnToTerminalFromPaneMap)
+            }
         }
     }
 
-    private var workspaceTitleToolbarMenu: some View {
+    private func workspaceTitleToolbarMenu(
+        mode: WorkspaceDetailToolbarMode
+    ) -> some View {
         let value = WorkspaceTitleMenuValue(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
             hasTrailingCluster: true,
+            // Reserve the same leading-title geometry in both endpoints even
+            // though the chat control itself only appears in terminal mode.
             hasChatToggle: shouldShowChatToggle,
+            reservesPaneMapControls: workspace.layout != nil,
             isEnabled: hasTitleMenuActions,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
@@ -243,7 +354,7 @@ struct WorkspaceDetailView: View {
             canRenameWorkspace: renameWorkspace != nil,
             canToggleReadState: setWorkspaceUnread != nil,
             canCloseWorkspace: closeWorkspace != nil,
-            labelToken: toolbarTitleLabelToken,
+            labelToken: toolbarTitleLabelToken(mode: mode),
             terminalTheme: store.activeTerminalTheme
         )
         return WorkspaceTitleMenu(
@@ -293,8 +404,21 @@ struct WorkspaceDetailView: View {
         .equatable()
     }
 
-    private var toolbarTitleLabelToken: WorkspaceTitleMenuLabelToken {
-        if isChatMode,
+    private func toolbarTitleLabelToken(
+        mode: WorkspaceDetailToolbarMode
+    ) -> WorkspaceTitleMenuLabelToken {
+        if mode == .paneMap,
+           let layout = workspace.layout {
+            let paneMapValue = PaneMapValue(
+                layout: layout,
+                phoneSelectedSurfaceID: selectedTerminal?.id.rawValue,
+                agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds
+            )
+            return .standard(
+                title: workspace.name,
+                subtitle: paneMapValue.countSubtitle
+            )
+        } else if isChatMode,
            let session = chosenChatSession,
            let conversation = chatConversationStores[session.id] {
             return .chat(
@@ -310,6 +434,21 @@ struct WorkspaceDetailView: View {
             return .browser(title: browser.title ?? workspace.name)
         } else {
             return .standard(title: workspace.name, subtitle: selectedToolbarSubtitle)
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceToolbarTrailingContent: some View {
+        HStack(spacing: 8) {
+            if let selectedTerminalID,
+               store.isAlternateScreen(surfaceID: selectedTerminalID),
+               displaySettings.showAltScreenNotice {
+                AltScreenNoticeButton {
+                    displaySettings.showAltScreenNotice = false
+                }
+                .frame(width: 44, height: 44)
+            }
+            toolbarTrailingCluster
         }
     }
     #endif
@@ -559,7 +698,6 @@ struct WorkspaceDetailView: View {
     @ViewBuilder
     private var terminalToolbarButtons: some View {
         newWorkspaceToolbarButton
-        terminalPickerToolbarButton
     }
 
     #if os(iOS)
@@ -587,41 +725,105 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
 
-    // Native menu keeps press-drag-release selection and routes through
-    // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
-    var terminalPickerToolbarButton: some View {
-        TerminalPickerMenu(
-            value: TerminalPickerMenuValue(
-                liveTerminals: workspace.terminals,
-                snapshotRows: terminalPickerRows,
-                selectedID: store.selectedTerminalID,
-                canCreateWorkspace: canCreateWorkspace,
-                hasActiveBrowser: activeBrowser != nil,
-                isChatMode: isChatMode,
-                browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
-                supportsBrowserStream: store.supportsBrowserStream,
-                activeBrowserStreamPanelID: activeBrowserStream?.id
-            ),
-            actions: TerminalPickerMenuActions(
-                selectTerminal: selectTerminalFromPicker,
-                createWorkspace: createWorkspaceFromToolbar,
-                createTerminal: createTerminalFromToolbar,
-                openBrowser: openBrowserFromToolbar,
-                selectBrowserStream: selectBrowserStreamFromToolbar,
-                openTextSheet: openTextSheetFromMenu,
-                copyDebugLogs: {
-                    #if DEBUG
-                    copyDebugLogsFromMenu()
-                    #endif
-                },
-                sendFeedback: openFeedbackComposerFromMenu
-            ),
-            terminalTheme: store.activeTerminalTheme
+    var workspaceUtilitiesToolbarButton: some View {
+        WorkspaceUtilitiesMenu(
+            showsViewAsText: activeBrowser == nil && activeBrowserStream == nil && !isChatMode,
+            showsPaneMap: workspace.layout != nil,
+            browserStreamRows: browserStreamStore
+                .panels(in: workspace.rpcWorkspaceID.rawValue)
+                .map(BrowserStreamPickerRow.init),
+            supportsBrowserStream: store.supportsBrowserStream,
+            activeBrowserStreamPanelID: activeBrowserStream?.id,
+            terminalTheme: store.activeTerminalTheme,
+            selectBrowserStream: selectBrowserStreamFromToolbar,
+            presentPaneMap: presentPaneMap,
+            openTextSheet: openTextSheetFromMenu,
+            copyDebugLogs: {
+                #if DEBUG
+                copyDebugLogsFromMenu()
+                #endif
+            },
+            sendFeedback: openFeedbackComposerFromMenu
         )
-        .equatable()
-        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
-        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
+    }
+
+    private var surfaceDeckValue: SurfaceDeckValue {
+        SurfaceDeckValue(
+            workspace: workspace,
+            selectedSurfaceID: selectedTerminal?.id.rawValue,
+            agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds,
+            canCreateWorkspace: canCreateWorkspace
+        )
+    }
+
+    private var surfaceDeckActions: SurfaceDeckActions {
+        SurfaceDeckActions(
+            selectTerminal: selectTerminalFromDeck,
+            presentPaneMap: presentPaneMap,
+            createTerminal: createTerminalFromToolbar,
+            openBrowser: openBrowserFromToolbar,
+            createWorkspace: createWorkspaceFromToolbar
+        )
+    }
+
+    private var surfaceDeckAgentStateKinds: [String: ChatAgentStateKind] {
+        var result: [String: ChatAgentStateKind] = [:]
+        for session in store.cachedChatSessions(workspaceID: workspace.id.rawValue) {
+            guard let terminalID = session.terminalID else { continue }
+            switch session.state {
+            case .working:
+                result[terminalID] = .working
+            case .needsInput:
+                result[terminalID] = .needsInput
+            case .idle, .ended:
+                break
+            }
+        }
+        return result
+    }
+
+    private func presentPaneMap() {
+        guard workspace.layout != nil else { return }
+        paneZoomPresentation.presentPaneMap(
+            from: selectedTerminal?.id.rawValue
+        )
+    }
+
+    private func presentTerminalFromPaneMap(_ terminalID: MobileTerminalPreview.ID) {
+        paneZoomPresentation.presentTerminal(surfaceID: terminalID.rawValue)
+        selectTerminalFromDeck(terminalID)
+    }
+
+    private func returnToTerminalFromPaneMap() {
+        guard !paneZoomSourceSurfaceID.isEmpty else { return }
+        paneZoomPresentation.presentTerminal(surfaceID: paneZoomSourceSurfaceID)
+    }
+
+    private func refreshPaneMapFromToolbar() {
+        paneMapRefreshTrigger &+= 1
+    }
+
+    @MainActor
+    private func reorderPanesFromMap(
+        _ orderedPaneIDs: [String],
+        baseLayoutRevision: Int
+    ) async -> Bool {
+        let result = await store.reorderWorkspacePanes(
+            id: workspace.id,
+            orderedPaneIDs: orderedPaneIDs,
+            baseLayoutRevision: baseLayoutRevision
+        )
+        guard case .success = result else {
+            toasts.present(.failure(
+                L10n.string(
+                    "mobile.paneMap.reorderFailed",
+                    defaultValue: "Couldn’t rearrange panes on your Mac."
+                ),
+                coalescingKey: "pane-map.reorder-failed"
+            ))
+            return false
+        }
+        return true
     }
 
     #if canImport(UIKit)
@@ -809,7 +1011,7 @@ struct WorkspaceDetailView: View {
         closeWorkspace?(workspace.id)
     }
 
-    /// Toggle the current workspace's read state from the picker menu.
+    /// Toggle the current workspace's read state from the title menu.
     private func toggleWorkspaceReadStateFromMenu() {
         let id = workspace.id
         let markUnread = !workspace.hasUnread
@@ -853,7 +1055,7 @@ struct WorkspaceDetailView: View {
         dismissTerminalKeyboardForChrome()
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
-        // non-nil; the picker shows a check next to "New Browser" while it is up.
+        // non-nil.
         browserStore.openBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
     }
@@ -874,13 +1076,13 @@ struct WorkspaceDetailView: View {
         Task { await store.stopMobileBrowserStream(panelID: stream.id) }
     }
 
-    private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
+    private func selectTerminalFromDeck(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
-        // Switching from the picker is chrome, not a typing intent, so the
+        // Switching from the deck is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
         // already selected). A push-notification deep link uses the plain

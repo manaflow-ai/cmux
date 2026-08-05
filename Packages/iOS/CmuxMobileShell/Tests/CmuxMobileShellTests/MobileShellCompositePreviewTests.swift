@@ -128,6 +128,103 @@ import Testing
         #expect(refreshed.terminals.last?.viewportFit == nil)
     }
 
+    @Test func openingWorkspacePrefersFocusedPaneSelectedTerminalOverStaleSelection() async {
+        let store = MobileShellComposite.preview()
+        let workspace = MobileWorkspacePreview(
+            id: "workspace-panes",
+            name: "Panes",
+            terminals: [
+                MobileTerminalPreview(id: "terminal-stale", name: "stale", isReady: true),
+                MobileTerminalPreview(id: "terminal-focused", name: "focused", isReady: true),
+            ],
+            layout: MobilePaneLayout(
+                version: 1,
+                focusedPaneID: "pane-focused",
+                root: .pane(MobilePaneNode(
+                    id: "pane-focused",
+                    selectedSurfaceID: "terminal-focused",
+                    surfaces: [
+                        MobilePaneSurface(id: "terminal-stale", type: .terminal, title: "stale"),
+                        MobilePaneSurface(id: "terminal-focused", type: .terminal, title: "focused"),
+                    ]
+                ))
+            )
+        )
+        store.replaceForegroundWorkspaceState([workspace])
+        store.selectedWorkspaceID = workspace.id
+        store.selectedTerminalID = "terminal-stale"
+
+        await store.openWorkspace(workspace.id)
+
+        #expect(store.selectedTerminalID?.rawValue == "terminal-focused")
+    }
+
+    @Test func openingWorkspacePrefersReadyTerminalOverUnreadyFocusedPaneSelection() async {
+        let store = MobileShellComposite.preview()
+        let workspace = MobileWorkspacePreview(
+            id: "workspace-panes",
+            name: "Panes",
+            terminals: [
+                MobileTerminalPreview(id: "terminal-ready", name: "ready", isReady: true),
+                MobileTerminalPreview(id: "terminal-sleeping", name: "sleeping", isReady: false),
+            ],
+            layout: MobilePaneLayout(
+                version: 1,
+                focusedPaneID: "pane-focused",
+                root: .pane(MobilePaneNode(
+                    id: "pane-focused",
+                    selectedSurfaceID: "terminal-sleeping",
+                    surfaces: [
+                        MobilePaneSurface(id: "terminal-ready", type: .terminal, title: "ready"),
+                        MobilePaneSurface(id: "terminal-sleeping", type: .terminal, title: "sleeping"),
+                    ]
+                ))
+            )
+        )
+        store.replaceForegroundWorkspaceState([workspace])
+        store.selectedWorkspaceID = workspace.id
+        store.selectedTerminalID = nil
+
+        await store.openWorkspace(workspace.id)
+
+        // The focused pane's selection is hibernated while a sibling terminal
+        // in the same pane can render; entry must land on the renderable one.
+        #expect(store.selectedTerminalID?.rawValue == "terminal-ready")
+    }
+
+    @Test func openingWorkspaceKeepsUnreadyFocusedPaneTerminalWhenNothingIsReady() async {
+        let store = MobileShellComposite.preview()
+        let workspace = MobileWorkspacePreview(
+            id: "workspace-panes",
+            name: "Panes",
+            terminals: [
+                MobileTerminalPreview(id: "terminal-a", name: "a", isReady: false),
+                MobileTerminalPreview(id: "terminal-b", name: "b", isReady: false),
+            ],
+            layout: MobilePaneLayout(
+                version: 1,
+                focusedPaneID: "pane-focused",
+                root: .pane(MobilePaneNode(
+                    id: "pane-focused",
+                    selectedSurfaceID: "terminal-b",
+                    surfaces: [
+                        MobilePaneSurface(id: "terminal-a", type: .terminal, title: "a"),
+                        MobilePaneSurface(id: "terminal-b", type: .terminal, title: "b"),
+                    ]
+                ))
+            )
+        )
+        store.replaceForegroundWorkspaceState([workspace])
+        store.selectedWorkspaceID = workspace.id
+        store.selectedTerminalID = nil
+
+        await store.openWorkspace(workspace.id)
+
+        // Nothing can render yet, so the focused pane's selection is still the
+        // right context to restore once its surface wakes.
+        #expect(store.selectedTerminalID?.rawValue == "terminal-b")
+    }
+
     @Test func remoteRefreshMissingGroupFieldPreservesGroupHeaders() throws {
         let store = groupedForegroundStore()
         let response = try MobileSyncWorkspaceListResponse.decode(Data(#"""

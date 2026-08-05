@@ -28,6 +28,61 @@ extension MobileTerminalRenderGridFrame.RowSpan {
     var gridCellWidth: Int {
         cellWidth ?? max(1, text.renderGridEstimatedCellWidth)
     }
+
+    /// Resolves each grapheme to the producer-reported width of this span.
+    ///
+    /// Unicode's ambiguous-width characters can occupy one or two terminal
+    /// cells depending on the producer. The aggregate ``cellWidth`` is the
+    /// authority; this method distributes that width only when the mapping is
+    /// unambiguous enough to preserve every grapheme's producer column.
+    var resolvedCharacterCellWidths: [Int]? {
+        guard !text.isEmpty, gridCellWidth > 0 else { return nil }
+        var widths: [Int] = []
+        var expandable: [Bool] = []
+        var hasUntrustedExpansionCandidate = false
+        widths.reserveCapacity(text.count)
+        expandable.reserveCapacity(text.count)
+        for character in text {
+            let width = character.renderGridEstimatedCellWidth
+            let canExpand = character.canExpandForAmbiguousRenderGridWidth
+            widths.append(width)
+            expandable.append(canExpand)
+            if width == 1,
+               !canExpand,
+               character.unicodeScalars.contains(where: {
+                   $0.value > 0x7F
+                       && !$0.isRenderGridZeroWidthScalar
+               }) {
+                hasUntrustedExpansionCandidate = true
+            }
+        }
+        let total = widths.reduce(0, +)
+        if total < gridCellWidth {
+            guard !hasUntrustedExpansionCandidate else {
+                return nil
+            }
+            let expansionCandidates = widths.indices.filter {
+                widths[$0] < 2 && expandable[$0]
+            }
+            let remaining = gridCellWidth - total
+            guard remaining == expansionCandidates.count else {
+                return nil
+            }
+            for index in expansionCandidates {
+                widths[index] += 1
+            }
+        } else if total > gridCellWidth {
+            let contractionCandidates = widths.indices.filter { widths[$0] > 1 }
+            let excess = total - gridCellWidth
+            guard excess == contractionCandidates.count else {
+                return nil
+            }
+            for index in contractionCandidates {
+                widths[index] -= 1
+            }
+        }
+        return widths
+    }
 }
 
 extension Character {

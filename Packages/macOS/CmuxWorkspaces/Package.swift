@@ -14,6 +14,8 @@ let package = Package(
         ),
     ],
     dependencies: [
+        // Shared mobile pane-layout DTOs are consumed by both the Mac host and iOS.
+        .package(path: "../../Shared/CMUXMobileCore"),
         // WorkspaceGroupNewPlacement (the typed setting value for new
         // in-group workspace placement) is owned by CmuxSettings.
         .package(path: "../CmuxSettings"),
@@ -28,6 +30,7 @@ let package = Package(
         .target(
             name: "CmuxWorkspaces",
             dependencies: [
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
@@ -43,6 +46,7 @@ let package = Package(
             name: "CmuxWorkspacesTests",
             dependencies: [
                 "CmuxWorkspaces",
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
             ],

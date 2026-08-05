@@ -21,10 +21,6 @@ private final class FakeTree: WorkspaceSurfaceTreeReading {
     var registry: Set<UUID> = []
     var firstSidebarOrderedPanelId: UUID?
 
-    var lastOrderedPanelIds: [UUID] = []
-    private(set) var bumpCount = 0
-    func bumpPaneLayoutVersion() { bumpCount &+= 1 }
-
     var surfaceIdsInTabOrderAcrossAllPanes: [UUID] {
         panes.flatMap(\.surfaceIds)
     }
@@ -181,36 +177,10 @@ private final class FakeTree: WorkspaceSurfaceTreeReading {
         #expect(model.surfaceIdsToRight(of: c, inPaneId: pane) == [])
     }
 
-    @Test func registerGeometryChangeBumpsOnlyOnReorder() {
-        let (model, tree) = make()
-        let s1 = UUID(), s2 = UUID()
-        let p1 = UUID(), p2 = UUID()
-        let pane = UUID()
-        tree.panes = [.init(id: pane, surfaceIds: [s1, s2], selectedIndex: 0)]
-        tree.surfaceToPanel = [s1: p1, s2: p2]
-        tree.registry = [p1, p2]
-
-        // First call: order changed from empty -> bump.
-        #expect(model.registerGeometryChange() == true)
-        #expect(tree.bumpCount == 1)
-        #expect(tree.lastOrderedPanelIds == [p1, p2])
-
-        // No change -> no bump.
-        #expect(model.registerGeometryChange() == false)
-        #expect(tree.bumpCount == 1)
-
-        // Reorder -> bump.
-        tree.panes = [.init(id: pane, surfaceIds: [s2, s1], selectedIndex: 0)]
-        #expect(model.registerGeometryChange() == true)
-        #expect(tree.bumpCount == 2)
-        #expect(tree.lastOrderedPanelIds == [p2, p1])
-    }
-
     @Test func detachedModelReturnsEmptyDefaults() {
         let model = WorkspaceSurfaceListModel()
         #expect(model.orderedPanelIds == [])
         #expect(model.focusedPanelId == nil)
         #expect(model.representativePanelIdForWorkspaceManualUnread() == nil)
-        #expect(model.registerGeometryChange() == false)
     }
 }

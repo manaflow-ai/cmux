@@ -83,8 +83,6 @@ struct PaneTreeModelTests {
         let panelId = UUID()
         model.bindSurface(tabId, toPanelId: panelId)
         #expect(model.surfaceIdToPanelId[tabId] == panelId)
-        model.lastOrderedPanelIds = [panelId]
-        #expect(model.lastOrderedPanelIds == [panelId])
     }
 
     /// The registry queries resolve through the surface-id mapping exactly

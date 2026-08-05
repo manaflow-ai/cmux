@@ -7,13 +7,15 @@ import Testing
         _ contentWidth: CGFloat,
         hasBackButton: Bool = true,
         hasTrailingCluster: Bool = true,
-        hasChatToggle: Bool = true
+        hasChatToggle: Bool = true,
+        reservesPaneMapControls: Bool = false
     ) -> CGFloat {
         MobileLeadingToolbarTitleWidth(
             contentWidth: contentWidth,
             hasBackButton: hasBackButton,
             hasTrailingCluster: hasTrailingCluster,
-            hasChatToggle: hasChatToggle
+            hasChatToggle: hasChatToggle,
+            reservesPaneMapControls: reservesPaneMapControls
         ).cap
     }
 
@@ -58,6 +60,32 @@ import Testing
         )
 
         #expect(withoutTrailing == expected)
+    }
+
+    @Test func paneMapControlsReserveTheirRenderedWidth() {
+        let contentWidth: CGFloat = 260
+        let withoutPaneMap = cap(
+            contentWidth,
+            hasTrailingCluster: true,
+            hasChatToggle: false,
+            reservesPaneMapControls: false
+        )
+        let withPaneMap = cap(
+            contentWidth,
+            hasTrailingCluster: true,
+            hasChatToggle: false,
+            reservesPaneMapControls: true
+        )
+        let expected = min(
+            MobileLeadingToolbarTitleWidth.maximumMeasuredCap,
+            contentWidth
+            - MobileLeadingToolbarTitleWidth.backButtonReserve
+            - PaneMapToolbarMetrics.trailingClusterWidth
+            - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
+        )
+
+        #expect(withPaneMap == expected)
+        #expect(withPaneMap < withoutPaneMap)
     }
 
     @Test func measuredWidthDoesNotExpandPastInitialFallback() {

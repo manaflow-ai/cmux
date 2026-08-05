@@ -235,6 +235,7 @@ struct WorkspaceShellView: View {
                 workspaceTabContent(
                     canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                 )
+                .toolbarVisibility(primaryTabBarVisibility, for: .tabBar)
             } notifications: {
                 NavigationStack(path: $notificationNavigationPath) {
                     NotificationFeedStoreView(
@@ -277,6 +278,7 @@ struct WorkspaceShellView: View {
                     projection: notificationFeedProjection
                 )
             }
+            .toolbarVisibility(primaryTabBarVisibility, for: .tabBar)
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
             .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
@@ -415,6 +417,15 @@ struct WorkspaceShellView: View {
             }
         }
     }
+
+    #if os(iOS)
+    private var primaryTabBarVisibility: Visibility {
+        let workspaceIsPushed = usesCompactStack && !compactNavigationPath.isEmpty
+        let notificationRouteIsPushed = !notificationNavigationPath.isEmpty
+            || !notificationSearchNavigationPath.isEmpty
+        return workspaceIsPushed || notificationRouteIsPushed ? .hidden : .automatic
+    }
+    #endif
 
     private func layoutContent(canCreateWorkspaceForSelection: Bool) -> some View {
         Group {

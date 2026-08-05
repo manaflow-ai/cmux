@@ -22,6 +22,7 @@ actor LivenessHostRouter {
         var method: String?
         var topics: [String]?
         var workspaceID: String?
+        var surfaceID: String?
         var streamID: String?
         var groupID: String?
         var action: String?
@@ -82,6 +83,7 @@ actor LivenessHostRouter {
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
     private var workspaceListTitles: [String] = []
+    private var paneReorderResult: [String: Any]?
     /// FIFO of scripted `mobile.sync.fetch` results (state sync v2 tests).
     private var syncFetchResults: [[String: Any]] = []
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
@@ -115,6 +117,7 @@ actor LivenessHostRouter {
         method: String?,
         topics: [String]?,
         workspaceID: String? = nil,
+        surfaceID: String? = nil,
         streamID: String? = nil,
         groupID: String? = nil,
         action: String? = nil,
@@ -126,6 +129,7 @@ actor LivenessHostRouter {
             method: method,
             topics: topics,
             workspaceID: workspaceID,
+            surfaceID: surfaceID,
             streamID: streamID,
             groupID: groupID,
             action: action,
@@ -237,6 +241,12 @@ actor LivenessHostRouter {
         recorded.filter { $0.method == method }.map(\.workspaceID)
     }
 
+    func surfaceIDs(for method: String) -> [String] {
+        recorded
+            .filter { $0.method == method }
+            .compactMap(\.surfaceID)
+    }
+
     func streamIDs(for method: String) -> [String?] {
         recorded.filter { $0.method == method }.map(\.streamID)
     }
@@ -269,6 +279,11 @@ actor LivenessHostRouter {
 
     func setWorkspaceListResponseHook(_ hook: @escaping @Sendable () -> Void) {
         workspaceListResponseHook = hook
+    }
+
+    func scriptPaneReorderResult(jsonData: Data) {
+        paneReorderResult = try? JSONSerialization.jsonObject(with: jsonData)
+            as? [String: Any]
     }
 
     func enqueueReplayTexts(_ texts: [String]) {
@@ -502,6 +517,14 @@ actor LivenessHostRouter {
                     ],
                 ],
             ])
+        case "workspace.pane.reorder":
+            guard let paneReorderResult else {
+                return try? Self.errorFrame(
+                    id: id,
+                    message: "unscripted pane reorder"
+                )
+            }
+            return try? Self.resultFrame(id: id, result: paneReorderResult)
         case "mobile.host.status":
             hostStatusRequestCount += 1
             if heldHostStatusRequestNumbers.contains(hostStatusRequestCount) {
@@ -799,6 +822,7 @@ actor LivenessTransport: CmxByteTransport {
                 method: method,
                 topics: topics,
                 workspaceID: params?["workspace_id"] as? String,
+                surfaceID: params?["surface_id"] as? String,
                 streamID: streamID,
                 groupID: params?["group_id"] as? String,
                 action: params?["action"] as? String,

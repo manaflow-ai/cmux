@@ -104,6 +104,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let sortIndex: Int
     /// Terminal rows belonging to this workspace, in spatial order.
     public let terminals: [Terminal]
+    /// The workspace's complete pane layout, when the Mac supports pane sync.
+    public let layout: MobileWorkspaceLayout?
 
     /// ``MobileSyncRecord`` identity: the workspace id.
     public var syncID: String { id }
@@ -127,7 +129,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         lastActivityAt: Double,
         hasUnread: Bool,
         sortIndex: Int,
-        terminals: [Terminal]
+        terminals: [Terminal],
+        layout: MobileWorkspaceLayout? = nil
     ) {
         self.id = id
         self.windowID = windowID
@@ -145,6 +148,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.hasUnread = hasUnread
         self.sortIndex = sortIndex
         self.terminals = terminals
+        self.layout = layout
     }
 
     public init(from decoder: any Decoder) throws {
@@ -168,6 +172,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         hasUnread = try container.decode(Bool.self, forKey: .hasUnread)
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
         terminals = try container.decode([Terminal].self, forKey: .terminals)
+        layout = try container.decodeIfPresent(MobileWorkspaceLayout.self, forKey: .layout)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -187,6 +192,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case hasUnread = "has_unread"
         case sortIndex = "sort_index"
         case terminals
+        case layout
     }
 }
 

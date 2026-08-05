@@ -35,7 +35,8 @@ extension MobileShellComposite {
             supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1"),
             supportsMoveActions: supportedHostCapabilities.contains("workspace.move.v1") && allowsMacScopedMutations,
             supportsGroupActions: supportedHostCapabilities.contains("workspace.group_actions.v1") && allowsMacScopedMutations,
-            supportsGroupCreate: supportedHostCapabilities.contains("workspace.group_create.v1") && allowsMacScopedMutations
+            supportsGroupCreate: supportedHostCapabilities.contains("workspace.group_create.v1") && allowsMacScopedMutations,
+            supportsPaneReorder: supportedHostCapabilities.contains(Self.workspacePaneReorderCapability)
         )
     }
 

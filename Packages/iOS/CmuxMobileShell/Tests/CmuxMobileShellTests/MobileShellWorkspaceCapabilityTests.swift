@@ -48,6 +48,7 @@ import Testing
         #expect(!oldMac.store.supportsWorkspaceMetadata)
         #expect(!oldMac.store.supportsWorkspaceReadStateActions && !oldMac.store.supportsWorkspaceCloseActions)
         #expect(!oldMac.store.supportsWorkspaceMoveActions && !oldMac.store.supportsWorkspaceGroupActions)
+        #expect(!oldMac.store.supportsWorkspacePaneReorder)
         #expect(!oldMac.store.supportsWorkspaceCreateInGroup)
         #expect(!oldMac.store.supportsWorkspaceGroupCreate)
 
@@ -69,6 +70,7 @@ import Testing
             "workspace.read_state.v1",
             "workspace.close.v1",
             "workspace.move.v1",
+            "workspace.pane_reorder.v1",
             "workspace.group_actions.v1",
             "workspace.create_in_group.v1",
             "workspace.group_create.v1",
@@ -78,6 +80,7 @@ import Testing
         #expect(scoped.store.workspaces.first?.actionCapabilities.supportsWorkspaceMetadata == true)
         #expect(scoped.store.supportsWorkspaceReadStateActions && scoped.store.supportsWorkspaceCloseActions)
         #expect(!scoped.store.supportsWorkspaceMoveActions && !scoped.store.supportsWorkspaceGroupActions)
+        #expect(scoped.store.supportsWorkspacePaneReorder)
         #expect(!scoped.store.supportsWorkspaceCreateInGroup)
         #expect(!scoped.store.supportsWorkspaceGroupCreate)
 
@@ -87,6 +90,7 @@ import Testing
             ticketTerminalID: nil
         )
         #expect(macWide.store.supportsWorkspaceMoveActions && macWide.store.supportsWorkspaceGroupActions)
+        #expect(macWide.store.supportsWorkspacePaneReorder)
         #expect(macWide.store.supportsWorkspaceCreateInGroup)
         #expect(macWide.store.supportsWorkspaceGroupCreate)
     }
@@ -252,6 +256,157 @@ import Testing
         #expect(store.supportsWorkspaceGroupCreate)
         _ = await store.moveWorkspace(id: workspaceID, toGroup: nil, before: nil)
         #expect(await router.count(of: "workspace.move") == 1)
+    }
+
+    @Test func paneReorderAppliesTheRPCsAuthoritativeLayoutBeforeReturning() async throws {
+        let connected = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.pane_reorder.v1",
+        ])
+        let store = connected.store
+        let router = connected.router
+        await router.scriptPaneReorderResult(jsonData: Data(#"""
+        {
+          "workspaces": [{
+            "id": "live-workspace",
+            "title": "Live Workspace",
+            "is_selected": true,
+            "terminals": [
+              {"id": "terminal-a", "title": "A", "is_focused": false},
+              {"id": "terminal-b", "title": "B", "is_focused": true}
+            ],
+            "layout": {
+              "version": 2,
+              "focused_pane_id": "pane-left",
+              "root": {
+                "kind": "split",
+                "id": "split-root",
+                "orientation": "horizontal",
+                "ratio": 0.5,
+                "first": {
+                  "kind": "pane",
+                  "id": "pane-left",
+                  "selected_surface_id": "terminal-b",
+                  "surfaces": [
+                    {"id": "terminal-b", "type": "terminal", "title": "B"}
+                  ]
+                },
+                "second": {
+                  "kind": "pane",
+                  "id": "pane-right",
+                  "selected_surface_id": "terminal-a",
+                  "surfaces": [
+                    {"id": "terminal-a", "type": "terminal", "title": "A"}
+                  ]
+                }
+              }
+            }
+          }],
+          "groups": []
+        }
+        """#.utf8))
+        let workspaceID = try #require(store.workspaces.first?.id)
+        let workspaceListRequestsBefore = await router.count(of: "workspace.list")
+
+        guard case .success = await store.reorderWorkspacePanes(
+            id: workspaceID,
+            orderedPaneIDs: ["pane-right", "pane-left"]
+        ) else {
+            return #expect(Bool(false), "pane reorder should accept the authoritative response")
+        }
+
+        let layout = try #require(store.workspaces.first?.layout)
+        #expect(layout.version == 2)
+        #expect(layout.orderedPanes.map(\.id) == ["pane-left", "pane-right"])
+        #expect(layout.orderedPanes.map(\.selectedSurfaceID) == ["terminal-b", "terminal-a"])
+        #expect(await router.count(of: "workspace.list") == workspaceListRequestsBefore)
+        await store.remoteClient?.disconnect()
+    }
+
+    @Test func inFlightWorkspaceListCannotOverwriteReorderAuthoritativeLayout() async throws {
+        let connected = try await connectedStore(capabilities: [
+            "events.v1",
+            "terminal.render_grid.v1",
+            "terminal.replay.v1",
+            "workspace.pane_reorder.v1",
+        ])
+        let store = connected.store
+        let router = connected.router
+        await router.scriptPaneReorderResult(jsonData: Data(#"""
+        {
+          "workspaces": [{
+            "id": "live-workspace",
+            "title": "Live Workspace",
+            "is_selected": true,
+            "terminals": [
+              {"id": "terminal-a", "title": "A", "is_focused": false},
+              {"id": "terminal-b", "title": "B", "is_focused": true}
+            ],
+            "layout": {
+              "version": 2,
+              "focused_pane_id": "pane-left",
+              "root": {
+                "kind": "split",
+                "id": "split-root",
+                "orientation": "horizontal",
+                "ratio": 0.5,
+                "first": {
+                  "kind": "pane",
+                  "id": "pane-left",
+                  "selected_surface_id": "terminal-b",
+                  "surfaces": [
+                    {"id": "terminal-b", "type": "terminal", "title": "B"}
+                  ]
+                },
+                "second": {
+                  "kind": "pane",
+                  "id": "pane-right",
+                  "selected_surface_id": "terminal-a",
+                  "surfaces": [
+                    {"id": "terminal-a", "type": "terminal", "title": "A"}
+                  ]
+                }
+              }
+            }
+          }],
+          "groups": []
+        }
+        """#.utf8))
+        let workspaceID = try #require(store.workspaces.first?.id)
+
+        // A legacy full-list fetch is already in flight (its response held)
+        // when the reorder returns its authoritative layout. The held response
+        // captured the pre-reorder state and must be dropped on arrival.
+        await router.holdNextWorkspaceListRequests()
+        let staleReload = Task { @MainActor in
+            await store.reloadWorkspaceListFromMac()
+        }
+        let listRequestStarted = await router.waitForCount(
+            of: "mobile.workspace.list",
+            atLeast: 1,
+            recordIssueOnTimeout: false
+        )
+        #expect(listRequestStarted)
+
+        guard case .success = await store.reorderWorkspacePanes(
+            id: workspaceID,
+            orderedPaneIDs: ["pane-right", "pane-left"]
+        ) else {
+            return #expect(Bool(false), "pane reorder should accept the authoritative response")
+        }
+
+        await router.releaseAllHeld()
+        _ = await staleReload.value
+
+        // The reorder's authoritative layout survives; the stale pre-mutation
+        // snapshot did not roll it back.
+        let layout = try #require(store.workspaces.first?.layout)
+        #expect(layout.version == 2)
+        #expect(layout.orderedPanes.map(\.id) == ["pane-left", "pane-right"])
+        #expect(layout.orderedPanes.map(\.selectedSurfaceID) == ["terminal-b", "terminal-a"])
+        await store.remoteClient?.disconnect()
     }
 
     private func connectedStore(

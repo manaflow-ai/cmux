@@ -93,6 +93,8 @@ extension MobileHostService {
             // workspace.group.collapse/expand from mobile. iOS feature-detects
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
+            "workspace.layout.v1",
+            "workspace.pane_reorder.v1",
         ]
         if !includingWorkspaceChanges {
             capabilities.removeAll { $0 == Self.workspaceChangesCapability }

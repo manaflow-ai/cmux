@@ -9,7 +9,8 @@ struct MobileStateSyncStoreTests {
         title: String = "ws",
         preview: String? = nil,
         hasUnread: Bool = false,
-        sortIndex: Int = 0
+        sortIndex: Int = 0,
+        layout: MobileWorkspaceLayout? = nil
     ) -> WorkspaceSyncRecord {
         WorkspaceSyncRecord(
             id: id,
@@ -32,7 +33,25 @@ struct MobileStateSyncStoreTests {
                     isReady: true,
                     isFocused: true
                 )
-            ]
+            ],
+            layout: layout
+        )
+    }
+
+    private func paneLayout(selectedSurfaceID: String) -> MobileWorkspaceLayout {
+        MobileWorkspaceLayout(
+            version: 1,
+            focusedPaneID: "pane-1",
+            root: .pane(
+                MobileWorkspaceLayoutPane(
+                    id: "pane-1",
+                    selectedSurfaceID: selectedSurfaceID,
+                    surfaces: [
+                        MobileWorkspaceLayoutSurface(id: "surface-1", type: "terminal", title: "One"),
+                        MobileWorkspaceLayoutSurface(id: "surface-2", type: "terminal", title: "Two"),
+                    ]
+                )
+            )
         )
     }
 
@@ -64,6 +83,22 @@ struct MobileStateSyncStoreTests {
         #expect(change?.records.map(\.syncID) == ["a"])
         #expect(change?.fromRev == 1)
         #expect(change?.toRev == 2)
+    }
+
+    @Test func changedPaneSelectionTravelsInWorkspaceDelta() {
+        let store = MobileSyncCollectionStore<WorkspaceSyncRecord>()
+        _ = store.apply(rows: [
+            workspace(id: "a", layout: paneLayout(selectedSurfaceID: "surface-1")),
+            workspace(id: "b"),
+        ])
+
+        let change = store.apply(rows: [
+            workspace(id: "a", layout: paneLayout(selectedSurfaceID: "surface-2")),
+            workspace(id: "b"),
+        ])
+
+        #expect(change?.records.map(\.syncID) == ["a"])
+        #expect(change?.records.first?.layout?.root == paneLayout(selectedSurfaceID: "surface-2").root)
     }
 
     @Test func removalBecomesTombstoneAndDeltaCarriesIt() {

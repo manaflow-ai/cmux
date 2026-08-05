@@ -1,18 +1,18 @@
 public import Foundation
 
 /// The workspace-side seam the surface-list model reads through to derive its
-/// ordered panel lists and reorder-detection state.
+/// ordered panel lists.
 ///
 /// **Why a synchronous read-only protocol and not value snapshots.** Every
 /// derivation (`orderedPanelIds`, `focusedPanelId`,
-/// `representativePanelId(forWorkspaceManualUnread:)`, the reorder bump) is one
-/// MainActor turn that must observe the live `BonsplitController` split tree and
-/// the live panel registry exactly as the legacy computed properties on
-/// `Workspace` did. The split tree, pane selection, and tab order are owned by
-/// `BonsplitController`; the panel registry, `lastOrderedPanelIds`, and
-/// `paneLayoutVersion` are owned by the workspace's `PaneTreeModel`. The model
-/// reads them through this seam so it never imports `Bonsplit` and stays a pure
-/// leaf, while the values it sees are always the authoritative current state.
+/// `representativePanelId(forWorkspaceManualUnread:)`) is one MainActor turn
+/// that must observe the live `BonsplitController` split tree and the live
+/// panel registry exactly as the legacy computed properties on `Workspace`
+/// did. The split tree, pane selection, and tab order are owned by
+/// `BonsplitController`; the panel registry is owned by the workspace's
+/// `PaneTreeModel`. The model reads them through this seam so it never imports
+/// `Bonsplit` and stays a pure leaf, while the values it sees are always the
+/// authoritative current state.
 ///
 /// All identifiers are surfaced as `UUID`/`UUID` arrays: bonsplit `TabID`/
 /// `PaneID` are 1:1 with `UUID`, so the seam erases the opaque bonsplit types at
@@ -71,16 +71,4 @@ public protocol WorkspaceSurfaceTreeReading: AnyObject {
     /// directory/branch resolution owned by the workspace, so it stays
     /// host-side.
     var firstSidebarOrderedPanelId: UUID? { get }
-
-    // MARK: Reorder bookkeeping (PaneTreeModel-owned)
-
-    /// The spatially ordered panel ids captured at the last geometry
-    /// notification, used to gate reorder bumps (legacy
-    /// `Workspace.lastOrderedPanelIds`, owned by `PaneTreeModel`).
-    var lastOrderedPanelIds: [UUID] { get set }
-
-    /// Bumps the monotonic pane-layout version (legacy
-    /// `Workspace.paneLayoutVersion &+= 1`, owned by `PaneTreeModel`). Wrapping
-    /// add, matching the legacy `&+=`.
-    func bumpPaneLayoutVersion()
 }

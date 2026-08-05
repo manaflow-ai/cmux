@@ -162,6 +162,10 @@ jobs:
         run: |
           swift test --package-path Packages/iOS/CmuxMobilePairedMac
 
+      - name: Run CmuxMobileRPC package tests
+        run: |
+          swift test --package-path Packages/iOS/CmuxMobileRPC
+
       - name: Run CmuxMobileChanges package tests
         run: |
           swift test --package-path Packages/iOS/CmuxMobileChanges
