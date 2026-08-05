@@ -4867,6 +4867,66 @@ mod unix {
         }
 
         #[test]
+        fn launch_failure_is_reported_before_bootstrap_pipe_closes() {
+            let sequence = RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let terminal_id = TerminalId::random().unwrap();
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id,
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let launch = HostLaunch {
+                endpoint: format!(
+                    "/tmp/cmux-host-launch-failure-{}-{sequence}.sock",
+                    std::process::id()
+                ),
+                record_path: format!(
+                    "/tmp/cmux-host-launch-failure-{}-{sequence}.json",
+                    std::process::id()
+                ),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 1_000,
+                cwd: Some("/tmp".into()),
+                command: vec!["/definitely/missing/cmux-terminal-host-child".into()],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+            let mut input = Vec::new();
+            write_frame(&mut input, &bootstrap.into_frame(1)).unwrap();
+            let mut launch_frame = Frame::new(MessageKind::Launch, launch.encode().unwrap());
+            launch_frame.request_id = 2;
+            write_frame(&mut input, &launch_frame).unwrap();
+
+            let mut output = Vec::new();
+            let result = serve_terminal_host_stdio(
+                &["--bootstrap-stdio".to_string()],
+                &mut std::io::Cursor::new(input),
+                &mut output,
+            );
+            assert!(result.is_ok(), "host closed without reporting launch failure: {result:?}");
+
+            let mut output = std::io::Cursor::new(output);
+            let ready = read_frame(&mut output, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+            assert_eq!(ready.kind, MessageKind::Ready);
+            let failure = read_frame(&mut output, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+            assert_eq!(failure.kind as u16, 20);
+            assert_eq!(failure.request_id, 2);
+            assert!(
+                failure
+                    .payload
+                    .windows("terminal launch failed".len())
+                    .any(|window| window == b"terminal launch failed"),
+                "launch failure payload omitted the child error: {:?}",
+                failure.payload
+            );
+        }
+
+        #[test]
         fn resized_payload_is_length_prefixed_for_cross_language_clients() {
             assert_eq!(
                 encode_resize(
