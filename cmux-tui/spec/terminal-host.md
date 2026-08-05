@@ -52,6 +52,8 @@ The private bootstrap pipe uses:
 2. Host returns `Ready`, echoing the request id and creating the incarnation.
 3. Parent sends `Launch`.
 4. Host starts the PTY, publishes its discovery record, then returns `Ready`.
+   If PTY or child creation fails, it returns `LaunchFailed` with the same
+   request id and exits without publishing a discovery record.
 
 | Payload | Exact layout |
 | --- | --- |
@@ -106,6 +108,7 @@ indexes are fatal.
 | 14 | `Launch` | parent to host | private pipe | launch layout |
 | 15 | `Capability` | host to client | response | 32-byte token |
 | 16 | `ResizeAck` | host to client | response | `cols:u16, rows:u16, result_flags:u32` |
+| 20 | `LaunchFailed` | host to parent | private pipe | non-empty `string` error |
 | 100 | `Input` | client to host | `INPUT` | raw PTY bytes |
 | 101 | `Paste` | client to host | `INPUT` | raw bytes; host applies DEC 2004 wrapping |
 | 102 | `ViewerSize` | client to host | `RESIZE` | `cols:u16, rows:u16` |
