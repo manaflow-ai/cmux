@@ -95,7 +95,7 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .antigravity:
             "\(executable) --prompt-interactive \(quotedMessage)"
         case .hermesAgent:
-            "\(executable) chat --tui --query \(quotedMessage)"
+            hermesStartupCommand(executable: executable, quotedMessage: quotedMessage)
         case .copilot:
             "\(executable) --interactive \(quotedMessage)"
         case .codebuddy:
@@ -103,6 +103,27 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .factory:
             "\(executable) \(quotedMessage)"
         }
+    }
+
+    private func hermesStartupCommand(executable: String, quotedMessage: String) -> String {
+        // Hermes treats --query as one-shot even when --tui is present. Seed a
+        // persisted session quietly, recover its machine-readable ID, then
+        // replace the shell with the interactive TUI for that same session.
+        [
+            "umask 077",
+            "hermes_session_file=$(/usr/bin/mktemp -t cmux-hermes-session.XXXXXX) || exit 1",
+            "trap '/bin/unlink \"$hermes_session_file\" 2>/dev/null' EXIT",
+            "trap 'exit 130' HUP INT TERM",
+            "\(executable) chat --query \(quotedMessage) --quiet 2>\"$hermes_session_file\"",
+            "hermes_status=$?",
+            "/bin/cat \"$hermes_session_file\" >&2",
+            "hermes_session_id=$(/usr/bin/sed -n 's/^session_id:[[:space:]]*//p' \"$hermes_session_file\" | /usr/bin/tail -n 1)",
+            "/bin/unlink \"$hermes_session_file\"",
+            "trap - EXIT HUP INT TERM",
+            "if [[ $hermes_status -ne 0 ]]; then exit $hermes_status; fi",
+            "if [[ -z \"$hermes_session_id\" ]]; then exit 1; fi",
+            "exec \(executable) chat --tui --resume \"$hermes_session_id\"",
+        ].joined(separator: "; ")
     }
 
     private func startupExecutableInvocation(

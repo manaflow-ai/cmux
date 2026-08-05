@@ -21,7 +21,6 @@ nonisolated struct AgentConversationSource: Sendable {
     let transcriptPath: String?
     let registration: CmuxVaultAgentRegistration?
     let launchEnvironment: [String: String]
-    let launchCommandSource: String?
     let sessionIDProvenance: AgentSessionIDProvenance?
 
     init(snapshot: SessionRestorableAgentSnapshot) {
@@ -31,7 +30,6 @@ nonisolated struct AgentConversationSource: Sendable {
         transcriptPath = snapshot.transcriptPath
         registration = snapshot.registration
         launchEnvironment = snapshot.launchCommand?.environment ?? [:]
-        launchCommandSource = snapshot.launchCommand?.source
         sessionIDProvenance = snapshot.sessionIDProvenance
     }
 
@@ -103,12 +101,10 @@ nonisolated struct AgentConversationSource: Sendable {
 
     var openCodeDatabasePath: String? {
         guard kind == .opencode else { return nil }
-        if launchCommandSource == "process",
-           !hasCapturedEnvironmentValue(for: [
-               OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey,
-               "OPENCODE_DB",
-           ]),
-           !usesOpenCodeSharedChannelDatabase {
+        guard hasCapturedEnvironmentValue(for: [
+            OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey,
+            "OPENCODE_DB",
+        ]) || usesOpenCodeSharedChannelDatabase else {
             return nil
         }
         return OpenCodeSessionResolver(defaultHomeDirectory: NSHomeDirectory())
