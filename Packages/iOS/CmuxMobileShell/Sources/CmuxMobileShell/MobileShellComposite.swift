@@ -2310,9 +2310,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // ignores cancellation.
         let nowUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
         let absoluteDeadline = deadlineUptimeNanoseconds
-            ?? nowUptimeNanoseconds &+
-                (runtime?.reconnectAttemptDeadlineNanoseconds
-                    ?? 30_000_000_000)
+            ?? defaultRecoveryDeadlineUptimeNanoseconds()
         let deadlineNanoseconds = absoluteDeadline > nowUptimeNanoseconds
             ? absoluteDeadline - nowUptimeNanoseconds
             : 0

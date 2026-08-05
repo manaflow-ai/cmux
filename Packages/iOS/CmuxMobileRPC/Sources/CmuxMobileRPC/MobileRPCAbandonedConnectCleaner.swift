@@ -32,9 +32,14 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
         }
     }
 
+    /// The single owner of the abandoned-dial cleanup protocol: track the
+    /// late-close receipt first, then hand off physical cleanup for the
+    /// lease. Returns the route-cleanup task so callers can observe when the
+    /// physical milestone resolves.
+    @discardableResult
     func handOffLateCandidateToRegistry(
-        task: Task<any CmxByteTransport, any Error>,
-    ) async {
+        task: Task<any CmxByteTransport, any Error>
+    ) async -> Task<Void, Never> {
         let lateCleanup = Task.detached {
             do {
                 let candidate = try await task.value
@@ -48,15 +53,18 @@ struct MobileRPCAbandonedConnectCleaner: Sendable {
         // The cancellation close is the physical route milestone. The
         // cancelled connect task may ignore Swift cancellation forever, but a
         // late result is generation-rejected and closed by `lateCleanup`.
-        if let cancellationCloseTask = await cancellationClose?.task() {
-            await registry.handOffPhysicalCleanup(lease: lease) {
+        let cancellationClose = cancellationClose
+        let routeCleanup = Task {
+            if let cancellationCloseTask = await cancellationClose?.task() {
                 await cancellationCloseTask.value
-            }
-        } else {
-            await registry.handOffPhysicalCleanup(lease: lease) {
+            } else {
                 await lateCleanup.value
             }
         }
+        await registry.handOffPhysicalCleanup(lease: lease) {
+            await routeCleanup.value
+        }
+        return routeCleanup
     }
 
     func handOffCloseToRegistry(

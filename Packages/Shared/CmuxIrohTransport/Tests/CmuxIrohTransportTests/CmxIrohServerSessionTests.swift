@@ -36,12 +36,25 @@ struct CmxIrohServerSessionTests {
             await completion.complete()
         }
         await receive.waitUntilStopStarted()
-
+        // The stop gate stays held, so control-stream cleanup is provably
+        // blocked. close() completing within the bound proves the parent
+        // close acknowledgement did not wait for it.
+        try await Self.waitUntil { await completion.isComplete() }
         #expect(await connection.observedCloseCallCount() == 1)
-        #expect(await completion.isComplete())
 
         await receive.releaseStop()
         await close.value
+    }
+
+    private static func waitUntil(
+        _ condition: @escaping @Sendable () async -> Bool
+    ) async throws {
+        for _ in 0 ..< 1_000 {
+            if await condition() { return }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        struct TimedOut: Error {}
+        throw TimedOut()
     }
 
     @Test

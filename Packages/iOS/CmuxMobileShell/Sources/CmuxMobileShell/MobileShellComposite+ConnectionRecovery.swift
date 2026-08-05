@@ -201,10 +201,7 @@ extension MobileShellComposite {
             trigger: trigger.description,
             sourceConnectionGeneration: connectionGeneration,
             probing: probeCurrentConnection,
-            deadlineUptimeNanoseconds:
-                DispatchTime.now().uptimeNanoseconds &+
-                (runtime?.reconnectAttemptDeadlineNanoseconds
-                    ?? 30_000_000_000)
+            deadlineUptimeNanoseconds: defaultRecoveryDeadlineUptimeNanoseconds()
         )
         guard let attempt else { return }
         diagnosticLog?.record(DiagnosticEvent(
@@ -445,6 +442,14 @@ extension MobileShellComposite {
         guard connectionRecoveryOwner.fail(attempt) else { return false }
         recordConnectionRecoveryFailed(failure)
         return true
+    }
+
+    /// The one recovery deadline policy: now plus the runtime-configured
+    /// attempt ceiling, falling back to 30 seconds.
+    func defaultRecoveryDeadlineUptimeNanoseconds() -> UInt64 {
+        DispatchTime.now().uptimeNanoseconds &+
+            (runtime?.reconnectAttemptDeadlineNanoseconds
+                ?? 30_000_000_000)
     }
 
     private func remainingRecoveryNanoseconds(

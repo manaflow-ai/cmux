@@ -4,32 +4,19 @@ import Foundation
 extension MobileCoreRPCSession {
     func abandonConnectionTask(_ connecting: ConnectingTask) async {
         let cleanupID = UUID()
-        let lateCleanupTask = Task.detached {
-            do {
-                let candidate = try await connecting.task.value
-                await candidate.close()
-            } catch {}
-        }
-        await connectAttemptRegistry.trackPostCloseCleanup {
-            await lateCleanupTask.value
-        }
-        let routeCleanupTask = Task {
-            if let cancellationCloseTask =
-                await connecting.cancellationClose.task() {
-                await cancellationCloseTask.value
-            } else {
-                await lateCleanupTask.value
-            }
-        }
-        abandonedConnectionCleanupTasks[cleanupID] = routeCleanupTask
         // Teardown cannot return while the cancelled dial still owns the
-        // active route lease. Transfer that exact physical lifetime first;
-        // the late task result is tracked separately and consumes no admission.
-        await connectAttemptRegistry.handOffPhysicalCleanup(
-            lease: connecting.lease
-        ) {
-            await routeCleanupTask.value
-        }
+        // active route lease. The cleaner tracks the late-close receipt and
+        // transfers that exact physical lifetime; the late task result is
+        // tracked separately and consumes no admission.
+        let cleaner = MobileRPCAbandonedConnectCleaner(
+            registry: connectAttemptRegistry,
+            lease: connecting.lease,
+            cancellationClose: connecting.cancellationClose
+        )
+        let routeCleanupTask = await cleaner.handOffLateCandidateToRegistry(
+            task: connecting.task
+        )
+        abandonedConnectionCleanupTasks[cleanupID] = routeCleanupTask
         Task { [weak self] in
             await routeCleanupTask.value
             await self?.abandonedConnectionCleanupDidFinish(cleanupID)

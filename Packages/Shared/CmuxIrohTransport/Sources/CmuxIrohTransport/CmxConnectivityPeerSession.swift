@@ -223,35 +223,17 @@ actor CmxConnectivityPeerSession {
                 throw error
             }
 
-            if let installed = activeConnection {
-                if installed.id == pending.id {
-                    await pending.retirement.finish()
-                    if pendingConnection?.id == pending.id {
-                        pendingConnection = nil
-                    }
-                    guard lifecycleRevision == revision,
-                          activeConnection?.id == pending.id else {
-                        await connected.close()
-                        throw CmxConnectivityEngineError.superseded
-                    }
-                    return installed.session
-                }
-                let winner = await settleRedundantDial(
-                    connected,
-                    installedID: installed.id
-                )
-                await pending.retirement.finish()
-                if pendingConnection?.id == pending.id {
-                    pendingConnection = nil
-                }
-                guard lifecycleRevision == revision else {
-                    await connected.close()
-                    throw CmxConnectivityEngineError.superseded
-                }
-                if let winner {
-                    return winner
-                }
+            switch try await settleAgainstInstalledConnection(
+                connected,
+                pending: pending,
+                revision: revision
+            ) {
+            case .installed(let session), .redundantDialWinner(let session):
+                return session
+            case .redial:
                 continue redial
+            case nil:
+                break
             }
             let connectedWasClosed = await connected.isClosed()
             guard lifecycleRevision == revision else {
@@ -278,35 +260,17 @@ actor CmxConnectivityPeerSession {
             // caller that dialed in that window may have installed first;
             // installing over it would leak its session and double-record
             // an established lifecycle for the same peer.
-            if let installed = activeConnection {
-                if installed.id == pending.id {
-                    await pending.retirement.finish()
-                    if pendingConnection?.id == pending.id {
-                        pendingConnection = nil
-                    }
-                    guard lifecycleRevision == revision,
-                          activeConnection?.id == pending.id else {
-                        await connected.close()
-                        throw CmxConnectivityEngineError.superseded
-                    }
-                    return installed.session
-                }
-                let winner = await settleRedundantDial(
-                    connected,
-                    installedID: installed.id
-                )
-                await pending.retirement.finish()
-                if pendingConnection?.id == pending.id {
-                    pendingConnection = nil
-                }
-                guard lifecycleRevision == revision else {
-                    await connected.close()
-                    throw CmxConnectivityEngineError.superseded
-                }
-                if let winner {
-                    return winner
-                }
+            switch try await settleAgainstInstalledConnection(
+                connected,
+                pending: pending,
+                revision: revision
+            ) {
+            case .installed(let session), .redundantDialWinner(let session):
+                return session
+            case .redial:
                 continue redial
+            case nil:
+                break
             }
             guard pendingConnection?.id == pending.id else {
                 await connected.close()
@@ -434,6 +398,55 @@ actor CmxConnectivityPeerSession {
     /// replaced, or remotely closed before the close settles. Only a
     /// still-installed live winner may be handed out; a nil result means
     /// the caller must redial.
+    /// The outcomes of settling a completed dial against the currently
+    /// installed connection.
+    private enum InstalledDialSettlement {
+        case installed(any CmxConnectivitySession)
+        case redundantDialWinner(any CmxConnectivitySession)
+        case redial
+    }
+
+    /// Settles `connected` against the installed connection, re-checking
+    /// `lifecycleRevision` and the active identity after every suspension.
+    /// Returns `nil` when nothing is installed so the caller proceeds to its
+    /// own install path. Both post-dial suspension windows share this one
+    /// race protocol; keep it single-copy.
+    private func settleAgainstInstalledConnection(
+        _ connected: any CmxConnectivitySession,
+        pending: PendingConnection,
+        revision: UInt64
+    ) async throws -> InstalledDialSettlement? {
+        guard let installed = activeConnection else { return nil }
+        if installed.id == pending.id {
+            await pending.retirement.finish()
+            if pendingConnection?.id == pending.id {
+                pendingConnection = nil
+            }
+            guard lifecycleRevision == revision,
+                  activeConnection?.id == pending.id else {
+                await connected.close()
+                throw CmxConnectivityEngineError.superseded
+            }
+            return .installed(installed.session)
+        }
+        let winner = await settleRedundantDial(
+            connected,
+            installedID: installed.id
+        )
+        await pending.retirement.finish()
+        if pendingConnection?.id == pending.id {
+            pendingConnection = nil
+        }
+        guard lifecycleRevision == revision else {
+            await connected.close()
+            throw CmxConnectivityEngineError.superseded
+        }
+        if let winner {
+            return .redundantDialWinner(winner)
+        }
+        return .redial
+    }
+
     private func settleRedundantDial(
         _ connected: any CmxConnectivitySession,
         installedID: UUID
