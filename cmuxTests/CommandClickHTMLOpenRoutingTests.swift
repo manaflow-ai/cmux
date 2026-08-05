@@ -621,6 +621,127 @@ struct CommandClickHTMLOpenRoutingTests {
         webView.stopLoading()
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func fileOnlyBrowserReroutesInPageFileNavigationThroughValidator() async throws {
+        _ = NSApplication.shared
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-only-in-page-\(UUID().uuidString)", isDirectory: true)
+        let firstURL = fixtureDirectory.appendingPathComponent("first.html")
+        let secondURL = fixtureDirectory.appendingPathComponent("second.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>first file</title><a id='next' href='\(secondURL.absoluteString)'>Next</a>".write(
+            to: firstURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<!doctype html><title>validated in-page file</title>".write(
+            to: secondURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let browser = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: firstURL,
+            localFileReadAccessPolicy: .fileOnly
+        )
+        defer { browser.close() }
+
+        #expect(await waitForDocumentTitle("first file", in: browser))
+        _ = try await browser.webView.evaluateJavaScript("document.getElementById('next').click()")
+
+        #expect(await waitForDocumentTitle("validated in-page file", in: browser))
+        #expect(browser.webView.url?.standardizedFileURL == secondURL.standardizedFileURL)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func fileOnlyPopupReroutesFileNavigationThroughValidator() async throws {
+        _ = NSApplication.shared
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-only-popup-\(UUID().uuidString)", isDirectory: true)
+        let unrelatedAccessURL = fixtureDirectory.appendingPathComponent("opener.html")
+        let popupURL = fixtureDirectory.appendingPathComponent("popup.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>opener</title>".write(
+            to: unrelatedAccessURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try "<!doctype html><title>validated popup file</title>".write(
+            to: popupURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let controller = BrowserPopupWindowController(
+            configuration: WKWebViewConfiguration(),
+            windowFeatures: WKWindowFeatures(),
+            browserContext: BrowserPopupBrowserContext(
+                websiteDataStore: .nonPersistent(),
+                localFileReadAccessPolicy: .fileOnly
+            ),
+            openerPanel: nil
+        )
+        defer { controller.closePopup() }
+
+        _ = controller.webView.loadFileURL(
+            popupURL,
+            allowingReadAccessTo: unrelatedAccessURL
+        )
+
+        #expect(await waitForDocumentTitle("validated popup file", in: controller.webView))
+        #expect(controller.webView.url?.standardizedFileURL == popupURL.standardizedFileURL)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func failedFileOnlyDiscardRestoreLeavesStableRecoveryState() async throws {
+        _ = NSApplication.shared
+
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-only-discard-\(UUID().uuidString).html")
+        let browser = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false,
+            localFileReadAccessPolicy: .fileOnly
+        )
+        defer { browser.close() }
+
+        browser.restoreSessionSnapshot(SessionBrowserPanelSnapshot(
+            urlString: missingURL.absoluteString,
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1.0,
+            developerToolsVisible: false,
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: []
+        ))
+        #expect(browser.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
+        #expect(await waitForNavigationRecovery(in: browser))
+
+        let payload = browser.webViewLifecycleTopPayload()
+        #expect(payload["restore_pending"] as? Bool == false)
+        #expect((payload["discard_blockers"] as? [String])?.contains("already_discarded") == false)
+        #expect(!browser.restoreDiscardedWebViewIfNeeded(reason: "test.visibility_touch"))
+        #expect(browser.hasRecoverableNavigationFailure)
+    }
+
+    @Test
+    func fileOnlyPolicyRejectsRemoteFileAuthorities() throws {
+        let remoteFileURL = try #require(URL(string: "file://server.example/tmp/report.html"))
+        let resolvedLocalURL = URL(fileURLWithPath: "/tmp/report.html")
+
+        #expect(BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+            for: remoteFileURL,
+            resolvedFileURL: resolvedLocalURL
+        ) == nil)
+        #expect(BrowserLocalFileReadAccessPolicy.fileOnly.readAccessURL(for: remoteFileURL) == nil)
+    }
+
     @Test
     func resolvedSupportedFileRouteDoesNotRevalidateTheCandidate() throws {
         _ = NSApplication.shared
@@ -1516,8 +1637,12 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     private func waitForDocumentTitle(_ expectedTitle: String, in browser: BrowserPanel) async -> Bool {
+        await waitForDocumentTitle(expectedTitle, in: browser.webView)
+    }
+
+    private func waitForDocumentTitle(_ expectedTitle: String, in webView: WKWebView) async -> Bool {
         for _ in 0..<100 {
-            if let result = try? await browser.webView.evaluateJavaScript("document.title"),
+            if let result = try? await webView.evaluateJavaScript("document.title"),
                result as? String == expectedTitle {
                 return true
             }
