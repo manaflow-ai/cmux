@@ -7,7 +7,7 @@ import XCTest
 @testable import cmux
 #endif
 
-/// Covers the `comments.list` reply shape: which comments a caller sees by
+/// Covers the `comments.list` reply shape built by `DiffCommentPayload`: which comments a caller sees by
 /// default, and how a delivered comment is reported.
 final class CommentsListPayloadTests: XCTestCase {
     private func makeComment(
@@ -32,7 +32,7 @@ final class CommentsListPayloadTests: XCTestCase {
     }
 
     func testDefaultListingOmitsConsumedComments() {
-        let payload = TerminalController.commentsListPayload(
+        let payload = DiffCommentPayload.list(
             comments: [
                 makeComment(message: "still open"),
                 makeComment(message: "already delivered", startLine: 20, consumedAt: Date(timeIntervalSince1970: 2_000)),
@@ -51,7 +51,7 @@ final class CommentsListPayloadTests: XCTestCase {
 
     func testIncludeConsumedListsDeliveredCommentsWithTimestamp() {
         let consumedAt = Date(timeIntervalSince1970: 2_000)
-        let payload = TerminalController.commentsListPayload(
+        let payload = DiffCommentPayload.list(
             comments: [
                 makeComment(message: "still open"),
                 makeComment(message: "already delivered", startLine: 20, consumedAt: consumedAt),
@@ -71,7 +71,7 @@ final class CommentsListPayloadTests: XCTestCase {
     }
 
     func testListedCommentCarriesAnchorFields() {
-        let payload = TerminalController.commentsListPayload(
+        let payload = DiffCommentPayload.list(
             comments: [makeComment(message: "needs a guard")],
             repoRoot: "/tmp/example-repo",
             includeConsumed: false
@@ -86,7 +86,7 @@ final class CommentsListPayloadTests: XCTestCase {
     }
 
     func testEmptyStoreReportsZeroCount() {
-        let payload = TerminalController.commentsListPayload(
+        let payload = DiffCommentPayload.list(
             comments: [],
             repoRoot: "/tmp/example-repo",
             includeConsumed: true

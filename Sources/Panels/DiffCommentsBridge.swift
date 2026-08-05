@@ -167,7 +167,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
                 }
             }
             let formatter = ISO8601DateFormatter()
-            return ["comments": comments.map { Self.commentJSON($0, formatter: formatter) }]
+            return ["comments": comments.map { DiffCommentPayload.json($0, formatter: formatter) }]
         case "comments.save":
             guard let commentParams = params["comment"] as? [String: Any],
                   let comment = Self.comment(fromJSON: commentParams) else {
@@ -177,7 +177,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             if let workspace = try? resolveWorkspace(for: webView) {
                 registerPending(saved, repoRoot: repoRoot, workspaceId: workspace.id)
             }
-            return ["comment": Self.commentJSON(saved)]
+            return ["comment": DiffCommentPayload.json(saved)]
         case "comments.delete":
             guard let rawId = params["id"] as? String, let id = UUID(uuidString: rawId) else {
                 throw BridgeError.invalidRequest("Missing comment id")
@@ -224,34 +224,6 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     // MARK: - JSON mapping
-
-    nonisolated static func commentJSON(_ comment: DiffComment) -> [String: Any] {
-        commentJSON(comment, formatter: ISO8601DateFormatter())
-    }
-
-    /// Callers mapping several comments pass one formatter so a reply does not
-    /// allocate an `ISO8601DateFormatter` per comment.
-    nonisolated static func commentJSON(
-        _ comment: DiffComment,
-        formatter: ISO8601DateFormatter
-    ) -> [String: Any] {
-        var json: [String: Any] = [
-            "id": comment.id.uuidString,
-            "filePath": comment.filePath,
-            "side": comment.side,
-            "startLine": comment.startLine,
-            "endLine": comment.endLine,
-            "lineText": comment.lineText,
-            "message": comment.message,
-            "submissionText": comment.submissionText ?? "",
-            "createdAt": formatter.string(from: comment.createdAt),
-            "updatedAt": formatter.string(from: comment.updatedAt)
-        ]
-        if let endSide = comment.endSide {
-            json["endSide"] = endSide
-        }
-        return json
-    }
 
     nonisolated private static func comment(fromJSON json: [String: Any]) -> DiffComment? {
         guard let filePath = json["filePath"] as? String, !filePath.isEmpty,
