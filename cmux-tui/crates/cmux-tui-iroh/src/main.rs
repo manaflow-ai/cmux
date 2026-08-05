@@ -18,7 +18,7 @@ cmux-tui-iroh Stage 1 transport
 
 USAGE
   cmux-tui-iroh enroll --state-root PATH --identity NAME --broker URL (--token-file PATH | --token-stdin) [--replace-credential]
-  cmux-tui-iroh server --state-root PATH --identity NAME --broker URL --session-socket PATH [--relay-environment production|staging] [--display-name NAME]
+  cmux-tui-iroh server --state-root PATH --identity NAME --broker URL --session-socket PATH [--relay-environment production|staging] [--display-name NAME]   (Linux only)
   cmux-tui-iroh provider --state-root PATH --identity NAME --broker URL --socket PATH [--relay-environment production|staging] [--display-name NAME]
   cmux-tui-iroh probe --socket PATH [--machine-id UUID] [--marker-key UUID]
   cmux-tui-iroh status --state-root PATH --identity NAME
@@ -87,7 +87,10 @@ async fn enroll(mut args: ParsedArgs) -> Result<()> {
     let enrolled = broker.enroll(&token).await?;
     let credential =
         BrokerCredential::new(enrolled.access_token, enrolled.refresh_token, unix_time()?)?;
-    store.save_credential(&credential, replace)?;
+    store.save_credential(&credential, replace).context(
+        "the provisioning token was already consumed by enrollment but the credential could \
+         not be persisted; mint a new enrollment token and re-run enroll",
+    )?;
     println!(
         "enrolled endpoint={} device={} tag={}",
         store.endpoint_id().fmt_short(),
@@ -109,6 +112,12 @@ async fn run_server(mut args: ParsedArgs) -> Result<()> {
     let common = runtime_args(&mut args)?;
     let session_socket = args.path("session-socket")?;
     args.finish()?;
+    // Stage 1 registers the TUI server as a Linux machine; refuse to register
+    // that fact from any other host platform instead of publishing it falsely.
+    ensure!(
+        Platform::current_frontend()? == Platform::Linux,
+        "the Stage 1 TUI server registers as a Linux machine and must run on Linux"
+    );
     let runtime = Arc::new(
         EndpointRuntime::start(EndpointRuntimeConfig {
             state_root: &common.state_root,
@@ -190,15 +199,17 @@ fn status(mut args: ParsedArgs) -> Result<()> {
     let state_root = args.path("state-root")?;
     let identity = args.value("identity")?.to_string();
     args.finish()?;
-    let store = IdentityStore::open(&state_root, &identity)?;
+    // Read-only and lock-free, so status works while a server or provider
+    // process holds the identity open.
+    let report = cmux_tui_iroh::identity::read_identity_report(&state_root, &identity)?;
     println!(
         "endpoint={} device={} app_instance={} tag={} generation={} credential={}",
-        store.endpoint_id().fmt_short(),
-        store.metadata().device_id,
-        store.metadata().app_instance_id,
-        store.metadata().tag,
-        store.metadata().identity_generation,
-        if store.credential_exists() { "present" } else { "absent" },
+        report.endpoint_id.fmt_short(),
+        report.metadata.device_id,
+        report.metadata.app_instance_id,
+        report.metadata.tag,
+        report.metadata.identity_generation,
+        if report.credential_present { "present" } else { "absent" },
     );
     Ok(())
 }

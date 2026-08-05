@@ -52,6 +52,15 @@ runtime_context="$demo_root/runtime-context"
 build_commit="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 if [ -n "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=normal)" ]; then
     build_commit="${build_commit}-dirty"
+    # Tracked evidence must prove that the reviewed commit produced the
+    # recorded result; a dirty tree cannot, so publishing is refused.
+    if [ "${CMUX_STAGE1_ALLOW_DIRTY:-0}" = "1" ]; then
+        EVIDENCE_DIR="$demo_root/evidence"
+        echo "source tree is dirty; writing non-publishable evidence to $EVIDENCE_DIR" >&2
+    else
+        echo "source tree is dirty; commit the changes, or set CMUX_STAGE1_ALLOW_DIRTY=1 for a non-publishing run" >&2
+        exit 1
+    fi
 fi
 
 provider_pid=""
@@ -242,6 +251,9 @@ fi
 record "container_published_ports=none"
 record "container_network_mode=$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$container")"
 record "first_$first_ready"
+identity_before="$(docker exec "$container" cmux-tui-iroh status \
+    --state-root /state/transport --identity server)"
+record "identity_before_restart $identity_before"
 
 "$host_binary" provider \
     --state-root "$demo_root/provider-state" \
@@ -277,6 +289,15 @@ if [ "$first_ready" != "$second_ready" ]; then
     record "FAIL server identity or binding changed across restart"
     exit 1
 fi
+# `status` exposes device, app-instance, tag, and identity-generation, which
+# the ready line does not; compare the full identity tuple across the restart.
+identity_after="$(docker exec "$container" cmux-tui-iroh status \
+    --state-root /state/transport --identity server)"
+record "identity_after_restart $identity_after"
+if [ "$identity_before" != "$identity_after" ]; then
+    record "FAIL device, tag, or identity generation changed across restart"
+    exit 1
+fi
 record "container_endpoint_device_tag_and_binding_stable=ok"
 
 if ! "$host_binary" probe \
@@ -291,14 +312,4 @@ grep -E 'connected machine=.*path=relay' "$provider_log" | tail -n 3 | tee -a "$
 record "acceptance=pass completed=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 cp "$transcript" "$EVIDENCE_DIR/transcript.txt"
-{
-    printf '{"version":2,"width":120,"height":30,"timestamp":%s,"env":{"TERM":"xterm-256color","SHELL":"bash"}}\n' "$(date +%s)"
-    awk '{
-        gsub(/\\/, "\\\\");
-        gsub(/\"/, "\\\"");
-        gsub(/\r/, "");
-        printf "[%0.2f,\"o\",\"%s\\r\\n\"]\n", NR * 0.15, $0
-    }' "$transcript"
-} > "$EVIDENCE_DIR/demo.cast"
 record "evidence=$EVIDENCE_DIR/transcript.txt"
-record "recording=$EVIDENCE_DIR/demo.cast"

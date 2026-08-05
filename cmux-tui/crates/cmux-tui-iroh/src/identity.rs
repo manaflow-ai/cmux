@@ -11,6 +11,8 @@ use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use crate::broker::safe_token;
+
 const IDENTITY_SCHEMA_VERSION: u32 = 1;
 const CREDENTIAL_SCHEMA_VERSION: u32 = 1;
 const MAX_IDENTITY_BYTES: usize = 8 * 1024;
@@ -86,6 +88,35 @@ impl BrokerCredential {
         validate_credential_value(&self.access_token)?;
         validate_credential_value(&self.refresh_token)
     }
+}
+
+/// Read-only view of a persisted identity, produced without taking the state
+/// lock so `status` can report on an identity a running server holds open.
+pub struct IdentityReport {
+    pub endpoint_id: EndpointId,
+    pub metadata: EndpointMetadata,
+    pub credential_present: bool,
+}
+
+/// Loads an existing identity without acquiring the exclusive state lock and
+/// without creating any state. Fails if the identity was never enrolled.
+pub fn read_identity_report(state_root: &Path, identity_name: &str) -> Result<IdentityReport> {
+    ensure!(safe_identity_name(identity_name), "identity name is invalid");
+    let directory = state_root.join("iroh-tui").join(identity_name);
+    ensure!(directory.is_dir(), "identity {identity_name:?} does not exist");
+    let key_path = directory.join("endpoint.key");
+    ensure!(key_path.is_file(), "identity {identity_name:?} has no endpoint key");
+    let secret_key = load_or_create_iroh_secret(&key_path)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    let identity_path = directory.join("identity.json");
+    let metadata = read_owner_only_json::<EndpointMetadata>(&identity_path, MAX_IDENTITY_BYTES)
+        .with_context(|| format!("cannot load {}", identity_path.display()))?;
+    metadata.validate()?;
+    Ok(IdentityReport {
+        endpoint_id: secret_key.public(),
+        metadata,
+        credential_present: directory.join("credential.json").exists(),
+    })
 }
 
 pub struct IdentityStore {
@@ -193,14 +224,6 @@ fn safe_identity_name(value: &str) -> bool {
         && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-fn safe_token(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b':' | b'_'))
-}
-
 fn validate_credential_value(value: &str) -> Result<()> {
     ensure!(!value.is_empty(), "broker credential is empty");
     ensure!(value.len() <= 16 * 1024, "broker credential is too large");
@@ -248,6 +271,17 @@ mod tests {
         let _first = IdentityStore::open(temp.path(), "server").unwrap();
         let error = IdentityStore::open(temp.path(), "server").unwrap_err();
         assert!(error.to_string().contains("already in use"));
+    }
+
+    #[test]
+    fn read_only_report_works_while_the_identity_is_locked() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = IdentityStore::open(temp.path(), "server").unwrap();
+        let report = read_identity_report(temp.path(), "server").unwrap();
+        assert_eq!(report.endpoint_id, store.endpoint_id());
+        assert_eq!(&report.metadata, store.metadata());
+        assert!(!report.credential_present);
+        assert!(read_identity_report(temp.path(), "absent").is_err());
     }
 
     #[test]

@@ -54,7 +54,13 @@ impl std::fmt::Debug for BrokerClient {
 }
 
 impl BrokerClient {
-    pub fn new(base_url: Url) -> Result<Self> {
+    pub fn new(mut base_url: Url) -> Result<Self> {
+        // `Url::join` drops the last path segment of a base without a trailing
+        // slash, which would silently escape a path-prefixed broker URL.
+        if !base_url.path().ends_with('/') {
+            let path = format!("{}/", base_url.path());
+            base_url.set_path(&path);
+        }
         validate_base_url(&base_url)?;
         let http = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -406,6 +412,20 @@ pub struct Binding {
 }
 
 impl Binding {
+    /// Equality over the stable identity fields only. The derived `PartialEq`
+    /// also compares volatile broker metadata (`last_seen_at`, display name,
+    /// path hints), which the broker may update between registration and a
+    /// later discovery snapshot without any identity change.
+    pub fn same_identity(&self, other: &Self) -> bool {
+        self.binding_id == other.binding_id
+            && self.device_id == other.device_id
+            && self.app_instance_id == other.app_instance_id
+            && self.tag == other.tag
+            && self.platform == other.platform
+            && self.endpoint_id == other.endpoint_id
+            && self.identity_generation == other.identity_generation
+    }
+
     pub fn validate(&self) -> Result<()> {
         ensure!(canonical_endpoint_id(&self.endpoint_id), "broker binding EndpointID is invalid");
         ensure!(self.identity_generation > 0, "broker binding generation is invalid");
@@ -593,12 +613,23 @@ fn safe_secret(value: &str) -> bool {
         && !value.bytes().any(|byte| byte.is_ascii_control())
 }
 
-fn safe_token(value: &str) -> bool {
+/// Shared validation for broker wire tokens: tags, capabilities, and key IDs
+/// are bounded ASCII from `[A-Za-z0-9-.:_]`. Single definition for the crate
+/// so the rules cannot diverge between modules.
+pub(crate) fn safe_token(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b':' | b'_'))
+}
+
+/// Order-independent relay fleet comparison. The broker pins uniqueness and
+/// membership of `relay_fleet`, not the ordering relative to the signed
+/// policy, so two orderings of the same set must compare equal.
+pub fn same_relay_fleet(left: &[String], right: &[String]) -> bool {
+    left.len() == right.len()
+        && left.iter().collect::<HashSet<_>>() == right.iter().collect::<HashSet<_>>()
 }
 
 fn safe_error_code(value: &str) -> bool {
@@ -624,6 +655,53 @@ mod tests {
         assert!(BrokerClient::new(Url::parse("http://example.com/").unwrap()).is_err());
         assert!(BrokerClient::new(Url::parse("http://127.0.0.1:3000/").unwrap()).is_ok());
         assert!(BrokerClient::new(Url::parse("https://example.com/").unwrap()).is_ok());
+    }
+
+    #[test]
+    fn broker_url_keeps_a_path_prefix_when_joining_routes() {
+        let client =
+            BrokerClient::new(Url::parse("https://broker.example.com/api-gateway").unwrap())
+                .unwrap();
+        let joined = client.base_url().join("api/devices/iroh/enroll").unwrap();
+        assert_eq!(
+            joined.as_str(),
+            "https://broker.example.com/api-gateway/api/devices/iroh/enroll"
+        );
+    }
+
+    #[test]
+    fn binding_identity_ignores_volatile_broker_metadata() {
+        let binding = Binding {
+            binding_id: Uuid::nil(),
+            device_id: Uuid::nil(),
+            app_instance_id: Uuid::nil(),
+            tag: "tui-test".into(),
+            platform: Platform::Linux,
+            display_name: Some("docker-stage1".into()),
+            endpoint_id: "aa".repeat(32),
+            identity_generation: 1,
+            pairing_enabled: true,
+            capabilities: vec!["cmux.tui.attach".into()],
+            path_hints: Vec::new(),
+            last_seen_at: "2026-08-03T00:00:00.000Z".into(),
+        };
+        let mut heartbeat = binding.clone();
+        heartbeat.last_seen_at = "2026-08-04T12:34:56.000Z".into();
+        heartbeat.display_name = Some("renamed".into());
+        assert!(binding != heartbeat);
+        assert!(binding.same_identity(&heartbeat));
+        let mut rekeyed = binding.clone();
+        rekeyed.identity_generation = 2;
+        assert!(!binding.same_identity(&rekeyed));
+    }
+
+    #[test]
+    fn relay_fleet_comparison_is_order_independent() {
+        let one = vec!["https://a.example.com/".to_string(), "https://b.example.com/".into()];
+        let two = vec!["https://b.example.com/".to_string(), "https://a.example.com/".into()];
+        let three = vec!["https://a.example.com/".to_string()];
+        assert!(same_relay_fleet(&one, &two));
+        assert!(!same_relay_fleet(&one, &three));
     }
 
     #[test]

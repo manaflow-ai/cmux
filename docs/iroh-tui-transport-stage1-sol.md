@@ -176,7 +176,7 @@ The Docker acceptance script will:
 4. enroll and start the Mac provider, resolve the container from broker discovery, and attach through its EndpointID and verified relays;
 5. create durable session output, detach, reattach, and confirm the same session state;
 6. restart the container, confirm the same EndpointID, device ID, tag, and binding ID, then attach again;
-7. record timestamps, redacted identity prefixes, broker binding IDs, transport path `relay`, protocol checks, and Docker port mappings in an evidence transcript and terminal recording;
+7. record timestamps, redacted identity prefixes, broker binding IDs, transport path `relay`, protocol checks, and Docker port mappings in an evidence transcript, and refuse to publish evidence from a dirty source tree;
 8. remove the exact demo container, volume, image, and temporary host Rust target while retaining the source evidence. It does not globally prune shared Docker caches owned by concurrent work.
 
 Acceptance is complete only when the evidence shows zero published container ports, a catalog-relay path, EndpointID-only remote construction, successful detach and reattach, stable identity across restart, and no credential or full EndpointID disclosure.

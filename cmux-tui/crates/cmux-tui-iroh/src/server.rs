@@ -124,11 +124,14 @@ async fn serve_connection(
     ensure!(connection.alpn() == CMUX_TUI_ALPN, "unexpected iroh ALPN");
     let tls_initiator = connection.remote_id().to_string();
     let limits = admission.limits();
-    let (mut sender, mut receiver) =
+    let (mut sender, receiver) =
         tokio::time::timeout(limits.first_stream_timeout, connection.accept_bi())
             .await
             .context("first iroh stream timed out")?
             .context("first iroh stream failed")?;
+    // One buffered reader for the connection's lifetime: bytes the peer sends
+    // after the admission line stay buffered and are bridged below.
+    let mut receiver = tokio::io::BufReader::new(receiver);
     let stream_reservation =
         admission.try_reserve_pending_stream().context("pre-auth stream capacity exhausted")?;
     let stream_permit = tokio::time::timeout(
@@ -208,8 +211,9 @@ async fn serve_connection(
     });
 
     let bridge_cancel = admitted.clone();
+    let (local_reader, local_writer) = local.into_split();
     let result = tokio::select! {
-        result = bridge_unix_and_iroh(local, sender, receiver, bridge_cancel) => result,
+        result = bridge_unix_and_iroh(local_reader, local_writer, sender, receiver, bridge_cancel) => result,
         _ = shutdown.cancelled() => Ok(()),
         result = revalidation => {
             match result {

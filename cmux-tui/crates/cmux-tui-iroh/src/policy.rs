@@ -19,6 +19,10 @@ const MAX_CACHE_BYTES: usize = 96 * 1024;
 const MAX_POLICY_LIFETIME_SECONDS: i64 = 7 * 24 * 60 * 60;
 const CLOCK_SKEW_SECONDS: i64 = 30;
 
+// Current + next key slots per environment, mirroring the Mac and iOS pins in
+// config/IrohRelayPolicy{Production,Staging}.xcconfig (CMUX_IROH_RELAY_POLICY_KEY_ID
+// and ..._NEXT_KEY_ID). The broker can rotate to the next kid without a new
+// binary; rotating beyond it ships updated pins to every client, TUI included.
 const PRODUCTION_KEYS: &[(&str, &str)] = &[
     ("cmux-production-relay-policy-2026-07", "qoBinRqX4TI1Ro6xAuOQxKUkeZT3pkFJuERP/+R+9aw="),
     ("cmux-production-relay-policy-2026-08", "k+FND+WlELCkHs9QnWg1TfTuHXBwyv2907umX+mUOOU="),

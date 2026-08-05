@@ -13,8 +13,7 @@ use iroh::{
     Watcher as _,
 };
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::net::UnixStream;
+use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -22,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use crate::CMUX_TUI_ALPN;
 use crate::broker::{
     Binding, BrokerClient, DiscoverySnapshot, GrantVerificationKeySet, Platform,
-    RelayAccessResponse, unix_time,
+    RelayAccessResponse, same_relay_fleet, unix_time,
 };
 use crate::identity::{BrokerCredential, IdentityStore};
 use crate::policy::{RelayEnvironment, RelayPolicyVerifier, VerifiedRelayPolicy};
@@ -332,11 +331,14 @@ pub struct AdmissionResponse {
     pub accepted: bool,
 }
 
-pub async fn send_admission(
+pub async fn send_admission<R>(
     sender: &mut iroh::endpoint::SendStream,
-    receiver: &mut iroh::endpoint::RecvStream,
+    receiver: &mut R,
     grant: &str,
-) -> Result<()> {
+) -> Result<()>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
     ensure!(grant.len() <= ADMISSION_FRAME_BYTES / 2, "pair grant is too large");
     write_json_line(sender, &AdmissionRequest { version: 1, grant: grant.to_string() }).await?;
     let response: AdmissionResponse =
@@ -347,9 +349,10 @@ pub async fn send_admission(
     Ok(())
 }
 
-pub async fn receive_admission(
-    receiver: &mut iroh::endpoint::RecvStream,
-) -> Result<AdmissionRequest> {
+pub async fn receive_admission<R>(receiver: &mut R) -> Result<AdmissionRequest>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
     let request: AdmissionRequest =
         tokio::time::timeout(ADMISSION_TIMEOUT, read_json_line(receiver, ADMISSION_FRAME_BYTES))
             .await
@@ -363,13 +366,18 @@ pub async fn acknowledge_admission(sender: &mut iroh::endpoint::SendStream) -> R
     write_json_line(sender, &AdmissionResponse { accepted: true }).await
 }
 
-pub async fn bridge_unix_and_iroh(
-    local: UnixStream,
+pub async fn bridge_unix_and_iroh<LR, LW, RR>(
+    mut local_reader: LR,
+    mut local_writer: LW,
     mut sender: iroh::endpoint::SendStream,
-    mut receiver: iroh::endpoint::RecvStream,
+    mut receiver: RR,
     cancel: CancellationToken,
-) -> Result<()> {
-    let (mut local_reader, mut local_writer) = local.into_split();
+) -> Result<()>
+where
+    LR: tokio::io::AsyncRead + Unpin,
+    LW: tokio::io::AsyncWrite + Unpin,
+    RR: tokio::io::AsyncRead + Unpin,
+{
     let upstream = async {
         tokio::io::copy(&mut local_reader, &mut sender).await?;
         sender.finish()?;
@@ -386,21 +394,43 @@ pub async fn bridge_unix_and_iroh(
     }
 }
 
+/// Typed end-of-stream signal for framed JSON reads, so callers can
+/// distinguish a peer that closed the stream from a malformed frame
+/// without matching on error-message text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamClosed;
+
+impl std::fmt::Display for StreamClosed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("stream closed before JSON line")
+    }
+}
+
+impl std::error::Error for StreamClosed {}
+
+pub fn is_stream_closed(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.downcast_ref::<StreamClosed>().is_some())
+}
+
+/// Callers must keep one buffered reader alive for the connection's whole
+/// lifetime: bytes after the newline stay in the reader's buffer.
 pub async fn read_json_line<R, T>(reader: &mut R, maximum_bytes: usize) -> Result<T>
 where
-    R: tokio::io::AsyncRead + Unpin,
+    R: tokio::io::AsyncBufRead + Unpin,
     T: serde::de::DeserializeOwned,
 {
     let mut bytes = Vec::new();
-    loop {
-        ensure!(bytes.len() < maximum_bytes, "JSON line is too large");
-        let mut byte = [0_u8; 1];
-        let count = reader.read(&mut byte).await?;
-        ensure!(count != 0, "stream closed before JSON line");
-        if byte[0] == b'\n' {
-            break;
-        }
-        bytes.push(byte[0]);
+    let mut limited = reader.take(maximum_bytes as u64);
+    let count = limited.read_until(b'\n', &mut bytes).await?;
+    if count == 0 {
+        return Err(anyhow::Error::new(StreamClosed));
+    }
+    if bytes.last() == Some(&b'\n') {
+        bytes.pop();
+    } else if count == maximum_bytes {
+        anyhow::bail!("JSON line is too large");
+    } else {
+        return Err(anyhow::Error::new(StreamClosed));
     }
     ensure!(!bytes.is_empty(), "JSON line is empty");
     serde_json::from_slice(&bytes).context("JSON line is invalid")
@@ -514,7 +544,7 @@ fn validate_discovery(
     relay_urls: &[String],
 ) -> Result<()> {
     ensure!(
-        snapshot.relay_fleet == relay_urls,
+        same_relay_fleet(&snapshot.relay_fleet, relay_urls),
         "broker discovery fleet differs from installed signed policy"
     );
     let local = snapshot
@@ -523,7 +553,7 @@ fn validate_discovery(
         .filter(|candidate| candidate.binding_id == binding.binding_id)
         .collect::<Vec<_>>();
     ensure!(local.len() == 1, "local binding is missing or ambiguous");
-    ensure!(local[0] == binding, "local binding changed after registration");
+    ensure!(local[0].same_identity(binding), "local binding changed after registration");
     Ok(())
 }
 
@@ -571,10 +601,11 @@ mod tests {
 
     #[tokio::test]
     async fn bounded_json_line_preserves_following_protocol_bytes() {
-        let (mut writer, mut reader) = duplex(1024);
+        let (mut writer, reader) = duplex(1024);
         tokio::spawn(async move {
             writer.write_all(b"{\"accepted\":true}\n{\"id\":1}\n").await.unwrap();
         });
+        let mut reader = tokio::io::BufReader::new(reader);
         let response: AdmissionResponse = read_json_line(&mut reader, 128).await.unwrap();
         assert!(response.accepted);
         let mut rest = [0; 9];
@@ -584,11 +615,23 @@ mod tests {
 
     #[tokio::test]
     async fn bounded_json_line_rejects_oversize() {
-        let (mut writer, mut reader) = duplex(1024);
+        let (mut writer, reader) = duplex(1024);
         tokio::spawn(async move {
             writer.write_all(b"123456789\n").await.unwrap();
         });
-        assert!(read_json_line::<_, serde_json::Value>(&mut reader, 8).await.is_err());
+        let mut reader = tokio::io::BufReader::new(reader);
+        let error = read_json_line::<_, serde_json::Value>(&mut reader, 8).await.unwrap_err();
+        assert!(!is_stream_closed(&error));
+        assert!(error.to_string().contains("too large"));
+    }
+
+    #[tokio::test]
+    async fn closed_stream_is_a_typed_signal() {
+        let (writer, reader) = duplex(1024);
+        drop(writer);
+        let mut reader = tokio::io::BufReader::new(reader);
+        let error = read_json_line::<_, serde_json::Value>(&mut reader, 128).await.unwrap_err();
+        assert!(is_stream_closed(&error));
     }
 
     #[test]

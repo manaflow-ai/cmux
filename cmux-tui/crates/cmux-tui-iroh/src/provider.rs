@@ -28,7 +28,8 @@ use uuid::Uuid;
 use crate::broker::{Binding, Platform, unix_time};
 use crate::grant::{verify_grant_pair, verify_pair_grant};
 use crate::transport::{
-    EndpointRuntime, bridge_unix_and_iroh, read_json_line, send_admission, write_bounded_json_line,
+    EndpointRuntime, bridge_unix_and_iroh, is_stream_closed, read_json_line, send_admission,
+    write_bounded_json_line,
 };
 
 const CONTROL_FRAME_BYTES: usize = 1024 * 1024;
@@ -78,7 +79,17 @@ pub async fn serve(
                 }
             }
             accepted = listener.accept() => {
-                let (stream, _) = accepted.context("cannot accept provider connection")?;
+                // Break instead of returning so the cleanup below still runs
+                // (cancel connections, remove the socket file, close iroh).
+                let stream = match accepted {
+                    Ok((stream, _)) => stream,
+                    Err(error) => {
+                        serve_result =
+                            Err(anyhow::Error::new(error)
+                                .context("cannot accept provider connection"));
+                        break;
+                    }
+                };
                 if connections.len() >= MAX_PROVIDER_CONNECTIONS {
                     drop(stream);
                     continue;
@@ -224,22 +235,30 @@ impl ProviderState {
     }
 }
 
-async fn handle_connection(state: Arc<ProviderState>, mut stream: UnixStream) -> Result<()> {
-    let first: serde_json::Value = read_json_line(&mut stream, CONTROL_FRAME_BYTES).await?;
+type LocalReader = tokio::io::BufReader<tokio::net::unix::OwnedReadHalf>;
+type LocalWriter = tokio::net::unix::OwnedWriteHalf;
+
+async fn handle_connection(state: Arc<ProviderState>, stream: UnixStream) -> Result<()> {
+    // One buffered reader per connection for its whole lifetime; bytes after
+    // any newline stay available to later reads and to the transport bridge.
+    let (read_half, write_half) = stream.into_split();
+    let mut reader = tokio::io::BufReader::new(read_half);
+    let first: serde_json::Value = read_json_line(&mut reader, CONTROL_FRAME_BYTES).await?;
     if first.get("role").is_some() {
         let handshake: TransportHandshake =
             serde_json::from_value(first).context("transport handshake is invalid")?;
-        handle_transport(state, stream, handshake).await
+        handle_transport(state, reader, write_half, handshake).await
     } else {
         let hello: RequestEnvelope =
             serde_json::from_value(first).context("provider hello is invalid")?;
-        handle_control(state, stream, hello).await
+        handle_control(state, reader, write_half, hello).await
     }
 }
 
 async fn handle_control(
     state: Arc<ProviderState>,
-    mut stream: UnixStream,
+    mut reader: LocalReader,
+    mut writer: LocalWriter,
     hello: RequestEnvelope,
 ) -> Result<()> {
     let ProviderRequest::Hello(params) = hello.request else {
@@ -249,7 +268,7 @@ async fn handle_control(
     let generation = params.token.expose().to_string();
     state.begin_generation(&generation).await;
     write_response(
-        &mut stream,
+        &mut writer,
         ResponseEnvelope::success(
             hello.id,
             HelloResult {
@@ -261,7 +280,7 @@ async fn handle_control(
     )
     .await?;
 
-    let result = control_loop(&state, &generation, &mut stream).await;
+    let result = control_loop(&state, &generation, &mut reader, &mut writer).await;
     state.end_generation(&generation).await;
     result
 }
@@ -269,10 +288,11 @@ async fn handle_control(
 async fn control_loop(
     state: &Arc<ProviderState>,
     generation: &str,
-    stream: &mut UnixStream,
+    reader: &mut LocalReader,
+    stream: &mut LocalWriter,
 ) -> Result<()> {
     loop {
-        let request: RequestEnvelope = match read_json_line(stream, CONTROL_FRAME_BYTES).await {
+        let request: RequestEnvelope = match read_json_line(reader, CONTROL_FRAME_BYTES).await {
             Ok(request) => request,
             Err(error) if is_closed_stream_error(&error) => return Ok(()),
             Err(error) => return Err(error),
@@ -325,17 +345,35 @@ async fn control_loop(
                 match parsed {
                     Ok(connection_id) => {
                         state.close_connection(connection_id).await;
-                        let revision = state
-                            .runtime
-                            .fresh_discovery()
-                            .await
-                            .map(|value| value.revision)
-                            .unwrap_or(1);
-                        write_response(
-                            stream,
-                            ResponseEnvelope::success(id, CloseMachineResult { revision }),
-                        )
-                        .await?;
+                        // Never fabricate a revision: the close itself is
+                        // idempotent, so a retry after this retryable failure
+                        // reads the authoritative revision.
+                        match state.runtime.fresh_discovery().await {
+                            Ok(snapshot) => {
+                                write_response(
+                                    stream,
+                                    ResponseEnvelope::success(
+                                        id,
+                                        CloseMachineResult { revision: snapshot.revision },
+                                    ),
+                                )
+                                .await?;
+                            }
+                            Err(_) => {
+                                write_response(
+                                    stream,
+                                    ResponseEnvelope::<CloseMachineResult>::failure(
+                                        id,
+                                        provider_error(
+                                            ProviderErrorCode::Unavailable,
+                                            "broker discovery failed after close",
+                                            true,
+                                        ),
+                                    ),
+                                )
+                                .await?;
+                            }
+                        }
                     }
                     Err(_) => {
                         write_response(
@@ -471,7 +509,8 @@ async fn open_machine(
 
 async fn handle_transport(
     state: Arc<ProviderState>,
-    mut local: UnixStream,
+    local_reader: LocalReader,
+    local_writer: LocalWriter,
     handshake: TransportHandshake,
 ) -> Result<()> {
     ensure!(handshake.protocol == Protocol, "transport protocol is invalid");
@@ -479,27 +518,50 @@ async fn handle_transport(
     ensure!(handshake.role == TransportRole::Transport, "transport role is invalid");
     let generation = handshake.token.expose().to_string();
     let ticket = state.consume_ticket(&generation, handshake.ticket.expose()).await?;
-    let connection = state.runtime.dial(&ticket.remote.endpoint_id).await?;
-    let (mut sender, mut receiver) =
-        connection.open_bi().await.context("cannot open iroh stream")?;
+    // Register the cancellation token before dialing so a concurrent
+    // CloseMachine can abort the setup instead of missing the map entry
+    // while the dial and admission are still in flight.
+    let connection_id = ticket.connection_id;
+    let cancellation = CancellationToken::new();
+    state.register_connection(connection_id, cancellation.clone()).await;
+    let result = run_transport(&state, ticket, local_reader, local_writer, cancellation).await;
+    state.remove_connection(connection_id).await;
+    result
+}
+
+async fn run_transport(
+    state: &Arc<ProviderState>,
+    ticket: Ticket,
+    local_reader: LocalReader,
+    mut local_writer: LocalWriter,
+    cancellation: CancellationToken,
+) -> Result<()> {
+    let connection = tokio::select! {
+        _ = cancellation.cancelled() => bail!("machine connection was closed during dial"),
+        connection = state.runtime.dial(&ticket.remote.endpoint_id) => connection?,
+    };
+    let (mut sender, receiver) = connection.open_bi().await.context("cannot open iroh stream")?;
+    let mut receiver = tokio::io::BufReader::new(receiver);
     send_admission(&mut sender, &mut receiver, &ticket.grant).await?;
+    if cancellation.is_cancelled() {
+        connection.close(0_u8.into(), b"provider transport closed");
+        bail!("machine connection was closed during setup");
+    }
     write_bounded_json_line(
-        &mut local,
+        &mut local_writer,
         &TransportHandshakeResult { accepted: true },
         TRANSPORT_HANDSHAKE_BYTES,
     )
     .await?;
 
-    let cancellation = CancellationToken::new();
-    state.register_connection(ticket.connection_id, cancellation.clone()).await;
     eprintln!(
         "cmux-tui-iroh: connected machine={} peer={} path=relay address_source=endpoint_id+verified_catalog",
         ticket.remote.binding_id,
         connection.remote_id().fmt_short(),
     );
-    let result = bridge_unix_and_iroh(local, sender, receiver, cancellation).await;
+    let result =
+        bridge_unix_and_iroh(local_reader, local_writer, sender, receiver, cancellation).await;
     connection.close(0_u8.into(), b"provider transport closed");
-    state.remove_connection(ticket.connection_id).await;
     result
 }
 
@@ -516,7 +578,7 @@ fn machine_descriptor(binding: Binding) -> Result<MachineDescriptor> {
 }
 
 async fn write_response<T: Serialize>(
-    stream: &mut UnixStream,
+    stream: &mut LocalWriter,
     response: ResponseEnvelope<T>,
 ) -> Result<()> {
     write_bounded_json_line(stream, &response, CONTROL_FRAME_BYTES).await
@@ -554,7 +616,7 @@ fn is_closed_stream_error(error: &anyhow::Error) -> bool {
                     | std::io::ErrorKind::ConnectionReset
             )
         })
-    }) || error.to_string().contains("stream closed before JSON line")
+    }) || is_stream_closed(error)
 }
 
 fn bind_owner_socket(path: &Path) -> Result<UnixListener> {

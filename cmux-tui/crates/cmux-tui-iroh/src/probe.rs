@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use base64::Engine as _;
@@ -12,17 +13,50 @@ use cmux_tui_machine_protocol::{
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use tokio::io::BufReader;
 use tokio::net::UnixStream;
+use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::transport::{read_json_line, write_bounded_json_line};
 
 const CONTROL_FRAME_BYTES: usize = 1024 * 1024;
 const TRANSPORT_FRAME_BYTES: usize = 64 * 1024;
+/// Deadline for every probe read so a silent peer fails the acceptance run
+/// with a clear message instead of hanging until the outer job timeout.
+const PROBE_READ_TIMEOUT: Duration = Duration::from_secs(30);
+/// The v10 protocol multiplexes events with responses on one stream; bound
+/// how many unsolicited lines a single request will skip.
+const MAX_SKIPPED_LINES: usize = 256;
+
+/// One probe connection: a persistent buffered reader (bytes after each
+/// newline stay available) plus the write half.
+struct Wire {
+    reader: BufReader<OwnedReadHalf>,
+    writer: OwnedWriteHalf,
+}
+
+impl Wire {
+    async fn connect(socket: &Path, purpose: &str) -> Result<Self> {
+        let stream = UnixStream::connect(socket)
+            .await
+            .with_context(|| format!("cannot connect {purpose} to {}", socket.display()))?;
+        let (read_half, writer) = stream.into_split();
+        Ok(Self { reader: BufReader::new(read_half), writer })
+    }
+
+    async fn write<T: Serialize>(&mut self, value: &T, maximum_bytes: usize) -> Result<()> {
+        write_bounded_json_line(&mut self.writer, value, maximum_bytes).await
+    }
+
+    async fn read<T: DeserializeOwned>(&mut self, maximum_bytes: usize) -> Result<T> {
+        tokio::time::timeout(PROBE_READ_TIMEOUT, read_json_line(&mut self.reader, maximum_bytes))
+            .await
+            .context("probe read timed out")?
+    }
+}
 
 pub async fn run(socket: &Path, machine_id: Option<&str>, marker_key: &str) -> Result<()> {
-    let mut control = UnixStream::connect(socket)
-        .await
-        .with_context(|| format!("cannot connect provider probe to {}", socket.display()))?;
+    let mut control = Wire::connect(socket, "provider probe").await?;
     let token = BearerToken::new(random_bearer(32)?)
         .map_err(|_| anyhow::anyhow!("generated provider bearer is invalid"))?;
     let hello: HelloResult = request(
@@ -92,9 +126,11 @@ pub async fn run(socket: &Path, machine_id: Option<&str>, marker_key: &str) -> R
     let mut second = open(&mut control, &token, socket, 5, selected_machine.clone()).await?;
     let identify =
         raw_request(&mut second.stream, json!({"id":"identify-2","cmd":"identify"})).await?;
+    ensure!(identify["ok"] == true, "reattached protocol identify failed");
     ensure!(identify["data"]["protocol"] == 10, "reattached protocol is not v10");
     let workspaces =
         raw_request(&mut second.stream, json!({"id":"list-2","cmd":"list-workspaces"})).await?;
+    ensure!(workspaces["ok"] == true, "reattached workspace listing failed");
     ensure!(workspace_present(&workspaces, marker_key), "marker workspace did not survive detach");
     drop(second.stream);
     close(&mut control, 6, second.connection_id).await?;
@@ -107,11 +143,11 @@ pub async fn run(socket: &Path, machine_id: Option<&str>, marker_key: &str) -> R
 
 struct Opened {
     connection_id: OpaqueId,
-    stream: UnixStream,
+    stream: Wire,
 }
 
 async fn open(
-    control: &mut UnixStream,
+    control: &mut Wire,
     token: &BearerToken,
     socket: &Path,
     request_id: u64,
@@ -127,26 +163,25 @@ async fn open(
     )
     .await?;
     let TransportDescriptor::ProviderStream { ticket, expires_at: _ } = opened.transport;
-    let mut stream = UnixStream::connect(socket).await.context("cannot open provider transport")?;
-    write_bounded_json_line(
-        &mut stream,
-        &TransportHandshake {
-            protocol: Protocol,
-            version: Version,
-            role: TransportRole::Transport,
-            token: token.clone(),
-            ticket,
-        },
-        TRANSPORT_FRAME_BYTES,
-    )
-    .await?;
-    let result: TransportHandshakeResult =
-        read_json_line(&mut stream, TRANSPORT_FRAME_BYTES).await?;
+    let mut stream = Wire::connect(socket, "provider transport").await?;
+    stream
+        .write(
+            &TransportHandshake {
+                protocol: Protocol,
+                version: Version,
+                role: TransportRole::Transport,
+                token: token.clone(),
+                ticket,
+            },
+            TRANSPORT_FRAME_BYTES,
+        )
+        .await?;
+    let result: TransportHandshakeResult = stream.read(TRANSPORT_FRAME_BYTES).await?;
     ensure!(result.accepted, "provider transport was rejected");
     Ok(Opened { connection_id: opened.connection_id, stream })
 }
 
-async fn close(control: &mut UnixStream, request_id: u64, connection_id: OpaqueId) -> Result<()> {
+async fn close(control: &mut Wire, request_id: u64, connection_id: OpaqueId) -> Result<()> {
     let _: CloseMachineResult = request(
         control,
         request_id,
@@ -157,19 +192,14 @@ async fn close(control: &mut UnixStream, request_id: u64, connection_id: OpaqueI
 }
 
 async fn request<T: DeserializeOwned>(
-    stream: &mut UnixStream,
+    wire: &mut Wire,
     id: u64,
     request: ProviderRequest,
 ) -> Result<T> {
     let id = OpaqueId::new(format!("probe-{id}"))
         .map_err(|_| anyhow::anyhow!("probe request ID is invalid"))?;
-    write_bounded_json_line(
-        stream,
-        &RequestEnvelope::new(id.clone(), request),
-        CONTROL_FRAME_BYTES,
-    )
-    .await?;
-    let response: ResponseEnvelope<T> = read_json_line(stream, CONTROL_FRAME_BYTES).await?;
+    wire.write(&RequestEnvelope::new(id.clone(), request), CONTROL_FRAME_BYTES).await?;
+    let response: ResponseEnvelope<T> = wire.read(CONTROL_FRAME_BYTES).await?;
     ensure!(response.id == id, "provider response ID changed");
     match response.response {
         ProviderResponse::Success(value) => Ok(value),
@@ -179,15 +209,21 @@ async fn request<T: DeserializeOwned>(
     }
 }
 
-async fn raw_request(stream: &mut UnixStream, request: Value) -> Result<Value> {
-    write_raw_json_line(stream, &request).await?;
-    let response: Value = read_json_line(stream, CONTROL_FRAME_BYTES).await?;
-    ensure!(response.get("event").is_none(), "unexpected event before protocol response");
-    Ok(response)
-}
-
-async fn write_raw_json_line<T: Serialize>(stream: &mut UnixStream, value: &T) -> Result<()> {
-    write_bounded_json_line(stream, value, CONTROL_FRAME_BYTES).await
+/// Sends one raw v10 request and returns the response correlated by `id`,
+/// skipping interleaved event lines and stale responses to earlier requests.
+async fn raw_request(wire: &mut Wire, request: Value) -> Result<Value> {
+    let id = request["id"].as_str().context("raw protocol request needs an id")?.to_string();
+    wire.write(&request, CONTROL_FRAME_BYTES).await?;
+    for _ in 0..MAX_SKIPPED_LINES {
+        let response: Value = wire.read(CONTROL_FRAME_BYTES).await?;
+        if response.get("event").is_some() {
+            continue;
+        }
+        if response["id"].as_str() == Some(id.as_str()) {
+            return Ok(response);
+        }
+    }
+    bail!("no protocol response matched request id {id:?}")
 }
 
 fn workspace_present(response: &Value, marker_key: &str) -> bool {

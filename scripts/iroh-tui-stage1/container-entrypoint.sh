@@ -50,26 +50,64 @@ cmux-tui \
     --state "$CMUX_SESSION_STATE" &
 session_pid=$!
 
+server_pid=""
+watcher_pid=""
+
+# The server runs as a supervised child (never exec) so these traps stay
+# alive to stop and reap both processes on container shutdown.
+# shellcheck disable=SC2329  # invoked via trap
 cleanup() {
+    if [ -n "$watcher_pid" ]; then
+        kill "$watcher_pid" 2>/dev/null || true
+    fi
+    if [ -n "$server_pid" ]; then
+        kill "$server_pid" 2>/dev/null || true
+        wait "$server_pid" 2>/dev/null || true
+    fi
     kill "$session_pid" 2>/dev/null || true
     wait "$session_pid" 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+trap 'cleanup; exit 143' TERM
+trap 'cleanup; exit 130' INT
+trap cleanup EXIT
 
+# Readiness: wait for the session socket, fail immediately if the session
+# process exits first, and bound the wait with a configurable deadline.
+ready_timeout="${CMUX_SESSION_READY_TIMEOUT_SECONDS:-10}"
 attempt=0
+attempts=$((ready_timeout * 20))
 while [ ! -S "$CMUX_SESSION_SOCKET" ]; do
+    if ! kill -0 "$session_pid" 2>/dev/null; then
+        echo "cmux-tui-iroh: session process exited before its socket became ready" >&2
+        exit 1
+    fi
     attempt=$((attempt + 1))
-    if [ "$attempt" -ge 200 ]; then
-        echo "cmux-tui-iroh: session socket did not become ready" >&2
+    if [ "$attempt" -ge "$attempts" ]; then
+        echo "cmux-tui-iroh: session socket did not become ready within ${ready_timeout}s" >&2
         exit 1
     fi
     sleep 0.05
 done
 
-exec cmux-tui-iroh server \
+cmux-tui-iroh server \
     --state-root "$CMUX_IROH_STATE" \
     --identity server \
     --broker "$CMUX_BROKER_URL" \
     --relay-environment "$CMUX_RELAY_ENVIRONMENT" \
     --display-name docker-stage1 \
-    --session-socket "$CMUX_SESSION_SOCKET"
+    --session-socket "$CMUX_SESSION_SOCKET" &
+server_pid=$!
+
+# Stop the server if the session dies so the container exits instead of
+# serving a dead session socket.
+(
+    while kill -0 "$session_pid" 2>/dev/null && kill -0 "$server_pid" 2>/dev/null; do
+        sleep 1
+    done
+    kill "$server_pid" 2>/dev/null || true
+) &
+watcher_pid=$!
+
+server_status=0
+wait "$server_pid" || server_status=$?
+exit "$server_status"

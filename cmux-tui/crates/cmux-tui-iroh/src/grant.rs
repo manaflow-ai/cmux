@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::broker::{
     Binding, DiscoverySnapshot, GrantVerificationKeySet, Platform, canonical_endpoint_id,
+    safe_token, same_relay_fleet,
 };
 use crate::{CMUX_TUI_ALPN_TEXT, CMUX_TUI_PAIR_SCOPE};
 
@@ -169,7 +170,7 @@ pub fn verify_server_admission(
 ) -> Result<PairGrantClaims> {
     ensure!(canonical_endpoint_id(tls_initiator_endpoint), "TLS initiator EndpointID is invalid");
     ensure!(
-        snapshot.relay_fleet == installed_relay_fleet,
+        same_relay_fleet(&snapshot.relay_fleet, installed_relay_fleet),
         "broker relay fleet does not match installed policy"
     );
     let claims = verify_pair_grant(compact, &snapshot.grant_verification_keys, now)?;
@@ -194,7 +195,7 @@ pub fn verify_server_admission(
     ensure!(initiators.len() == 1, "grant initiator binding is missing or ambiguous");
     ensure!(acceptors.len() == 1, "grant acceptor binding is missing or ambiguous");
     verify_grant_pair(&claims, initiators[0], acceptors[0])?;
-    ensure!(acceptors[0] == local_acceptor, "local acceptor binding is stale");
+    ensure!(acceptors[0].same_identity(local_acceptor), "local acceptor binding is stale");
     Ok(claims)
 }
 
@@ -253,14 +254,6 @@ fn canonical_decode(value: &str, maximum_bytes: usize) -> Result<Vec<u8>> {
     ensure!(bytes.len() <= maximum_bytes, "JWS segment is too large");
     ensure!(URL_SAFE_NO_PAD.encode(&bytes) == value, "JWS segment is not canonical");
     Ok(bytes)
-}
-
-fn safe_token(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b':' | b'_'))
 }
 
 #[cfg(test)]
@@ -351,6 +344,77 @@ mod tests {
         let other = SigningKey::from_bytes(&[5; 32]);
         let compact = signed_grant(&other, endpoint, CMUX_TUI_ALPN_TEXT);
         assert!(verify_pair_grant(&compact, &key_set(&signing), 1_100).is_err());
+    }
+
+    #[test]
+    fn admission_tolerates_heartbeat_timestamps_and_fleet_order() {
+        let signing = SigningKey::from_bytes(&[8; 32]);
+        let initiator_endpoint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let compact = signed_grant(&signing, initiator_endpoint, CMUX_TUI_ALPN_TEXT);
+        let local = Binding {
+            binding_id: Uuid::parse_str("cb7204f4-0416-4cd1-b8e9-cdff433fcd93").unwrap(),
+            device_id: Uuid::parse_str("de4643b5-a926-4c1a-9b5c-03fa069ac9d0").unwrap(),
+            app_instance_id: Uuid::parse_str("94197e10-4c15-4c8a-af35-8361ed360f1c").unwrap(),
+            tag: "tui-test".into(),
+            platform: Platform::Linux,
+            display_name: None,
+            endpoint_id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+            identity_generation: 1,
+            pairing_enabled: true,
+            capabilities: vec![CMUX_TUI_PAIR_SCOPE.into()],
+            path_hints: Vec::new(),
+            last_seen_at: "2026-08-03T00:00:00.000Z".into(),
+        };
+        // The broker moved the acceptor's heartbeat timestamp after our
+        // registration; identity is unchanged, so admission must succeed.
+        let mut published = local.clone();
+        published.last_seen_at = "2026-08-04T09:00:00.000Z".into();
+        let initiator_binding = Binding {
+            binding_id: Uuid::parse_str("ef64e442-52df-4b9f-97cc-fbe366911957").unwrap(),
+            device_id: Uuid::parse_str("343eb618-7eba-4475-b880-966b55e40025").unwrap(),
+            app_instance_id: Uuid::parse_str("11197e10-4c15-4c8a-af35-8361ed360f1c").unwrap(),
+            tag: "tui-test".into(),
+            platform: Platform::Mac,
+            display_name: None,
+            endpoint_id: initiator_endpoint.into(),
+            identity_generation: 1,
+            pairing_enabled: true,
+            capabilities: Vec::new(),
+            path_hints: Vec::new(),
+            last_seen_at: "2026-08-04T09:00:00.000Z".into(),
+        };
+        let snapshot = DiscoverySnapshot {
+            route_contract_version: 1,
+            revision: 5,
+            bindings: vec![initiator_binding, published],
+            relay_fleet: vec![
+                "https://b.relay.example.com/".into(),
+                "https://a.relay.example.com/".into(),
+            ],
+            lan_rendezvous: serde_json::json!({}),
+            grant_verification_keys: key_set(&signing),
+        };
+        // Same fleet membership in a different order than the installed policy.
+        let installed = vec![
+            "https://a.relay.example.com/".to_string(),
+            "https://b.relay.example.com/".to_string(),
+        ];
+        verify_server_admission(&compact, initiator_endpoint, &local, &snapshot, &installed, 1_100)
+            .unwrap();
+        // A genuine identity change must still be rejected as stale.
+        let mut rekeyed_snapshot = snapshot;
+        rekeyed_snapshot.bindings[1].identity_generation = 2;
+        assert!(
+            verify_server_admission(
+                &compact,
+                initiator_endpoint,
+                &local,
+                &rekeyed_snapshot,
+                &installed,
+                1_100,
+            )
+            .is_err()
+        );
     }
 
     #[test]
