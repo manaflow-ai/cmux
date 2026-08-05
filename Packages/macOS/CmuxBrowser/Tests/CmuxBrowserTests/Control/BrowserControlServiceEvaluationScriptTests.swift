@@ -60,6 +60,32 @@ struct BrowserControlServiceEvaluationScriptTests {
         }
     }
 
+    @Test("shared alias expansion is rejected before exponential growth")
+    func sharedAliasExpansionProducesExplicitError() throws {
+        let envelope = try evaluate(
+            """
+            (() => {
+              let value = {answer: 42};
+              for (let depth = 0; depth < 14; depth += 1) {
+                value = {left: value, right: value};
+              }
+              return value;
+            })()
+            """
+        )
+
+        #expect(envelope[service.evalEnvelope.typeKey] as? String == service.evalEnvelope.typeError)
+        #expect(envelope[service.evalEnvelope.errorCodeKey] as? String == "result_too_complex")
+
+        switch service.resolveEvaluationEnvelope(envelope) {
+        case .error(let code, let message):
+            #expect(code == "result_too_complex")
+            #expect(!message.isEmpty)
+        default:
+            Issue.record("Expected a bounded browser-eval error resolution")
+        }
+    }
+
     @Test("DOMRect-branded values are flattened before bridging")
     func domRectIsFlattened() throws {
         let envelope = try evaluate(
