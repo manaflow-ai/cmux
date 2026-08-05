@@ -1,23 +1,33 @@
+import Darwin
 import Foundation
 import XCTest
 
 final class PasteBufferLargePayloadUITests: XCTestCase {
     private var socketPath = ""
     private var launchTag = ""
-    private var app: XCUIApplication?
+    private var appLogPath = ""
+    private var appLogHandle: FileHandle?
+    private var appProcess: Process?
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         let token = UUID().uuidString
-        socketPath = "/tmp/cmux-paste-buffer-\(token.prefix(8)).sock"
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+        socketPath = temporaryDirectory
+            .appendingPathComponent("p-\(token.prefix(8)).sock")
+            .path
         launchTag = "ui-tests-paste-buffer-\(token.prefix(8))"
+        appLogPath = temporaryDirectory
+            .appendingPathComponent("cmux-paste-buffer-\(token).log")
+            .path
         removeTestArtifacts()
     }
 
     override func tearDown() {
-        app?.terminate()
-        app = nil
+        terminateAppProcess()
+        try? appLogHandle?.close()
+        appLogHandle = nil
         removeTestArtifacts()
         super.tearDown()
     }
@@ -25,10 +35,10 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
     func testLargeMultilinePasteBufferPreservesEveryMarkerInOrder() throws {
         print("Paste-buffer regression host: \(ProcessInfo.processInfo.operatingSystemVersionString)")
 
-        let app = launchApp()
+        let process = try launchAppProcess()
         XCTAssertTrue(
-            app.state == .runningForeground || app.state == .runningBackground,
-            "Expected cmux to stay running. state=\(app.state.rawValue)"
+            process.isRunning,
+            "Expected cmux to stay running. \(appProcessDiagnostics()) log=[\(tailOfAppLog())]"
         )
         let socketReady = waitForControlSocketReady(
             socketPath: socketPath,
@@ -40,8 +50,9 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
         )
         XCTAssertTrue(
             socketReady,
-            "Expected a responsive control socket at \(socketPath). state=\(app.state.rawValue)"
+            "Expected a responsive control socket at \(socketPath). \(appProcessDiagnostics()) log=[\(tailOfAppLog())]"
         )
+        print("App process and control socket ready: pid=\(process.processIdentifier)")
 
         let cliPath = try XCTUnwrap(
             bundledCLIPath(),
@@ -71,6 +82,7 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
                 .first(where: { $0.hasPrefix("workspace:") }),
             "Expected workspace.create to return a workspace ref. \(create.diagnostic)"
         )
+        print("Cat workspace created: \(workspace)")
 
         let setBuffer = runCLI(
             cliPath: cliPath,
@@ -90,7 +102,7 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
         XCTAssertEqual(
             pasteBuffer.status,
             0,
-            "\(pasteBuffer.diagnostic) appState=\(app.state.rawValue)"
+            "\(pasteBuffer.diagnostic) \(appProcessDiagnostics()) log=[\(tailOfAppLog())]"
         )
         print("Paste-buffer commands succeeded: set-buffer=0 paste-buffer=0")
 
@@ -116,36 +128,95 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
         )
     }
 
-    private func launchApp() -> XCUIApplication {
-        let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments = [
+    private func launchAppProcess() throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try resolveAppBinaryPath())
+        process.arguments = [
             "-socketControlMode", "allowAll",
             "-NSAppSleepDisabled", "YES",
         ]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_TAG"] = launchTag
-        if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
-            app.launchEnvironment["PATH"] = path
-        }
-        self.app = app
 
-        // Socket-driven UI tests do not need foreground activation. Hosted
-        // runners can launch the app in the background and report activation as
-        // an XCTest failure even though its windows and terminal surfaces work.
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        let previousContinueAfterFailure = continueAfterFailure
-        continueAfterFailure = true
-        XCTExpectFailure("App activation may fail on a headless UI runner", options: options) {
-            app.launch()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_UI_TEST_PROCESS"] = "1"
+        environment["CMUX_UI_TEST_MODE"] = "1"
+        environment["CMUX_SOCKET_ENABLE"] = "1"
+        environment["CMUX_SOCKET_MODE"] = "allowAll"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        environment["CMUX_TAG"] = launchTag
+        process.environment = environment
+
+        _ = FileManager.default.createFile(atPath: appLogPath, contents: nil)
+        let logHandle = try FileHandle(forWritingTo: URL(fileURLWithPath: appLogPath))
+        process.standardOutput = logHandle
+        process.standardError = logHandle
+
+        do {
+            try process.run()
+        } catch {
+            try? logHandle.close()
+            throw error
         }
-        continueAfterFailure = previousContinueAfterFailure
-        print("Managed app launch returned: state=\(app.state.rawValue)")
-        return app
+        appLogHandle = logHandle
+        appProcess = process
+        return process
+    }
+
+    private func resolveAppBinaryPath() throws -> String {
+        let testBundle = Bundle(for: Self.self)
+        let productsDirectory = testBundle.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let configuration = productsDirectory.lastPathComponent.lowercased()
+        let productNames = configuration.contains("release")
+            ? ["cmux", "cmux DEV"]
+            : ["cmux DEV", "cmux"]
+        let candidates = productNames.map { productName in
+            productsDirectory
+                .appendingPathComponent("\(productName).app")
+                .appendingPathComponent("Contents/MacOS/\(productName)")
+                .path
+        }
+        if let binaryPath = candidates.first(where: FileManager.default.isExecutableFile(atPath:)) {
+            return binaryPath
+        }
+        throw NSError(
+            domain: "PasteBufferLargePayloadUITests",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "App binary not found at \(candidates.joined(separator: " or ")). testBundle=\(testBundle.bundleURL.path)"
+            ]
+        )
+    }
+
+    private func terminateAppProcess() {
+        guard let process = appProcess else { return }
+        defer { appProcess = nil }
+        guard process.isRunning else { return }
+
+        process.terminate()
+        let deadline = Date().addingTimeInterval(5.0)
+        while process.isRunning && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        if process.isRunning {
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+    }
+
+    private func appProcessDiagnostics() -> String {
+        guard let process = appProcess else { return "app=not-launched" }
+        let status = process.isRunning ? "running" : String(process.terminationStatus)
+        return "appPid=\(process.processIdentifier) appRunning=\(process.isRunning) appStatus=\(status)"
+    }
+
+    private func tailOfAppLog(maximumLength: Int = 4_000) -> String {
+        guard let contents = try? String(contentsOfFile: appLogPath, encoding: .utf8) else {
+            return "<missing>"
+        }
+        return String(contents.suffix(maximumLength))
     }
 
     private func runCLI(
@@ -240,7 +311,7 @@ final class PasteBufferLargePayloadUITests: XCTestCase {
 
     private func removeTestArtifacts() {
         try? FileManager.default.removeItem(atPath: socketPath)
-        try? FileManager.default.removeItem(atPath: "/tmp/cmux-debug-\(launchTag).sock")
+        try? FileManager.default.removeItem(atPath: appLogPath)
     }
 
     private static func orderedDistinct(_ values: [String]) -> [String] {
