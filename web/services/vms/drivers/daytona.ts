@@ -453,10 +453,15 @@ export class DaytonaProvider implements VMProvider {
   }
 }
 
+const VOLUME_READY_TIMEOUT_MS = 3 * 60 * 1000;
+const VOLUME_READY_POLL_INTERVAL_MS = 2_000;
+
 /**
- * Get-or-create a Daytona Volume by name. Volumes are S3-backed shared storage that
- * survives sandbox destroy/recreate; the devbox product mounts one per user so data
- * outlives the VM itself. `get(name, true)` is the SDK's atomic get-or-create.
+ * Get-or-create a Daytona Volume by name and wait until it is mountable. Volumes are
+ * S3-backed shared storage that survives sandbox destroy/recreate; the devbox product
+ * mounts one per user so data outlives the VM itself. `get(name, true)` is the SDK's
+ * atomic get-or-create, but creation is asynchronous (`pending_create`) and sandbox
+ * create rejects any volume that is not `ready`, so this polls until it is.
  */
 export async function ensureDaytonaVolume(name: string): Promise<VolumeHandle> {
   return withVmSpan(
@@ -464,7 +469,21 @@ export async function ensureDaytonaVolume(name: string): Promise<VolumeHandle> {
     { "cmux.vm.provider": "daytona", "cmux.vm.operation": "ensure_volume" },
     async (span) => {
       try {
-        const volume = await client().volume.get(name, true);
+        let volume = await client().volume.get(name, true);
+        const deadline = Date.now() + VOLUME_READY_TIMEOUT_MS;
+        while (volume.state !== "ready") {
+          if (
+            volume.state === "error" || volume.state === "deleted"
+            || volume.state === "deleting" || volume.state === "pending_delete"
+          ) {
+            throw new Error(`volume ${name} entered state ${volume.state}`);
+          }
+          if (Date.now() >= deadline) {
+            throw new Error(`volume ${name} did not become ready (state: ${volume.state})`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, VOLUME_READY_POLL_INTERVAL_MS));
+          volume = await client().volume.get(name);
+        }
         setSpanAttributes(span, { "cmux.volume.id": volume.id });
         return { id: volume.id, name: volume.name };
       } catch (err) {

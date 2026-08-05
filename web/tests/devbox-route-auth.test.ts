@@ -222,9 +222,10 @@ describe("devbox REST auth", () => {
   test("maps a missing devbox to devbox_not_found on pause", async () => {
     getUser.mockResolvedValue(authedStackUser());
     const { VmNotFoundError } = await import("../services/vms/errors");
-    runDevboxWorkflow.mockImplementation(async () => {
-      throw new VmNotFoundError({ vmId: "devbox" });
-    });
+    (runDevboxWorkflow as unknown as { mockImplementation(next: () => Promise<never>): void })
+      .mockImplementation(async () => {
+        throw new VmNotFoundError({ vmId: "devbox" });
+      });
 
     const response = await pauseRoute.POST(
       new Request("https://cmux.test/api/devbox/pause", {

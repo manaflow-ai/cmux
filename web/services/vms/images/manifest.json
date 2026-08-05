@@ -147,6 +147,24 @@
       },
       "validationStatus": "passed",
       "notes": "Validated Daytona preview gate (healthz 401 without x-daytona-preview-token), WS PTY lease auth + single-use replay rejection, shell round trip, RPC hello + reusable lease, and RPC HTTP proxy to healthz. Region: shared us (runner in Corona, CA). binarySha256=d7d2a6b1ef9080ae0deadca3ced6fefbb4aeb88292d136b31bd0ea0784c01461 nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"
+    },
+    {
+      "provider": "daytona",
+      "version": "daytona-devbox-20260804",
+      "imageId": "cmuxd-ws-devbox-20260804",
+      "envVar": "DAYTONA_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": false,
+      "cmuxdRemoteCommit": "baa7d9e166c663c8922d9fb977c2e490a4880157",
+      "builtAt": "2026-08-05T00:24:03.639Z",
+      "builderScriptVersion": "6a0620b45d884aee2cdede41a1cdf6b23d9fc7ab78564f476afae2ad7d904868",
+      "agentToolResolvedVersions": {
+        "claude": "2.1.137",
+        "opencode": "1.14.41",
+        "codex": "0.130.0",
+        "pi": "0.74.0"
+      },
+      "validationStatus": "passed",
+      "notes": "Validated devbox E2E on local dev server: create with volume mount at /home/cmux/persist, pause/resume via stop/start, WS PTY attach, and data persistence across destroy+recreate on the same volume. First image with cmux-tui 0.9.9 baked at /usr/local/bin/cmux-tui and devbox-aware cmux-cloud-shell (CMUX_DEVBOX=1 boots cmux-tui --session devbox). binarySha256=a5ff3e9e49b564a2d2c0baff45c3d1e38ced2b546c6065d0eb610afe77cad33e nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0 cmuxTui=0.9.9"
     }
   ]
 }
