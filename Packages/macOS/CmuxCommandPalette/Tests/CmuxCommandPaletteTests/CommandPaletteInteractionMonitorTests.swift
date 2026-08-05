@@ -229,7 +229,7 @@ struct CommandPaletteInteractionMonitorTests {
             onDismiss: { _ in }
         )
 
-        weak let weakMonitor = monitor
+        weak var weakMonitor = monitor
         monitor = nil
 
         #expect(weakMonitor == nil)
