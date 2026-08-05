@@ -6340,7 +6340,7 @@ class TerminalController {
                         complete((.failure(fallbackMessage), false))
                     }
                 }
-                contentController.addScriptMessageHandler(
+                contentController.add(
                     handler,
                     contentWorld: .page,
                     name: handlerName
