@@ -7,8 +7,12 @@ import UserNotifications
 private final class FakeNotificationCenter: UserNotificationCenterConfiguring {
     private(set) var categories: Set<UNNotificationCategory> = []
     private(set) var delegate: (any UNUserNotificationCenterDelegate)?
+    var synchronousEntryDelay: TimeInterval = 0
 
     func setNotificationCategories(_ categories: Set<UNNotificationCategory>) {
+        if synchronousEntryDelay > 0 {
+            Thread.sleep(forTimeInterval: synchronousEntryDelay)
+        }
         self.categories = categories
     }
 
@@ -132,6 +136,21 @@ struct NotificationDeliveryCoordinatorTests {
         let question = try #require(categories["CMUXFeedQuestion"])
         #expect(question.actions.map(\.identifier) == ["feed.question.open"])
         #expect(question.actions.first?.options.contains(.foreground) == true)
+    }
+
+    @Test("configuration never blocks its caller on notification-center entry")
+    func configureDoesNotBlockCallingExecutor() {
+        let center = FakeNotificationCenter()
+        // Model a finite slice of the framework's otherwise unbounded sync XPC
+        // wait so the red regression fails without wedging the package runner.
+        center.synchronousEntryDelay = 0.25
+        let coordinator = makeCoordinator(center: center)
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+
+        coordinator.configureUserNotifications(delegate: DummyNotificationDelegate())
+
+        #expect(startedAt.duration(to: clock.now) < .milliseconds(100))
     }
 
     @Test("presentation options include sound only when the notification has sound")

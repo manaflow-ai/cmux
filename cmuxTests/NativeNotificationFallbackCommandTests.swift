@@ -202,3 +202,28 @@ struct NativeNotificationFallbackCommandTests {
         AppFocusState.overrideIsFocused = originalAppFocusOverride
     }
 }
+
+extension AgentNotificationRegressionTests {
+    @Test("An unresponsive notification center never blocks its calling executor")
+    func unresponsiveNativeNotificationCenterDoesNotBlockCallingExecutor() {
+        var hooks = NativeNotificationDeliveryHooks()
+        hooks.scheduler = { _, _ in
+            // Model the framework blocking before it wires up its completion.
+            // The real XPC wait is unbounded; cap the fake so the red test fails
+            // promptly without permanently wedging a test-runner thread.
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        let content = UNMutableNotificationContent()
+        let request = UNNotificationRequest(
+            identifier: "never-completes",
+            content: content,
+            trigger: nil
+        )
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+
+        hooks.schedule(request) { _ in }
+
+        #expect(startedAt.duration(to: clock.now) < .milliseconds(100))
+    }
+}
