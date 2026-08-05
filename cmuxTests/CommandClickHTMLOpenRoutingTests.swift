@@ -664,6 +664,69 @@ struct CommandClickHTMLOpenRoutingTests {
         #expect(!browser.hasRecoverableNavigationFailure)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func validatedHTMLCreationDoesNotWaitForTheFilesystemProbeQueue() async throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+        }
+
+        let htmlURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-validated-html-\(UUID().uuidString).html")
+        try "<!doctype html><title>validated without another probe</title>".write(
+            to: htmlURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: htmlURL) }
+
+        let blockerStarted = AsyncStream<Void>.makeStream()
+        let releaseBlocker = AsyncStream<Void>.makeStream()
+        let blockerFinished = AsyncStream<Void>.makeStream()
+        WordPathFilesystemResolutionCoordinator.shared.submit(
+            id: UUID(),
+            isUserInitiated: true,
+            work: {
+                blockerStarted.continuation.yield()
+                var releaseIterator = releaseBlocker.stream.makeAsyncIterator()
+                _ = await releaseIterator.next()
+                return { @MainActor in blockerFinished.continuation.yield() }
+            },
+            discarded: {}
+        )
+        var blockerStartedIterator = blockerStarted.stream.makeAsyncIterator()
+        _ = await blockerStartedIterator.next()
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        let opened = openResolvedHTMLInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path
+        )
+        let browser = workspace.panels.values.compactMap { $0 as? BrowserPanel }.first
+        var loaded = false
+        if let browser {
+            loaded = await waitForDocumentTitle("validated without another probe", in: browser)
+        }
+
+        releaseBlocker.continuation.yield()
+        var blockerFinishedIterator = blockerFinished.stream.makeAsyncIterator()
+        _ = await blockerFinishedIterator.next()
+        blockerStarted.continuation.finish()
+        releaseBlocker.continuation.finish()
+        blockerFinished.continuation.finish()
+
+        #expect(opened)
+        #expect(browser != nil)
+        #expect(loaded)
+    }
+
     @Test
     func repeatedHTMLPathOpenFocusesOneBrowser() throws {
         _ = NSApplication.shared
