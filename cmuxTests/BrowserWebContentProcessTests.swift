@@ -1098,6 +1098,63 @@ struct BrowserWebContentProcessTests {
         #expect(oldWebView.cmuxBrowserViewportHostView == nil)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func webViewReplacementCancelsPendingFileOnlyNavigation() async throws {
+        let coordinator = WordPathFilesystemResolutionCoordinator(
+            maximumConcurrentCoalescedJobs: 1
+        )
+        let blockerStarted = AsyncStream<Void>.makeStream()
+        let releaseBlocker = AsyncStream<Void>.makeStream()
+        coordinator.submitCoalesced(
+            id: UUID(),
+            coalescingKey: UUID(),
+            work: {
+                blockerStarted.continuation.yield()
+                var iterator = releaseBlocker.stream.makeAsyncIterator()
+                _ = await iterator.next()
+                return { @MainActor in }
+            },
+            discarded: {},
+            rejected: { Issue.record("The blocker must occupy the only filesystem lane") }
+        )
+        var blockerStartedIterator = blockerStarted.stream.makeAsyncIterator()
+        _ = await blockerStartedIterator.next()
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-webview-pending-file-\(UUID().uuidString)", isDirectory: true)
+        let fileURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>stale file navigation</title>".write(
+            to: fileURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false,
+            localFileReadAccessPolicy: .fileOnly,
+            filesystemResolutionCoordinator: coordinator
+        )
+        defer { panel.close() }
+        let navigationStarted = AsyncStream<Bool>.makeStream()
+        panel.navigate(to: fileURL) { navigation in
+            navigationStarted.continuation.yield(navigation != nil)
+        }
+
+        let oldInstanceID = panel.webViewInstanceID
+        panel.debugSimulateWebContentProcessTermination()
+        #expect(panel.webViewInstanceID != oldInstanceID)
+
+        releaseBlocker.continuation.yield()
+        var navigationStartedIterator = navigationStarted.stream.makeAsyncIterator()
+        let didStartNavigation = await navigationStartedIterator.next()
+        #expect(didStartNavigation == false)
+        #expect(panel.currentURL == nil)
+    }
+
     @Test
     func webViewReplacementPreservesActiveEmulatedViewportHost() throws {
         let panel = BrowserPanel(

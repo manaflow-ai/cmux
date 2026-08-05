@@ -603,6 +603,94 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func negativeHoverCacheDoesNotSuppressAnUnrelatedCell() {
+        let surfaceID = UUID()
+        let firstIdentity = WordPathHoverResolutionIdentity(
+            key: WordPathHoverCacheKey(
+                surfaceID: surfaceID,
+                surfaceGeneration: 1,
+                row: 2,
+                column: 3,
+                rows: 24,
+                columns: 80,
+                boundsSize: CGSize(width: 800, height: 480),
+                cellSize: CGSize(width: 10, height: 20),
+                workingDirectory: "/tmp"
+            ),
+            quicklook: nil
+        )
+        let secondIdentity = WordPathHoverResolutionIdentity(
+            key: WordPathHoverCacheKey(
+                surfaceID: surfaceID,
+                surfaceGeneration: 1,
+                row: 2,
+                column: 4,
+                rows: 24,
+                columns: 80,
+                boundsSize: CGSize(width: 800, height: 480),
+                cellSize: CGSize(width: 10, height: 20),
+                workingDirectory: "/tmp"
+            ),
+            quicklook: nil
+        )
+        let entry = WordPathHoverCacheEntry(
+            request: WordPathHoverResolutionRequest(
+                identity: firstIdentity,
+                snapshot: WordPathResolutionSnapshot(
+                    workingDirectory: "/tmp",
+                    point: nil,
+                    quicklook: nil,
+                    viewport: nil
+                ),
+                renderedFrameGeneration: 1
+            ),
+            resolution: nil,
+            storedAt: 10
+        )
+
+        #expect(entry.canReuseAcrossRenderedFrame(
+            for: firstIdentity,
+            at: 10.5,
+            maximumNegativeAge: 1
+        ))
+        #expect(!entry.canReuseAcrossRenderedFrame(
+            for: secondIdentity,
+            at: 10.5,
+            maximumNegativeAge: 1
+        ))
+    }
+
+    @Test
+    func fileOnlyUserNewTabIntentPrecedesUnvalidatedFileRejection() {
+        var consumedAllowance = false
+        let commandClick = browserRestrictedFileNavigationDisposition(
+            isFileOnly: true,
+            isFileURL: true,
+            shouldOpenInNewTab: true,
+            consumeValidatedAllowance: {
+                consumedAllowance = true
+                return false
+            }
+        )
+
+        #expect(commandClick == .openInNewTab)
+        #expect(!consumedAllowance)
+
+        let plainClick = browserRestrictedFileNavigationDisposition(
+            isFileOnly: true,
+            isFileURL: true,
+            shouldOpenInNewTab: false,
+            consumeValidatedAllowance: {
+                consumedAllowance = true
+                return false
+            }
+        )
+
+        #expect(plainClick == .reject)
+        #expect(consumedAllowance)
+    }
+
+    @Test
     func htmlPathOpensInBrowserInsteadOfFilePreview() throws {
         _ = NSApplication.shared
 
@@ -1807,6 +1895,60 @@ struct CommandClickHTMLOpenRoutingTests {
                 == filesystemIdentity(atPath: targetURL.path)
         )
         #expect(externallyOpened.isEmpty)
+    }
+
+    @Test
+    func resolvedFileRoutingReusesSymlinkBackedMarkdownAndPreviewPanels() throws {
+        _ = NSApplication.shared
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resolved-viewer-reuse-\(UUID().uuidString)", isDirectory: true)
+        let linkDirectory = fixtureDirectory.appendingPathComponent("links", isDirectory: true)
+        let targetDirectory = fixtureDirectory.appendingPathComponent("targets", isDirectory: true)
+        try FileManager.default.createDirectory(at: linkDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let markdownTarget = targetDirectory.appendingPathComponent("README.md")
+        let markdownLink = linkDirectory.appendingPathComponent("README.md")
+        try "# Canonical markdown".write(to: markdownTarget, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: markdownLink, withDestinationURL: markdownTarget)
+
+        let previewTarget = targetDirectory.appendingPathComponent("notes.txt")
+        let previewLink = linkDirectory.appendingPathComponent("notes.txt")
+        try "Canonical preview".write(to: previewTarget, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: previewLink, withDestinationURL: previewTarget)
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let sourcePaneID = try #require(workspace.bonsplitController.focusedPaneId)
+
+        let markdown = try #require(workspace.openOrFocusMarkdownSurface(
+            inPane: sourcePaneID,
+            filePath: markdownLink.path,
+            focus: false
+        ))
+        let reusedMarkdown = try #require(workspace.openOrFocusMarkdownSplit(
+            from: sourcePanelID,
+            filePath: markdownLink.path,
+            resolvedFileURL: markdownLink.resolvingSymlinksInPath()
+        ))
+        #expect(reusedMarkdown === markdown)
+        #expect(workspace.panels.values.compactMap { $0 as? MarkdownPanel }.count == 1)
+
+        let preview = try #require(workspace.openOrFocusFilePreviewSurface(
+            inPane: sourcePaneID,
+            filePath: previewLink.path,
+            focus: false
+        ))
+        let reusedPreview = try #require(workspace.openOrFocusFilePreviewSplit(
+            from: sourcePanelID,
+            filePath: previewLink.path,
+            resolvedFileURL: previewLink.resolvingSymlinksInPath()
+        ))
+        #expect(reusedPreview === preview)
+        #expect(workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.count == 1)
     }
 
     private func restore(_ value: Any?, forKey key: String, in defaults: UserDefaults) {
