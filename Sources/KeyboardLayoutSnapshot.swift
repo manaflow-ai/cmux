@@ -3,17 +3,7 @@ import AppKit
 /// Immutable keyboard translation data read by synchronous event handlers.
 /// Carbon input-source APIs are used only while constructing a replacement.
 struct KeyboardLayoutSnapshot: Equatable, Sendable {
-    struct Key: Hashable, Sendable {
-        let keyCode: UInt16
-        private let modifierFlagsRawValue: UInt
-
-        init(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
-            self.keyCode = keyCode
-            self.modifierFlagsRawValue = modifierFlags
-                .intersection(.deviceIndependentFlagsMask)
-                .rawValue
-        }
-    }
+    typealias Key = KeyboardLayoutSnapshotKey
 
     let inputSourceID: String?
     private let shortcutCharacters: [Key: String]

@@ -35,16 +35,6 @@ fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     return result
 }
 
-@MainActor
-enum BrowserBackgroundPreloadHost {
-    @discardableResult
-    static func attach(_ presentationView: NSView, to window: NSWindow) -> NSView? {
-        guard let contentView = window.contentView else { return nil }
-        contentView.addSubview(presentationView)
-        return contentView
-    }
-}
-
 private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
     let type: NSEvent.EventType
     let timestamp: TimeInterval

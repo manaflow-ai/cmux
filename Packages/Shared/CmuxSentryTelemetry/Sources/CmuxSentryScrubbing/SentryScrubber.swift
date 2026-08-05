@@ -445,7 +445,7 @@ public struct SentryScrubber: Sendable {
                 index += 1
                 continue
             }
-            guard let range = Self.sensitiveAssignmentValueRange(
+            guard let range = sensitiveAssignmentValueRange(
                 delimiterIndex: index,
                 bytes: bytes
             ) else {
@@ -469,121 +469,121 @@ public struct SentryScrubber: Sendable {
         output.append(contentsOf: bytes[copiedThrough...])
         return String(decoding: output, as: UTF8.self)
     }
+}
 
-    /// Resolves the value bytes belonging to a sensitive assignment delimiter.
-    private static func sensitiveAssignmentValueRange(
-        delimiterIndex: Int,
-        bytes: [UInt8]
-    ) -> Range<Int>? {
-        guard delimiterIndex > 0 else { return nil }
+/// Resolves the value bytes belonging to a sensitive assignment delimiter.
+private func sensitiveAssignmentValueRange(
+    delimiterIndex: Int,
+    bytes: [UInt8]
+) -> Range<Int>? {
+    guard delimiterIndex > 0 else { return nil }
 
-        var keyCursor = delimiterIndex - 1
+    var keyCursor = delimiterIndex - 1
+    while keyCursor >= 0, isASCIIWhitespace(bytes[keyCursor]) {
+        keyCursor -= 1
+    }
+    if keyCursor >= 0, isQuote(bytes[keyCursor]) {
+        keyCursor -= 1
         while keyCursor >= 0, isASCIIWhitespace(bytes[keyCursor]) {
             keyCursor -= 1
         }
-        if keyCursor >= 0, isQuote(bytes[keyCursor]) {
-            keyCursor -= 1
-            while keyCursor >= 0, isASCIIWhitespace(bytes[keyCursor]) {
-                keyCursor -= 1
-            }
-        }
-        guard keyCursor >= 0 else { return nil }
+    }
+    guard keyCursor >= 0 else { return nil }
 
-        let keyEnd = keyCursor + 1
-        while keyCursor >= 0, isAssignmentKeyByte(bytes[keyCursor]) {
-            keyCursor -= 1
-        }
-        let keyStart = keyCursor + 1
-        guard keyStart < keyEnd else { return nil }
-        let key = String(decoding: bytes[keyStart ..< keyEnd], as: UTF8.self)
-        guard isSensitiveKey(key) else { return nil }
+    let keyEnd = keyCursor + 1
+    while keyCursor >= 0, isAssignmentKeyByte(bytes[keyCursor]) {
+        keyCursor -= 1
+    }
+    let keyStart = keyCursor + 1
+    guard keyStart < keyEnd else { return nil }
+    let key = String(decoding: bytes[keyStart ..< keyEnd], as: UTF8.self)
+    guard SentryScrubber.isSensitiveKey(key) else { return nil }
 
-        var valueStart = delimiterIndex + 1
-        while valueStart < bytes.count, isASCIIWhitespace(bytes[valueStart]) {
-            valueStart += 1
-        }
-        guard valueStart < bytes.count else { return nil }
+    var valueStart = delimiterIndex + 1
+    while valueStart < bytes.count, isASCIIWhitespace(bytes[valueStart]) {
+        valueStart += 1
+    }
+    guard valueStart < bytes.count else { return nil }
 
-        if isQuote(bytes[valueStart]) {
-            let quote = bytes[valueStart]
-            valueStart += 1
-            var valueEnd = valueStart
-            while valueEnd < bytes.count {
-                if bytes[valueEnd] == quote {
-                    break
-                }
-                if bytes[valueEnd] == 0x5C, valueEnd + 1 < bytes.count {
-                    valueEnd += 2
-                } else {
-                    valueEnd += 1
-                }
-            }
-            guard valueStart < valueEnd else { return nil }
-            return valueStart ..< valueEnd
-        }
-
-        if isAuthorizationAssignmentKey(key) {
-            let firstTokenStart = valueStart
-            while valueStart < bytes.count, !isUnquotedValueTerminator(bytes[valueStart]) {
-                valueStart += 1
-            }
-            var secondTokenStart = valueStart
-            while secondTokenStart < bytes.count, isASCIIWhitespace(bytes[secondTokenStart]) {
-                secondTokenStart += 1
-            }
-            if secondTokenStart < bytes.count,
-               !isUnquotedValueTerminator(bytes[secondTokenStart])
-            {
-                valueStart = secondTokenStart
-            } else {
-                valueStart = firstTokenStart
-            }
-        }
-
+    if isQuote(bytes[valueStart]) {
+        let quote = bytes[valueStart]
+        valueStart += 1
         var valueEnd = valueStart
-        while valueEnd < bytes.count, !isUnquotedValueTerminator(bytes[valueEnd]) {
-            valueEnd += 1
+        while valueEnd < bytes.count {
+            if bytes[valueEnd] == quote {
+                break
+            }
+            if bytes[valueEnd] == 0x5C, valueEnd + 1 < bytes.count {
+                valueEnd += 2
+            } else {
+                valueEnd += 1
+            }
         }
         guard valueStart < valueEnd else { return nil }
         return valueStart ..< valueEnd
     }
 
-    private static func normalizedSensitiveKey(_ key: String) -> String {
-        key.lowercased().replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .replacingOccurrences(of: " ", with: "")
+    if isAuthorizationAssignmentKey(key) {
+        let firstTokenStart = valueStart
+        while valueStart < bytes.count, !isUnquotedValueTerminator(bytes[valueStart]) {
+            valueStart += 1
+        }
+        var secondTokenStart = valueStart
+        while secondTokenStart < bytes.count, isASCIIWhitespace(bytes[secondTokenStart]) {
+            secondTokenStart += 1
+        }
+        if secondTokenStart < bytes.count,
+           !isUnquotedValueTerminator(bytes[secondTokenStart])
+        {
+            valueStart = secondTokenStart
+        } else {
+            valueStart = firstTokenStart
+        }
     }
 
-    private static func isAuthorizationAssignmentKey(_ key: String) -> Bool {
-        let normalized = normalizedSensitiveKey(key)
-        return normalized == "authorization" || normalized == "proxyauthorization"
+    var valueEnd = valueStart
+    while valueEnd < bytes.count, !isUnquotedValueTerminator(bytes[valueEnd]) {
+        valueEnd += 1
     }
+    guard valueStart < valueEnd else { return nil }
+    return valueStart ..< valueEnd
+}
 
-    private static func isAssignmentKeyByte(_ byte: UInt8) -> Bool {
-        (byte >= 0x30 && byte <= 0x39)
-            || (byte >= 0x41 && byte <= 0x5A)
-            || (byte >= 0x61 && byte <= 0x7A)
-            || byte == 0x2D
-            || byte == 0x2E
-            || byte == 0x5F
-    }
+private func normalizedSensitiveKey(_ key: String) -> String {
+    key.lowercased().replacingOccurrences(of: "-", with: "")
+        .replacingOccurrences(of: "_", with: "")
+        .replacingOccurrences(of: " ", with: "")
+}
 
-    private static func isASCIIWhitespace(_ byte: UInt8) -> Bool {
-        byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D
-    }
+private func isAuthorizationAssignmentKey(_ key: String) -> Bool {
+    let normalized = normalizedSensitiveKey(key)
+    return normalized == "authorization" || normalized == "proxyauthorization"
+}
 
-    private static func isQuote(_ byte: UInt8) -> Bool {
-        byte == 0x22 || byte == 0x27
-    }
+private func isAssignmentKeyByte(_ byte: UInt8) -> Bool {
+    (byte >= 0x30 && byte <= 0x39)
+        || (byte >= 0x41 && byte <= 0x5A)
+        || (byte >= 0x61 && byte <= 0x7A)
+        || byte == 0x2D
+        || byte == 0x2E
+        || byte == 0x5F
+}
 
-    private static func isUnquotedValueTerminator(_ byte: UInt8) -> Bool {
-        isASCIIWhitespace(byte)
-            || isQuote(byte)
-            || byte == 0x26
-            || byte == 0x29
-            || byte == 0x2C
-            || byte == 0x3B
-            || byte == 0x5D
-            || byte == 0x7D
-    }
+private func isASCIIWhitespace(_ byte: UInt8) -> Bool {
+    byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D
+}
+
+private func isQuote(_ byte: UInt8) -> Bool {
+    byte == 0x22 || byte == 0x27
+}
+
+private func isUnquotedValueTerminator(_ byte: UInt8) -> Bool {
+    isASCIIWhitespace(byte)
+        || isQuote(byte)
+        || byte == 0x26
+        || byte == 0x29
+        || byte == 0x2C
+        || byte == 0x3B
+        || byte == 0x5D
+        || byte == 0x7D
 }

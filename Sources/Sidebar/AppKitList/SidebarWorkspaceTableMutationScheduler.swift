@@ -55,12 +55,6 @@ final class SidebarWorkspaceTableMutationScheduler {
         scheduleFlushIfNeeded()
     }
 
-#if DEBUG
-    func flushPendingMutationsForTesting() {
-        flushPendingMutations()
-    }
-#endif
-
     private func scheduleFlushIfNeeded() {
         guard !isFlushScheduled else { return }
         isFlushScheduled = true
@@ -75,7 +69,7 @@ final class SidebarWorkspaceTableMutationScheduler {
         }
     }
 
-    private func flushPendingMutations() {
+    func flushPendingMutations() {
         let apply = pendingApply
         let flushViewportChange = shouldFlushViewportChange
         let flushTableReload = shouldFlushTableReload

@@ -20,7 +20,7 @@ extension SocketControlServer {
     ///   unchanged when no reservation was possible.
     @discardableResult
     public func reserveStartupSocketPath(_ path: String) -> String {
-        guard withListenerState({ Self.canReserveStartupSocketPath(state: $0) }) else {
+        guard withListenerState({ canReserveStartupSocketPath(state: $0) }) else {
             return path
         }
 
@@ -52,7 +52,7 @@ extension SocketControlServer {
 
         var didReserve = false
         withListenerState { state in
-            guard Self.canReserveStartupSocketPath(state: state) else {
+            guard canReserveStartupSocketPath(state: state) else {
                 return
             }
             state.socketPath = reservationPath
@@ -66,18 +66,6 @@ extension SocketControlServer {
         }
         transport.releaseSocketPathLock(reservationLockFD)
         return path
-    }
-
-    private static func canReserveStartupSocketPath(state: ListenerResources) -> Bool {
-        !state.isRunning &&
-            !state.acceptLoopAlive &&
-            !state.listenerState.isStarting &&
-            !state.listenerState.isWaiting &&
-            state.pendingAcceptLoopRearmGeneration == nil &&
-            state.socketPathLockFD < 0 &&
-            state.listenerReadSource == nil &&
-            state.socketPathMonitorSource == nil &&
-            state.serverSocket < 0
     }
 
     /// Starts (or restarts) the listener on `socketPath`.
@@ -542,11 +530,6 @@ extension SocketControlServer {
         return true
     }
 
-    private enum StartupFailureDisposition {
-        case retryScheduled
-        case terminal
-    }
-
     @discardableResult
     private func handleStartupFailure(
         message: String,
@@ -692,4 +675,16 @@ extension SocketControlServer {
         return nil
     }
 
+}
+
+private func canReserveStartupSocketPath(state: ListenerState) -> Bool {
+    !state.isRunning &&
+        !state.acceptLoopAlive &&
+        !state.listenerState.isStarting &&
+        !state.listenerState.isWaiting &&
+        state.pendingAcceptLoopRearmGeneration == nil &&
+        state.socketPathLockFD < 0 &&
+        state.listenerReadSource == nil &&
+        state.socketPathMonitorSource == nil &&
+        state.serverSocket < 0
 }

@@ -734,12 +734,16 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.refreshTrackedWorkspaceGitMetadata(reason: "test")
     }
 
-    func sidebarGitMetadataWatchSettingsDidChangeForTesting() async {
+    func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
+        sidebarMetadataSettingsDidChange()
+    }
+
+    func refreshSidebarGitMetadataSettingsAndWait() async {
         sidebarMetadataSettingsDidChange()
         await sidebarGitActivitySnapshotCache.waitUntilIdle()
     }
 
-    func waitForSidebarGitActivitySnapshotForTesting() async {
+    func waitForSidebarGitActivitySnapshot() async {
         await sidebarGitActivitySnapshotCache.waitUntilIdle()
     }
 

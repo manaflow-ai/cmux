@@ -168,42 +168,6 @@ final class TmuxWorkspacePaneOverlayModel {
     }
 }
 
-struct WorkspaceDeferredThemeRefresh {
-    let reason: String
-    let backgroundOverride: NSColor?
-    let backgroundEventId: UInt64?
-    let backgroundSource: String?
-    let notificationPayloadHex: String?
-    let forceInitialApply: Bool
-}
-
-/// Holds hidden-workspace refresh data without publishing a SwiftUI state
-/// mutation for every global theme notification.
-@MainActor
-final class WorkspaceDeferredThemeRefreshOwner {
-    private var pending: WorkspaceDeferredThemeRefresh?
-
-    func record(_ refresh: WorkspaceDeferredThemeRefresh) {
-        pending = WorkspaceDeferredThemeRefresh(
-            reason: refresh.reason,
-            backgroundOverride: refresh.backgroundOverride,
-            backgroundEventId: refresh.backgroundEventId,
-            backgroundSource: refresh.backgroundSource,
-            notificationPayloadHex: refresh.notificationPayloadHex,
-            forceInitialApply: refresh.forceInitialApply || pending?.forceInitialApply == true
-        )
-    }
-
-    func takePending() -> WorkspaceDeferredThemeRefresh? {
-        defer { pending = nil }
-        return pending
-    }
-
-    func clear() {
-        pending = nil
-    }
-}
-
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace

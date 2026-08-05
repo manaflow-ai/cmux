@@ -85,70 +85,6 @@ private final class ServerEventRecorder: Sendable {
     }
 }
 
-/// Records a connection delivered directly from the listener queue. The test
-/// deliberately waits synchronously on the main actor, so delivery cannot
-/// depend on a main-actor or cooperative-executor task getting a turn.
-private final class DirectConnectionHandlerProbe: @unchecked Sendable {
-    private let handled = DispatchSemaphore(value: 0)
-    private let state = OSAllocatedUnfairLock(initialState: 0)
-
-    func handle(_ connection: ControlConnection) {
-        close(connection.socket)
-        state.withLock { $0 += 1 }
-        handled.signal()
-    }
-
-    func wait(timeout: TimeInterval) -> Bool {
-        handled.wait(timeout: .now() + timeout) == .success
-    }
-
-    var invocationCount: Int {
-        state.withLock { $0 }
-    }
-}
-
-/// Deterministic transport fault script used to exercise listener recovery
-/// through the real server lifecycle and real Unix-domain sockets.
-private final class TestSocketTransportFaultInjector: SocketTransportFaultInjecting, Sendable {
-    private struct State {
-        var failuresByStage: [String: [Int32]]
-        var repeatingFailuresByStage: [String: Int32]
-        var invocationCounts: [String: Int] = [:]
-    }
-
-    private let state: OSAllocatedUnfairLock<State>
-
-    init(
-        failuresByStage: [String: [Int32]] = [:],
-        repeatingFailuresByStage: [String: Int32] = [:]
-    ) {
-        state = OSAllocatedUnfairLock(initialState: State(
-            failuresByStage: failuresByStage,
-            repeatingFailuresByStage: repeatingFailuresByStage
-        ))
-    }
-
-    func errnoCode(stage: String, path _: String) -> Int32? {
-        state.withLock { state in
-            state.invocationCounts[stage, default: 0] += 1
-            if var failures = state.failuresByStage[stage], !failures.isEmpty {
-                let failure = failures.removeFirst()
-                state.failuresByStage[stage] = failures
-                return failure
-            }
-            return state.repeatingFailuresByStage[stage]
-        }
-    }
-
-    func invocationCount(for stage: String) -> Int {
-        state.withLock { $0.invocationCounts[stage, default: 0] }
-    }
-
-    func replaceFailures(_ failures: [Int32], for stage: String) {
-        state.withLock { $0.failuresByStage[stage] = failures }
-    }
-}
-
 @MainActor
 private struct ServerHarness: ~Copyable {
     let directory: URL
@@ -969,18 +905,15 @@ struct SocketControlServerPathMonitorTests {
 // instead: claim-after-stop rejection below, and stop()'s resume-before-cancel
 // is exercised by every harness shutdown.
 @MainActor
-@Suite("SocketControlServer rearm")
-struct SocketControlServerRearmTests {
-    @Test func claimWithoutPendingRearmReturnsNil() throws {
-        let harness = try ServerHarness()
-        defer { harness.shutdown() }
-        let server = harness.server
-        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
-        #expect(server.claimPendingRearm(
-            generation: 1,
-            errnoCode: EMFILE,
-            consecutiveFailures: 3,
-            delayMs: 100
-        ) == nil)
-    }
+@Test func socketControlServerClaimWithoutPendingRearmReturnsNil() throws {
+    let harness = try ServerHarness()
+    defer { harness.shutdown() }
+    let server = harness.server
+    #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+    #expect(server.claimPendingRearm(
+        generation: 1,
+        errnoCode: EMFILE,
+        consecutiveFailures: 3,
+        delayMs: 100
+    ) == nil)
 }

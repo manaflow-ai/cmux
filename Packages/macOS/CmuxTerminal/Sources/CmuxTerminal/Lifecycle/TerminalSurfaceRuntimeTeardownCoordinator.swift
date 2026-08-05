@@ -6,57 +6,6 @@ internal import Dispatch
 internal import CMUXDebugLog
 #endif
 
-private struct TerminalSurfaceRuntimeCreationRequest: @unchecked Sendable {
-    let id: UUID
-    let reason: String
-    let operation: @MainActor @Sendable () async -> Void
-    let completion: TerminalSurfaceRuntimeTeardownCompletion
-}
-
-/// An awaitable test seam for one queued native surface creation.
-struct TerminalSurfaceRuntimeCreationTicket: Sendable {
-    private let completion: TerminalSurfaceRuntimeTeardownCompletion
-
-    init(completion: TerminalSurfaceRuntimeTeardownCompletion) {
-        self.completion = completion
-    }
-
-    func wait(timeout: Duration) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await completion.wait()
-            }
-            group.addTask {
-                do {
-                    try await ContinuousClock().sleep(for: timeout)
-                    return false
-                } catch {
-                    return false
-                }
-            }
-            let completed = await group.next() ?? false
-            group.cancelAll()
-            return completed
-        }
-    }
-}
-
-private struct TerminalSurfaceRuntimeQueuedTeardown: @unchecked Sendable {
-    let request: TerminalSurfaceRuntimeTeardownRequest
-    let hibernationReservation: TerminalSurfaceRuntimeTeardownReservation?
-}
-
-private struct TerminalSurfaceRuntimeQueuedScreenTail: @unchecked Sendable {
-    let request: TerminalSurfaceRuntimeScreenTailRequest
-    let continuation: CheckedContinuation<String?, Never>
-}
-
-private enum TerminalSurfaceRuntimeNativeOperation: @unchecked Sendable {
-    case creation(TerminalSurfaceRuntimeCreationRequest)
-    case screenTail(TerminalSurfaceRuntimeQueuedScreenTail)
-    case teardown(TerminalSurfaceRuntimeQueuedTeardown)
-}
-
 /// Coordinates every native surface creation, borrowed read, and free.
 ///
 /// Native operations drain through one process-wide queue. Creation executes on
@@ -72,6 +21,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     public static let maximumHibernationTeardownCount = 2
 
     private let timeout: Duration = .seconds(5)
+    private let timeoutClock: any Clock<Duration>
 #if DEBUG
     // Readable at internal scope in DEBUG so the debug-only extension in
     // TerminalSurfaceRuntimeTeardownCoordinator+Debug.swift can report the
@@ -88,7 +38,10 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         TerminalSurfaceRuntimeTeardownAdmission()
 
     /// Creates the process's native surface lifecycle coordinator.
-    public init() {
+    ///
+    /// - Parameter timeoutClock: Clock used for stuck-free reporting deadlines.
+    public init(timeoutClock: any Clock<Duration> = ContinuousClock()) {
+        self.timeoutClock = timeoutClock
         nativeWorkerQueue = DispatchQueue(
             label: "com.cmux.terminal-surface-native-lifecycle",
             qos: .utility
@@ -393,7 +346,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private func observeTimeout(id: UUID) async {
         do {
             // Genuine teardown deadline: report a stuck native free without blocking close.
-            try await Task.sleep(for: timeout)
+            try await timeoutClock.sleep(for: timeout)
         } catch {
             return
         }

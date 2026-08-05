@@ -4,7 +4,7 @@ import SwiftUI
 
 struct NotificationsPage: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
-    @ObservedObject var tabManager: TabManager
+    @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared

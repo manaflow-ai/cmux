@@ -6,12 +6,6 @@ import Testing
 @Suite("SidebarMultiSelectionModel")
 @MainActor
 struct SidebarMultiSelectionModelTests {
-    private final class ObservationFlag: @unchecked Sendable {
-        // The suite is MainActor-isolated, so callbacks and assertions access
-        // this flag serially even though Observation requires a Sendable closure.
-        var fired = false
-    }
-
     private final class Recorder: @unchecked Sendable {
         // Mutated and read on MainActor only; NotificationCenter delivers
         // posts synchronously on the posting (main) thread in these tests.

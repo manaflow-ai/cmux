@@ -48,8 +48,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
     var atomicStructuralReloadProbe: (() -> Void)?
-    func flushPendingMutationsForTesting() {
-        mutationScheduler.flushPendingMutationsForTesting()
+    func flushPendingMutationsImmediately() {
+        mutationScheduler.flushPendingMutations()
     }
     var dropTargetComputationProbe: (() -> Void)? {
         get { dropTargetGeometry.computationProbe }
@@ -406,7 +406,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
         var previousIds: [SidebarWorkspaceRenderItemID] = []
         var nextIds: [SidebarWorkspaceRenderItemID] = []
-        var incrementalStructuralMutation: IncrementalStructuralMutation?
+        var incrementalStructuralMutation: SidebarWorkspaceTableIncrementalStructuralMutation?
         var isSmallPureReorder = false
         if hasStructuralChanges {
             previousIds = previousRows.map(\.id)
@@ -1140,18 +1140,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// is both cheaper and visually equivalent for bulk permutations.
     private static let maxAnimatedReorderMoves = 32
 
-    private struct IncrementalStructuralMutation {
-        let removedIndexes: IndexSet
-        let insertedIndexes: IndexSet
-    }
-
     /// Produces an O(n) insert/remove plan when the retained row order is
     /// unchanged. Reorders keep their dedicated move path, while large or
     /// ambiguous mutations fall back to the atomic reload path.
     private static func incrementalStructuralMutation(
         previousIds: [SidebarWorkspaceRenderItemID],
         nextIds: [SidebarWorkspaceRenderItemID]
-    ) -> IncrementalStructuralMutation? {
+    ) -> SidebarWorkspaceTableIncrementalStructuralMutation? {
         let previousSet = Set(previousIds)
         let nextSet = Set(nextIds)
         guard previousSet.count == previousIds.count,
@@ -1174,7 +1169,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
               mutationCount <= maxIncrementalStructuralEdits else {
             return nil
         }
-        return IncrementalStructuralMutation(
+        return SidebarWorkspaceTableIncrementalStructuralMutation(
             removedIndexes: removedIndexes,
             insertedIndexes: insertedIndexes
         )

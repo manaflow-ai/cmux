@@ -18,62 +18,7 @@ import SwiftUI
 struct DefaultWorkspaceSidebarView: View, Equatable {
     static let workspaceObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(40)
 
-    struct RenderContext {
-        struct WorkspaceReferenceIdentity: Equatable {
-            let workspaceId: UUID
-            let groupId: UUID?
-            let objectIdentifier: ObjectIdentifier
-
-            @MainActor
-            init(_ workspace: Workspace) {
-                workspaceId = workspace.id
-                groupId = workspace.groupId
-                objectIdentifier = ObjectIdentifier(workspace)
-            }
-        }
-
-        struct Identity: Equatable {
-            let workspaceReferences: [WorkspaceReferenceIdentity]
-            let selectedWorkspaceId: UUID?
-            let selectedContextTargetIds: [UUID]
-            let sidebarReorderIds: [UUID]
-            let workspaceGroups: [WorkspaceGroup]
-            let workspaceRenderItemIds: [SidebarWorkspaceRenderItemID]
-            let workspaceNumberShortcut: StoredShortcut
-            let tabItemSettings: SidebarTabItemSettingsSnapshot
-            let showsAgentActivity: Bool
-            let sidebarSelectionIsTabs: Bool
-            let colorScheme: ColorScheme
-            let globalFontMagnificationPercent: Int
-        }
-
-        let identity: Identity
-        let environment: SidebarWorkspaceTableEnvironmentSnapshot
-        let tabs: [Workspace]
-        let tabIds: [UUID]
-        let sidebarReorderIds: [UUID]
-        let workspaceCount: Int
-        let canCloseWorkspace: Bool
-        let workspaceNumberShortcut: StoredShortcut
-        let tabItemSettings: SidebarTabItemSettingsSnapshot
-        let showsAgentActivity: Bool
-        let pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext
-        let tabIndexById: [UUID: Int]
-        let numberedWorkspaceIndexById: [UUID: Int]
-        let workspaceById: [UUID: Workspace]
-        let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
-        let selectedContextTargetIds: [UUID]
-        let workspaceGroups: [WorkspaceGroup]
-        let workspaceGroupById: [UUID: WorkspaceGroup]
-        let memberWorkspaceIdsByGroupId: [UUID: [UUID]]
-        let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
-        let workspaceRenderItems: [SidebarWorkspaceRenderItem]
-        let visibleWorkspaceRowIds: [UUID]
-
-        var workspaceIds: [UUID] { tabIds }
-    }
-
-    let renderContext: RenderContext
+    let renderContext: WorkspaceListRenderContext
     let isPresented: Bool
     let usesAppKitSidebarList: Bool
     let sidebarUnread: SidebarUnreadModel
@@ -91,8 +36,8 @@ struct DefaultWorkspaceSidebarView: View, Equatable {
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    let tabManager: TabManager
+    let cmuxConfigStore: CmuxConfigStore
 #if DEBUG
     @Environment(\.sidebarLazyContractProbe) var sidebarLazyContractProbe
 #endif
@@ -100,6 +45,8 @@ struct DefaultWorkspaceSidebarView: View, Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.renderContext.identity == rhs.renderContext.identity
+            && lhs.tabManager === rhs.tabManager
+            && lhs.cmuxConfigStore === rhs.cmuxConfigStore
             && lhs.isPresented == rhs.isPresented
             && lhs.usesAppKitSidebarList == rhs.usesAppKitSidebarList
             && lhs.sidebarUnread === rhs.sidebarUnread
@@ -219,7 +166,7 @@ struct DefaultWorkspaceSidebarView: View, Equatable {
         )
     }
 
-    func emptyAreaTabDropDelegate(renderContext: RenderContext) -> SidebarTabDropDelegate {
+    func emptyAreaTabDropDelegate(renderContext: WorkspaceListRenderContext) -> SidebarTabDropDelegate {
         SidebarTabDropDelegate(
             targetTabId: nil,
             tabManager: tabManager,
@@ -319,5 +266,3 @@ struct DefaultWorkspaceSidebarView: View, Equatable {
         nonmutating set { owner.anchorCwdRevision = newValue }
     }
 }
-
-typealias WorkspaceListRenderContext = DefaultWorkspaceSidebarView.RenderContext

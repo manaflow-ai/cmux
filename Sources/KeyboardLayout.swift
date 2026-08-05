@@ -1,21 +1,13 @@
 import AppKit
-import Carbon
 import Foundation
-import os
 
-// Synchronous keyboard and IME callbacks cannot await the main-actor cache.
-// The unfair lock only copies one immutable value; Carbon work never runs
-// while it is held.
-private nonisolated let keyboardLayoutSnapshotStorage = OSAllocatedUnfairLock(
-    initialState: KeyboardLayoutSnapshot.usBootstrap
-)
-
+@MainActor
 enum KeyboardLayout {
     static let didChangeNotification = Notification.Name("KeyboardLayoutDidChange")
 
     /// Test-only override for the current input source ID.
     #if DEBUG
-    nonisolated(unsafe) static var debugInputSourceIdOverride: String?
+    static var debugInputSourceIdOverride: String?
     #endif
 
     @MainActor private static var inputSourceObserver: NSObjectProtocol?
@@ -24,10 +16,7 @@ enum KeyboardLayout {
         loader: {
             KeyboardLayoutSystemLoader.loadCurrentSnapshot()
         }
-    ) { replacement in
-        keyboardLayoutSnapshotStorage.withLock { snapshot in
-            snapshot = replacement
-        }
+    ) { _ in
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
@@ -45,12 +34,6 @@ enum KeyboardLayout {
             object: nil,
             queue: .main
         ) { _ in
-            // Preserve the event-path invariant that an input-source switch
-            // observed during interpretKeyEvents is visible before that call
-            // returns, without synchronously touching TIS.
-            keyboardLayoutSnapshotStorage.withLock { snapshot in
-                snapshot = snapshot.replacingInputSourceID(nil)
-            }
             MainActor.assumeIsolated {
                 snapshotCache.requestRefresh()
             }
@@ -90,7 +73,7 @@ enum KeyboardLayout {
 
     /// Translate a physical key code exactly as text input would, including
     /// Option/Shift and without ASCII fallback.
-    static func textInputCharacter(
+    nonisolated static func textInputCharacter(
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags
     ) -> String? {
@@ -130,175 +113,6 @@ enum KeyboardLayout {
     }
 
     private static func currentSnapshot() -> KeyboardLayoutSnapshot {
-        keyboardLayoutSnapshotStorage.withLock { $0 }
-    }
-}
-
-private enum KeyboardLayoutSystemLoader {
-    private enum ModifierTranslationMode {
-        case shortcut
-        case textInput
-    }
-
-    private static let keyCodes = Array(UInt16(0)...UInt16(127))
-    private static let shortcutModifierFlags: [NSEvent.ModifierFlags] = [
-        [], .shift, .command, [.shift, .command],
-    ]
-    private static let textInputModifierFlags: [NSEvent.ModifierFlags] = [
-        [], .shift, .option, [.shift, .option],
-    ]
-
-    static func loadCurrentSnapshot() -> KeyboardLayoutSnapshot? {
-        guard let currentSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else {
-            return nil
-        }
-        let asciiSource = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue()
-        let currentShortcutCharacters = translatedCharacters(
-            from: currentSource,
-            modifierFlags: shortcutModifierFlags,
-            mode: .shortcut,
-            lowercased: true
-        )
-        let asciiShortcutCharacters = asciiSource.map {
-            translatedCharacters(
-                from: $0,
-                modifierFlags: shortcutModifierFlags,
-                mode: .shortcut,
-                lowercased: true
-            )
-        } ?? [:]
-        var shortcutCharacters: [KeyboardLayoutSnapshot.Key: String] = [:]
-        for modifierFlags in shortcutModifierFlags {
-            for keyCode in keyCodes {
-                let key = KeyboardLayoutSnapshot.Key(
-                    keyCode: keyCode,
-                    modifierFlags: modifierFlags
-                )
-                if let current = currentShortcutCharacters[key],
-                   current.allSatisfy(\.isASCII) {
-                    shortcutCharacters[key] = current
-                } else if let ascii = asciiShortcutCharacters[key] {
-                    shortcutCharacters[key] = ascii
-                }
-            }
-        }
-
-        let textInputCharacters = translatedCharacters(
-            from: currentSource,
-            modifierFlags: textInputModifierFlags,
-            mode: .textInput,
-            lowercased: false
-        )
-        return KeyboardLayoutSnapshot(
-            inputSourceID: inputSourceID(from: currentSource),
-            shortcutCharacters: shortcutCharacters,
-            textInputCharacters: textInputCharacters
-        )
-    }
-
-    #if DEBUG
-    static func textInputCharacter(
-        forKeyCode keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags,
-        inputSourceID: String
-    ) -> String? {
-        let filter = [kTISPropertyInputSourceID as String: inputSourceID] as CFDictionary
-        guard let sources = TISCreateInputSourceList(filter, true)?.takeRetainedValue()
-            as? [TISInputSource],
-            let source = sources.first else {
-            return nil
-        }
-        let characters = translatedCharacters(
-            from: source,
-            modifierFlags: [modifierFlags],
-            mode: .textInput,
-            lowercased: false,
-            keyCodes: [keyCode]
-        )
-        return characters[KeyboardLayoutSnapshot.Key(
-            keyCode: keyCode,
-            modifierFlags: modifierFlags.intersection([.shift, .option])
-        )]
-    }
-    #endif
-
-    private static func inputSourceID(from source: TISInputSource) -> String? {
-        guard let sourceIDPointer = TISGetInputSourceProperty(
-            source,
-            kTISPropertyInputSourceID
-        ) else {
-            return nil
-        }
-        return Unmanaged<CFString>
-            .fromOpaque(sourceIDPointer)
-            .takeUnretainedValue() as String
-    }
-
-    private static func translatedCharacters(
-        from source: TISInputSource,
-        modifierFlags: [NSEvent.ModifierFlags],
-        mode: ModifierTranslationMode,
-        lowercased: Bool,
-        keyCodes: [UInt16] = Self.keyCodes
-    ) -> [KeyboardLayoutSnapshot.Key: String] {
-        guard let layoutDataPointer = TISGetInputSourceProperty(
-            source,
-            kTISPropertyUnicodeKeyLayoutData
-        ) else {
-            return [:]
-        }
-        let layoutData = unsafeBitCast(layoutDataPointer, to: CFData.self)
-        guard let bytes = CFDataGetBytePtr(layoutData) else { return [:] }
-        let keyboardLayout = UnsafeRawPointer(bytes)
-            .assumingMemoryBound(to: UCKeyboardLayout.self)
-        let keyboardType = UInt32(LMGetKbdType())
-        var result: [KeyboardLayoutSnapshot.Key: String] = [:]
-        for flags in modifierFlags {
-            for keyCode in keyCodes {
-                var deadKeyState: UInt32 = 0
-                var characters = [UniChar](repeating: 0, count: 4)
-                var length = 0
-                let status = UCKeyTranslate(
-                    keyboardLayout,
-                    keyCode,
-                    UInt16(kUCKeyActionDisplay),
-                    translationModifierKeyState(for: flags, mode: mode),
-                    keyboardType,
-                    UInt32(kUCKeyTranslateNoDeadKeysBit),
-                    &deadKeyState,
-                    characters.count,
-                    &length,
-                    &characters
-                )
-                guard status == noErr, length > 0 else { continue }
-                let translated = String(utf16CodeUnits: characters, count: length)
-                result[KeyboardLayoutSnapshot.Key(
-                    keyCode: keyCode,
-                    modifierFlags: flags
-                )] = lowercased ? translated.lowercased() : translated
-            }
-        }
-        return result
-    }
-
-    private static func translationModifierKeyState(
-        for modifierFlags: NSEvent.ModifierFlags,
-        mode: ModifierTranslationMode
-    ) -> UInt32 {
-        let translatedModifiers: NSEvent.ModifierFlags
-        switch mode {
-        case .shortcut:
-            translatedModifiers = [.shift, .command]
-        case .textInput:
-            translatedModifiers = [.shift, .option]
-        }
-        let normalized = modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .intersection(translatedModifiers)
-        var carbonModifiers = 0
-        if normalized.contains(.shift) { carbonModifiers |= shiftKey }
-        if normalized.contains(.command) { carbonModifiers |= cmdKey }
-        if normalized.contains(.option) { carbonModifiers |= optionKey }
-        return UInt32((carbonModifiers >> 8) & 0xFF)
+        snapshotCache.snapshot
     }
 }

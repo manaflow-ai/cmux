@@ -157,7 +157,7 @@ final class CLISocketSentryTelemetry {
         for (key, value) in socketDiagnostics() {
             context[key] = value
         }
-        context = CLISocketErrorTelemetryContext.merging(
+        context = CLISocketErrorTelemetryContext().merging(
             base: context,
             operation: data,
             error: error
@@ -331,8 +331,8 @@ final class CLISocketSentryTelemetry {
     ) -> CLISocketPolicyDenialContext? {
         guard let connectError = error as? CLISocketConnectError else { return nil }
 
-        return CLISocketPolicyDenialContext.inspecting(
-            stage: stage,
+        return CLISocketPolicyDenialContext(
+            inspectingStage: stage,
             error: connectError
         )
     }

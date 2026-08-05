@@ -1,6 +1,5 @@
 import XCTest
 import CmuxTerminal
-import CmuxControlSocket
 import AppKit
 import Bonsplit
 
@@ -93,63 +92,6 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             file: file,
             line: line
         )
-    }
-
-    func testWorkspaceCreateMintsOnlyReturnedHandlesInsteadOfRefreshingAllWindows() throws {
-        _ = NSApplication.shared
-        let previousAppDelegate = AppDelegate.shared
-        let previousHandles = TerminalController.shared.controlCommandCoordinator.handles
-        let app = AppDelegate()
-        AppDelegate.shared = app
-        TerminalController.shared.controlCommandCoordinator.handles = ControlHandleRegistry()
-        defer {
-            TerminalController.shared.setActiveTabManager(nil)
-            TerminalController.shared.controlCommandCoordinator.handles = previousHandles
-            AppDelegate.shared = previousAppDelegate
-        }
-
-        let targetWindowId = UUID()
-        let unrelatedWindowId = UUID()
-        let targetWindow = makeMainWindow(id: targetWindowId)
-        let unrelatedWindow = makeMainWindow(id: unrelatedWindowId)
-        defer {
-            app.unregisterMainWindowContextForTesting(windowId: targetWindowId)
-            app.unregisterMainWindowContextForTesting(windowId: unrelatedWindowId)
-            targetWindow.orderOut(nil)
-            unrelatedWindow.orderOut(nil)
-        }
-
-        let targetManager = TabManager(autoWelcomeIfNeeded: false)
-        let unrelatedManager = TabManager(autoWelcomeIfNeeded: false)
-        app.registerMainWindow(
-            targetWindow,
-            windowId: targetWindowId,
-            tabManager: targetManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
-        app.registerMainWindow(
-            unrelatedWindow,
-            windowId: unrelatedWindowId,
-            tabManager: unrelatedManager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
-        TerminalController.shared.setActiveTabManager(targetManager)
-
-        let result = try v2Result(
-            method: "workspace.create",
-            params: [
-                "window_id": targetWindowId.uuidString,
-                "focus": false
-            ]
-        )
-
-        XCTAssertEqual(result["window_ref"] as? String, "window:1")
-        XCTAssertEqual(result["workspace_ref"] as? String, "workspace:1")
-        XCTAssertEqual(result["surface_ref"] as? String, "surface:1")
     }
 
     func testReportPwdPathOptionKeepsDisplayLabelSeparateFromFilesystemDirectory() throws {

@@ -55,82 +55,6 @@ internal import os
 /// the queue-side drain can never `accept(2)` on a recycled descriptor.
 @MainActor
 public final class SocketControlServer {
-    /// Immutable request retained across a bounded listener-start retry.
-    struct ListenerStartRequest: Equatable, Sendable {
-        let socketPath: String
-        let accessMode: SocketControlMode
-        let preserveAcceptFailureStreak: Bool
-    }
-
-    /// The authoritative listener-start lifecycle.
-    ///
-    /// Generation checks make delayed wakes harmless after stop or an explicit
-    /// restart. The waiting case owns the request and failure count, so the
-    /// timer task carries no lifecycle state and can only request a wakeup.
-    enum ListenerState: Equatable, Sendable {
-        /// No startup operation is active. A listener may already be running.
-        case idle(generation: UInt64)
-        /// One synchronous startup attempt owns the request on the main actor.
-        case starting(generation: UInt64, request: ListenerStartRequest, failureCount: Int)
-        /// A bounded delay is pending before the same request may retry.
-        case waiting(generation: UInt64, request: ListenerStartRequest, failureCount: Int)
-
-        var generation: UInt64 {
-            switch self {
-            case .idle(let generation),
-                 .starting(let generation, _, _),
-                 .waiting(let generation, _, _):
-                return generation
-            }
-        }
-
-        var isStarting: Bool {
-            if case .starting = self { return true }
-            return false
-        }
-
-        var isWaiting: Bool {
-            if case .waiting = self { return true }
-            return false
-        }
-    }
-
-    /// Ownership proof for a pathname created by `bind(2)`.
-    enum BoundSocketPathOwnership: Equatable, Sendable {
-        case none
-        /// `bind(2)` succeeded while the immediate `lstat(2)` failed. The
-        /// server retains both the bound descriptor and path lock until a
-        /// later identity capture or safe teardown.
-        case identityPending
-        case identified(SocketPathIdentity)
-
-        var identity: SocketPathIdentity? {
-            guard case .identified(let identity) = self else { return nil }
-            return identity
-        }
-    }
-
-    /// Main-actor transport resources and listener state.
-    struct ListenerResources {
-        var socketPath: String
-        var boundSocketPathOwnership: BoundSocketPathOwnership = .none
-        var serverSocket: Int32 = -1
-        var isRunning = false
-        var acceptLoopAlive = false
-        var activeAcceptLoopGeneration: UInt64 = 0
-        var nextAcceptLoopGeneration: UInt64 = 0
-        var pendingAcceptLoopRearmGeneration: UInt64?
-        var reservedStartupSocketPath: String?
-        var reservedStartupSocketPathCanReplaceRefusedSocket = false
-        var listenerState: ListenerState = .idle(generation: 0)
-        var socketPathLockFD: Int32 = -1
-        var listenerReadSource: (any DispatchSourceRead)?
-        var listenerReadSourceSuspended = false
-        var socketPathMonitorSource: (any DispatchSourceFileSystemObject)?
-        var accessMode: SocketControlMode = .cmuxOnly
-        var configuredPreferredSocketPath: String?
-    }
-
     /// Sendable snapshot of the listener state, published to the read mirror
     /// after every mutation and served by the synchronous read API.
     struct ListenerStateSnapshot: Sendable {
@@ -162,7 +86,7 @@ public final class SocketControlServer {
 
     /// Authoritative state; mutated only through ``withListenerState(_:)``
     /// so every change publishes to the mirror.
-    private var state: ListenerResources
+    private var state: ListenerState
 
     /// Last-published state snapshot for the nonisolated synchronous reads.
     /// Lock carve-out: single writer (the main-actor mutators), short
@@ -251,7 +175,7 @@ public final class SocketControlServer {
         acceptedConnectionHandler: (@Sendable (ControlConnection) -> Void)? = nil,
         events: SocketControlServerEvents
     ) {
-        let initialState = ListenerResources(socketPath: initialSocketPath)
+        let initialState = ListenerState(socketPath: initialSocketPath)
         self.state = initialState
         self.stateMirror = OSAllocatedUnfairLock(initialState: Self.snapshot(of: initialState))
         self.acceptRecovery = OSAllocatedUnfairLock(initialState: AcceptRecoveryState())
@@ -332,14 +256,14 @@ public final class SocketControlServer {
     /// the resulting snapshot to the read mirror. The direct successor of the
     /// legacy lock helper; every former critical section maps to one call.
     @discardableResult
-    func withListenerState<T>(_ body: (inout ListenerResources) -> T) -> T {
+    func withListenerState<T>(_ body: (inout ListenerState) -> T) -> T {
         let result = body(&state)
         let snapshot = Self.snapshot(of: state)
         stateMirror.withLock { $0 = snapshot }
         return result
     }
 
-    private static func snapshot(of state: ListenerResources) -> ListenerStateSnapshot {
+    private static func snapshot(of state: ListenerState) -> ListenerStateSnapshot {
         ListenerStateSnapshot(
             socketPath: state.socketPath,
             boundSocketPathIdentity: state.boundSocketPathOwnership.identity,

@@ -645,7 +645,7 @@ struct AgentLaunchSanitizerTests {
     @Test("Prewarms every sanitizer policy away from UI work")
     func prewarmsEverySanitizerPolicyAwayFromUIWork() async {
         let preparedPolicyCount = await Task.detached(priority: .utility) {
-            AgentLaunchSanitizer.prewarmPolicies()
+            AgentLaunchPolicyPrewarmer().prewarmPolicies()
         }.value
 
         #expect(preparedPolicyCount == 17)

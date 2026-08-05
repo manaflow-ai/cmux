@@ -77,7 +77,7 @@ struct WorkspaceCustomizationStoreTests {
     func isolatedJournalDomain() throws {
         let sourceSuiteName = "WorkspaceCustomizationSource.\(UUID().uuidString)"
         let bundleIdentifier = "com.cmuxterm.tests.\(UUID().uuidString)"
-        let journalSuiteName = WorkspaceCustomizationStore.isolatedDefaultsSuiteName(
+        let journalSuiteName = workspaceCustomizationDefaultsSuiteName(
             bundleIdentifier: bundleIdentifier
         )
         let sourceDefaults = try #require(UserDefaults(suiteName: sourceSuiteName))
@@ -95,7 +95,7 @@ struct WorkspaceCustomizationStoreTests {
             sourceDefaults.data(forKey: WorkspaceCustomizationStore.defaultStorageKey)
         )
 
-        let journalDefaults = WorkspaceCustomizationStore.makeIsolatedDefaults(
+        let journalDefaults = makeIsolatedWorkspaceCustomizationDefaults(
             source: sourceDefaults,
             bundleIdentifier: bundleIdentifier
         )
@@ -119,7 +119,7 @@ struct WorkspaceCustomizationStoreTests {
     func isolatedJournalDoesNotRegressToSourceSnapshot() throws {
         let sourceSuiteName = "WorkspaceCustomizationSource.\(UUID().uuidString)"
         let bundleIdentifier = "com.cmuxterm.tests.\(UUID().uuidString)"
-        let journalSuiteName = WorkspaceCustomizationStore.isolatedDefaultsSuiteName(
+        let journalSuiteName = workspaceCustomizationDefaultsSuiteName(
             bundleIdentifier: bundleIdentifier
         )
         let sourceDefaults = try #require(UserDefaults(suiteName: sourceSuiteName))
@@ -137,7 +137,7 @@ struct WorkspaceCustomizationStoreTests {
         WorkspaceCustomizationStore(defaults: journalDefaults)
             .setCustomTitle("Current", for: stableId)
 
-        let resolvedDefaults = WorkspaceCustomizationStore.makeIsolatedDefaults(
+        let resolvedDefaults = makeIsolatedWorkspaceCustomizationDefaults(
             source: sourceDefaults,
             bundleIdentifier: bundleIdentifier
         )
@@ -154,7 +154,7 @@ struct WorkspaceCustomizationStoreTests {
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
 
         #expect(
-            WorkspaceCustomizationStore.makeIsolatedDefaults(
+            makeIsolatedWorkspaceCustomizationDefaults(
                 source: fixture.defaults,
                 bundleIdentifier: nil
             ) === fixture.defaults

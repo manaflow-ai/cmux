@@ -53,7 +53,7 @@ struct SharedLiveAgentIndexLoader {
     }
 
     func loadResultSynchronously() -> LoadResult {
-        AgentLaunchSanitizer.prewarmPolicies()
+        AgentLaunchPolicyPrewarmer().prewarmPolicies()
         let resolvedRegistry = registry
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()

@@ -1046,7 +1046,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
     private var processDetectedSessionSaveGeneration: UInt64 = 0
-    private let processDetectedResumeIndexesCache = ProcessDetectedResumeIndexesCache()
+    private let sessionPersistenceRuntime: SessionPersistenceRuntime
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1177,7 +1177,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    override init() {
+    override convenience init() {
+        self.init(sessionPersistenceRuntime: SessionPersistenceRuntime())
+    }
+
+    init(sessionPersistenceRuntime: SessionPersistenceRuntime) {
+        self.sessionPersistenceRuntime = sessionPersistenceRuntime
         let fileManager = FileManager.default
         let hangDirectory = fileManager.urls(
             for: .libraryDirectory,
@@ -4084,7 +4089,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !isRunningUnderXCTest(ProcessInfo.processInfo.environment) else { return }
         Task { @MainActor [weak self] in
             guard let self, !self.isTerminatingApp else { return }
-            _ = await self.processDetectedResumeIndexesCache.refresh()
+            _ = await self.sessionPersistenceRuntime.refresh()
         }
     }
 
@@ -4384,7 +4389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let loadStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let resumeIndexes = await processDetectedResumeIndexesCache.refresh()
+        let resumeIndexes = await sessionPersistenceRuntime.refresh()
 #if DEBUG
         loadMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000.0
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
@@ -4446,7 +4451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let savePlan = processDetectedResumeIndexesCache.urgentSavePlan()
+        let savePlan = sessionPersistenceRuntime.urgentSavePlan()
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
@@ -4463,7 +4468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let generation = nextProcessDetectedSessionSaveGeneration()
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let resumeIndexes = await self.processDetectedResumeIndexesCache.refresh()
+            let resumeIndexes = await self.sessionPersistenceRuntime.refresh()
             guard !self.isTerminatingApp,
                   self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
             _ = self.saveSessionSnapshot(
@@ -8954,7 +8959,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(
-                    defaults: WorkspaceCustomizationStore.makeIsolatedDefaults(
+                    defaults: makeIsolatedWorkspaceCustomizationDefaults(
                         source: .standard,
                         bundleIdentifier: Bundle.main.bundleIdentifier
                     )
@@ -9033,6 +9038,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windowId: windowId,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel
         )
+            .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)

@@ -36,39 +36,6 @@ public enum AgentLaunchSanitizer {
         var scansOptionsPastPositionals: Bool = false
         var skipClaudeHookSettings: Bool = false
     }
-
-    private static let policyPrewarmCount: Int = {
-        let policies = [
-            claudePolicy,
-            codexPolicy,
-            piPolicy,
-            ampPolicy,
-            geminiPolicy,
-            antigravityPolicy,
-            cursorPolicy,
-            openCodePolicy,
-            grokPolicy,
-            kimiPolicy,
-            copilotPolicy,
-            codeBuddyPolicy,
-            factoryPolicy,
-            qoderPolicy,
-            kiroPolicy,
-            rovoDevPolicy,
-            hermesAgentPolicy,
-        ]
-        return policies.count
-    }()
-
-    /// Materializes immutable launch-policy metadata on the caller's executor.
-    ///
-    /// Resource-pressure paths call this while already off the main actor so a
-    /// policy's one-time Set construction cannot become UI work later.
-    @discardableResult
-    public static func prewarmPolicies() -> Int {
-        policyPrewarmCount
-    }
-
     /// Returns launch arguments with non-restorable agent resume/session artifacts removed.
     ///
     /// - Parameters:

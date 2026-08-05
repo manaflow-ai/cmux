@@ -1750,6 +1750,7 @@ struct ContentView: View {
         let sidebar = VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             tabManager: tabManager,
+            cmuxConfigStore: cmuxConfigStore,
             fileExplorerState: fileExplorerState,
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
@@ -1783,7 +1784,6 @@ struct ContentView: View {
                 sidebar
             }
         }
-        .environmentObject(tabManager)
         .modifier(SidebarWidthFrameModifier(layout: sidebarLayout))
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(SidebarPointerEventHost(
@@ -1910,10 +1910,7 @@ struct ContentView: View {
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
 
-            NotificationsPage(
-                tabManager: tabManager,
-                selection: $sidebarSelectionState.selection
-            )
+            NotificationsPage(selection: $sidebarSelectionState.selection)
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
@@ -10566,6 +10563,8 @@ struct VerticalTabsSidebar: View, Equatable {
         lhs.windowId == rhs.windowId
             && lhs.observedWindowReference.window === rhs.observedWindowReference.window
             && lhs.updateViewModel === rhs.updateViewModel
+            && lhs.tabManager === rhs.tabManager
+            && lhs.cmuxConfigStore === rhs.cmuxConfigStore
             && lhs.fileExplorerState === rhs.fileExplorerState
             && lhs.featureFlags === rhs.featureFlags
             && lhs.sidebarUnread === rhs.sidebarUnread
@@ -10578,7 +10577,8 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     var updateViewModel: UpdateStateModel
-    @ObservedObject var tabManager: TabManager
+    let tabManager: TabManager
+    let cmuxConfigStore: CmuxConfigStore
     // `SidebarFooter` owns this observation. A file-explorer width update must
     // not rebuild the O(workspaces) projection at this composition boundary.
     var fileExplorerState: FileExplorerState
@@ -10891,11 +10891,14 @@ struct VerticalTabsSidebar: View, Equatable {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.verticalTabsSidebarBody?() }()
 #endif
-        let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(tabManager.tabs.count) selected=\(sidebarShortTabId(tabManager.selectedTabId))")
+        let observedWorkspaces = tabManager.workspaces
+        let observedTabs = observedWorkspaces.tabs
+        let observedSelectedTabId = observedWorkspaces.selectedTabId
+        let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(observedTabs.count) selected=\(sidebarShortTabId(observedSelectedTabId))")
         // Retain the native table identity while hidden without continuing the
         // O(workspaces) projection pipeline. Reveal rebuilds one authoritative
         // snapshot from the current model before the controller applies again.
-        let tabs = isPresented ? tabManager.tabs : []
+        let tabs = isPresented ? observedTabs : []
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
@@ -10912,7 +10915,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
-        let workspaceGroups = isPresented ? tabManager.workspaceGroups : []
+        let workspaceGroups = isPresented ? observedWorkspaces.workspaceGroups : []
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(tabs: tabs)
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
@@ -10951,7 +10954,7 @@ struct VerticalTabsSidebar: View, Equatable {
 #endif
         let renderIdentity = WorkspaceListRenderContext.Identity(
             workspaceReferences: tabs.map(WorkspaceListRenderContext.WorkspaceReferenceIdentity.init),
-            selectedWorkspaceId: tabManager.selectedTabId,
+            selectedWorkspaceId: observedSelectedTabId,
             selectedContextTargetIds: selectedContextTargetIds,
             sidebarReorderIds: sidebarReorderIds,
             workspaceGroups: workspaceGroups,
@@ -11014,7 +11017,9 @@ struct VerticalTabsSidebar: View, Equatable {
             onNewTab: onNewTab,
             selection: $selection,
             selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            tabManager: tabManager,
+            cmuxConfigStore: cmuxConfigStore
         )
         .equatable()
         let sidebarContent: AnyView = rendersDefaultWorkspaceSidebar

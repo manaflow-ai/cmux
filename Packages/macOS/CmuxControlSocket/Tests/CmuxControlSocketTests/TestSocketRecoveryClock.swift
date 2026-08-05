@@ -4,40 +4,31 @@ import Testing
 
 final class TestSocketRecoveryClock: SocketRecoveryClock, @unchecked Sendable {
     private typealias Waiter = CheckedContinuation<Void, any Error>
-    private enum Registration {
-        case wait
-        case resume
-        case cancel
-    }
-    private struct State {
-        var waiters: [UUID: Waiter] = [:]
-        var bufferedAdvanceCount = 0
-    }
 
     private let lock = NSLock()
-    private var state = State()
+    private var state: (waiters: [UUID: Waiter], bufferedAdvanceCount: Int) = ([:], 0)
 
     func sleep(forMilliseconds milliseconds: Int) async throws {
         let id = UUID()
         try Task.checkCancellation()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                let registration = withStateLock { state in
-                    guard !Task.isCancelled else { return Registration.cancel }
+                let shouldResume: Bool? = withStateLock { state in
+                    guard !Task.isCancelled else { return false }
                     if state.bufferedAdvanceCount > 0 {
                         state.bufferedAdvanceCount -= 1
-                        return Registration.resume
+                        return true
                     }
                     state.waiters[id] = continuation
-                    return Registration.wait
+                    return nil
                 }
-                switch registration {
-                case .wait:
-                    break
-                case .resume:
+                switch shouldResume {
+                case true:
                     continuation.resume()
-                case .cancel:
+                case false:
                     continuation.resume(throwing: CancellationError())
+                case nil:
+                    break
                 }
             }
         } onCancel: { [weak self] in
@@ -69,7 +60,9 @@ final class TestSocketRecoveryClock: SocketRecoveryClock, @unchecked Sendable {
         waiter?.resume(throwing: CancellationError())
     }
 
-    private func withStateLock<T>(_ body: (inout State) -> T) -> T {
+    private func withStateLock<T>(
+        _ body: (inout (waiters: [UUID: Waiter], bufferedAdvanceCount: Int)) -> T
+    ) -> T {
         lock.lock()
         defer { lock.unlock() }
         return body(&state)

@@ -204,7 +204,7 @@ public struct SocketListenerPolicy: Sendable {
             return false
         }
         if stage == "verify_bound_path_pending" {
-            return SocketTransport.isPendingConnectErrno(errnoCode)
+            return isPendingSocketConnectErrno(errnoCode)
         }
         // Once the retained descriptor is listening for an ownership proof,
         // any inconclusive result must close it instead of leaving an

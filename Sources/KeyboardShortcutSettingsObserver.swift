@@ -1,44 +1,11 @@
 import Foundation
 import Observation
 
-struct KeyboardShortcutSnapshot: Equatable, Sendable {
-    private let shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut]
-
-    static let defaults = KeyboardShortcutSnapshot(
-        shortcuts: Dictionary(
-            uniqueKeysWithValues: KeyboardShortcutSettings.Action.allCases.map {
-                ($0, $0.defaultShortcut)
-            }
-        )
-    )
-
-    static func load(
-        using provider: @Sendable (KeyboardShortcutSettings.Action) -> StoredShortcut
-    ) -> KeyboardShortcutSnapshot {
-        KeyboardShortcutSnapshot(
-            shortcuts: Dictionary(
-                uniqueKeysWithValues: KeyboardShortcutSettings.Action.allCases.map {
-                    ($0, provider($0))
-                }
-            )
-        )
-    }
-
-    func shortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
-        shortcuts[action] ?? action.defaultShortcut
-    }
-}
-
 /// Observes keyboard-shortcut revisions and owns hot-path matcher snapshots.
 @MainActor
 @Observable
 final class KeyboardShortcutSettingsObserver {
     typealias ShortcutProvider = @Sendable (KeyboardShortcutSettings.Action) -> StoredShortcut
-
-    private enum PersistenceRefreshPhase {
-        case inactive
-        case active
-    }
 
     static let shared = KeyboardShortcutSettingsObserver()
 
@@ -48,7 +15,7 @@ final class KeyboardShortcutSettingsObserver {
     @ObservationIgnored
     private let shortcutProvider: ShortcutProvider
     @ObservationIgnored
-    private var persistenceRefreshPhase = PersistenceRefreshPhase.inactive
+    private var hasStartedPersistenceRefresh = false
     @ObservationIgnored
     private var cachedRightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher?
     @ObservationIgnored
@@ -144,8 +111,8 @@ final class KeyboardShortcutSettingsObserver {
     /// completed initialization. Construction stays inert so synchronous
     /// settings notifications cannot create a startup initialization cycle.
     func start() {
-        guard persistenceRefreshPhase == .inactive else { return }
-        persistenceRefreshPhase = .active
+        guard !hasStartedPersistenceRefresh else { return }
+        hasStartedPersistenceRefresh = true
         snapshotCache.requestRefresh()
     }
 
@@ -155,7 +122,7 @@ final class KeyboardShortcutSettingsObserver {
 
     private func requestShortcutRefresh() {
         revision &+= 1
-        guard persistenceRefreshPhase == .active else { return }
+        guard hasStartedPersistenceRefresh else { return }
         snapshotCache.requestRefresh()
     }
 

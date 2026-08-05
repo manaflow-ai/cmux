@@ -35,9 +35,9 @@ public struct CLISocketSentryPolicy: Sendable {
         let normalizedSubcommand = subcommand.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let isClaudeHookCommand = normalizedCommand == "claude-hook" ||
             (normalizedCommand == "hooks" && normalizedSubcommand == "claude")
-        let hasClaudeHookIdentity = Self.hasNonemptyValue(environment["CMUX_WORKSPACE_ID"]) &&
-            Self.hasNonemptyValue(environment["CMUX_SURFACE_ID"]) &&
-            Self.hasPositiveProcessID(environment["CMUX_CLAUDE_PID"])
+        let hasClaudeHookIdentity = hasNonemptyValue(environment["CMUX_WORKSPACE_ID"]) &&
+            hasNonemptyValue(environment["CMUX_SURFACE_ID"]) &&
+            hasPositiveProcessID(environment["CMUX_CLAUDE_PID"])
 
         hasTrustedPolicyDenialProvenance = hasRestrictedCodexSandbox ||
             (isClaudeHookCommand && hasClaudeHookIdentity)
@@ -56,15 +56,16 @@ public struct CLISocketSentryPolicy: Sendable {
             hasTrustedPolicyDenialProvenance
     }
 
-    private static func hasNonemptyValue(_ value: String?) -> Bool {
-        !(value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-    }
+}
 
-    private static func hasPositiveProcessID(_ value: String?) -> Bool {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let processID = Int32(value) else {
-            return false
-        }
-        return processID > 0
+private func hasNonemptyValue(_ value: String?) -> Bool {
+    !(value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+}
+
+private func hasPositiveProcessID(_ value: String?) -> Bool {
+    guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          let processID = Int32(value) else {
+        return false
     }
+    return processID > 0
 }

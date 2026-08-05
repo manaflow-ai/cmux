@@ -12,28 +12,6 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
-private actor SessionPersistenceLifecycleSaveGate {
-    private var isOpen = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func wait() async {
-        guard !isOpen else { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    func open() {
-        guard !isOpen else { return }
-        isOpen = true
-        let pendingWaiters = waiters
-        waiters.removeAll()
-        for waiter in pendingWaiters {
-            waiter.resume()
-        }
-    }
-}
-
 final class SessionPersistenceTests: XCTestCase {
     private struct LegacyPersistedWindowGeometry: Codable {
         let frame: SessionRectSnapshot
@@ -935,106 +913,6 @@ final class SessionPersistenceTests: XCTestCase {
                 isTerminatingApp: true,
                 includeScrollback: true
             )
-        )
-    }
-
-    @MainActor
-    func testUrgentLifecycleSaveUsesColdNonScanningPlanWithoutDiscardingLiveBinding() throws {
-        let cache = ProcessDetectedResumeIndexesCache()
-        let savePlan = cache.urgentSavePlan()
-        let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let storedBinding = SurfaceResumeBindingSnapshot(
-            name: "tmux",
-            kind: "tmux",
-            command: "tmux attach -t lifecycle-save",
-            cwd: "/tmp/lifecycle-save",
-            checkpointId: "lifecycle-save",
-            source: "process-detected",
-            autoResume: true,
-            updatedAt: 10
-        )
-        workspace.surfaceResumeBindingsByPanelId[panelId] = storedBinding
-
-        let snapshot = workspace.sessionSnapshot(
-            includeScrollback: false,
-            restorableAgentIndex: savePlan.restorableAgentIndex,
-            surfaceResumeBindingIndex: savePlan.surfaceResumeBindingIndex
-        )
-
-        XCTAssertNil(savePlan.surfaceResumeBindingIndex)
-        XCTAssertNil(
-            savePlan.restorableAgentIndex.snapshot(
-                workspaceId: workspace.id,
-                panelId: panelId
-            )
-        )
-        XCTAssertEqual(
-            snapshot.panels.first(where: { $0.id == panelId })?.terminal?.resumeBinding,
-            storedBinding
-        )
-    }
-
-    @MainActor
-    func testUrgentLifecycleSaveKeepsLastKnownIndexesWhileRefreshIsPending() async throws {
-        let workspaceId = UUID()
-        let panelId = UUID()
-        let key = RestorableAgentSessionIndex.PanelKey(
-            workspaceId: workspaceId,
-            panelId: panelId
-        )
-        let lastKnownBinding = SurfaceResumeBindingSnapshot(
-            command: "tmux attach -t last-known",
-            checkpointId: "last-known",
-            source: "process-detected",
-            updatedAt: 10
-        )
-        let refreshedBinding = SurfaceResumeBindingSnapshot(
-            command: "tmux attach -t refreshed",
-            checkpointId: "refreshed",
-            source: "process-detected",
-            updatedAt: 20
-        )
-        let cache = ProcessDetectedResumeIndexesCache(
-            latest: ProcessDetectedResumeIndexes(
-                restorableAgentIndex: .empty,
-                surfaceResumeBindingIndex: SurfaceResumeBindingIndex(
-                    bindingsByPanel: [key: lastKnownBinding]
-                )
-            )
-        )
-        let refreshStarted = SessionPersistenceLifecycleSaveGate()
-        let allowRefreshToFinish = SessionPersistenceLifecycleSaveGate()
-        let refreshTask = Task { @MainActor in
-            await cache.refresh {
-                await refreshStarted.open()
-                await allowRefreshToFinish.wait()
-                return ProcessDetectedResumeIndexes(
-                    restorableAgentIndex: .empty,
-                    surfaceResumeBindingIndex: SurfaceResumeBindingIndex(
-                        bindingsByPanel: [key: refreshedBinding]
-                    )
-                )
-            }
-        }
-        await refreshStarted.wait()
-
-        XCTAssertEqual(
-            cache.urgentSavePlan().surfaceResumeBindingIndex?.binding(
-                workspaceId: workspaceId,
-                panelId: panelId
-            ),
-            lastKnownBinding
-        )
-
-        await allowRefreshToFinish.open()
-        _ = await refreshTask.value
-        XCTAssertEqual(
-            cache.urgentSavePlan().surfaceResumeBindingIndex?.binding(
-                workspaceId: workspaceId,
-                panelId: panelId
-            ),
-            refreshedBinding
         )
     }
 
@@ -5039,37 +4917,6 @@ extension SessionPersistenceTests {
             parts: [.text("look "), .attachment(attachment)]
         ))
         XCTAssertNotEqual(imageDraftFingerprint, manager.sessionAutosaveFingerprint())
-    }
-
-    @MainActor
-    func testRepeatedAutosaveReusesLargeTextBoxDraftStorage() throws {
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
-
-        terminalPanel.textBoxContent = "before"
-        terminalPanel.textBoxAttachments = (0..<1_000).map { index in
-            TextBoxAttachment(
-                displayName: "file-\(index).txt",
-                submissionText: "/tmp/file-\(index).txt",
-                submissionPath: "/tmp/file-\(index).txt",
-                localURL: nil
-            )
-        }
-
-        let first = try XCTUnwrap(terminalPanel.sessionTextBoxDraftSnapshot())
-        let second = try XCTUnwrap(terminalPanel.sessionTextBoxDraftSnapshot())
-        let firstStorage = first.parts.withUnsafeBufferPointer { $0.baseAddress }
-        let secondStorage = second.parts.withUnsafeBufferPointer { $0.baseAddress }
-
-        XCTAssertEqual(first.parts.count, 1_001)
-        XCTAssertEqual(second.parts.count, 1_001)
-        XCTAssertEqual(
-            firstStorage,
-            secondStorage,
-            "Periodic autosave must reuse an unchanged large draft instead of rebuilding every attachment."
-        )
     }
 
     func testSurfaceResumeBindingPreservesExactNonSensitiveEnvironmentValues() {

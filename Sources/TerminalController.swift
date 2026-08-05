@@ -318,11 +318,6 @@ class TerminalController {
     }
 
     private final class V2BrowserUndefinedSentinel: Sendable {}
-    struct V2JavaScriptFailure: Sendable {
-        let code: String
-        let message: String
-    }
-
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
     private var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]

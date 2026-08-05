@@ -639,7 +639,7 @@ struct SidebarWorkspaceTableIncrementalMutationTests {
         window.orderFrontRegardless()
         defer {
             controller.dismantleContainerView(container)
-            controller.flushPendingMutationsForTesting()
+            controller.flushPendingMutationsImmediately()
             window.contentView = nil
             window.orderOut(nil)
             window.close()
@@ -652,7 +652,7 @@ struct SidebarWorkspaceTableIncrementalMutationTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        controller.flushPendingMutationsForTesting()
+        controller.flushPendingMutationsImmediately()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
         // The initial 75-row materialization intentionally uses the bounded
@@ -673,7 +673,7 @@ struct SidebarWorkspaceTableIncrementalMutationTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        controller.flushPendingMutationsForTesting()
+        controller.flushPendingMutationsImmediately()
 
         #expect(
             atomicStructuralReloads == 0,

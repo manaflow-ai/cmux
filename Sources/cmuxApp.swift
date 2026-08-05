@@ -182,7 +182,7 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
-        let workspaceCustomizationDefaults = WorkspaceCustomizationStore.makeIsolatedDefaults(
+        let workspaceCustomizationDefaults = makeIsolatedWorkspaceCustomizationDefaults(
             source: defaults,
             bundleIdentifier: Bundle.main.bundleIdentifier
         )

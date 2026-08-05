@@ -131,7 +131,7 @@ import Testing
 
     @Test func typedSocketDiagnosticsOverrideGenericOperationContext() {
         let error = CLISocketConnectError(path: "/tmp/cmux-authoritative.sock", errnoCode: EACCES)
-        let context = CLISocketErrorTelemetryContext.merging(
+        let context = CLISocketErrorTelemetryContext().merging(
             base: [
                 "cwd": "/tmp/base",
                 "socket_path": "/tmp/base.sock",
@@ -167,8 +167,8 @@ import Testing
             withDestinationPath: targetPath
         )
 
-        let context = CLISocketPolicyDenialContext.inspecting(
-            stage: "socket_connect",
+        let context = CLISocketPolicyDenialContext(
+            inspectingStage: "socket_connect",
             error: CLISocketConnectError(path: symlinkPath, errnoCode: EPERM)
         )
 
@@ -180,11 +180,11 @@ import Testing
     }
 
     @Test func socketConnectErrorRejectsMalformedSystemErrorText() {
-        let valid = CLISocketConnectError.decodeSystemErrorMessage(
+        let valid = decodeSystemErrorMessage(
             bytes: Array("Permission denied".utf8),
             errnoCode: 1
         )
-        let malformed = CLISocketConnectError.decodeSystemErrorMessage(
+        let malformed = decodeSystemErrorMessage(
             bytes: [0xFF, 0xFE],
             errnoCode: 1
         )

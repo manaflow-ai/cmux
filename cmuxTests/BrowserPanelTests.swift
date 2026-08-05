@@ -36,41 +36,6 @@ struct BrowserWebViewUserAgentRegressionTests {
     }
 }
 
-/// Test-only transport that preserves a callback's isolation type while
-/// crossing into a detached task. The callback itself remains responsible for
-/// enforcing its actor contract.
-private struct BrowserNavigationCallbackSendableBox<Value>: @unchecked Sendable {
-    let value: Value
-}
-
-@MainActor
-@Suite
-struct BrowserNavigationCallbackIsolationTests {
-    @Test func legacyNavigationCallbackHopsToMainActor() async throws {
-        let panel = BrowserPanel(workspaceId: UUID())
-        defer {
-            panel.webView.stopLoading()
-        }
-
-        let renderedPDFURL = try #require(
-            URL(string: "https://example.test/rendered.pdf")
-        )
-        panel.noteRenderedPDFDocument(renderedPDFURL, isMainFrame: true)
-        #expect(panel.renderedPDFDocumentURL == renderedPDFURL)
-
-        let callback = try #require(
-            panel.navigationDelegate?.didClearPDFDocument
-        )
-        let callbackBox = BrowserNavigationCallbackSendableBox(value: callback)
-
-        await Task.detached {
-            await callbackBox.value()
-        }.value
-
-        #expect(panel.renderedPDFDocumentURL == nil)
-    }
-}
-
 private func drainBrowserPanelMainQueue() {
     let expectation = XCTestExpectation(description: "drain main queue")
     DispatchQueue.main.async {

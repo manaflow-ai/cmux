@@ -1,19 +1,6 @@
 internal import Foundation
 internal import Darwin
 
-/// Result of proving that a pathname still routes to a retained bound listener.
-enum SocketBoundPathVerificationResult: Equatable, Sendable {
-    case verified(SocketPathIdentity)
-    case pending(SocketStageFailure)
-    case failed(SocketStageFailure)
-}
-
-private enum SocketConnectCompletion {
-    case connected
-    case pending(Int32)
-    case failed(Int32)
-}
-
 extension SocketTransport {
     /// The filesystem identity of the socket inode at `path`, or nil when the
     /// path is missing or not a socket.
@@ -143,7 +130,7 @@ extension SocketTransport {
         )
         let effectiveConnectResult = injectedConnectErrno == nil ? connectResult : -1
         let effectiveConnectErrno = injectedConnectErrno ?? systemConnectErrno ?? EIO
-        guard effectiveConnectResult == 0 || Self.isPendingConnectErrno(effectiveConnectErrno) else {
+        guard effectiveConnectResult == 0 || isPendingSocketConnectErrno(effectiveConnectErrno) else {
             return .failed(SocketStageFailure(
                 stage: "verify_bound_path",
                 errnoCode: effectiveConnectErrno
@@ -209,7 +196,7 @@ extension SocketTransport {
             stage: "verify_bound_path_readiness",
             path: path
         ) {
-            return Self.isPendingConnectErrno(injectedErrno)
+            return isPendingSocketConnectErrno(injectedErrno)
                 ? .pending(injectedErrno)
                 : .failed(injectedErrno)
         }
@@ -244,16 +231,9 @@ extension SocketTransport {
         if socketError == 0 {
             return .connected
         }
-        return Self.isPendingConnectErrno(socketError)
+        return isPendingSocketConnectErrno(socketError)
             ? .pending(socketError)
             : .failed(socketError)
-    }
-
-    static func isPendingConnectErrno(_ errnoCode: Int32) -> Bool {
-        errnoCode == EINPROGRESS
-            || errnoCode == EALREADY
-            || errnoCode == EAGAIN
-            || errnoCode == EWOULDBLOCK
     }
 
     /// Whether the socket inode at `path` is the one captured in `boundIdentity`.
@@ -319,4 +299,11 @@ extension SocketTransport {
             return .occupiedOrIndeterminate
         }
     }
+}
+
+func isPendingSocketConnectErrno(_ errnoCode: Int32) -> Bool {
+    errnoCode == EINPROGRESS
+        || errnoCode == EALREADY
+        || errnoCode == EAGAIN
+        || errnoCode == EWOULDBLOCK
 }

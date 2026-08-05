@@ -25,59 +25,6 @@ import struct CmuxSettings.FileRouteSettingsStore
 @testable import cmux
 #endif
 
-private actor WindowDecorationSettingsThreadProbe {
-    private var observations: [Bool] = []
-    private var waiters: [CheckedContinuation<Bool, Never>] = []
-
-    func record(_ isMainThread: Bool) {
-        if let waiter = waiters.first {
-            waiters.removeFirst()
-            waiter.resume(returning: isMainThread)
-        } else {
-            observations.append(isMainThread)
-        }
-    }
-
-    func next() async -> Bool {
-        if let observation = observations.first {
-            observations.removeFirst()
-            return observation
-        }
-        return await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-}
-
-@MainActor
-@Suite struct WindowDecorationSettingsIsolationTests {
-    @Test(.timeLimit(.minutes(1)))
-    func presentationModeLoadDoesNotRunOnMainThread() async {
-        let threadProbe = WindowDecorationSettingsThreadProbe()
-        let controller = WindowDecorationsController(
-            initialPresentationMode: .standard,
-            presentationModeProvider: {
-                let isMainThread = Thread.isMainThread
-                Task { await threadProbe.record(isMainThread) }
-                return .standard
-            }
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-
-        controller.start()
-        controller.apply(to: window)
-        let settingsLoadedOnMainThread = await threadProbe.next()
-
-        #expect(!settingsLoadedOnMainThread)
-    }
-}
-
 private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
     nonisolated(unsafe) var tabFrames: [CGRect] = []
 
@@ -1148,7 +1095,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             return
         }
 
-        let controller = WindowDecorationsController(initialPresentationMode: .minimal)
+        let controller = WindowDecorationsController()
         controller.apply(to: window)
 
         guard let target = contentView.subviews.compactMap({ $0 as? MinimalModeSidebarControlActionView }).first else {

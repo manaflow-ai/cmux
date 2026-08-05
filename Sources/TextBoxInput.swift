@@ -304,48 +304,6 @@ struct TextBoxAttachment: Identifiable {
     }
 }
 
-struct TextBoxAttachmentGroup: Identifiable {
-    let id: UUID
-    let attachments: [TextBoxAttachment]
-
-    init(attachments: [TextBoxAttachment]) {
-        precondition(!attachments.isEmpty)
-        self.attachments = attachments
-        self.id = attachments.count == 1 ? attachments[0].id : UUID()
-    }
-
-    var primaryAttachment: TextBoxAttachment {
-        attachments[0]
-    }
-
-    var displayName: String {
-        guard attachments.count > 1 else { return primaryAttachment.displayName }
-        let format = String(
-            localized: "textbox.attachmentGroup.many",
-            defaultValue: "%lld files"
-        )
-        return String.localizedStringWithFormat(format, Int64(attachments.count))
-    }
-
-    var inlineThumbnailSource: TextBoxInlineAttachmentThumbnailSource? {
-        attachments.count == 1 ? primaryAttachment.inlineThumbnailSource : nil
-    }
-}
-
-enum TextBoxAttachmentPresentation {
-    /// Individual cells preserve rich previews for normal prompts. Larger insertions use one
-    /// collection cell so TextKit layout cost is independent of the number of selected files.
-    static let maximumIndividualCellsPerInsertion = 20
-
-    static func groups(for attachments: [TextBoxAttachment]) -> [TextBoxAttachmentGroup] {
-        guard !attachments.isEmpty else { return [] }
-        guard attachments.count <= maximumIndividualCellsPerInsertion else {
-            return [TextBoxAttachmentGroup(attachments: attachments)]
-        }
-        return attachments.map { TextBoxAttachmentGroup(attachments: [$0]) }
-    }
-}
-
 private enum TextBoxDraftAttachmentStorage {
     private static let directoryName = "textbox-draft-attachments"
     private struct DraftCopyState {
@@ -2891,19 +2849,6 @@ struct TextBoxInputContainer: View {
     private func insertText(_ insertedText: String, into textView: TextBoxInputTextView) {
         textView.window?.makeFirstResponder(textView)
         textView.insertText(insertedText, replacementRange: textView.selectedRange())
-    }
-}
-
-@MainActor
-enum TextBoxInputDelegateInstallation {
-    @discardableResult
-    static func installIfNeeded(
-        _ delegate: any NSTextViewDelegate,
-        on textView: NSTextView
-    ) -> Bool {
-        guard textView.delegate !== delegate else { return false }
-        textView.delegate = delegate
-        return true
     }
 }
 
