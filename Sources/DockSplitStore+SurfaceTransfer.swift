@@ -69,6 +69,7 @@ extension DockSplitStore {
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
+        clearClosedBrowserHistoryState(for: tabId)
         if let terminalPanel = panel as? TerminalPanel {
             terminalFontSizeChangeCoordinator?
                 .terminalWillLeaveDock(

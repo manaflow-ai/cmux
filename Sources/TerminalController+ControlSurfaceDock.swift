@@ -336,7 +336,7 @@ extension TerminalController {
         guard windowDock.containsPanel(surfaceId) else {
             return .closeFailed(surfaceId)
         }
-        guard windowDock.closePanel(surfaceId, force: true) else {
+        guard windowDock.closePanelRecordingBrowserHistory(surfaceId, force: true) else {
             return .closeFailed(surfaceId)
         }
         AppDelegate.shared?.notificationStore?.clearNotifications(

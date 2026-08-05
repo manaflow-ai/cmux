@@ -182,12 +182,6 @@ extension TerminalController {
     }
 
     func closeWindowDockBrowserPanel(_ targetId: UUID, in dock: DockSplitStore) -> Bool {
-        guard let tabId = dock.surfaceId(forPanelId: targetId) else { return false }
-        dock.forceCloseDockTabIds.insert(tabId)
-        let closed = dock.bonsplitController.closeTab(tabId)
-        if !closed {
-            dock.forceCloseDockTabIds.remove(tabId)
-        }
-        return closed
+        dock.closePanelRecordingBrowserHistory(targetId, force: true)
     }
 }
