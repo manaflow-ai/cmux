@@ -36082,7 +36082,49 @@
     "cli.comments.usage": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
@@ -36092,6 +36134,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "使い方: cmux comments <subcommand> [options]\n\ndiff ビューアーで保存されたレビューコメントを、git リポジトリごとに一覧します。\n\nサブコマンド:\n  list [--repo <path>] [--all] [--json]\n    リポジトリのレビューコメントを一覧します (既定はカレントディレクトリを含む\n    git リポジトリ)。既定では未対応のコメントのみを表示し、--all を付けると\n    TextBox の送信でエージェントへ引き渡し済みのコメントも含めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
           }
         }
       }
@@ -229905,7 +230013,49 @@
     "socket.comments.missingRepoRoot": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "comments.list requires a repo_root string"
@@ -229915,6 +230065,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "comments.list には repo_root の文字列が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
           }
         }
       }
