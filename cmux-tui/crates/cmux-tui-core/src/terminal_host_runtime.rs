@@ -6222,10 +6222,8 @@ mod unix {
             let (written_tx, written_rx) = std::sync::mpsc::channel();
             let (release_tx, release_rx) = std::sync::mpsc::channel();
             let worker = thread::spawn(move || {
-                thread::sleep(Duration::from_millis(20));
                 worker_force.store(true, Ordering::Release);
                 drain_waker.write_all(&[1]).unwrap();
-                thread::sleep(Duration::from_millis(20));
                 retained_writer.write_all(b"late").unwrap();
                 written_tx.send(()).unwrap();
                 // Deliberately retain the write side beyond the forced drain
