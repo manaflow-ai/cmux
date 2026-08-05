@@ -15,7 +15,7 @@ public struct DiffCommentPayload {
         self.formatter = formatter
     }
 
-    /// Serializes one comment.
+    /// Serializes one comment, including optional lifecycle state.
     public func json(_ comment: DiffComment) -> [String: Any] {
         var json: [String: Any] = [
             "id": comment.id.uuidString,
@@ -32,6 +32,9 @@ public struct DiffCommentPayload {
         if let endSide = comment.endSide {
             json["endSide"] = endSide
         }
+        if let consumedAt = comment.consumedAt {
+            json["consumedAt"] = formatter.string(from: consumedAt)
+        }
         return json
     }
 
@@ -46,11 +49,7 @@ public struct DiffCommentPayload {
         var listed: [[String: Any]] = []
         listed.reserveCapacity(comments.count)
         for comment in comments where includeConsumed || comment.consumedAt == nil {
-            var entry = json(comment)
-            if let consumedAt = comment.consumedAt {
-                entry["consumedAt"] = formatter.string(from: consumedAt)
-            }
-            listed.append(entry)
+            listed.append(json(comment))
         }
         return [
             "repo_root": repoRoot,
