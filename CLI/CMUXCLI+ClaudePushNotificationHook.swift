@@ -23,9 +23,8 @@ extension CMUXCLI {
         // A control character would close the OSC frame early and let the rest
         // of the text execute as terminal commands.
         func sanitized(_ raw: String) -> String {
-            String(String.UnicodeScalarView(
-                raw.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F }
-            )).prefix(120).description
+            let scalars = raw.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F }
+            return String(String(String.UnicodeScalarView(scalars)).prefix(120))
         }
         var payload = "\u{1B}]777;notify;\(sanitized(title));\(sanitized(body))\u{07}"
         if env["TMUX"] != nil {

@@ -304,7 +304,8 @@ extension CMUXCLI {
     /// Strips control characters: an embedded ESC or BEL would close the OSC
     /// frame early and let the remainder execute as terminal commands.
     private static func sanitizedOSCField(_ raw: String) -> String {
-        String(raw.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F }).prefix(120).description
+        let scalars = raw.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F }
+        return String(String(String.UnicodeScalarView(scalars)).prefix(120))
     }
 
     private static func shellSingleQuoted(_ raw: String) -> String {
