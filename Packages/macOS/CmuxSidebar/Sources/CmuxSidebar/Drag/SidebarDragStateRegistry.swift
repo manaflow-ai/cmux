@@ -21,8 +21,11 @@ public final class SidebarDragStateRegistry {
         statesByWindowId[windowId] = dragState
     }
 
-    /// Removes the drag state for an unmounted sidebar window.
-    public func unregister(windowId: UUID) {
+    /// Removes the drag state for an unmounted sidebar only when it is still
+    /// the registered instance. A replacement can mount before the stale
+    /// sidebar's disappearance callback runs.
+    public func unregister(windowId: UUID, dragState: SidebarDragState) {
+        guard statesByWindowId[windowId] === dragState else { return }
         statesByWindowId.removeValue(forKey: windowId)
     }
 

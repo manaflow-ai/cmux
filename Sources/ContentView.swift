@@ -10949,7 +10949,10 @@ struct VerticalTabsSidebar: View, Equatable {
         isWorkspaceReorderDropTargetCollectionActive = false
         dragState.isSimulated = false
         #if DEBUG
-        AppDelegate.shared?.sidebarDragStateRegistry.unregister(windowId: windowId)
+        AppDelegate.shared?.sidebarDragStateRegistry.unregister(
+            windowId: windowId,
+            dragState: dragState
+        )
         #endif
         SidebarDragLifecycleNotification().postStateDidChange(
             tabId: nil,
