@@ -36,6 +36,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
     private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     private var globalFontObserver: GlobalFontMagnificationChangeObserver?
+    private var pendingFileOnlyNavigation: (id: UUID, request: URLRequest)?
 
     private static var associatedObjectKey: UInt8 = 0
 
@@ -273,6 +274,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         #endif
 
         WebViewInspectorTeardown.closeInspector(for: webView)
+        cancelPendingFileOnlyNavigation()
         closeAllChildPopups()
         popupNavigationDelegate.cancelPendingAuthenticationPrompts()
 
@@ -355,10 +357,71 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     }
 
     fileprivate func loadRequest(_ request: URLRequest, in webView: WKWebView) {
+        guard webView === self.webView else { return }
+        if browserContext.localFileReadAccessPolicy == .fileOnly,
+           let originalURL = request.url,
+           originalURL.isFileURL {
+            cancelPendingFileOnlyNavigation()
+            let id = UUID()
+            pendingFileOnlyNavigation = (id, request)
+            WordPathFilesystemResolutionCoordinator.shared.submit(
+                id: id,
+                isUserInitiated: true,
+                work: {
+                    let result = await WordPathFilesystemProbe()
+                        .firstExistingPath(in: [originalURL.path])
+                    let navigationURL = result.flatMap { result -> URL? in
+                        guard result.isReadableRegularFile else { return nil }
+                        return BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                            for: originalURL,
+                            resolvedFileURL: URL(fileURLWithPath: result.resolvedPath)
+                        )
+                    }
+                    return { @MainActor [weak self] in
+                        self?.finishFileOnlyNavigation(id: id, navigationURL: navigationURL)
+                    }
+                },
+                discarded: { [weak self] in
+                    self?.discardFileOnlyNavigation(id: id)
+                }
+            )
+            return
+        }
+        cancelPendingFileOnlyNavigation()
         browserLoadRequest(
             request,
             in: webView,
             localFileReadAccessPolicy: browserContext.localFileReadAccessPolicy
+        )
+    }
+
+    private func finishFileOnlyNavigation(id: UUID, navigationURL: URL?) {
+        guard let pendingFileOnlyNavigation,
+              pendingFileOnlyNavigation.id == id else {
+            return
+        }
+        self.pendingFileOnlyNavigation = nil
+        guard let navigationURL else { return }
+        var resolvedRequest = pendingFileOnlyNavigation.request
+        resolvedRequest.url = navigationURL
+        browserLoadRequest(
+            resolvedRequest,
+            in: webView,
+            localFileReadAccessPolicy: .fileOnly,
+            validatedReadableFileURL: navigationURL
+        )
+    }
+
+    private func discardFileOnlyNavigation(id: UUID) {
+        guard pendingFileOnlyNavigation?.id == id else { return }
+        pendingFileOnlyNavigation = nil
+    }
+
+    private func cancelPendingFileOnlyNavigation() {
+        guard let pendingFileOnlyNavigation else { return }
+        self.pendingFileOnlyNavigation = nil
+        WordPathFilesystemResolutionCoordinator.shared.cancelPending(
+            id: pendingFileOnlyNavigation.id
         )
     }
 

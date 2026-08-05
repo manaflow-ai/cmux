@@ -8,7 +8,10 @@ enum CommandClickFileOpenRouter {
         defaults: UserDefaults = .standard
     ) -> Bool {
         let store = FileRouteSettingsStore(defaults: defaults)
-        return store.shouldRouteMarkdown(path: path)
+        return TerminalHTMLFileBrowserAction.canOpenInBrowser(
+            URL(fileURLWithPath: path),
+            defaults: defaults
+        ) || store.shouldRouteMarkdown(path: path)
             || store.shouldRouteSupportedFile(path: path)
     }
 
@@ -19,7 +22,10 @@ enum CommandClickFileOpenRouter {
         defaults: UserDefaults = .standard
     ) -> Bool {
         let store = FileRouteSettingsStore(defaults: defaults)
-        return (store.markdownRouteEnabled && FileRouteSettingsStore.isMarkdownPath(path))
+        return TerminalHTMLFileBrowserAction.canOpenInBrowser(
+            URL(fileURLWithPath: path),
+            defaults: defaults
+        ) || (store.markdownRouteEnabled && FileRouteSettingsStore.isMarkdownPath(path))
             || store.supportedFileRouteEnabled
     }
 
@@ -37,10 +43,6 @@ enum CommandClickFileOpenRouter {
             return true
         }
 
-        guard store.shouldRouteSupportedFile(path: filePath) else {
-            return false
-        }
-
         if let resolvedFileURL,
            TerminalHTMLFileBrowserAction(defaults: defaults).open(
             fileURL: URL(fileURLWithPath: filePath),
@@ -49,6 +51,10 @@ enum CommandClickFileOpenRouter {
             container: workspace
         ) {
             return true
+        }
+
+        guard store.shouldRouteSupportedFile(path: filePath) else {
+            return false
         }
 
         return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil

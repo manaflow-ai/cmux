@@ -1,6 +1,6 @@
 import Foundation
 
-/// Bounds command-hover and command-click filesystem work process-wide.
+/// Bounds command-path and restricted Browser filesystem work process-wide.
 ///
 /// Mutable scheduling state is main-actor isolated. At most one asynchronous,
 /// deadline-bounded probe runs at a time. Discrete clicks use a bounded FIFO,

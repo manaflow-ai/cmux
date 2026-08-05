@@ -11,7 +11,10 @@ struct TerminalHTMLFileBrowserAction {
         self.defaults = defaults
     }
 
-    func canOpenInBrowser(_ fileURL: URL) -> Bool {
+    nonisolated static func canOpenInBrowser(
+        _ fileURL: URL,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
         let pathExtension = fileURL.pathExtension.lowercased()
         guard fileURL.isFileURL,
               pathExtension == "html" || pathExtension == "htm",
@@ -20,6 +23,10 @@ struct TerminalHTMLFileBrowserAction {
             return false
         }
         return true
+    }
+
+    func canOpenInBrowser(_ fileURL: URL) -> Bool {
+        Self.canOpenInBrowser(fileURL, defaults: defaults)
     }
 
     func browserURL(

@@ -962,7 +962,8 @@ enum BrowserFileSystemAccessBridge {
 func browserLoadRequest(
     _ request: URLRequest,
     in webView: WKWebView,
-    localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory
+    localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
+    validatedReadableFileURL: URL? = nil
 ) -> WKNavigation? {
     guard let url = request.url else { return nil }
     webView.applyBrowserUserAgentPolicy(for: url)
@@ -972,6 +973,10 @@ func browserLoadRequest(
         let readAccessURL: URL
         switch localFileReadAccessPolicy {
         case .fileOnly:
+            // A file-only load has no safe synchronous fallback. Its caller
+            // must supply the exact URL produced by the bounded regular-file
+            // probe, including any query or fragment retained for navigation.
+            guard validatedReadableFileURL == url else { return nil }
             guard let resolvedReadAccessURL = localFileReadAccessPolicy
                 .readAccessURL(forResolvedNavigationURL: url) else {
                 return nil
@@ -3177,6 +3182,14 @@ final class BrowserPanel: Panel, ObservableObject {
         let onNavigationStarted: ((WKNavigation?) -> Void)?
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
+    private struct PendingFileOnlyNavigation {
+        let id: UUID
+        let request: URLRequest
+        let recordTypedNavigation: Bool
+        let preserveRestoredSessionHistory: Bool
+        let onNavigationStarted: ((WKNavigation?) -> Void)?
+    }
+    private var pendingFileOnlyNavigation: PendingFileOnlyNavigation?
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
@@ -6069,11 +6082,21 @@ final class BrowserPanel: Panel, ObservableObject {
         _ fileURL: URL,
         identity: BrowserLocalFileIdentity
     ) -> Bool {
-        guard localFileReadAccessPolicy == .fileOnly else { return false }
-        guard navigateWithoutInsecureHTTPPrompt(
-            to: fileURL,
-            recordTypedNavigation: false,
+        // Terminal file reuse receives the canonical readable-file URL from
+        // TerminalLinkOpenCoordinator's bounded probe, so it can load without
+        // repeating the filesystem operation.
+        guard localFileReadAccessPolicy == .fileOnly, fileURL.isFileURL else { return false }
+        cancelPendingFileOnlyNavigation()
+        let request = URLRequest(
+            url: fileURL,
             cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        guard startNavigation(
+            request: request,
+            originalURL: fileURL,
+            recordTypedNavigation: false,
+            preserveRestoredSessionHistory: false,
+            validatedReadableFileURL: fileURL
         ) != nil else {
             return false
         }
@@ -6092,6 +6115,33 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted?(nil)
             return nil
         }
+        if localFileReadAccessPolicy == .fileOnly, url.isFileURL {
+            enqueueFileOnlyNavigation(
+                request: request,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                onNavigationStarted: onNavigationStarted
+            )
+            return nil
+        }
+        cancelPendingFileOnlyNavigation()
+        return startNavigation(
+            request: request,
+            originalURL: url,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            onNavigationStarted: onNavigationStarted
+        )
+    }
+
+    private func startNavigation(
+        request: URLRequest,
+        originalURL: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        validatedReadableFileURL: URL? = nil,
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
+    ) -> WKNavigation? {
         forgetTerminalFileReuseIdentity()
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
@@ -6103,7 +6153,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 onNavigationStarted: onNavigationStarted
             )
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
-            currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
+            currentURL = Self.remoteProxyDisplayURL(for: originalURL) ?? originalURL
             navigationDelegate?.recordAttemptedRequest(request)
             refreshBackgroundAppearance()
             shouldRenderWebView = true
@@ -6111,10 +6161,93 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         return performNavigation(
             request: request,
-            originalURL: url,
+            originalURL: originalURL,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            validatedReadableFileURL: validatedReadableFileURL,
+            onNavigationStarted: onNavigationStarted
+        )
+    }
+
+    private func enqueueFileOnlyNavigation(
+        request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        onNavigationStarted: ((WKNavigation?) -> Void)?
+    ) {
+        guard let originalURL = request.url, originalURL.isFileURL else {
+            onNavigationStarted?(nil)
+            return
+        }
+        cancelPendingFileOnlyNavigation()
+        let id = UUID()
+        pendingFileOnlyNavigation = PendingFileOnlyNavigation(
+            id: id,
+            request: request,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
             onNavigationStarted: onNavigationStarted
+        )
+        WordPathFilesystemResolutionCoordinator.shared.submit(
+            id: id,
+            isUserInitiated: true,
+            work: {
+                let result = await WordPathFilesystemProbe()
+                    .firstExistingPath(in: [originalURL.path])
+                let navigationURL = result.flatMap { result -> URL? in
+                    guard result.isReadableRegularFile else { return nil }
+                    return BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                        for: originalURL,
+                        resolvedFileURL: URL(fileURLWithPath: result.resolvedPath)
+                    )
+                }
+                return { @MainActor [weak self] in
+                    self?.finishFileOnlyNavigation(id: id, navigationURL: navigationURL)
+                }
+            },
+            discarded: { [weak self] in
+                self?.discardFileOnlyNavigation(id: id)
+            }
+        )
+    }
+
+    private func finishFileOnlyNavigation(id: UUID, navigationURL: URL?) {
+        guard let pendingFileOnlyNavigation,
+              pendingFileOnlyNavigation.id == id else {
+            return
+        }
+        self.pendingFileOnlyNavigation = nil
+        guard let navigationURL else {
+            pendingFileOnlyNavigation.onNavigationStarted?(nil)
+            return
+        }
+        var resolvedRequest = pendingFileOnlyNavigation.request
+        resolvedRequest.url = navigationURL
+        _ = startNavigation(
+            request: resolvedRequest,
+            originalURL: navigationURL,
+            recordTypedNavigation: pendingFileOnlyNavigation.recordTypedNavigation,
+            preserveRestoredSessionHistory: pendingFileOnlyNavigation.preserveRestoredSessionHistory,
+            validatedReadableFileURL: navigationURL,
+            onNavigationStarted: pendingFileOnlyNavigation.onNavigationStarted
+        )
+    }
+
+    private func discardFileOnlyNavigation(id: UUID) {
+        guard let pendingFileOnlyNavigation,
+              pendingFileOnlyNavigation.id == id else {
+            return
+        }
+        self.pendingFileOnlyNavigation = nil
+        pendingFileOnlyNavigation.onNavigationStarted?(nil)
+    }
+
+    private func cancelPendingFileOnlyNavigation() {
+        guard let pendingFileOnlyNavigation else { return }
+        self.pendingFileOnlyNavigation = nil
+        pendingFileOnlyNavigation.onNavigationStarted?(nil)
+        WordPathFilesystemResolutionCoordinator.shared.cancelPending(
+            id: pendingFileOnlyNavigation.id
         )
     }
 
@@ -6147,6 +6280,7 @@ final class BrowserPanel: Panel, ObservableObject {
         originalURL: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool,
+        validatedReadableFileURL: URL? = nil,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         cancelHiddenWebViewDiscard()
@@ -6171,7 +6305,8 @@ final class BrowserPanel: Panel, ObservableObject {
         let startedNavigation = browserLoadRequest(
             effectiveRequest,
             in: webView,
-            localFileReadAccessPolicy: localFileReadAccessPolicy
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
+            validatedReadableFileURL: validatedReadableFileURL
         )
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
@@ -6479,7 +6614,8 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isClosing: isClosingWebViewLifecycle,
             isVisibleInUI: isWebViewVisibleInUI,
             shouldRenderWebView: shouldRenderWebView,
-            hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
+            hasPendingRemoteNavigation:
+                pendingRemoteNavigation != nil || pendingFileOnlyNavigation != nil,
             hasCurrentURL: (currentURL ?? Self.remoteProxyDisplayURL(for: webView.url)) != nil,
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
