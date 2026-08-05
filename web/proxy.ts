@@ -28,6 +28,13 @@ export default function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // OpenAI-compatible CodeRouter traffic is a machine endpoint, never a
+  // localized page. Keep this explicit in addition to the matcher exclusion
+  // so direct middleware tests and future matcher edits fail safely.
+  if (pathname === "/v1/responses") {
+    return NextResponse.next();
+  }
+
   // cmux consumes this marker before navigation. If an ordinary browser
   // reaches the server, canonicalize the URL while preserving every public
   // query parameter.
@@ -49,11 +56,14 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Temporary redirect: /changelog → /docs/changelog, preserving any locale prefix.
-  const changelogMatch = pathname.match(/^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog\/?$/);
+  // Temporary redirect: /changelog[/<version>] → /docs/changelog[/<version>],
+  // preserving any locale prefix.
+  const changelogMatch = pathname.match(
+    /^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog(\/[^/]+)?\/?$/,
+  );
   if (changelogMatch) {
     const url = request.nextUrl.clone();
-    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog`;
+    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog${changelogMatch[2] ?? ""}`;
     return NextResponse.redirect(url, 307);
   }
 
@@ -117,7 +127,11 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.includes(".")) {
+  const isChangelogVersionPath =
+    /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/docs\/changelog\/[^/]+\/?$/.test(
+      pathname,
+    );
+  if (pathname.includes(".") && !isChangelogVersionPath) {
     return NextResponse.next();
   }
 
@@ -341,5 +355,7 @@ function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next|_vercel|agent-page-variant|handler).*)"],
+  matcher: [
+    "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler).*)",
+  ],
 };
