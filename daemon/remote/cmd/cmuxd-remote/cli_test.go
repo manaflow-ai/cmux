@@ -639,6 +639,26 @@ func TestCLINotifyInTmuxFallsBackToControllingTTY(t *testing.T) {
 	}
 }
 
+func TestResolveCallerTTYNamePrefersControllingTTYOverSSHTTY(t *testing.T) {
+	t.Setenv("CMUX_CLI_TTY_NAME", "")
+	t.Setenv("CMUX_TTY_NAME", "")
+	t.Setenv("TTY", "")
+	t.Setenv("SSH_TTY", "/dev/pts/2")
+
+	originalFDLinkPaths := callerTTYFDLinkPaths
+	originalTTYCommand := callerTTYCommand
+	callerTTYFDLinkPaths = nil
+	callerTTYCommand = func() string { return "/dev/pts/7\n" }
+	t.Cleanup(func() {
+		callerTTYFDLinkPaths = originalFDLinkPaths
+		callerTTYCommand = originalTTYCommand
+	})
+
+	if got := resolveCallerTTYName(); got != "7" {
+		t.Fatalf("expected controlling TTY 7 to outrank inherited SSH_TTY, got %q", got)
+	}
+}
+
 func TestCLINotifyOutsideTmuxOmitsPreferTTY(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_WORKSPACE_ID", "11111111-1111-1111-1111-111111111111")
