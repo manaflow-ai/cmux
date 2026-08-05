@@ -17,8 +17,8 @@ use cmux_remote::provider::{
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
 use cmux_terminal_host_protocol::{
-    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
-    PROTOCOL_VERSION, encode_frame,
+    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
+    encode_frame,
 };
 #[cfg(feature = "text-renderer")]
 use ghostty_vt::{
@@ -156,7 +156,10 @@ impl<'a> SnapshotDecoder<'a> {
     }
 }
 
-fn decode_renderer_snapshot(payload: &[u8], protocol_version: u16) -> Result<RendererSnapshot, String> {
+fn decode_renderer_snapshot(
+    payload: &[u8],
+    protocol_version: u16,
+) -> Result<RendererSnapshot, String> {
     if !(1..=PROTOCOL_VERSION).contains(&protocol_version) {
         return Err(format!("unsupported terminal snapshot protocol {protocol_version}"));
     }
@@ -224,14 +227,7 @@ fn decode_renderer_snapshot(payload: &[u8], protocol_version: u16) -> Result<Ren
         RendererKittyState::disabled()
     };
     decoder.finish()?;
-    Ok(RendererSnapshot {
-        cols,
-        rows,
-        cell_pixels,
-        replay,
-        kitty_image_aliases,
-        kitty_state,
-    })
+    Ok(RendererSnapshot { cols, rows, cell_pixels, replay, kitty_image_aliases, kitty_state })
 }
 
 fn decode_terminal_color_state_as_vt(payload: &[u8]) -> Result<Vec<u8>, String> {
@@ -679,11 +675,7 @@ impl ClientState {
                     .validate_for_replay(snapshot.replay.len())
                     .map_err(|error| error.to_string())?;
                     terminal
-                        .apply_vt_replay_parts(
-                            &snapshot.replay,
-                            &kitty_image_aliases,
-                            kitty_state,
-                        )
+                        .apply_vt_replay_parts(&snapshot.replay, &kitty_image_aliases, kitty_state)
                         .map_err(|error| error.to_string())?;
                     self.terminal = Some(terminal);
                     self.render_dirty = true;
