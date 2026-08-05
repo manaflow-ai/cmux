@@ -12,47 +12,10 @@ export async function POST(request: Request): Promise<Response> {
   if (!resolved.ok) return resolved.response;
 
   try {
-    // Keep the trusted exchange request in this route. Older cached server
-    // bundles delegated to a legacy client which omitted both the control
-    // credential and scoped capabilities.
-    const controlToken =
-      process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN?.trim();
-    const hostedUrl = process.env.SUBROUTER_HOSTED_URL?.trim().replace(
-      /\/+$/,
-      "",
+    const tenant = await resolved.value.client.exchangeTeam(
+      resolved.value.accessToken,
+      resolved.value.team,
     );
-    if (!controlToken || !hostedUrl) {
-      return Response.json(
-        { error: "service_unavailable" },
-        { status: 503 },
-      );
-    }
-    const capabilities = [
-      ...(resolved.value.team.manageAccounts ? ["manage_accounts"] : []),
-      ...(resolved.value.team.use ? ["use"] : []),
-    ];
-    const upstream = await fetch(`${hostedUrl}/_subrouter/auth/stack`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${resolved.value.accessToken}`,
-        "content-type": "application/json",
-        "x-subrouter-stack-control-token": controlToken,
-      },
-      body: JSON.stringify({
-        capabilities,
-        teamId: resolved.value.team.teamId,
-        teamName: resolved.value.team.teamName,
-      }),
-      cache: "no-store",
-    });
-    const body = await upstream.text();
-    if (!upstream.ok) {
-      return new Response(body, {
-        status: upstream.status,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      });
-    }
-    const tenant: unknown = JSON.parse(body);
     return Response.json(tenant, {
       headers: { "cache-control": "no-store" },
     });
