@@ -10649,7 +10649,6 @@ fn handle_command_with_cancellation(
                     mutation.expected_revision,
                     &workspace_mutation,
                 )?;
-                mux.reap_created_terminal_surface(result.created_surface);
                 let projection_fingerprint = json!({
                     "terminal_id":result.terminal_id,
                     "workspace_key":key,
@@ -10663,6 +10662,8 @@ fn handle_command_with_cancellation(
                         "workspace_key":key,
                     }),
                 )?;
+                mux.activate_created_terminal_surface(result.created_surface)?;
+                mux.reap_created_terminal_surface(result.created_surface);
                 let created = mux.created_terminal_run_result(&result.terminal_id)?;
                 let placement = created.placement;
                 let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;

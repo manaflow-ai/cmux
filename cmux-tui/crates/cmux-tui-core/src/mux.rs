@@ -9698,6 +9698,16 @@ impl Mux {
         }
     }
 
+    pub(crate) fn activate_created_terminal_surface(
+        &self,
+        surface: Option<SurfaceId>,
+    ) -> anyhow::Result<()> {
+        if let Some(surface) = surface.and_then(|surface| self.surface(surface)) {
+            surface.activate_hosted_launch_stream()?;
+        }
+        Ok(())
+    }
+
     /// Create a screen in a workspace (default: the active one) with one
     /// pane/tab, and make it active. Returns the tab's surface.
     pub fn new_screen(
@@ -11869,6 +11879,10 @@ impl Mux {
         let Some(identity) = self.resource_terminal_host_identity(surface) else {
             return Ok(());
         };
+        // Output stays on the bounded asynchronous ingress path. Exit is the
+        // one terminal transition that fences it, preserving byte order and
+        // full topology subjects before the atomic detach transaction.
+        self.journal_ingress.flush()?;
         let exit = surface.terminal_exit().unwrap_or_else(|| TerminalExit::unknown(reason));
         self.persist_terminal_exit(&identity.terminal_id, Some(&identity.incarnation), &exit)?;
         self.detach_exited_terminal_topology(&identity.terminal_id)?;
@@ -13044,6 +13058,9 @@ impl Mux {
                     "could not persist applied layout; rollback also failed: {rollback:#}"
                 ))),
             };
+        }
+        for surface in &spawned {
+            surface.activate_hosted_launch_stream()?;
         }
         self.emit(MuxEvent::TreeDelta(delta));
         self.emit(MuxEvent::LayoutChanged(screen_id));

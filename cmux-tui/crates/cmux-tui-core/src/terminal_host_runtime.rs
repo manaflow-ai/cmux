@@ -28,9 +28,10 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, KITTY_IMAGE_ALIAS_COUNT_LEN,
-    KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
-    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, encode_terminal_exit, read_frame,
+    FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_VIEWER_SIZE_ACKS, Frame,
+    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
+    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
+    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, encode_terminal_exit, read_frame,
     wait_for_native_child_status, write_frame,
 };
 
@@ -836,6 +837,10 @@ mod unix {
         /// handshake and complete Surface materialization. Adoption never
         /// carries this guard.
         launch_process: Option<SpawnedHostProcess>,
+        /// The first authenticated admin attachment may inherit a protocol-v4
+        /// launch barrier. A launcher releases it after committing topology;
+        /// an adopter releases an abandoned barrier after validating the host.
+        launch_activation_pending: bool,
     }
 
     impl std::fmt::Debug for HostAttachment {
@@ -1271,6 +1276,19 @@ mod unix {
             });
         }
 
+        /// Release a newly launched protocol-v4 host only after its public
+        /// topology is durable. The state flips after the complete frame is
+        /// accepted by the local socket, so a retry cannot duplicate it.
+        pub(crate) fn activate_launched_host(&mut self) -> std::io::Result<bool> {
+            if !self.launch_activation_pending {
+                return Ok(false);
+            }
+            debug_assert!(self.protocol_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION);
+            self.send(MessageKind::Activate, &[])?;
+            self.launch_activation_pending = false;
+            Ok(true)
+        }
+
         pub fn identity(&self) -> TerminalHostIdentity {
             TerminalHostIdentity {
                 terminal_id: self.record.terminal_id.clone(),
@@ -1610,6 +1628,10 @@ mod unix {
         // row Exited.
         let mut attachment = connect_record(record, record_path)?;
         attachment.launch_process = Some(process);
+        debug_assert_eq!(
+            attachment.launch_activation_pending,
+            attachment.protocol_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION
+        );
         Ok(attachment)
     }
 
@@ -1618,7 +1640,9 @@ mod unix {
         record_path: PathBuf,
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
-        connect_record(record, record_path)
+        let mut attachment = connect_record(record, record_path)?;
+        attachment.activate_launched_host()?;
+        Ok(attachment)
     }
 
     pub(crate) fn adopt_terminal_host_with_kitty_limits(
@@ -1629,12 +1653,14 @@ mod unix {
         let ceiling = ceiling
             .validate()
             .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
-        let mut attachment = adopt_terminal_host(record.clone(), record_path.clone())?;
+        let mut attachment = connect_record(record.clone(), record_path.clone())?;
         if kitty_graphics_limits_within(attachment.snapshot.kitty_state.limits, ceiling) {
+            attachment.activate_launched_host()?;
             return Ok(attachment);
         }
 
         attachment.reconfigure_kitty_graphics_for_adoption(ceiling)?;
+        attachment.activate_launched_host()?;
         attachment.disconnect();
         drop(attachment);
 
@@ -2029,10 +2055,15 @@ mod unix {
         let hello_frame = read_required_frame(&mut stream, "host hello")?;
         if hello_frame.kind != MessageKind::HostHello
             || hello_frame.version != protocol_version
+            || hello_frame.flags & !(FLAG_VIEWER_SIZE_ACKS | FLAG_LAUNCH_ACTIVATION_REQUIRED) != 0
             || hello_frame.request_id != 1
             || hello_frame.sequence != 0
         {
             anyhow::bail!("terminal host rejected owner handshake");
+        }
+        let launch_activation_pending = hello_frame.flags & FLAG_LAUNCH_ACTIVATION_REQUIRED != 0;
+        if launch_activation_pending && protocol_version < LAUNCH_ACTIVATION_PROTOCOL_VERSION {
+            anyhow::bail!("legacy terminal host requested launch activation");
         }
         let host_hello = HostHello::decode(&hello_frame.payload)?;
         if host_hello.selected_version != protocol_version
@@ -2085,6 +2116,7 @@ mod unix {
             // every connection at the snapshot grid.
             viewer_size: Mutex::new(Some(snapshot_size)),
             launch_process: None,
+            launch_activation_pending,
         };
         attachment.release_viewer_size()?;
         Ok(attachment)
@@ -2456,6 +2488,7 @@ mod unix {
         dead: AtomicBool,
         launch_owner_claimed: AtomicBool,
         launch_owner_stream_ready: AtomicBool,
+        launch_owner_stream_gate: (Mutex<()>, Condvar),
         launch_owner_completed: AtomicBool,
         child_exit: (Mutex<Option<TerminalExit>>, Condvar),
         child_waitable: AtomicBool,
@@ -2490,8 +2523,7 @@ mod unix {
             if !self.claimed {
                 return;
             }
-            self.host.launch_owner_stream_ready.store(true, Ordering::Release);
-            self.host.publish_exit_if_drained();
+            self.host.mark_launch_owner_stream_ready();
         }
     }
 
@@ -2504,9 +2536,8 @@ mod unix {
             // a successful one. The launching daemon reports the handshake
             // failure, while the independently hosted process can still
             // publish or clean up its terminal exit.
-            self.host.launch_owner_stream_ready.store(true, Ordering::Release);
+            self.host.mark_launch_owner_stream_ready();
             self.host.launch_owner_completed.store(true, Ordering::Release);
-            self.host.publish_exit_if_drained();
         }
     }
 
@@ -2578,6 +2609,24 @@ mod unix {
     }
 
     impl HostShared {
+        fn mark_launch_owner_stream_ready(&self) {
+            let _gate = self.launch_owner_stream_gate.0.lock().unwrap();
+            if !self.launch_owner_stream_ready.swap(true, Ordering::AcqRel) {
+                self.launch_owner_stream_gate.1.notify_all();
+            }
+            self.publish_exit_if_drained();
+        }
+
+        fn wait_for_launch_owner_stream_ready(&self) {
+            if self.launch_owner_stream_ready.load(Ordering::Acquire) {
+                return;
+            }
+            let mut gate = self.launch_owner_stream_gate.0.lock().unwrap();
+            while !self.launch_owner_stream_ready.load(Ordering::Acquire) {
+                gate = self.launch_owner_stream_gate.1.wait(gate).unwrap();
+            }
+        }
+
         fn broadcast(&self, kind: MessageKind, payload: Vec<u8>) {
             self.broadcast_frames([Frame::new(kind, payload)]);
         }
@@ -3511,9 +3560,8 @@ mod unix {
                 // A launcher that vanished before authenticating must not
                 // retain an already-exited host forever. A live PTY remains
                 // adoptable; only its eventual exit is now unblocked.
-                shared.launch_owner_stream_ready.store(true, Ordering::Release);
+                shared.mark_launch_owner_stream_ready();
                 shared.launch_owner_completed.store(true, Ordering::Release);
-                shared.publish_exit_if_drained();
             }
             if shared.dead.load(Ordering::Acquire) {
                 let deadline =
@@ -3626,6 +3674,7 @@ mod unix {
             dead: AtomicBool::new(false),
             launch_owner_claimed: AtomicBool::new(false),
             launch_owner_stream_ready: AtomicBool::new(false),
+            launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
             launch_owner_completed: AtomicBool::new(false),
             child_exit: (Mutex::new(None), Condvar::new()),
             child_waitable: AtomicBool::new(false),
@@ -3644,6 +3693,7 @@ mod unix {
 
         let reader_host = shared.clone();
         thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
+            reader_host.wait_for_launch_owner_stream_ready();
             let mut buffer = [0u8; 64 * 1024];
             let mut last_colors = initial_colors;
             let mut last_pwd = None;
@@ -3787,11 +3837,18 @@ mod unix {
         let selected_version = response.selected_version;
         let granted_rights = response.granted_rights;
         let launch_owner = LaunchOwnerConnection::claim(host.clone(), granted_rights);
+        let launch_owner_claimed = launch_owner.claimed;
+        let activation_required = launch_owner_claimed
+            && selected_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION
+            && !host.launch_owner_stream_ready.load(Ordering::Acquire);
         let viewer_size_acks = hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0
             && granted_rights.contains(CapabilityRights::RESIZE);
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
         if viewer_size_acks {
-            hello_response.flags = FLAG_VIEWER_SIZE_ACKS;
+            hello_response.flags |= FLAG_VIEWER_SIZE_ACKS;
+        }
+        if activation_required {
+            hello_response.flags |= FLAG_LAUNCH_ACTIVATION_REQUIRED;
         }
         hello_response.request_id = hello_frame.request_id;
         write_frame(&mut stream, &hello_response)?;
@@ -3848,10 +3905,12 @@ mod unix {
                 host.sequence.load(Ordering::Acquire),
             )
         };
-        // The tap and snapshot boundary are now atomic members of the live
-        // stream. Releasing a deferred fast-exit event here places Exit after
-        // that boundary even if the PTY finished before this connection.
-        launch_owner.stream_ready();
+        // Legacy hosts began reading as soon as the first owner tap joined.
+        // Protocol v4 waits for Activate so public topology and its journal
+        // record commit before the first exact PTY bytes can be observed.
+        if !activation_required {
+            launch_owner.stream_ready();
+        }
         let mut snapshot_frame = Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
         snapshot_frame.sequence = snapshot_sequence;
         if let Err(error) = write_frame(&mut stream, &snapshot_frame) {
@@ -3876,6 +3935,16 @@ mod unix {
                     break;
                 }
                 match frame.kind {
+                    MessageKind::Activate => {
+                        if selected_version < LAUNCH_ACTIVATION_PROTOCOL_VERSION
+                            || !launch_owner_claimed
+                            || frame.request_id != 0
+                            || !frame.payload.is_empty()
+                        {
+                            break;
+                        }
+                        command_host.mark_launch_owner_stream_ready();
+                    }
                     MessageKind::Input => {
                         if !granted_rights.contains(CapabilityRights::INPUT) {
                             break;
@@ -3935,6 +4004,9 @@ mod unix {
                     MessageKind::Terminate => {
                         if !granted_rights.contains(CapabilityRights::TERMINATE) {
                             break;
+                        }
+                        if launch_owner_claimed {
+                            command_host.mark_launch_owner_stream_ready();
                         }
                         command_host.request_termination();
                     }
@@ -4667,6 +4739,7 @@ mod unix {
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(true),
                 launch_owner_stream_ready: AtomicBool::new(true),
+                launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
                 launch_owner_completed: AtomicBool::new(false),
                 child_exit: (
                     Mutex::new(Some(TerminalExit {
@@ -4724,6 +4797,7 @@ mod unix {
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(false),
                 launch_owner_stream_ready: AtomicBool::new(false),
+                launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
                 launch_owner_completed: AtomicBool::new(false),
                 child_exit: (Mutex::new(None), Condvar::new()),
                 child_waitable: AtomicBool::new(false),
@@ -4921,7 +4995,7 @@ mod unix {
         }
 
         #[test]
-        fn snapshot_payload_matches_the_cross_language_v3_golden_bytes() {
+        fn snapshot_payload_matches_the_cross_language_current_golden_bytes() {
             let snapshot = HostSnapshot {
                 cols: 1,
                 rows: 2,
@@ -5127,6 +5201,7 @@ mod unix {
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
+                launch_activation_pending: false,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -5178,6 +5253,7 @@ mod unix {
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
+                launch_activation_pending: false,
             };
             let peer = thread::spawn(move || {
                 let mut header = [0; crate::terminal_host_protocol::HEADER_LEN];
@@ -5497,6 +5573,7 @@ mod unix {
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
+                launch_activation_pending: false,
             };
             let resolver = {
                 let control_responses = control_responses.clone();
@@ -5670,6 +5747,7 @@ mod unix {
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
+                launch_activation_pending: false,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();

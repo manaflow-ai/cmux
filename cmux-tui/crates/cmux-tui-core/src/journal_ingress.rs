@@ -74,6 +74,10 @@ impl FrontendJournalEvent {
 
 #[derive(Debug)]
 pub(crate) enum JournalIngressEvent {
+    /// Queue-ordering fence. It appends no record, but its durable completion
+    /// proves every earlier ingress item committed before an exit transaction
+    /// can remove that terminal's topology.
+    Barrier,
     TerminalOutput {
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
@@ -201,6 +205,10 @@ impl JournalIngressSender {
             .recv()
             .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?
             .map_err(anyhow::Error::msg)
+    }
+
+    pub(crate) fn flush(&self) -> anyhow::Result<()> {
+        self.send_durable(JournalIngressEvent::Barrier)
     }
 
     pub(crate) fn send_producer(

@@ -114,6 +114,9 @@ jobs:
           # Process-exit and PTY-reader tests also use bounded polling. Keep
           # their normal deadlines strict while allowing for instrumentation.
           CMUX_TEST_TIMEOUT_SCALE: "4"
+          # Retain the full 128 MiB fairness workload under Valgrind with
+          # explicit instrumentation-only bounds. Normal CI stays strict.
+          CMUX_TEST_PERF_INSTRUMENTED: "valgrind"
         run: |
           while IFS= read -r bin; do
             [ -n "$bin" ] || continue

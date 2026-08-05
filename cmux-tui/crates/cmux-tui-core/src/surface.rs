@@ -1280,6 +1280,7 @@ struct HostedSurfaceLaunch {
     attachment: crate::terminal_host_runtime::HostAttachment,
     kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
     terminate_on_error: bool,
+    defer_launch_activation: bool,
     terminal_public_id: Option<TerminalPublicId>,
     resource_identity: Option<TabResourceIdentity>,
 }
@@ -1991,6 +1992,7 @@ impl Surface {
                     initial_kitty_limits,
                 )?,
             };
+            let defer_launch_activation = terminal_public_id.is_some();
             return Self::spawn_hosted(
                 id,
                 opts,
@@ -1999,6 +2001,7 @@ impl Surface {
                     attachment,
                     kitty_reservation,
                     terminate_on_error: true,
+                    defer_launch_activation,
                     terminal_public_id,
                     resource_identity,
                 },
@@ -2396,6 +2399,7 @@ impl Surface {
             mut attachment,
             kitty_reservation,
             terminate_on_error,
+            defer_launch_activation,
             terminal_public_id,
             resource_identity,
         } = launch;
@@ -3104,6 +3108,11 @@ impl Surface {
             && let Some(pty) = surface.as_pty()
             && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
         {
+            if !defer_launch_activation && let Err(error) = host.activate_launched_host() {
+                let _ = host.terminate();
+                host.disconnect();
+                return Err(error.into());
+            }
             host.commit_launched_host();
         }
         #[cfg(debug_assertions)]
@@ -3177,6 +3186,7 @@ impl Surface {
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
+                defer_launch_activation: false,
                 terminal_public_id: Some(terminal_public_id),
                 resource_identity: Some(resource_identity),
             },
@@ -3211,6 +3221,7 @@ impl Surface {
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
+                defer_launch_activation: false,
                 terminal_public_id: Some(terminal_public_id),
                 resource_identity: None,
             },
@@ -4836,6 +4847,21 @@ impl Surface {
             return host.persist_workspace(workspace_key);
         }
         Ok(())
+    }
+
+    /// Release a newly launched host after the caller commits the terminal's
+    /// public topology. Adoption and local PTYs are already active, making
+    /// this idempotent for shared creation paths.
+    pub(crate) fn activate_hosted_launch_stream(&self) -> anyhow::Result<bool> {
+        #[cfg(unix)]
+        {
+            let Some(pty) = self.as_pty() else { return Ok(false) };
+            let mut runtime = pty.runtime.lock().unwrap();
+            let PtyRuntime::Hosted(host) = &mut *runtime else { return Ok(false) };
+            host.activate_launched_host().map_err(anyhow::Error::new)
+        }
+        #[cfg(not(unix))]
+        Ok(false)
     }
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {

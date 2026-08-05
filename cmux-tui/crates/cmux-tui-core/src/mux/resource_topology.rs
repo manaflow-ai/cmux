@@ -2674,7 +2674,7 @@ impl Mux {
                 )?
             }
         };
-        match preparation {
+        let commit = match preparation {
             ResourceCreationPreparation::Created { created_path, revision, .. } => {
                 Ok(ResourcePatchCommit { revision, result: created_path, replayed: true })
             }
@@ -2729,7 +2729,30 @@ impl Mux {
                     }
                 }
             }
+        }?;
+        self.activate_created_terminal_launch(&commit.result)?;
+        Ok(commit)
+    }
+
+    fn activate_created_terminal_launch(&self, result: &Value) -> anyhow::Result<()> {
+        if result.get("terminal_id").and_then(Value::as_str).is_none() {
+            return Ok(());
         }
+        let Some(tab_id) = result.get("tab_id").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        let tab_id = TabPublicId::parse(tab_id.to_string()).map_err(anyhow::Error::new)?;
+        let Some(surface_id) =
+            self.state.lock().unwrap().resource_indexes.tabs.get(&tab_id).copied()
+        else {
+            // A replay can outlive its detached terminal view. There is no
+            // launch barrier to release in that case.
+            return Ok(());
+        };
+        if let Some(surface) = self.surface(surface_id) {
+            surface.activate_hosted_launch_stream()?;
+        }
+        Ok(())
     }
 
     fn select_live_creation_selectors<'a>(

@@ -1,4 +1,4 @@
-# Terminal Host Protocol v1
+# Terminal Host Protocol v4
 
 The terminal-host protocol is the bounded local binary data plane between a durable PTY host, the mux daemon, and disposable renderers. It is separate from the JSON mux control protocol. All integer fields are little-endian.
 
@@ -9,7 +9,7 @@ Every frame has a 32-byte header followed by `payload_len` bytes:
 | Offset | Width | Field |
 | --- | --- | --- |
 | 0 | 4 | Magic bytes `CMTH` |
-| 4 | 2 | Protocol version, currently `1` |
+| 4 | 2 | Protocol version, currently `4` |
 | 6 | 2 | Message kind |
 | 8 | 4 | Flags |
 | 12 | 4 | Payload length |
@@ -74,6 +74,16 @@ sequence boundary.
 `RESIZE` was granted. Daemon adoption applies a two-second read and write
 handshake timeout.
 
+For a newly launched v4 host, the first authenticated owner `HostHello` also
+sets `FLAG_LAUNCH_ACTIVATION_REQUIRED`. The PTY reader remains behind a launch
+barrier until that owner sends `Activate`. The launcher sends it only after the
+terminal, tab, pane, screen, and workspace projection is durable. The child may
+fill the bounded kernel PTY buffer while waiting, which applies backpressure
+without retaining an unbounded userspace queue. A failed owner connection,
+five-second launch-owner timeout, or `Terminate` releases the barrier so the
+child cannot remain stranded. A replacement daemon that claims an abandoned
+launch owner releases the barrier after validating existing topology.
+
 ## Payload primitives
 
 ```text
@@ -106,6 +116,9 @@ indexes are fatal.
 | 14 | `Launch` | parent to host | private pipe | launch layout |
 | 15 | `Capability` | host to client | response | 32-byte token |
 | 16 | `ResizeAck` | host to client | response | `cols:u16, rows:u16, result_flags:u32` |
+| 17 | `ClearHistoryAck` | host to client | response | one status byte |
+| 18 | `CellPixelSizeAck` | host to client | response | `width_px:u16, height_px:u16` |
+| 19 | `KittyGraphicsLimitsAck` | host to client | response | four `u64` limits |
 | 100 | `Input` | client to host | `INPUT` | raw PTY bytes |
 | 101 | `Paste` | client to host | `INPUT` | raw bytes; host applies DEC 2004 wrapping |
 | 102 | `ViewerSize` | client to host | `RESIZE` | `cols:u16, rows:u16` |
@@ -113,6 +126,10 @@ indexes are fatal.
 | 104 | `Terminate` | client to host | `TERMINATE` | empty |
 | 105 | `MintCapability` | client to host | `MINT_CAPABILITY` | `rights:u32, ttl_ms:u32` |
 | 106 | `SetDefaults` | client to host | `MINT_CAPABILITY` | default-color layout |
+| 107 | `ClearHistory` | client to host | `INPUT` | optional encoded fallback key |
+| 108 | `SetCellPixelSize` | client to host | `RESIZE` | `width_px:u16, height_px:u16` |
+| 109 | `SetKittyGraphicsLimits` | client to host | `MINT_CAPABILITY` | four `u64` limits |
+| 110 | `Activate` | launch owner to host | `ADMIN` | empty |
 
 `ResizeAck.result_flags & 1` means the request changed canonical geometry;
 other bits are invalid. Acknowledgements require negotiated
@@ -160,7 +177,10 @@ argc:u16
 argv[argc]:string
 ```
 
-PID zero means absent. Snapshot `argc` may be zero.
+PID zero means absent. Snapshot `argc` may be zero. Protocol v2 appends a
+Kitty image-alias table and cell pixel width and height. Protocol v3 appends
+Kitty graphics limits, the replay cursor offset, and the primary and alternate
+image-id cursors. Protocol v4 keeps the v3 snapshot payload unchanged.
 
 `Resized` producer payload:
 
@@ -170,6 +190,11 @@ rows:u16
 replay_len:u32
 replay:[u8;replay_len]
 ```
+
+Protocol v2 and later append the same Kitty image-alias table and cell pixel
+size used by `Snapshot`. Protocol v3 and later then append the Kitty replay
+state. Decoders select the exact tail from the negotiated frame version and
+reject trailing bytes.
 
 Geometry clamps to `1..=10,000` per dimension and rejects an area above
 4,000,000 cells.
@@ -190,7 +215,7 @@ blink, selection background, and selection foreground. Bit 7 is invalid. RGB
 fields appear in the order shown. Cursor styles are block `1`, block-hollow
 `2`, bar `3`, and underline `4`; blink is `0` or `1`.
 
-`Colors` has an independent schema version. Frame protocol v1 emits Colors
+`Colors` has an independent schema version. The current frame protocol emits Colors
 schema v2 and accepts v1:
 
 ```text
@@ -221,9 +246,19 @@ after two seconds.
 
 `FLAG_VIEWER_SIZE_ACKS` is bit 1 and is valid only in `ClientHello` and `HostHello`. When negotiated, a `ViewerSize` request receives `ResizeAck`. Resize acknowledgement flag bit 0 means the request changed the canonical grid and the corresponding sequenced `Resized` plus `Colors` transition was enqueued first.
 
+`FLAG_LAUNCH_ACTIVATION_REQUIRED` is bit 2 and is valid only in a protocol-v4
+`HostHello` sent to the first authenticated launch owner. `Activate` has zero
+flags, request id zero, sequence zero, and an empty payload.
+
 ## Ordering and recovery
 
 A renderer applies every live sequence exactly once. A gap, duplicate, flagged frame without the required next `Colors`, or invalid flag is fatal. The renderer disconnects and obtains a new `Snapshot`; continuing from a damaged sequence would corrupt its mirror.
+
+The launch barrier orders the first exact `Output` after the durable topology
+projection. The mux's terminal-output path remains asynchronous and bounded.
+When `Exit` arrives, the mux fences that ingress queue before committing exit
+and detaching topology, so every preceding output record retains the terminal,
+tab, pane, screen, and workspace subjects.
 
 `ResyncRequired` is also terminal for the current mirror. The host publishes
 `Exit` only after the final `Output`. It uses the normal live sequence,
@@ -271,7 +306,7 @@ Terminal-host protocol changes use their own version and do not change `identify
 - VT replay or blob: 8 MiB.
 - Launch payload: 1 MiB.
 - String: 256 KiB.
-- Per-client outbound queue: 256 frames and 8 MiB including headers.
+- Per-client output queue: 8 MiB including headers, plus one maximum state transition.
 - Renderer grant TTL: 60 seconds maximum.
 
 There is no wire error frame. Invalid magic, zero or unsupported version,
@@ -286,12 +321,14 @@ Discovery records use JSON `record_version:2`. Terminal and incarnation are
 PID is nonzero. Record directories are mode `0700`; records and sockets are
 mode `0600`.
 
-## Known v1 constraints
+## Durability boundary
 
-The current producer encodes `Resized` with `replay_len`, but the consumer in
-`surface.rs` treats bytes after the first four as replay and includes that
-length word. This makes terminal-host v1 partial rather than interoperable for
-resize replay. The decoder must consume `replay_len`, validate the remaining
-length, and pass only replay bytes to the VT state. Producer-consumer and
-cross-language fixtures must pass before the domain is promoted to
-`implemented`.
+The append-only journal is exact while a mux daemon owns the authenticated host
+tap. A host `Snapshot` preserves renderable terminal state across daemon
+replacement, and the exit sidecar preserves the final process outcome, but the
+host does not currently retain an acknowledged raw-output spool. Bytes emitted
+while no daemon tap exists can therefore be recovered visually from a snapshot
+but cannot be reconstructed as exact historical `terminal.output` records. A
+future crash-window guarantee requires a host-side bounded durable spool with
+daemon acknowledgements, or an equivalent journal sidecar protocol. Consumers
+must not claim byte-exact replay across that boundary until it exists.
