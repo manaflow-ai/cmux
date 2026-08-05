@@ -682,6 +682,7 @@ struct CommandClickHTMLOpenRoutingTests {
             isFileURL: true,
             hasExplicitNewTabIntent: true,
             hasNilTargetNewTabIntent: false,
+            hasUserActivation: false,
             route: { routed = true }
         )
 
@@ -694,6 +695,7 @@ struct CommandClickHTMLOpenRoutingTests {
             isFileURL: true,
             hasExplicitNewTabIntent: false,
             hasNilTargetNewTabIntent: false,
+            hasUserActivation: true,
             route: { routed = true }
         )
 
@@ -707,6 +709,7 @@ struct CommandClickHTMLOpenRoutingTests {
             hasNilTargetNewTabIntent: browserNavigationShouldFallbackNilTargetToNewTab(
                 navigationType: .linkActivated
             ),
+            hasUserActivation: true,
             route: { routed = true }
         )
 
@@ -714,6 +717,20 @@ struct CommandClickHTMLOpenRoutingTests {
         #expect(routed)
 
         routed = false
+        let handledScriptedTargetBlankLink = policy.routeRestrictedFileNewTabIntent(
+            isFileOnly: true,
+            isFileURL: true,
+            hasExplicitNewTabIntent: false,
+            hasNilTargetNewTabIntent: browserNavigationShouldFallbackNilTargetToNewTab(
+                navigationType: .linkActivated
+            ),
+            hasUserActivation: false,
+            route: { routed = true }
+        )
+
+        #expect(!handledScriptedTargetBlankLink)
+        #expect(!routed)
+
         let handledScriptedPopup = policy.routeRestrictedFileNewTabIntent(
             isFileOnly: true,
             isFileURL: true,
@@ -721,6 +738,7 @@ struct CommandClickHTMLOpenRoutingTests {
             hasNilTargetNewTabIntent: browserNavigationShouldFallbackNilTargetToNewTab(
                 navigationType: .other
             ),
+            hasUserActivation: false,
             route: { routed = true }
         )
 
