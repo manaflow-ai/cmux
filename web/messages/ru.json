@@ -3593,7 +3593,7 @@
     },
     "installTitle": "Установка",
     "releaseTitle": "Выпуски и обновления",
-    "releaseBody": "Эти ссылки всегда ведут на последний стабильный выпуск в <github>GitHub Releases</github>. Перед установкой обновления cmux проверяет подписанные манифесты обновлений.",
+    "releaseBody": "Эти ссылки всегда ведут на последнюю ночную сборку в <github>GitHub Releases</github>. Перед установкой обновления cmux проверяет подписанные манифесты обновлений.",
     "sourceLink": "Посмотреть исходный код на GitHub",
     "otherPlatform": "cmux для {platform}",
     "macLink": "Терминал cmux для Mac",

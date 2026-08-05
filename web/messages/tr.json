@@ -3591,7 +3591,7 @@
     },
     "installTitle": "Kurulum",
     "releaseTitle": "Sürümler ve güncellemeler",
-    "releaseBody": "Bu bağlantılar her zaman <github>GitHub Releases</github> üzerindeki en son kararlı sürümü gösterir. cmux, bir güncellemeyi yüklemeden önce imzalı güncelleme bildirimlerini doğrular.",
+    "releaseBody": "Bu bağlantılar her zaman <github>GitHub Releases</github> üzerindeki en son nightly sürümünü gösterir. cmux, bir güncellemeyi yüklemeden önce imzalı güncelleme bildirimlerini doğrular.",
     "sourceLink": "Kaynak kodunu GitHub'da görüntüleyin",
     "otherPlatform": "{platform} için cmux",
     "macLink": "Mac için cmux terminali",

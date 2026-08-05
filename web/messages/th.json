@@ -3598,7 +3598,7 @@
     },
     "installTitle": "ติดตั้ง",
     "releaseTitle": "รุ่นและการอัปเดต",
-    "releaseBody": "ลิงก์เหล่านี้จะชี้ไปยังรุ่นเสถียรล่าสุดบน <github>GitHub Releases</github> เสมอ cmux จะตรวจสอบไฟล์กำกับการอัปเดตที่ลงนามแล้วก่อนติดตั้งการอัปเดต",
+    "releaseBody": "ลิงก์เหล่านี้จะชี้ไปยังรุ่น nightly ล่าสุดบน <github>GitHub Releases</github> เสมอ cmux จะตรวจสอบไฟล์กำกับการอัปเดตที่ลงนามแล้วก่อนติดตั้งการอัปเดต",
     "sourceLink": "ดูซอร์สโค้ดบน GitHub",
     "otherPlatform": "cmux สำหรับ {platform}",
     "macLink": "เทอร์มินัล cmux สำหรับ Mac",
