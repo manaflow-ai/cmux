@@ -54,7 +54,7 @@
     },
     "installTitle": "インストール",
     "releaseTitle": "リリースとアップデート",
-    "releaseBody": "リンクは常に <github>GitHub Releases</github> の最新安定版を指します。cmux は署名済みアップデートマニフェストを検証してから更新をインストールします。",
+    "releaseBody": "リンクは常に <github>GitHub Releases</github> の最新ナイトリー版を指します。cmux は署名済みアップデートマニフェストを検証してから更新をインストールします。",
     "sourceLink": "GitHub でソースを見る",
     "otherPlatform": "{platform} 版 cmux",
     "macLink": "Mac 版 cmux ターミナル",

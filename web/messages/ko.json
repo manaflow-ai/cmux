@@ -3590,7 +3590,7 @@
     },
     "installTitle": "설치",
     "releaseTitle": "릴리스 및 업데이트",
-    "releaseBody": "이 링크는 항상 <github>GitHub Releases</github>의 최신 안정 버전을 가리킵니다. cmux는 업데이트를 설치하기 전에 서명된 업데이트 매니페스트를 확인합니다.",
+    "releaseBody": "이 링크는 항상 <github>GitHub Releases</github>의 최신 나이틀리 버전을 가리킵니다. cmux는 업데이트를 설치하기 전에 서명된 업데이트 매니페스트를 확인합니다.",
     "sourceLink": "GitHub에서 소스 보기",
     "otherPlatform": "{platform}용 cmux",
     "macLink": "Mac용 cmux 터미널",

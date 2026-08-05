@@ -2,9 +2,10 @@
  * Single source of truth for cmux download links.
  *
  * `DOWNLOAD_URL` is the native macOS terminal release asset. Windows and Linux
- * ship the cross-platform cmux browser workspace instead; their stable assets
- * are kept in `PLATFORM_DOWNLOADS` so landing pages, menus, and tests share the
- * same URLs.
+ * ship the cross-platform cmux Browser workspace instead; their stable website
+ * endpoints are kept in `PLATFORM_DOWNLOADS` so landing pages, menus, and tests
+ * share the same URLs. Those server-side endpoints verify cmux Browser's signed
+ * nightly update feed before redirecting to an allowlisted public release asset.
  *
  * `DOWNLOAD_CONFIRMATION_PATH` is the locale-agnostic in-app route that every
  * Download CTA navigates to (same-tab). That page auto-triggers the real
@@ -29,32 +30,44 @@ export const DOWNLOAD_INTENT_PARAM = "dl";
 
 export const DOWNLOAD_CONFIRMATION_HREF = `${DOWNLOAD_CONFIRMATION_PATH}?${DOWNLOAD_INTENT_PARAM}=1`;
 
+/** Public repository that owns cmux Browser binaries and corresponding source. */
+export const BROWSER_RELEASE_REPOSITORY_URL =
+  "https://github.com/manaflow-ai/cmux-v2";
+
+/** Stable page for the moving nightly release channel. */
+export const BROWSER_NIGHTLY_RELEASE_URL =
+  `${BROWSER_RELEASE_REPOSITORY_URL}/releases/tag/nightly`;
+
+const BROWSER_NIGHTLY_DOWNLOAD_PATH = "/api/download/browser-nightly";
+
 /**
- * Stable cross-platform cmux browser artifacts. GitHub's `latest` redirect
- * keeps these URLs release-independent while the asset names stay fixed by
- * cmux-browser's release workflow.
+ * Stable cross-platform cmux Browser download endpoints. The browser never
+ * receives a private source-repository URL or a version hard-coded into the
+ * website. The endpoint resolves the current signed public feed and can follow
+ * either today's moving `nightly` tag or a future immutable
+ * `nightly-<version>` tag.
  */
 export const PLATFORM_DOWNLOADS = {
   windows: {
     page: "/windows",
     primary: {
       artifact: "installer",
-      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64-installer.exe",
+      url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/windows-x64/installer`,
     },
     portable: {
       artifact: "portable-zip",
-      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64.zip",
+      url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/windows-x64/zip`,
     },
   },
   linux: {
     page: "/linux",
     primary: {
       artifact: "deb",
-      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-linux-x64.deb",
+      url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/linux-x64/deb`,
     },
     portable: {
       artifact: "portable-zip",
-      url: "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-linux-x64.zip",
+      url: `${BROWSER_NIGHTLY_DOWNLOAD_PATH}/linux-x64/zip`,
     },
   },
 } as const;
@@ -72,7 +85,7 @@ export type PlatformDownloadAvailability = Readonly<
  */
 export const PLATFORM_DOWNLOAD_AVAILABILITY = {
   windows: false,
-  linux: false,
+  linux: true,
 } as const satisfies PlatformDownloadAvailability;
 
 const DOWNLOAD_PLATFORM_ORDER = ["windows", "linux"] as const;
