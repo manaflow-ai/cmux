@@ -1155,6 +1155,62 @@ struct BrowserWebContentProcessTests {
         #expect(panel.currentURL == nil)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func coordinatorTransferResubmitsPendingFileOnlyNavigation() async throws {
+        let oldCoordinator = WordPathFilesystemResolutionCoordinator(
+            maximumConcurrentCoalescedJobs: 1
+        )
+        let blockerStarted = AsyncStream<Void>.makeStream()
+        let releaseBlocker = AsyncStream<Void>.makeStream()
+        oldCoordinator.submitCoalesced(
+            id: UUID(),
+            coalescingKey: UUID(),
+            work: {
+                blockerStarted.continuation.yield()
+                var iterator = releaseBlocker.stream.makeAsyncIterator()
+                _ = await iterator.next()
+                return { @MainActor in }
+            },
+            discarded: {},
+            rejected: { Issue.record("The blocker must occupy the only filesystem lane") }
+        )
+        var blockerStartedIterator = blockerStarted.stream.makeAsyncIterator()
+        _ = await blockerStartedIterator.next()
+
+        let fixtureDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coordinator-transfer-file-\(UUID().uuidString)", isDirectory: true)
+        let fileURL = fixtureDirectory.appendingPathComponent("index.html")
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        try "<!doctype html><title>transferred file navigation</title>".write(
+            to: fileURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: fixtureDirectory) }
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: nil,
+            renderInitialNavigation: false,
+            localFileReadAccessPolicy: .fileOnly,
+            filesystemResolutionCoordinator: oldCoordinator
+        )
+        defer { panel.close() }
+        let navigationStarted = AsyncStream<Bool>.makeStream()
+        panel.navigate(to: fileURL) { navigation in
+            navigationStarted.continuation.yield(navigation != nil)
+        }
+
+        panel.updateFilesystemResolutionCoordinator(
+            WordPathFilesystemResolutionCoordinator()
+        )
+        var navigationStartedIterator = navigationStarted.stream.makeAsyncIterator()
+        let didStartNavigation = await navigationStartedIterator.next()
+        #expect(didStartNavigation == true)
+
+        releaseBlocker.continuation.yield()
+    }
+
     @Test
     func webViewReplacementPreservesActiveEmulatedViewportHost() throws {
         let panel = BrowserPanel(

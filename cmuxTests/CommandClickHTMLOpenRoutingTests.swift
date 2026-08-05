@@ -840,6 +840,18 @@ struct CommandClickHTMLOpenRoutingTests {
         #expect(!rejectedSecondConsumption)
     }
 
+    @Test
+    func fileOnlySameDocumentNavigationAllowsOnlyFragmentChanges() throws {
+        let currentURL = try #require(URL(string: "file:///tmp/index.html?mode=preview#first"))
+        let nextFragment = try #require(URL(string: "file:///tmp/index.html?mode=preview#second"))
+        let otherQuery = try #require(URL(string: "file:///tmp/index.html?mode=edit#second"))
+        let otherFile = try #require(URL(string: "file:///tmp/other.html?mode=preview#second"))
+
+        #expect(browserFileNavigationTargetsSameDocument(nextFragment, as: currentURL))
+        #expect(!browserFileNavigationTargetsSameDocument(otherQuery, as: currentURL))
+        #expect(!browserFileNavigationTargetsSameDocument(otherFile, as: currentURL))
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func fileOnlyBrowserRejectsScriptInitiatedInPageFileNavigation() async throws {
         _ = NSApplication.shared
