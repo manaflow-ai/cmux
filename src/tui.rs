@@ -148,7 +148,7 @@ fn draw_add(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
                 Style::default().add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                "Credentials go directly to your team’s Stack vault.",
+                "Credentials are encrypted in your CodeRouter workspace.",
                 Style::default().fg(Color::DarkGray),
             )),
         ]),
@@ -208,7 +208,7 @@ fn draw_login(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
         ("Open browser", "Authorize this terminal in your browser."),
         (
             "Enter a code",
-            "Paste a one-time Stack sign-in code or magic link.",
+            "Paste a one-time CodeRouter sign-in code or magic link.",
         ),
         ("Cancel", "Stay signed out."),
     ]
@@ -255,7 +255,7 @@ mod tests {
         assert!(screen.contains("Codex / ChatGPT Plus or Pro"));
         assert!(screen.contains("OpenCode Go"));
         assert!(!screen.contains("Claude"));
-        assert!(screen.contains("Stack vault"));
+        assert!(screen.contains("encrypted"));
     }
 
     #[test]

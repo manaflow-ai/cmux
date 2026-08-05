@@ -34,7 +34,7 @@ struct Window {
 
 pub fn render(value: &Value, team_name: &str, team_id: &str) {
     let colored = color_enabled();
-    println!("Credential storage: Stack vault ({team_name}, {team_id})");
+    println!("Credential storage: CodeRouter cloud ({team_name}, {team_id})");
     let accounts = value
         .get("accounts")
         .and_then(Value::as_array)
@@ -285,10 +285,8 @@ fn spark_windows(usage: &Value) -> (Option<Window>, Option<Window>) {
         if name.contains("spark") {
             let rate = limit.get("rate_limit").unwrap_or(&Value::Null);
             return (
-                quota_window(rate, "primary_window").filter(|window| window.seconds <= 6 * 60 * 60),
-                quota_window(rate, "primary_window")
-                    .filter(|window| window.seconds > 6 * 60 * 60)
-                    .or_else(|| quota_window(rate, "secondary_window")),
+                quota_window(rate, "primary_window"),
+                quota_window(rate, "secondary_window"),
             );
         }
     }

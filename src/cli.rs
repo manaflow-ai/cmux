@@ -248,7 +248,10 @@ fn run_accounts(rest: &[OsString]) -> Result<i32, Error> {
     if !rest.is_empty() {
         return Err(Error::Usage("usage: cr accounts".into()));
     }
-    let value = control_plane::accounts()?;
+    let loading = crate::loading::DelayedSpinner::new("Loading account usage");
+    let result = control_plane::accounts();
+    loading.finish();
+    let value = result?;
     let config = crate::config::load()?;
     crate::status::render(&value, &config.team_name, &config.team_id);
     Ok(0)

@@ -23,7 +23,7 @@ cr add                        add Codex or OpenCode Go interactively
 cr accounts                   list available subscriptions
 cr usage                      show quota state
 cr doctor                     diagnose login and the Vercel data plane
-cr login / cr logout          manage this machine's Stack Auth session
+cr login / cr logout          manage this machine's CodeRouter session
 cr login --device-auth        copy a code into coderouter.dev/authorize
 ```
 

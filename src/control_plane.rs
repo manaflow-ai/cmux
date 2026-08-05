@@ -114,7 +114,7 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
             "waiting" => thread::sleep(Duration::from_secs(2)),
             "success" => {
                 break poll.refresh_token.ok_or_else(|| {
-                    Error::Backend("Stack approved login without a refresh token".into())
+                    Error::Backend("Authentication succeeded without a refresh token".into())
                 })?;
             }
             "expired" | "used" => {
@@ -145,7 +145,7 @@ pub fn login_with_code(value: &str) -> Result<(), Error> {
         Some(json!({ "code": code })),
     )?;
     let refresh_token = tokens.refresh_token.ok_or_else(|| {
-        Error::Backend("Stack accepted the code without returning a refresh token".into())
+        Error::Backend("Authentication succeeded without returning a refresh token".into())
     })?;
     complete_login(&api_url, &client, &public, &refresh_token)
 }
@@ -368,12 +368,12 @@ fn revoke_stack_session(current: &Config, timeout: Duration) -> Result<(), Error
         .header("x-stack-refresh-token", refresh)
         .body("{}")
         .send()
-        .map_err(network_error("revoke Stack session"))?;
+        .map_err(network_error("revoke CodeRouter session"))?;
     if response.status().is_success() || matches!(response.status().as_u16(), 400 | 401 | 404) {
         Ok(())
     } else {
         Err(Error::Backend(format!(
-            "revoke Stack session: HTTP {}",
+            "revoke CodeRouter session: HTTP {}",
             response.status()
         )))
     }
@@ -411,8 +411,8 @@ fn refresh_stack_tokens(
                 ("client_secret", auth.publishable_client_key.as_str()),
             ])
             .send()
-            .map_err(network_error("refresh Stack session"))?,
-        "refresh Stack session",
+            .map_err(network_error("refresh CodeRouter session"))?,
+        "refresh CodeRouter session",
     )
 }
 
@@ -428,7 +428,7 @@ fn stack_json<T: serde::de::DeserializeOwned>(
     let mut request = match method {
         "GET" => client.get(url),
         "POST" => client.post(url),
-        _ => return Err(Error::Backend("unsupported Stack method".into())),
+        _ => return Err(Error::Backend("unsupported authentication method".into())),
     }
     .header("x-stack-project-id", &auth.project_id)
     .header("x-stack-access-type", "client")
@@ -445,8 +445,8 @@ fn stack_json<T: serde::de::DeserializeOwned>(
     response_json(
         request
             .send()
-            .map_err(network_error("request Stack session"))?,
-        "request Stack session",
+            .map_err(network_error("request CodeRouter session"))?,
+        "request CodeRouter session",
     )
 }
 

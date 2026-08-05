@@ -163,12 +163,12 @@ fn bare_command_lists_vercel_accounts_without_debug_timing() {
                     "additional_rate_limits": [{
                         "limit_name": "GPT-5.3-Codex-Spark",
                         "rate_limit": {
-                            "primary_window": null,
-                            "secondary_window": {
-                                "used_percent": 10,
+                            "primary_window": {
+                                "used_percent": 1,
                                 "limit_window_seconds": 604800,
-                                "reset_after_seconds": 259200
-                            }
+                                "reset_after_seconds": 561600
+                            },
+                            "secondary_window": null
                         }
                     }],
                     "credits": { "balance": "0" },
@@ -199,6 +199,7 @@ fn bare_command_lists_vercel_accounts_without_debug_timing() {
                 .and(predicate::str::contains("person@example.com"))
                 .and(predicate::str::contains("80%/1h"))
                 .and(predicate::str::contains("50%/2d"))
+                .and(predicate::str::contains("99%/6d"))
                 .and(predicate::str::contains("\u{1b}[")),
         )
         .stderr(predicate::str::contains("cr timing:").not());
