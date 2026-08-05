@@ -2,6 +2,7 @@ use std::fmt;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -15,6 +16,8 @@ use crate::provider::{
     ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
     sanitized_route,
 };
+
+const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub struct SshProviderConfig {
@@ -243,8 +246,14 @@ impl FrameLink for SshProcessLink {
     async fn close(&self) -> Result<(), LinkError> {
         let _ = self.inner.close().await;
         if let Some(mut child) = self.child.lock().await.take() {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            let exited = matches!(
+                tokio::time::timeout(SSH_GRACEFUL_CLOSE_TIMEOUT, child.wait()).await,
+                Ok(Ok(_))
+            );
+            if !exited {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+            }
         }
         Ok(())
     }
