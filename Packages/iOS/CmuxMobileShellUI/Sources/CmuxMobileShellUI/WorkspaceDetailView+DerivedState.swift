@@ -1,11 +1,18 @@
-import CmuxAgentChat
+import CmuxAgentGUIUI
+import CmuxAgentReplica
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileWorkspace
 import CoreGraphics
+import SwiftUI
 
 extension WorkspaceDetailView {
     var selectedTerminal: MobileTerminalPreview? {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
+    }
+
+    var selectedTerminalID: String? {
+        selectedTerminal?.id.rawValue
     }
 
     var selectedToolbarSubtitle: String? {
@@ -26,9 +33,34 @@ extension WorkspaceDetailView {
     }
 
     #if os(iOS)
-    /// The tab/terminal name for a session, for the chat header subtitle.
-    func tabName(for session: ChatSessionDescriptor) -> String? {
-        workspace.terminals.first { $0.id.rawValue == session.terminalID }?.name
+    var agentGUIAvailability: AgentGUIAvailability? {
+        guard let engine = store.agentSyncEngine else { return nil }
+        return AgentGUIAvailability.derive(
+            sessions: engine.directory.sessions,
+            selectedTerminalID: selectedTerminalID
+        )
+    }
+
+    var isAgentGUIVisible: Bool {
+        activeSurface == .terminal && guiModeSelected && agentGUIAvailability != nil
+    }
+
+    func agentGUIDraftBinding(for sessionID: AgentSessionID) -> Binding<String> {
+        Binding(
+            get: { agentGUIDrafts[sessionID] },
+            set: { agentGUIDrafts[sessionID] = $0 }
+        )
     }
     #endif
 }
+
+#if os(iOS)
+struct AgentGUIDraftState: Equatable {
+    private var drafts: [AgentSessionID: String] = [:]
+
+    subscript(sessionID: AgentSessionID) -> String {
+        get { drafts[sessionID, default: ""] }
+        set { drafts[sessionID] = newValue }
+    }
+}
+#endif

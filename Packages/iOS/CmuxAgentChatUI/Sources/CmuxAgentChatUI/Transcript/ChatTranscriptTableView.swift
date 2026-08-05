@@ -170,6 +170,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             let tableWidth = ChatContainerWidth(tableView: tableView).effectiveWidth
             cell.contentConfiguration = UIHostingConfiguration {
                 configuration.view(for: item, tableWidth: tableWidth)
+                    .id(item.id)
             }
             .margins(.all, 0)
             return cell
@@ -246,7 +247,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         }
 
         private func restore(_ anchor: ChatTranscriptTableAnchor, in tableView: UITableView) {
-            guard let row = items.firstIndex(where: { $0.id == anchor.id }) else { return }
+            guard let row = items.firstIndex(where: { AnyHashable($0.id) == anchor.id }) else { return }
             let indexPath = IndexPath(row: row, section: 0)
             let rect = tableView.rectForRow(at: indexPath)
             let offset = CGPoint(

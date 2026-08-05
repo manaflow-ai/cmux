@@ -9,11 +9,12 @@ import SwiftUI
 struct WorkspaceChangesToolbarButton: View {
     let chip: MobileWorkspaceChangesChip?
     let workspaceID: String
+    var compact = false
     let action: @MainActor () -> Void
 
     var body: some View {
         Button(action: action) {
-            if let chip, chip.filesChanged > 0 {
+            if let chip, chip.filesChanged > 0, !compact {
                 WorkspaceChangesChipLabel(
                     chip: chip,
                     workspaceID: workspaceID,
@@ -22,24 +23,21 @@ struct WorkspaceChangesToolbarButton: View {
                 )
                 .frame(minWidth: 30, minHeight: 30)
             } else {
-                Label(
-                    String(
-                        localized: "workspace.changes.title",
-                        defaultValue: "Changes",
-                        bundle: .module
-                    ),
-                    systemImage: "plus.forwardslash.minus"
-                )
+                Label(changesTitle, systemImage: "plus.forwardslash.minus")
                 .labelStyle(.iconOnly)
                 .frame(width: 30, height: 30)
-                .accessibilityLabel(String(
-                    localized: "workspace.changes.title",
-                    defaultValue: "Changes",
-                    bundle: .module
-                ))
+                .accessibilityLabel(changesTitle)
             }
         }
         .accessibilityIdentifier("MobileChangesButton")
+    }
+
+    private var changesTitle: String {
+        String(
+            localized: "workspace.changes.title",
+            defaultValue: "Changes",
+            bundle: .module
+        )
     }
 }
 #endif

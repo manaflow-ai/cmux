@@ -315,8 +315,8 @@ final class ChatTranscriptUITableView: UITableView {
     #endif
 }
 
-struct ChatTranscriptTableAnchor {
-    let id: String
+struct ChatTranscriptTableAnchor: @unchecked Sendable {
+    let id: AnyHashable
     let offsetFromRowTop: CGFloat
 }
 

@@ -150,7 +150,7 @@ extension View {
     /// The scroll button extends its hit area 3pt beyond its frame
     /// (`contentShape(Circle().inset(by: -3))`); match that here so a tap in
     /// the halo scrolls without also dismissing the keyboard.
-    func excludedFromKeyboardDismiss() -> some View {
+    public func excludedFromKeyboardDismiss() -> some View {
         background(
             GeometryReader { proxy in
                 Color.clear.preference(

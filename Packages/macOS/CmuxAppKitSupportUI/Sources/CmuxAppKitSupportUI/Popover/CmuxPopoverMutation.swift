@@ -38,6 +38,7 @@ public final class CmuxPopoverVisibleUpdateScheduler {
 }
 
 @MainActor
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 public enum CmuxPopoverMutation {
     public static func performWithoutImplicitAnimation(_ body: () -> Void) {
         NSAnimationContext.runAnimationGroup { context in

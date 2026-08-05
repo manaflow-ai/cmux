@@ -250,6 +250,7 @@ private struct OnboardingIPhoneScreenshotFrame<Screen: View>: View {
     }
 }
 
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 private enum OnboardingIPhoneScreenshotFrameMetrics {
     static let outerAspectRatio: CGFloat = 78.0 / 163.4
     static let screenAspectRatio: CGFloat = 1206 / 2622

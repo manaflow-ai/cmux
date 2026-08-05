@@ -93,12 +93,7 @@ export function initialState(_renderer: AppContext["renderer"]): SessionState {
 export function reduceSession(state: SessionState, action: Action): SessionState {
   switch (action.type) {
     case "context":
-      return appendContextReadyLog({
-        ...state,
-        context: action.context,
-        selectedProviderId: action.context.initialProviderId,
-        status: "idle",
-      });
+      return appendContextReadyLog(sessionStateWithContext(state, action.context));
     case "providers":
       return { ...state, providers: action.providers };
     case "selectProvider":
@@ -130,6 +125,7 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         runningSessionId: action.sessionId,
         requestedStopSessionId: undefined,
         seenSessionIds: rememberSessionId(state, action.sessionId),
+        status: "running",
       };
     case "stopping":
       return {
@@ -182,6 +178,33 @@ export function reduceSession(state: SessionState, action: Action): SessionState
     default:
       return state;
   }
+}
+
+function sessionStateWithContext(state: SessionState, context: AppContext): SessionState {
+  if (context.activeSession) {
+    return {
+      ...state,
+      context,
+      runningSessionId: context.activeSession.sessionId,
+      requestedStopSessionId: undefined,
+      selectedProviderId: context.activeSession.providerId,
+      seenSessionIds: rememberSessionId(state, context.activeSession.sessionId),
+      status: "running",
+    };
+  }
+  if (state.runningSessionId) {
+    return {
+      ...state,
+      context,
+      status: state.status === "loading" ? "running" : state.status,
+    };
+  }
+  return {
+    ...state,
+    context,
+    selectedProviderId: context.initialProviderId,
+    status: "idle",
+  };
 }
 
 export async function loadInitialData(dispatch: (action: Action) => void): Promise<void> {
@@ -381,19 +404,36 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
       if (state.runningSessionId && event.sessionId !== state.runningSessionId) {
         return state;
       }
-      if (!state.runningSessionId && state.status !== "starting") {
+      if (
+        !state.runningSessionId &&
+        state.status !== "starting" &&
+        state.status !== "idle" &&
+        state.status !== "failed" &&
+        state.status !== "loading"
+      ) {
         return state;
       }
-      if (!state.runningSessionId && event.providerId !== state.selectedProviderId) {
+      if (!state.runningSessionId && state.status === "starting" && event.providerId !== state.selectedProviderId) {
         return state;
       }
       return {
         ...state,
         runningSessionId: event.sessionId,
         requestedStopSessionId: undefined,
+        selectedProviderId: event.providerId,
         seenSessionIds: rememberSessionId(state, event.sessionId),
         status: "running",
         log: appendLog(state, "info", copyText(state, "providerStarted", "Provider started")),
+      };
+    case "provider.inputAccepted":
+      const inputState = attachProviderEventSession(state, event);
+      if (!inputState) {
+        return state;
+      }
+      return {
+        ...inputState,
+        log: appendLog(inputState, "info", formatCopy(inputState, "sentCharsFormat", "Sent %d chars", event.text.length)),
+        transcript: appendUserTranscript(inputState, event.text, undefined, event.sentAtMs ?? Date.now()),
       };
     case "provider.output":
       if (event.sessionId !== state.runningSessionId) {
@@ -472,6 +512,26 @@ function isCurrentOrPendingStartExit(state: SessionState, event: Extract<AgentEv
     !state.runningSessionId &&
     event.providerId === state.selectedProviderId
   );
+}
+
+function attachProviderEventSession(
+  state: SessionState,
+  event: Extract<AgentEvent, { providerId: ProviderId; sessionId: string }>,
+): SessionState | undefined {
+  if (event.sessionId === state.runningSessionId) {
+    return state;
+  }
+  if (state.runningSessionId || event.sessionId === state.requestedStopSessionId || state.status === "stopping") {
+    return undefined;
+  }
+  return {
+    ...state,
+    runningSessionId: event.sessionId,
+    requestedStopSessionId: undefined,
+    selectedProviderId: event.providerId,
+    seenSessionIds: rememberSessionId(state, event.sessionId),
+    status: "running",
+  };
 }
 
 function rememberSessionId(state: SessionState, sessionId: string): string[] {

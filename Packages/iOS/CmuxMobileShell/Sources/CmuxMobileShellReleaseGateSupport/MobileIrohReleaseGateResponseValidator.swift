@@ -9,6 +9,7 @@ internal import CmuxMobileShell
 /// The probe discards decoded values and publishes only operation booleans, so
 /// chat descriptors, notification identifiers, session identifiers, and
 /// artifact metadata never enter the report.
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 enum MobileIrohReleaseGateResponseValidator {
     static func independentEventSubscription(
         _ data: Data,

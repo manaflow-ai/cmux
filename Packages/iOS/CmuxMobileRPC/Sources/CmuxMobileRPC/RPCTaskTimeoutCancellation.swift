@@ -10,6 +10,7 @@ import Foundation
 /// properties are only touched inside `lock.withLock`, and the continuation
 /// is finished at most once because every finish path must first win `race`.
 final class RPCTaskTimeoutCancellation<T: Sendable>: @unchecked Sendable {
+    // lint:allow lock - cancellation is synchronous and may run on any thread, so this cannot await an actor.
     private let lock = NSLock()
     private var continuation: AsyncThrowingStream<T, any Error>.Continuation?
     private var isCancelled = false

@@ -14,6 +14,7 @@ public struct MobileWorkspaceDescriptionProjection: Equatable, Sendable {
 }
 
 /// Shared bounds for workspace metadata that travels between Mac and iOS.
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 public enum MobileWorkspaceMetadataLimits {
     /// Keep durable workspace descriptions well below the 8 MiB mobile frame cap.
     public static let customDescriptionMaxUTF8Bytes = 4096

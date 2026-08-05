@@ -1,3 +1,6 @@
+#if os(iOS) && DEBUG
+import CmuxAgentGUIUI
+#endif
 import Foundation
 import CMUXMobileCore
 import CmuxAuthRuntime
@@ -80,6 +83,24 @@ struct CMUXMobileRootView: View {
         return UITestConfig.terminalLayoutPreviewEnabled
         #else
         return false
+        #endif
+    }
+
+    private var shouldShowTranscriptDemoPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.transcriptDemoPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var transcriptDemoPreview: some View {
+        #if os(iOS) && DEBUG
+        NavigationStack {
+            TranscriptDemoScreen()
+        }
+        #else
+        EmptyView()
         #endif
     }
 
@@ -316,6 +337,8 @@ struct CMUXMobileRootView: View {
             agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
+        } else if shouldShowTranscriptDemoPreview {
+            transcriptDemoPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
         } else if shouldShowHiddenComputersPreview {

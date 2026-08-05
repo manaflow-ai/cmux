@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAuthRuntime
+import CmuxAgentGUIUI
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -43,7 +44,6 @@ struct MobileSettingsView: View {
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
     #if DEBUG
-    @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
     @State private var showingToastGallery = false
     /// Seconds between tapping "Run Toast Demo" and the first toast, so you
@@ -240,15 +240,15 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
-                    Button {
-                        showingChatDemo = true
+                    NavigationLink {
+                        TranscriptDemoScreen()
                     } label: {
                         Label(
-                            L10n.string("mobile.settings.agentChatDemo", defaultValue: "Agent Chat Demo"),
-                            systemImage: "bubble.left.and.bubble.right"
+                            L10n.string("mobile.settings.transcriptDemo", defaultValue: "Transcript Demo"),
+                            systemImage: "bubble.left.and.text.bubble.right"
                         )
                     }
-                    .accessibilityIdentifier("MobileSettingsAgentChatDemo")
+                    .accessibilityIdentifier("MobileSettingsTranscriptDemo")
                     Button {
                         showingTerminalDemo = true
                     } label: {
@@ -341,6 +341,25 @@ struct MobileSettingsView: View {
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Picker(selection: $displaySettings.transcriptDensity) {
+                        Text(L10n.string(
+                            "mobile.settings.transcriptDensity.comfortable",
+                            defaultValue: "Comfortable"
+                        ))
+                        .tag(TranscriptDensity.comfortable)
+                        Text(L10n.string(
+                            "mobile.settings.transcriptDensity.compact",
+                            defaultValue: "Compact"
+                        ))
+                        .tag(TranscriptDensity.compact)
+                    } label: {
+                        Text(L10n.string(
+                            "mobile.settings.transcriptDensity",
+                            defaultValue: "Transcript Density"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTranscriptDensityPicker")
+
                     Toggle(isOn: $displaySettings.showMissingFiles) {
                         Text(L10n.string(
                             "mobile.settings.showMissingFiles",
@@ -456,9 +475,6 @@ struct MobileSettingsView: View {
                 TerminalShortcutsSettingsView()
             }
             #if DEBUG
-            .fullScreenCover(isPresented: $showingChatDemo) {
-                AgentChatDemoScreen()
-            }
             .fullScreenCover(isPresented: $showingTerminalDemo) {
                 TerminalLogDemoScreen()
             }

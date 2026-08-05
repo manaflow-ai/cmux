@@ -16,6 +16,20 @@ final class AgentSessionPanel: Panel {
     private(set) var displayTitle: String
     var displayIcon: String? { "sparkles.rectangle.stack" }
     private(set) var isDirty: Bool = false
+    var isWebViewInWindow: Bool {
+        rendererSession.isWebViewInWindow
+    }
+    func submitFromControl(
+        providerID: AgentSessionProviderID?,
+        permissionMode: AgentSessionPermissionMode,
+        text: String
+    ) async throws -> AgentSessionControlSubmitResult {
+        try await rendererSession.submitFromControl(
+            providerID: providerID,
+            permissionMode: permissionMode,
+            text: text
+        )
+    }
     var onDisplayStateChanged: ((String, Bool) -> Void)? {
         didSet {
             onDisplayStateChanged?(displayTitle, isDirty)

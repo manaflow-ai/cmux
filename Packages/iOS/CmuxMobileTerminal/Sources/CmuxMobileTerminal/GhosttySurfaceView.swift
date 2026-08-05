@@ -225,6 +225,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var appliedInteractionGeneration: UInt64 = 0
         var activeRestoreTicket: UInt64?
     }
+    // lint:allow lock - same sanctioned cross-queue viewport restore gate described above.
     nonisolated let viewportRestoreGate =
         OSAllocatedUnfairLock<ViewportRestoreGate>(initialState: .init())
     var userViewportInteractionGeneration: UInt64 {

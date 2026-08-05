@@ -194,6 +194,7 @@ extension MobileShellComposite {
 /// the cryptographic Iroh endpoint joins renamed rows that still compete
 /// for one physical control connection.
 @MainActor
+// lint:allow free-function - internal package helper physicalMacAliasCanonicalIDsByCanonicalID, preserving existing call sites during UI closeout.
 func physicalMacAliasCanonicalIDsByCanonicalID(
     in macs: [MobilePairedMac],
     supportedKinds: [CmxAttachTransportKind],

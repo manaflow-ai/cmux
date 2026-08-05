@@ -8,6 +8,7 @@ public import Foundation
 /// script. Wall-clock pacing is deliberate: this is demo choreography, not
 /// synchronization.
 @MainActor
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 public enum ToastDemo {
     private static var currentTask: Task<Void, Never>?
 

@@ -10,6 +10,13 @@ import Foundation
 // group collapse/expand handler. Lives in its own file so the mobile list
 // payload code stays together without growing TerminalController.swift.
 extension TerminalController {
+    private func mobileWorkspaceNonEmpty(_ raw: String?) -> String? {
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
     /// Mobile-gated collapse/expand of a workspace group. This requires an
     /// explicit, resolvable `group_id` (it must never fall back to the Mac's
     /// selected group) and mutates through the same
@@ -228,7 +235,7 @@ extension TerminalController {
             }
             let terminalDirectory = workspace.effectivePanelDirectory(
                 panelId: terminal.id,
-                localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
+                localFallback: mobileWorkspaceNonEmpty(terminal.directory) ?? mobileWorkspaceNonEmpty(terminal.requestedWorkingDirectory)
             )
             return [
                 "id": terminal.id.uuidString,

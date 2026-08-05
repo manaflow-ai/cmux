@@ -13,6 +13,21 @@ final class AgentSessionWebRendererSession {
             ownedCoordinator.onProviderIDChanged = onProviderIDChanged
         }
     }
+    var isWebViewInWindow: Bool {
+        ownedCoordinator.isWebViewInWindow
+    }
+
+    func submitFromControl(
+        providerID: AgentSessionProviderID?,
+        permissionMode: AgentSessionPermissionMode,
+        text: String
+    ) async throws -> AgentSessionControlSubmitResult {
+        try await ownedCoordinator.submitFromControl(
+            providerID: providerID,
+            permissionMode: permissionMode,
+            text: text
+        )
+    }
 
     func coordinator(
         panelId: UUID,

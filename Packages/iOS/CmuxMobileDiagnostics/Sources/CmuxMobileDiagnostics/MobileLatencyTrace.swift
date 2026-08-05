@@ -2,6 +2,7 @@ import Dispatch
 import Foundation
 
 /// Low-overhead, opt-in latency stamps for DEBUG mobile builds.
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 public enum MobileLatencyTrace {
     #if DEBUG
     private static let writer = MobileLatencyTraceWriter(capacity: 4_096)

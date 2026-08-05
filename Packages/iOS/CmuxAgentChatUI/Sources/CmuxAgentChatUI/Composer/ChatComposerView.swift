@@ -16,6 +16,7 @@ public struct ChatComposerView: View {
     private let isConnected: Bool
     private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
     private let accessoryShortcuts: [ChatAccessoryShortcut]
+    private let capabilities: ChatComposerCapabilities
     private let onSend: (String, [ChatOutboundAttachment]) -> Void
     private let onInterrupt: (Bool) -> Void
     private let onOpenTerminal: () -> Void
@@ -48,6 +49,7 @@ public struct ChatComposerView: View {
         isConnected: Bool,
         accessoryLeadingShortcuts: [ChatAccessoryShortcut] = [],
         accessoryShortcuts: [ChatAccessoryShortcut] = [],
+        capabilities: ChatComposerCapabilities = .all,
         draft: Binding<String>,
         onSend: @escaping (String, [ChatOutboundAttachment]) -> Void,
         onInterrupt: @escaping (Bool) -> Void,
@@ -59,6 +61,7 @@ public struct ChatComposerView: View {
         self.isConnected = isConnected
         self.accessoryLeadingShortcuts = accessoryLeadingShortcuts
         self.accessoryShortcuts = accessoryShortcuts
+        self.capabilities = capabilities
         _draft = draft
         self.onSend = onSend
         self.onInterrupt = onInterrupt
@@ -114,6 +117,8 @@ public struct ChatComposerView: View {
         VStack(spacing: 8) {
             if isEnded {
                 endedRow
+            } else if !capabilities.allowsTextSend {
+                readOnlyRow
             } else {
                 ChatAccessoryChipRow(
                     agentState: agentState,
@@ -123,7 +128,7 @@ public struct ChatComposerView: View {
                     onOpenTerminal: onOpenTerminal
                 )
                 #if os(iOS)
-                if !attachments.isEmpty {
+                if capabilities.allowsAttachments, !attachments.isEmpty {
                     attachmentStrip
                 }
                 #endif
@@ -170,7 +175,9 @@ public struct ChatComposerView: View {
     private var fieldRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             #if os(iOS)
-            attachButton
+            if capabilities.allowsAttachments {
+                attachButton
+            }
             micButton
             #endif
             MobileComposerFieldContainer {
@@ -211,10 +218,14 @@ public struct ChatComposerView: View {
 
     private var hasContent: Bool {
         #if os(iOS)
-        return !trimmedDraft.isEmpty || !attachments.isEmpty
+        return !trimmedDraft.isEmpty || (capabilities.allowsAttachments && !attachments.isEmpty)
         #else
         return !trimmedDraft.isEmpty
         #endif
+    }
+
+    private var canSubmit: Bool {
+        ChatComposerSendPolicy.canSubmit(isConnected: isConnected, capabilities: capabilities)
     }
 
     private var isWorking: Bool {
@@ -227,30 +238,11 @@ public struct ChatComposerView: View {
     }
 
     private var endedRow: some View {
-        HStack(spacing: 12) {
-            Text(
-                String(
-                    localized: "chat.composer.session_ended",
-                    defaultValue: "Session ended",
-                    bundle: .module
-                )
-            )
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            Spacer()
-            Button(action: onOpenTerminal) {
-                Text(
-                    String(
-                        localized: "chat.composer.open_terminal",
-                        defaultValue: "Open terminal",
-                        bundle: .module
-                    )
-                )
-                .font(.subheadline.weight(.medium))
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding(.vertical, 4)
+        ChatComposerTerminalFallbackRow(kind: .ended, action: onOpenTerminal)
+    }
+
+    private var readOnlyRow: some View {
+        ChatComposerTerminalFallbackRow(kind: .readOnly, action: onOpenTerminal)
     }
 
     // MARK: - Send / stop button
@@ -261,18 +253,18 @@ public struct ChatComposerView: View {
             Button(action: performSend) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(isConnected ? Color.white : Color.secondary.opacity(0.35))
+                    .foregroundStyle(canSubmit ? Color.white : Color.secondary.opacity(0.35))
                     .frame(width: sendButtonSize - 8, height: sendButtonSize - 8)
                     .background(
                         Circle().fill(
-                            isConnected
+                            canSubmit
                                 ? AnyShapeStyle(theme.accent)
                                 : AnyShapeStyle(Color.secondary.opacity(0.12))
                         )
                     )
             }
             .buttonStyle(.plain)
-            .disabled(!isConnected || isStagingAttachments)
+            .disabled(!canSubmit || isStagingAttachments)
             .accessibilityIdentifier("ChatComposerSend")
             .accessibilityLabel(
                 String(
@@ -281,7 +273,7 @@ public struct ChatComposerView: View {
                     bundle: .module
                 )
             )
-        } else if isWorking {
+        } else if isWorking, capabilities.allowsInterrupt {
             Button(action: performStop) {
                 ZStack {
                     Circle()
@@ -321,10 +313,10 @@ public struct ChatComposerView: View {
     }
 
     private func performSend() {
-        guard hasContent, !isStagingAttachments else { return }
+        guard hasContent, canSubmit, !isStagingAttachments else { return }
         #if os(iOS)
         dictation.cancel()
-        let outbound = attachments.map(\.outbound)
+        let outbound = capabilities.allowsAttachments ? attachments.map(\.outbound) : []
         MobileHapticFeedback().impact(style: .light)
         #else
         let outbound: [ChatOutboundAttachment] = []
@@ -342,7 +334,9 @@ public struct ChatComposerView: View {
         MobileHapticFeedback().impact(style: .rigid)
         #endif
         let now = Date()
-        if let last = lastStopTap, now.timeIntervalSince(last) < Self.hardStopWindow {
+        if capabilities.allowsHardInterrupt,
+           let last = lastStopTap,
+           now.timeIntervalSince(last) < Self.hardStopWindow {
             onInterrupt(true)
         } else {
             onInterrupt(false)
@@ -360,7 +354,8 @@ public struct ChatComposerView: View {
 
     private func performPaste() {
         let pasteboard = UIPasteboard.general
-        if attachments.count < 4,
+        if capabilities.allowsAttachments,
+           attachments.count < 4,
            let attachment = pasteboard.chatComposerAttachment(
                maxDimension: Self.maxAttachmentDimension,
                jpegQuality: Self.jpegQuality

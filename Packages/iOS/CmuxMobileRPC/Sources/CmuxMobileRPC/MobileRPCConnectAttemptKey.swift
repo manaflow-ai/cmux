@@ -31,6 +31,7 @@ struct MobileRPCConnectAttemptKey: Hashable, Sendable {
     }
 }
 
+// lint:allow free-function - file-local pure URL identity helper for MobileRPCConnectAttemptKey.
 private func stableURLIdentity(_ value: String) -> String {
     guard let components = URLComponents(string: value),
           let scheme = components.scheme?.lowercased(),
@@ -48,6 +49,7 @@ private func stableURLIdentity(_ value: String) -> String {
         """
 }
 
+// lint:allow free-function - file-local URL scheme table for MobileRPCConnectAttemptKey.
 private func defaultPort(for scheme: String) -> Int? {
     switch scheme {
     case "http", "ws":
@@ -59,6 +61,7 @@ private func defaultPort(for scheme: String) -> Int? {
     }
 }
 
+// lint:allow free-function - file-local host canonicalization helper for MobileRPCConnectAttemptKey.
 private func canonicalHostIdentity(_ value: String) -> String {
     var host = value.trimmingCharacters(in: .whitespacesAndNewlines)
     if host.hasPrefix("["), host.hasSuffix("]") {
@@ -85,6 +88,7 @@ private func canonicalHostIdentity(_ value: String) -> String {
     return dnsHost
 }
 
+// lint:allow free-function - file-local IPv4 normalization helper for MobileRPCConnectAttemptKey.
 private func canonicalIPv4Address(_ value: String) -> String? {
     var address = in_addr()
     guard value.withCString({
@@ -106,6 +110,7 @@ private func canonicalIPv4Address(_ value: String) -> String? {
     }
 }
 
+// lint:allow free-function - file-local IPv6 normalization helper for MobileRPCConnectAttemptKey.
 private func canonicalIPv6Address(_ value: String) -> String? {
     var address = in6_addr()
     guard value.withCString({

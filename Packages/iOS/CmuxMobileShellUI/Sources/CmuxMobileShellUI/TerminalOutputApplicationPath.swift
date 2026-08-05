@@ -6,6 +6,7 @@ enum TerminalOutputApplicationPath: Equatable {
     case legacy
 }
 
+// lint:allow free-function - internal package helper terminalOutputApplicationPath, preserving existing call sites during UI closeout.
 func terminalOutputApplicationPath(
     for chunk: MobileTerminalOutputChunk,
     expectedSurfaceID: String

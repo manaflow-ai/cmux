@@ -5,6 +5,7 @@ struct MobileNotificationFeedListBoundedDecodeOptions: Sendable {
     let stringLimits: MobileNotificationFeedListStringLimits
 }
 
+// lint:allow free-function - internal package helper mobileNotificationFeedListBoundedDecodeOptions, preserving existing call sites during UI closeout.
 func mobileNotificationFeedListBoundedDecodeOptions(
     from decoder: any Decoder
 ) throws -> MobileNotificationFeedListBoundedDecodeOptions {

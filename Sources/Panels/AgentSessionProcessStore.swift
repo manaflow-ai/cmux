@@ -1,6 +1,19 @@
 import Foundation
 import Darwin
 
+struct AgentSessionControlSessionInfo {
+    let sessionId: String
+    let providerID: AgentSessionProviderID
+    let executablePath: String
+    let arguments: [String]
+    let workingDirectory: String?
+}
+
+struct AgentSessionControlSubmitResult {
+    let session: AgentSessionControlSessionInfo
+    let startedProvider: Bool
+}
+
 @MainActor
 final class AgentSessionProcessStore {
     var eventSink: (([String: Any]) -> Void)?
@@ -15,6 +28,10 @@ final class AgentSessionProcessStore {
     private var sessions: [String: AgentSessionRunningSession] = [:]
     private var lastEmittedHasActiveProviderSession: Bool?
     private static let terminationEscalationInterval: DispatchTimeInterval = .seconds(3)
+
+    var activeSessionInfo: AgentSessionControlSessionInfo? {
+        sessions.values.first.map(controlSessionInfo)
+    }
 
     func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) async throws -> AgentSessionStartedSession {
         guard sessions.isEmpty else {
@@ -139,6 +156,21 @@ final class AgentSessionProcessStore {
         case .opencode:
             try await postOpenCodePrompt(text, session: session)
         }
+    }
+
+    func writeLineToActive(
+        permissionMode: AgentSessionPermissionMode = .standard,
+        text: String
+    ) async throws -> AgentSessionControlSessionInfo {
+        guard let session = sessions.values.first else {
+            throw AgentSessionBridgeError.providerNotReady("Agent")
+        }
+        try await writeLine(
+            sessionId: session.sessionId,
+            permissionMode: permissionMode,
+            text: text
+        )
+        return controlSessionInfo(session)
     }
 
     func stop(sessionId: String) throws {
@@ -270,6 +302,16 @@ final class AgentSessionProcessStore {
         }
         session.openCodeEventTask?.cancel()
         session.openCodeEventTask = nil
+    }
+
+    private func controlSessionInfo(_ session: AgentSessionRunningSession) -> AgentSessionControlSessionInfo {
+        AgentSessionControlSessionInfo(
+            sessionId: session.sessionId,
+            providerID: session.providerID,
+            executablePath: session.executablePath,
+            arguments: session.arguments,
+            workingDirectory: session.workingDirectory
+        )
     }
 
     private func handleOutputLine(_ text: String, session: AgentSessionRunningSession, stream: String) {

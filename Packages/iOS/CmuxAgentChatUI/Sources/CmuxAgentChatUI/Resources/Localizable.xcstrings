@@ -936,6 +936,23 @@
         }
       }
     },
+    "chat.attachment.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル"
+          }
+        }
+      }
+    },
     "chat.attachment.image": {
       "extractionState": "manual",
       "localizations": {
@@ -949,6 +966,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "画像"
+          }
+        }
+      }
+    },
+    "chat.attachment.open_preview_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens the full preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全なプレビューを開きます"
           }
         }
       }
@@ -1153,6 +1187,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "❯ コマンド"
+          }
+        }
+      }
+    },
+    "chat.composer.read_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read-only conversation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り専用の会話"
           }
         }
       }

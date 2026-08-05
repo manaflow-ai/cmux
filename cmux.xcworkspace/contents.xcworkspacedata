@@ -14,6 +14,15 @@
          location = "group:CmuxAgentChat">
       </FileRef>
       <FileRef
+         location = "group:CmuxAgentReplica">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentSync">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentWire">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef
@@ -46,6 +55,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxAgentChatUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentGUIUI">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileAnalytics">
@@ -107,6 +119,9 @@
       name = "Packages (macOS)">
       <FileRef
          location = "group:CMUXAgentLaunch">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentTruthKit">
       </FileRef>
       <FileRef
          location = "group:CmuxAppKitSupportUI">

@@ -74,19 +74,17 @@ final class CodexAppServerSession {
             guard canQueueInput(text) else {
                 throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
             }
-            try await withCheckedThrowingContinuation { continuation in
-                queuedInputs.append(CodexAppServerQueuedInput(
-                    text: text,
-                    permissionMode: permissionMode,
-                    continuation: continuation
-                ))
-                if didInitialize {
-                    Task { @MainActor in
-                        do {
-                            try await startThreadIfNeeded()
-                        } catch {
-                            failQueuedInputs(error)
-                        }
+            queuedInputs.append(CodexAppServerQueuedInput(
+                text: text,
+                permissionMode: permissionMode
+            ))
+            if didInitialize {
+                Task { @MainActor in
+                    do {
+                        try await startThreadIfNeeded()
+                    } catch {
+                        discardQueuedInputs()
+                        emitCodexRPCFailure(error)
                     }
                 }
             }
@@ -522,9 +520,7 @@ final class CodexAppServerSession {
                         text: input.text,
                         permissionMode: input.permissionMode
                     )
-                    input.resume()
                 } catch {
-                    input.resume(throwing: error)
                     emitCodexRPCFailure(error)
                 }
             }
@@ -556,17 +552,13 @@ final class CodexAppServerSession {
         isTurnInFlight = false
         activePermissionMode = .standard
         turnStartRequestIDs.removeAll()
-        failQueuedInputs(AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName))
+        discardQueuedInputs()
         emitCodexRPCFailure(details: details)
         failureSink(details)
     }
 
-    private func failQueuedInputs(_ error: Error) {
-        let inputs = queuedInputs
+    private func discardQueuedInputs() {
         queuedInputs.removeAll()
-        for input in inputs {
-            input.resume(throwing: error)
-        }
     }
 
     private func sendTurnStart(

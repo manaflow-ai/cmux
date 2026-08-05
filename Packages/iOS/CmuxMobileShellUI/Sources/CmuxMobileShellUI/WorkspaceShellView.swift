@@ -46,6 +46,7 @@ extension EnvironmentValues {
     }
 }
 
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 private enum WorkspaceRootToolbarSizing {
     static let minimumPickerWidth: CGFloat = 98
     static let maximumPickerWidth: CGFloat = 124

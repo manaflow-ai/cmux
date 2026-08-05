@@ -6,7 +6,7 @@ private struct ChatTranscriptOverlayGeometryKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    var chatTranscriptOverlayGeometry: ChatTranscriptOverlayGeometry? {
+    public var chatTranscriptOverlayGeometry: ChatTranscriptOverlayGeometry? {
         get { self[ChatTranscriptOverlayGeometryKey.self] }
         set { self[ChatTranscriptOverlayGeometryKey.self] = newValue }
     }

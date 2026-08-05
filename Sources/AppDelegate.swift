@@ -551,6 +551,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let workspaceTerminalFontSizeArbiter =
         WorkspaceTerminalFontSizeArbiter()
     private let systemAppearanceObserver = SystemAppearanceObserver()
+    /// Owns the Mac-side gui.v1 truth/read path for paired phones.
+    private let agentGUIService = AgentGUIService()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
         environment: ProcessInfo.processInfo.environment
@@ -802,7 +804,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         }
     }()
-
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -2212,6 +2213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
+        agentGUIService.start()
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         connectivityInvalidationSubscriberCoordinator.configure(auth: auth.coordinator)

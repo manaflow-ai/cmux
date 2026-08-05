@@ -83,6 +83,9 @@ extension MobileShellComposite {
             pendingInactiveRecoveryTrigger = trigger
             return
         }
+        if case .networkChange = trigger {
+            agentSyncEngine?.noteNetworkPathChanged()
+        }
         if let accountID = identityProvider?.currentUserID {
             switch trigger {
             case .manual, .networkChange, .foreground:

@@ -18,13 +18,22 @@ public struct UITestEnvironmentConfig: Equatable, Sendable {
         #endif
     }
 
-    /// Whether the inline workspace-shaped agent-chat preview is enabled.
+    /// Whether the workspace-shaped agent-chat preview is enabled.
     public var agentChatInlinePreviewEnabled: Bool {
         #if DEBUG
         return environment["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW"] == "1"
         #else
         return false
         #endif
+    }
+
+    /// The requested transcript density when the launch value is supported.
+    public var transcriptDensity: String? {
+        let value = environment["CMUX_UITEST_TRANSCRIPT_DENSITY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard value == "comfortable" || value == "compact" else { return nil }
+        return value
     }
 
     /// Whether the deterministic onboarding preview is enabled.

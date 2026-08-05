@@ -1417,6 +1417,10 @@ class TerminalController {
                 let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
                 return outcome.socketPayload
             }
+        case "agent_session.submit":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 120) {
+                await self.v2AgentSessionSubmit(params: request.params)
+            }
         case "mobile.attach_ticket.create":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
@@ -2336,7 +2340,7 @@ class TerminalController {
         case "system.capabilities":
             return v2Ok(id: id, result: v2CapabilitiesWithBrowserDesignMode())
         // mobile.host.status/mobile.workspace.list/mobile.terminal.* (+terminal.*
-        // aliases), mobile.terminal.paste/terminal.paste, and chat.sessions.dump
+        // aliases), and mobile.terminal.paste/terminal.paste
         // handled by ControlCommandCoordinator (bodies stay; shared with
         // mobileHostHandleRPC).
 
@@ -2545,6 +2549,7 @@ class TerminalController {
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",
+            "agent_session.submit",
             "window.list",
             "window.current",
             "window.focus",
@@ -14089,6 +14094,8 @@ class TerminalController {
         // MobileHostRPCResult` type round-trip with no behavior change. The v2
         // control socket shares the same bodies through `handleMobileHost`, so the
         // wire bytes stay identical across both entrypoints without a bridge here.
+        if let result = await AgentGUIService.shared?.handleRPC(request) { return result }
+
         let result: V2CallResult
         switch request.method {
         case "mobile.host.status":

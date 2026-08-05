@@ -46,7 +46,7 @@ extension WorkspaceDetailView {
                 workspaceID: workspace.id.rawValue,
                 surfaceID: terminalID,
                 path: path,
-                session: chosenChatSession
+                session: nil
             )
         },
         onVisibleArtifactCountChanged: { count in

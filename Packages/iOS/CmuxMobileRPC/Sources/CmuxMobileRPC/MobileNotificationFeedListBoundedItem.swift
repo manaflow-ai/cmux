@@ -75,6 +75,7 @@ struct MobileNotificationFeedListBoundedItem: Decodable {
     }
 }
 
+// lint:allow free-function - file-local helper mobileNotificationFeedListIdentityString, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func mobileNotificationFeedListIdentityString(
     from container: KeyedDecodingContainer<MobileNotificationFeedListBoundedItem.CodingKeys>,
     forKey key: MobileNotificationFeedListBoundedItem.CodingKeys,
@@ -85,6 +86,7 @@ private func mobileNotificationFeedListIdentityString(
     return value
 }
 
+// lint:allow free-function - file-local helper mobileNotificationFeedListString, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func mobileNotificationFeedListString(
     from container: KeyedDecodingContainer<MobileNotificationFeedListBoundedItem.CodingKeys>,
     forKey key: MobileNotificationFeedListBoundedItem.CodingKeys,
@@ -96,6 +98,7 @@ private func mobileNotificationFeedListString(
     )
 }
 
+// lint:allow free-function - file-local helper mobileNotificationFeedListOptionalString, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func mobileNotificationFeedListOptionalString(
     from container: KeyedDecodingContainer<MobileNotificationFeedListBoundedItem.CodingKeys>,
     forKey key: MobileNotificationFeedListBoundedItem.CodingKeys,
@@ -107,6 +110,7 @@ private func mobileNotificationFeedListOptionalString(
     return mobileNotificationFeedListString(value, limitedToUTF8Bytes: maxBytes)
 }
 
+// lint:allow free-function - file-local helper mobileNotificationFeedListString, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func mobileNotificationFeedListString(_ value: String, limitedToUTF8Bytes maxBytes: Int) -> String {
     guard maxBytes >= 0, value.utf8.count > maxBytes else { return value }
     var byteCount = 0

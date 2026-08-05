@@ -687,6 +687,7 @@ extension MobileShellComposite {
         activeRoute = sub.route
         connectionState = .connected
         markMacConnectionHealthy()
+        installAgentGUIEngine(client: sub.client, generation: generation)
         // Establish the foreground listener before fetching the snapshot that
         // focus will publish. This closes the control-unsubscribe/terminal-
         // subscribe gap for legacy Macs that have no state-sync cursor repair.

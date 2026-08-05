@@ -1018,7 +1018,9 @@ private func mountOutputAndReportViewport(
     router: LivenessHostRouter,
     surfaceID: String
 ) async throws {
-    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let stream = store.terminalOutputStream(surfaceID: surfaceID)
+    defer { stream.cancel() }
+    var iterator = stream.makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     let coldReplayChunk = try #require(await iterator.next())
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)

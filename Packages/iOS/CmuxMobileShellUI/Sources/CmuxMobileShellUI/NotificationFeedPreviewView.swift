@@ -272,6 +272,7 @@ public struct NotificationFeedPreviewView: View {
 
 }
 
+// lint:allow free-function - file-local helper makeNotificationFeedPreviewFixtureItems, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func makeNotificationFeedPreviewFixtureItems(referenceDate: Date) -> [MobileNotificationFeedItem] {
     let calendar = Calendar.autoupdatingCurrent
     let startOfToday = calendar.startOfDay(for: referenceDate)
@@ -428,6 +429,7 @@ private func makeNotificationFeedPreviewFixtureItems(referenceDate: Date) -> [Mo
 /// title-matches-workspace layout branch. Index-derived values keep every run
 /// identical; plain strings are fine here because the fixture is DEBUG-only
 /// synthetic data, never product UI copy.
+// lint:allow free-function - file-local helper makeNotificationFeedPreviewStressItems, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func makeNotificationFeedPreviewStressItems(
     referenceDate: Date,
     count: Int

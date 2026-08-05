@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 public import CmuxAgentChat
+public import CmuxAgentSync
 internal import CmuxMobileDiagnostics
 public import CmuxMobileBrowserStream
 public import CmuxMobilePairedMac
@@ -807,6 +808,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
     /// it.
     public let diagnosticLog: DiagnosticLog?
+    /// Agent GUI synchronization engine for the current foreground Mac.
+    public internal(set) var agentSyncEngine: AgentSyncEngine? = nil
+    @ObservationIgnored var agentGUIConnectionGeneration: UUID? = nil
+    @ObservationIgnored var agentGUIConnectionEventRelay: AgentGUIConnectionEventRelay? = nil
     package var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -1153,6 +1158,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalColdReplayNeedsBarrierUpgradeSurfaceIDs: Set<String>
     var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
+    var terminalOutputRegistrationTokensBySurfaceID: [String: UUID]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     let terminalLaneCoordinator: MobileTerminalLaneCoordinator?
@@ -1479,6 +1485,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalColdReplayNeedsBarrierUpgradeSurfaceIDs = []
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
+        self.terminalOutputRegistrationTokensBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
         if let terminalLaneProvider = runtime?.terminalLaneProvider {
@@ -8302,6 +8309,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     activeRoute = candidateRoute
                     connectionState = .connected
                     markMacConnectionHealthy()
+                    installAgentGUIEngine(client: client, generation: generation)
                     // Reuse the authenticated status response that bound this
                     // route to its Mac instance. The event listener needs the
                     // same payload for capability negotiation, so asking again
@@ -8743,6 +8751,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         if previous !== newValue {
             terminalSubscriptionHandoffFenceClientID = nil
+            if newValue == nil {
+                clearAgentGUIEngine(reason: "disconnected")
+            } else if previous != nil {
+                resetAgentGUIEngine()
+            }
         }
         return previous !== newValue ? previous : nil
     }
@@ -9357,6 +9370,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isRecoveringConnection = false
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
+        noteAgentGUIConnectionHealthy()
     }
 
     @discardableResult
@@ -9387,6 +9401,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .reconnecting
         isRecoveringConnection = true
         connectionRecoveryFailed = false
+        noteAgentGUIConnectionReconnecting()
     }
 
     private func markMacConnectionUnavailable() {
@@ -9397,6 +9412,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         isRecoveringConnection = false
         connectionRecoveryFailed = true
+        noteAgentGUIConnectionUnavailable()
     }
 
     func markMacConnectionUnavailableIfNeeded(after error: any Error) {
@@ -11089,8 +11105,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String,
         continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
     ) -> UUID {
+        let registrationToken = UUID()
         let streamToken = UUID()
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
+        terminalOutputRegistrationTokensBySurfaceID[surfaceID] = registrationToken
         terminalOutputStreamTokensBySurfaceID[surfaceID] = streamToken
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -11110,18 +11128,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
         requestColdAttachTerminalReplay(surfaceID: surfaceID)
         ensureTerminalLane(surfaceID: surfaceID)
-        return streamToken
+        return registrationToken
     }
 
-    private func unregisterTerminalOutput(surfaceID: String, streamToken: UUID) {
-        guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
+    private func unregisterTerminalOutput(surfaceID: String, registrationToken: UUID) {
+        guard terminalOutputRegistrationTokensBySurfaceID[surfaceID] == registrationToken else { return }
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
         if let terminalLaneCoordinator {
             Task { await terminalLaneCoordinator.deactivate(surfaceID: surfaceID) }
         }
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
-        terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        let continuation = terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalOutputRegistrationTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -11164,28 +11183,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it can unpin and clear its border.
         clearTerminalViewport(surfaceID: surfaceID)
+        continuation?.finish()
     }
 
     /// The output byte stream for a terminal surface.
     ///
     /// Obtaining the stream arms a cold-attach replay so the surface catches up
-    /// to current state; ending iteration (or cancelling the consuming task)
-    /// unregisters the surface and clears its viewport pin on the Mac.
+    /// to current state. The mounted view must cancel the returned lease when
+    /// it detaches so the store unregisters the surface and clears its viewport
+    /// pin on the Mac.
     /// - Parameter surfaceID: The terminal surface identifier.
-    /// - Returns: An `AsyncStream` of output byte chunks.
-    public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
-        AsyncStream { continuation in
-            let streamToken = registerTerminalOutput(
+    /// - Returns: A cancellable stream lease of output byte chunks.
+    public func terminalOutputStream(surfaceID: String) -> MobileTerminalOutputStream {
+        MobileTerminalOutputStream { continuation, cancellation in
+            let registrationToken = registerTerminalOutput(
                 surfaceID: surfaceID,
                 continuation: continuation
             )
-            continuation.onTermination = { [weak self] _ in
+            cancellation.install { [weak self] in
                 Task { @MainActor in
                     self?.unregisterTerminalOutput(
                         surfaceID: surfaceID,
-                        streamToken: streamToken
+                        registrationToken: registrationToken
                     )
                 }
+            }
+            continuation.onTermination = { [weak self] _ in
+                guard self != nil else { return }
+                cancellation.cancel()
             }
         }
     }

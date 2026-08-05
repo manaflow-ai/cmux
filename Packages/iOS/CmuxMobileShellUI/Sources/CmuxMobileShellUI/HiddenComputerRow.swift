@@ -172,6 +172,7 @@ struct HiddenComputerRow: View {
 /// Shared localized copy for every Hidden Computers surface so the strings
 /// cannot drift between the Computers screen, the disconnected shell, and its
 /// empty state.
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 enum HiddenComputersCopy {
     static var title: String {
         L10n.string("mobile.computers.hidden.title", defaultValue: "Hidden Computers")

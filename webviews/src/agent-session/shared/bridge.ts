@@ -18,6 +18,8 @@ declare global {
 }
 
 const listeners = new Set<EventListener>();
+const pendingEvents: AgentEvent[] = [];
+const maxPendingEvents = 512;
 
 export class NativeBridgeError extends Error {
   readonly code?: string;
@@ -34,22 +36,46 @@ if (typeof window !== "undefined") {
     applyTheme(theme: AgentSessionTheme) {
       applyAgentTheme(theme);
     },
-    receive(event: AgentEvent) {
-      if (event.type === "app.theme") {
-        applyAgentTheme(event.theme);
-      }
-      for (const listener of listeners) {
-        listener(event);
-      }
-    },
+    receive: receiveAgentEvent,
   };
 }
 
 export function subscribeToAgentEvents(listener: EventListener): () => void {
   listeners.add(listener);
+  if (pendingEvents.length > 0) {
+    const replay = pendingEvents.splice(0);
+    for (const event of replay) {
+      listener(event);
+    }
+  }
   return () => {
     listeners.delete(listener);
   };
+}
+
+function receiveAgentEvent(event: AgentEvent): void {
+  if (event.type === "app.theme") {
+    applyAgentTheme(event.theme);
+  }
+  if (listeners.size === 0) {
+    pendingEvents.push(event);
+    if (pendingEvents.length > maxPendingEvents) {
+      pendingEvents.splice(0, pendingEvents.length - maxPendingEvents);
+    }
+    return;
+  }
+  for (const listener of listeners) {
+    listener(event);
+  }
+}
+
+export function __receiveAgentEventForTests(event: AgentEvent): void {
+  receiveAgentEvent(event);
+}
+
+export function __resetAgentBridgeForTests(): void {
+  listeners.clear();
+  pendingEvents.splice(0);
 }
 
 export async function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {

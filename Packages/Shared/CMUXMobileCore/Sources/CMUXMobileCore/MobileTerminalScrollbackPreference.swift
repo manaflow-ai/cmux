@@ -9,6 +9,7 @@ import Foundation
 /// scroll further back at the cost of a proportionally larger one-time
 /// download at connect (~250 bytes per row); the visible screen never waits
 /// on it.
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 public enum MobileTerminalScrollbackPreference {
     /// UserDefaults key, written by Settings and read at hydration time.
     public static let defaultsKey = "cmux.mobile.terminalScrollbackRows"

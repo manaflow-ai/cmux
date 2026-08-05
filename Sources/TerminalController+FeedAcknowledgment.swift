@@ -141,6 +141,7 @@ extension TerminalController {
                 self.v2ApplyIMessageModeSideEffects(for: authoritativeEvent)
             },
             onAccepted: { authoritativeEvent in
+                AgentGUIService.shared?.handleHookEvent(authoritativeEvent)
                 self.v2MainSync {
                     self.agentChatTranscriptService?.noteHookEvent(authoritativeEvent)
                 }

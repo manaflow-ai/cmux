@@ -20,12 +20,12 @@ enum MobileAttachTarget: String, Sendable {
         case .ticketOnly:
             selected = routes
         case .simulatorInjection:
-            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
-            selected = irohRoutes.isEmpty
-                ? routes.filter { route in
-                    route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
-                }
-                : irohRoutes
+            let loopbackRoutes = routes.filter { route in
+                route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
+            }
+            selected = loopbackRoutes.isEmpty
+                ? try Self.identityOnlyIrohRoutes(from: routes)
+                : loopbackRoutes
         case .physicalDevice:
             let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
             guard irohRoutes.isEmpty else {

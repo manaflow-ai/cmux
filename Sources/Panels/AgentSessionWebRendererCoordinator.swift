@@ -5,6 +5,7 @@ import WebKit
 @MainActor
 final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandlerWithReply {
     var webView: AgentSessionWebView?
+    private let assetSchemeHandler = AgentSessionAssetSchemeHandler()
     private var panelId = UUID()
     private var workspaceId = UUID()
     private var rendererKind: AgentSessionRendererKind = .react
@@ -20,15 +21,79 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
+    private var pendingBridgeEvents: [[String: Any]] = []
+    private var isFlushingBridgeEvents = false
+    private var hasScheduledBridgeFlushRetry = false
     private var processStore = AgentSessionProcessStore()
+    nonisolated static let agentSessionAssetScheme = "cmux-agent-session"
+    nonisolated static let agentSessionAssetHost = "bundle"
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
+    nonisolated private static let maxPendingBridgeEvents = 512
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
         didSet {
             onHasActiveProviderChanged?(processStore.hasActiveProviderSession)
         }
     }
     var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
+
+    var isWebViewInWindow: Bool {
+        webView?.window != nil
+    }
+
+    func submitFromControl(
+        providerID requestedProviderID: AgentSessionProviderID?,
+        permissionMode: AgentSessionPermissionMode,
+        text: String
+    ) async throws -> AgentSessionControlSubmitResult {
+        guard !isClosed else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+        guard !text.isEmpty else {
+            throw AgentSessionBridgeError.missingParameter("text")
+        }
+
+        if let active = processStore.activeSessionInfo {
+            if let requestedProviderID, requestedProviderID != active.providerID {
+                throw AgentSessionBridgeError.sessionAlreadyRunning
+            }
+            let session = try await processStore.writeLineToActive(
+                permissionMode: permissionMode,
+                text: text
+            )
+            emitControlInputAccepted(session: session, text: text)
+            return AgentSessionControlSubmitResult(session: session, startedProvider: false)
+        }
+
+        guard !isProviderStartPending else {
+            throw AgentSessionBridgeError.sessionAlreadyRunning
+        }
+        isProviderStartPending = true
+        defer {
+            isProviderStartPending = false
+        }
+        let provider = requestedProviderID ?? initialProviderID
+        initialProviderID = provider
+        onProviderIDChanged?(provider)
+        let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
+        let plan = try await Task.detached(priority: .userInitiated) {
+            let resolver = AgentExecutableResolver(configuredExecutablePaths: configuredExecutablePaths)
+            return try resolver.resolve(provider)
+        }.value
+        guard !isClosed else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+        _ = try await processStore.start(
+            plan: plan,
+            workingDirectory: workingDirectory
+        )
+        let session = try await processStore.writeLineToActive(
+            permissionMode: permissionMode,
+            text: text
+        )
+        emitControlInputAccepted(session: session, text: text)
+        return AgentSessionControlSubmitResult(session: session, startedProvider: true)
+    }
 
     func bind(
         panelId: UUID,
@@ -72,6 +137,10 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = false
+        configuration.setURLSchemeHandler(
+            assetSchemeHandler,
+            forURLScheme: Self.agentSessionAssetScheme
+        )
         configuration.userContentController.addScriptMessageHandler(
             self,
             contentWorld: .page,
@@ -110,17 +179,19 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             rendererKind: rendererKind,
             resourceDirectoryURL: resourceDirectoryURL
         )
-        trustedShellURL = Self.normalizedTrustedFileURL(indexURL)
+        trustedShellURL = indexURL
 #if DEBUG
         cmuxDebugLog(
             "agentSession.web.load renderer=\(rendererKind.rawValue) " +
-            "index=\(indexURL.path)"
+            "index=\(indexURL.absoluteString)"
         )
 #endif
-        webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
+        webView.load(URLRequest(url: indexURL))
         loadedRendererKind = rendererKind
         hasFinishedNavigation = false
         hasCompletedVisiblePaintFlush = false
+        isFlushingBridgeEvents = false
+        hasScheduledBridgeFlushRetry = false
     }
 
     func focus() {
@@ -156,6 +227,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         trustedShellURL = nil
         hasFinishedNavigation = false
         hasCompletedVisiblePaintFlush = false
+        pendingBridgeEvents.removeAll()
+        isFlushingBridgeEvents = false
+        hasScheduledBridgeFlushRetry = false
     }
 
     func userContentController(
@@ -188,6 +262,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
 #endif
         hasFinishedNavigation = true
         applyThemeToLoadedPage()
+        flushPendingBridgeEvents()
         if isPanelFocused {
             focus()
         }
@@ -320,12 +395,21 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         rendererKind: AgentSessionRendererKind,
         resourceDirectoryURL: URL
     ) -> URL {
-        rendererKind.resourceHTMLPathComponents.reduce(resourceDirectoryURL) {
-            $0.appendingPathComponent($1, isDirectory: false)
+        _ = resourceDirectoryURL
+        var components = URLComponents()
+        components.scheme = agentSessionAssetScheme
+        components.host = agentSessionAssetHost
+        components.percentEncodedPath = "/" + rendererKind.resourceHTMLPathComponents.joined(separator: "/")
+        guard let url = components.url else {
+            preconditionFailure("Invalid Agent Session shell URL")
         }
+        return url
     }
 
     nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
+        if candidate?.scheme == agentSessionAssetScheme || expected?.scheme == agentSessionAssetScheme {
+            return normalizedAgentSessionAssetURL(candidate) == normalizedAgentSessionAssetURL(expected)
+        }
         guard let candidate = normalizedTrustedFileURL(candidate),
               let expected = normalizedTrustedFileURL(expected) else {
             return false
@@ -333,11 +417,120 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         return candidate == expected
     }
 
+    nonisolated static func agentSessionAssetFileURL(
+        for requestURL: URL?,
+        resourceDirectoryURL: URL?
+    ) -> URL? {
+        guard let requestURL,
+              requestURL.scheme == agentSessionAssetScheme,
+              requestURL.host == agentSessionAssetHost,
+              requestURL.query == nil,
+              requestURL.fragment == nil,
+              let resourceDirectoryURL,
+              let requestPathComponents = agentSessionAssetPathComponents(requestURL) else {
+            return nil
+        }
+
+        let rootURL = resourceDirectoryURL.standardizedFileURL.resolvingSymlinksInPath()
+        let candidateURL = requestPathComponents.reduce(rootURL) { partialURL, component in
+            partialURL.appendingPathComponent(component, isDirectory: false)
+        }.standardizedFileURL.resolvingSymlinksInPath()
+        guard candidateURL.isDescendant(of: rootURL) else {
+            return nil
+        }
+        if let fileURL = readableRegularFileURL(candidateURL) {
+            return fileURL
+        }
+
+        let deflatedURL = candidateURL.appendingPathExtension("deflate")
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard deflatedURL.isDescendant(of: rootURL) else {
+            return nil
+        }
+        return readableRegularFileURL(deflatedURL)
+    }
+
+    nonisolated static func agentSessionAssetMIMEType(for requestURL: URL) -> String {
+        switch requestURL.pathExtension.lowercased() {
+        case "html":
+            return "text/html"
+        case "mjs", "js":
+            return "text/javascript"
+        case "css":
+            return "text/css"
+        case "json":
+            return "application/json"
+        case "svg":
+            return "image/svg+xml"
+        default:
+            return UTType(filenameExtension: requestURL.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        }
+    }
+
     nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
         guard let url, url.isFileURL else {
             return nil
         }
         return url.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    nonisolated private static func normalizedAgentSessionAssetURL(_ url: URL?) -> URL? {
+        guard let url,
+              url.scheme == agentSessionAssetScheme,
+              url.host == agentSessionAssetHost,
+              url.query == nil,
+              url.fragment == nil,
+              let pathComponents = agentSessionAssetPathComponents(url) else {
+            return nil
+        }
+        var components = URLComponents()
+        components.scheme = agentSessionAssetScheme
+        components.host = agentSessionAssetHost
+        components.percentEncodedPath = "/" + pathComponents.joined(separator: "/")
+        return components.url
+    }
+
+    nonisolated private static func agentSessionAssetPathComponents(_ url: URL) -> [String]? {
+        guard let encodedPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath,
+              encodedPath.hasPrefix("/"),
+              !encodedPath.contains("\\"),
+              !encodedPath.contains("//") else {
+            return nil
+        }
+
+        let encodedComponents = encodedPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard !encodedComponents.isEmpty else {
+            return nil
+        }
+
+        var decodedComponents: [String] = []
+        decodedComponents.reserveCapacity(encodedComponents.count)
+        for encodedComponent in encodedComponents {
+            let lowercased = encodedComponent.lowercased()
+            guard !lowercased.contains("%2f"),
+                  !lowercased.contains("%5c"),
+                  let component = encodedComponent.removingPercentEncoding,
+                  !component.isEmpty,
+                  component != ".",
+                  component != "..",
+                  !component.contains("/"),
+                  !component.contains("\\") else {
+                return nil
+            }
+            decodedComponents.append(component)
+        }
+        return decodedComponents
+    }
+
+    nonisolated private static func readableRegularFileURL(_ url: URL) -> URL? {
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              FileManager.default.isReadableFile(atPath: url.path) else {
+            return nil
+        }
+        return url
     }
 
     private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
@@ -546,6 +739,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             if let workingDirectory {
                 context["workingDirectory"] = workingDirectory
             }
+            if let activeSession = processStore.activeSessionInfo {
+                context["activeSession"] = Self.activeSessionContext(activeSession)
+            }
             return context
         case "app.pickFiles":
             return await pickLocalFiles()
@@ -684,20 +880,123 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     }
 
     private func sendEvent(_ event: [String: Any]) {
-        guard let webView,
-              let data = try? JSONSerialization.data(withJSONObject: event),
-              let json = String(data: data, encoding: .utf8) else {
+        pendingBridgeEvents.append(event)
+        if pendingBridgeEvents.count > Self.maxPendingBridgeEvents {
+            pendingBridgeEvents.removeFirst(pendingBridgeEvents.count - Self.maxPendingBridgeEvents)
+        }
+        flushPendingBridgeEvents()
+    }
+
+    private func flushPendingBridgeEvents() {
+        guard !isFlushingBridgeEvents,
+              hasFinishedNavigation,
+              let webView,
+              !pendingBridgeEvents.isEmpty else {
             return
         }
-        webView.evaluateJavaScript("window.cmuxAgentBridge?.receive(\(json));") { _, error in
-#if DEBUG
-            if let error {
-                cmuxDebugLog("agentSession.bridge.event.failed error=\(error.localizedDescription)")
-            }
-#else
-            _ = error
-#endif
+        isFlushingBridgeEvents = true
+        flushNextBridgeEvent(in: webView)
+    }
+
+    private func flushNextBridgeEvent(in webView: WKWebView) {
+        guard self.webView === webView,
+              hasFinishedNavigation else {
+            isFlushingBridgeEvents = false
+            return
         }
+        guard let event = pendingBridgeEvents.first else {
+            isFlushingBridgeEvents = false
+            return
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: event),
+              let json = String(data: data, encoding: .utf8) else {
+            pendingBridgeEvents.removeFirst()
+            flushNextBridgeEvent(in: webView)
+            return
+        }
+        webView.evaluateJavaScript(Self.bridgeEventDeliveryScript(json: json)) { [weak self, weak webView] result, error in
+            Task { @MainActor in
+                guard let self,
+                      let webView,
+                      self.webView === webView else {
+                    return
+                }
+#if DEBUG
+                if let error {
+                    cmuxDebugLog("agentSession.bridge.event.failed error=\(error.localizedDescription)")
+                }
+#else
+                _ = error
+#endif
+                if error != nil {
+                    self.isFlushingBridgeEvents = false
+                    self.scheduleBridgeFlushRetry()
+                    return
+                }
+                guard (result as? Bool) == true else {
+                    self.isFlushingBridgeEvents = false
+                    self.scheduleBridgeFlushRetry()
+                    return
+                }
+                if !self.pendingBridgeEvents.isEmpty {
+                    self.pendingBridgeEvents.removeFirst()
+                }
+                self.flushNextBridgeEvent(in: webView)
+            }
+        }
+    }
+
+    private func scheduleBridgeFlushRetry() {
+        guard !hasScheduledBridgeFlushRetry,
+              hasFinishedNavigation,
+              webView != nil,
+              !pendingBridgeEvents.isEmpty else {
+            return
+        }
+        hasScheduledBridgeFlushRetry = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.hasScheduledBridgeFlushRetry = false
+                self.flushPendingBridgeEvents()
+            }
+        }
+    }
+
+    nonisolated static func bridgeEventDeliveryScript(json: String) -> String {
+        """
+        (() => {
+          const bridge = window.cmuxAgentBridge;
+          if (!bridge || typeof bridge.receive !== "function") {
+            return false;
+          }
+          bridge.receive(\(json));
+          return true;
+        })()
+        """
+    }
+
+    nonisolated static func activeSessionContext(_ session: AgentSessionControlSessionInfo) -> [String: Any] {
+        var context: [String: Any] = [
+            "sessionId": session.sessionId,
+            "providerId": session.providerID.rawValue,
+            "executablePath": session.executablePath,
+            "arguments": session.arguments
+        ]
+        if let workingDirectory = session.workingDirectory {
+            context["workingDirectory"] = workingDirectory
+        }
+        return context
+    }
+
+    private func emitControlInputAccepted(session: AgentSessionControlSessionInfo, text: String) {
+        sendEvent([
+            "type": "provider.inputAccepted",
+            "sessionId": session.sessionId,
+            "providerId": session.providerID.rawValue,
+            "text": text,
+            "sentAtMs": Int(Date().timeIntervalSince1970 * 1000)
+        ])
     }
 
     private func handleExternalLink(_ url: URL) {
@@ -752,5 +1051,158 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             current = item.nextResponder
         }
         return false
+    }
+}
+
+private final class AgentSessionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
+    private final class SchemeTaskState: @unchecked Sendable {
+        let condition = NSCondition()
+        var isStopped = false
+        var callbacksInFlight = 0
+    }
+
+    private let lock = NSLock()
+    private var activeSchemeTasks: [ObjectIdentifier: SchemeTaskState] = [:]
+    private let streamQueue = DispatchQueue(
+        label: "com.manaflow.cmux.agent-session-assets",
+        qos: .userInitiated
+    )
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        let state = SchemeTaskState()
+        lock.lock()
+        activeSchemeTasks[taskID] = state
+        lock.unlock()
+
+        streamQueue.async { [weak self] in
+            guard let self else { return }
+            guard let requestURL = urlSchemeTask.request.url,
+                  let resourceDirectoryURL = Bundle.main.resourceURL,
+                  let fileURL = AgentSessionWebRendererCoordinator.agentSessionAssetFileURL(
+                      for: requestURL,
+                      resourceDirectoryURL: resourceDirectoryURL
+                  ) else {
+                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorFileDoesNotExist)
+                return
+            }
+
+            do {
+                let response = URLResponse(
+                    url: requestURL,
+                    mimeType: AgentSessionWebRendererCoordinator.agentSessionAssetMIMEType(for: requestURL),
+                    expectedContentLength: -1,
+                    textEncodingName: "utf-8"
+                )
+                guard self.performSchemeTaskCallback(taskID, {
+                    urlSchemeTask.didReceive(response)
+                }) else { return }
+
+                let reader = try DiffViewerAssetReader(fileURL: fileURL)
+                defer {
+                    try? reader.close()
+                }
+
+                while self.isSchemeTaskActive(taskID) {
+                    let data = try reader.read(upToCount: 64 * 1024)
+                    if data.isEmpty {
+                        break
+                    }
+                    guard self.performSchemeTaskCallback(taskID, {
+                        urlSchemeTask.didReceive(data)
+                    }) else { return }
+                }
+
+                guard self.performSchemeTaskCallback(taskID, {
+                    urlSchemeTask.didFinish()
+                }) else { return }
+                self.finishSchemeTask(taskID)
+            } catch {
+                guard self.performSchemeTaskCallback(taskID, {
+                    urlSchemeTask.didFailWithError(error)
+                }) else { return }
+                self.finishSchemeTask(taskID)
+            }
+        }
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
+        stopSchemeTask(taskID)
+    }
+
+    private func failSchemeTask(
+        _ taskID: ObjectIdentifier,
+        _ urlSchemeTask: WKURLSchemeTask,
+        code: Int
+    ) {
+        guard performSchemeTaskCallback(taskID, {
+            urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: code))
+        }) else { return }
+        finishSchemeTask(taskID)
+    }
+
+    private func isSchemeTaskActive(_ taskID: ObjectIdentifier) -> Bool {
+        lock.lock()
+        let state = activeSchemeTasks[taskID]
+        lock.unlock()
+        guard let state else { return false }
+
+        state.condition.lock()
+        let active = !state.isStopped
+        state.condition.unlock()
+        return active
+    }
+
+    private func performSchemeTaskCallback(_ taskID: ObjectIdentifier, _ callback: () -> Void) -> Bool {
+        lock.lock()
+        let state = activeSchemeTasks[taskID]
+        lock.unlock()
+        guard let state else { return false }
+
+        state.condition.lock()
+        guard !state.isStopped else {
+            state.condition.unlock()
+            return false
+        }
+        state.callbacksInFlight += 1
+        state.condition.unlock()
+
+        callback()
+
+        state.condition.lock()
+        state.callbacksInFlight -= 1
+        if state.callbacksInFlight == 0 {
+            state.condition.broadcast()
+        }
+        let active = !state.isStopped
+        state.condition.unlock()
+        return active
+    }
+
+    private func finishSchemeTask(_ taskID: ObjectIdentifier) {
+        stopSchemeTask(taskID)
+    }
+
+    private func stopSchemeTask(_ taskID: ObjectIdentifier) {
+        lock.lock()
+        let state = activeSchemeTasks.removeValue(forKey: taskID)
+        lock.unlock()
+        guard let state else { return }
+
+        state.condition.lock()
+        state.isStopped = true
+        while state.callbacksInFlight > 0 {
+            state.condition.wait()
+        }
+        state.condition.unlock()
+    }
+}
+
+private extension URL {
+    func isDescendant(of rootURL: URL) -> Bool {
+        let path = standardizedFileURL.path
+        let rootPath = rootURL.standardizedFileURL.path
+        return path == rootPath || path.hasPrefix(rootPath + "/")
     }
 }

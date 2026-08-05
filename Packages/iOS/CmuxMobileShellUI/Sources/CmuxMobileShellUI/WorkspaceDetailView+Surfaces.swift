@@ -1,5 +1,9 @@
+import CMUXMobileCore
+import CmuxAgentChatUI
+import CmuxAgentGUIUI
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
+import CmuxMobileShell
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -18,20 +22,33 @@ extension WorkspaceDetailView {
             shouldAutoFocusTerminal: { store.shouldAutoFocusTerminalSurface($0) },
             isComposerPresented: store.isComposerPresented
         )
-        ZStack {
+        WorkspaceDetailSurfaceStack(
+            activeSurface: surface,
+            isAgentGUIVisible: isAgentGUIVisible
+        ) {
             detailContent()
-                .opacity(surface == .terminal ? 1 : 0)
-                .allowsHitTesting(surface == .terminal)
-                .accessibilityHidden(surface != .terminal)
-            if surface == .chat, let session = chosenChatSession {
-                chatContent(session)
-                    .background(store.activeTerminalTheme.terminalBackgroundColor)
-            } else if surface == .browser, let browser = activeBrowser {
+        } overlays: {
+            if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             } else if surface == .browserStream, let browser = activeBrowserStream {
                 browserStreamContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            }
+            if isAgentGUIVisible,
+               let engine = store.agentSyncEngine,
+               let availability = agentGUIAvailability {
+                TranscriptLiveView(
+                    engine: engine,
+                    sessionID: availability.sessionID,
+                    terminalTheme: store.activeTerminalTheme,
+                    terminalThemeGeneration: store.terminalThemeGeneration,
+                    density: displaySettings.transcriptDensity,
+                    draft: agentGUIDraftBinding(for: availability.sessionID),
+                    artifactLoader: agentGUIArtifactLoader(sessionID: availability.sessionID.rawValue),
+                    onShowTerminal: { guiModeSelected = false }
+                )
+                .transition(.opacity)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -62,6 +79,18 @@ extension WorkspaceDetailView {
     }
 
     #if os(iOS)
+    func agentGUIArtifactLoader(sessionID: String) -> ChatArtifactLoader {
+        guard store.supportsChatArtifacts,
+              let source = store.makeChatEventSource() else {
+            return .unsupported(cache: terminalArtifactThumbnailCache)
+        }
+        return ChatArtifactLoader(
+            source: source,
+            sessionID: sessionID,
+            cache: terminalArtifactThumbnailCache
+        )
+    }
+
     @ViewBuilder
     func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(
@@ -105,3 +134,42 @@ extension WorkspaceDetailView {
     }
     #endif
 }
+
+#if os(iOS)
+/// Keeps the terminal surface at a stable structural position while browser or
+/// Agent GUI chrome is presented above it. Hiding changes interaction and
+/// accessibility only; the terminal-owned composer and toolbar stay mounted in
+/// their original `GhosttySurfaceView` hierarchy.
+struct WorkspaceDetailSurfaceStack<TerminalContent: View, OverlayContent: View>: View {
+    let activeSurface: WorkspaceActiveSurface
+    let isAgentGUIVisible: Bool
+    private let terminalContent: TerminalContent
+    private let overlayContent: OverlayContent
+
+    init(
+        activeSurface: WorkspaceActiveSurface,
+        isAgentGUIVisible: Bool,
+        @ViewBuilder terminal: () -> TerminalContent,
+        @ViewBuilder overlays: () -> OverlayContent
+    ) {
+        self.activeSurface = activeSurface
+        self.isAgentGUIVisible = isAgentGUIVisible
+        terminalContent = terminal()
+        overlayContent = overlays()
+    }
+
+    private var terminalIsPresented: Bool {
+        activeSurface == .terminal && !isAgentGUIVisible
+    }
+
+    var body: some View {
+        ZStack {
+            terminalContent
+                .opacity(terminalIsPresented ? 1 : 0)
+                .allowsHitTesting(terminalIsPresented)
+                .accessibilityHidden(!terminalIsPresented)
+            overlayContent
+        }
+    }
+}
+#endif

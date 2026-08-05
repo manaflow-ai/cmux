@@ -192,6 +192,7 @@ nonisolated struct VerifiedReplayPresentationFence: Sendable {
     }
 }
 
+// lint:allow free-function - internal package helper verifiedReplayPresentationGeometry, preserving existing call sites during UI closeout.
 func verifiedReplayPresentationGeometry(
     renderer: CALayer?,
     host: CALayer,
@@ -225,6 +226,7 @@ nonisolated func verifiedReplayExportThenSubmit<Frame>(
     return frame
 }
 
+// lint:allow free-function - internal package helper verifiedReplayRendererIdentity, preserving existing call sites during UI closeout.
 func verifiedReplayRendererIdentity(
     from contents: Any?
 ) -> VerifiedReplayRendererSurfaceIdentity? {
@@ -240,11 +242,13 @@ func verifiedReplayRendererIdentity(
 /// Copies the current renderer target into Data-backed immutable pixels.
 /// The resulting CGImage cannot be changed when Ghostty reuses its three
 /// IOSurface swap-chain targets.
+// lint:allow free-function - internal package helper copyVerifiedReplayCGImage, preserving existing call sites during UI closeout.
 func copyVerifiedReplayCGImage(from contents: Any?) -> CGImage? {
     guard let capture = verifiedReplaySurfaceCapture(from: contents) else { return nil }
     return copyVerifiedReplayCGImage(from: capture)
 }
 
+// lint:allow free-function - internal package helper copyVerifiedReplayCGImage, preserving existing call sites during UI closeout.
 func copyVerifiedReplayCGImage(from capture: VerifiedReplaySurfaceCapture) -> CGImage? {
     let surface = capture.surface
     let width = IOSurfaceGetWidth(surface)
@@ -282,6 +286,7 @@ func copyVerifiedReplayCGImage(from capture: VerifiedReplaySurfaceCapture) -> CG
     )
 }
 
+// lint:allow free-function - internal package helper verifiedReplaySurfaceCapture, preserving existing call sites during UI closeout.
 func verifiedReplaySurfaceCapture(from contents: Any?) -> VerifiedReplaySurfaceCapture? {
     guard let contents else { return nil }
     let value = contents as CFTypeRef
@@ -290,6 +295,7 @@ func verifiedReplaySurfaceCapture(from contents: Any?) -> VerifiedReplaySurfaceC
     return VerifiedReplaySurfaceCapture(surface: surface)
 }
 
+// lint:allow free-function - file-local helper verifiedReplayTransformScalars, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func verifiedReplayTransformScalars(_ transform: CATransform3D) -> [CGFloat] {
     [
         transform.m11, transform.m12, transform.m13, transform.m14,
@@ -299,6 +305,7 @@ private func verifiedReplayTransformScalars(_ transform: CATransform3D) -> [CGFl
     ]
 }
 
+// lint:allow free-function - file-local helper verifiedReplaySurfaceExtentMatchesGeometry, kept as a pure helper to avoid unrelated type migration in this UI closeout.
 private func verifiedReplaySurfaceExtentMatchesGeometry(
     _ identity: VerifiedReplayRendererSurfaceIdentity,
     geometry: VerifiedReplayPresentationGeometry

@@ -1,4 +1,5 @@
 /// Capability advertised by a Mac that supports browser-pane streaming.
+// lint:allow namespace-type - existing static helper surface, preserving call sites during UI closeout.
 public struct MobileBrowserStreamCapability: Sendable {
     private init() {}
 

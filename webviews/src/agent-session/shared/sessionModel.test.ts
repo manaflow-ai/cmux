@@ -149,6 +149,114 @@ test("provider started event records running session", () => {
   expect(state.log.at(-1)?.text).toBe("Provider started");
 });
 
+test("provider started event from native submit attaches while idle", () => {
+  const idle = reduceSession(initialState("react"), { type: "context", context });
+  const state = reduceSession(idle, {
+    type: "event",
+    event: {
+      type: "provider.started",
+      providerId: "claude",
+      sessionId: "session-2",
+      executablePath: "/usr/local/bin/claude",
+      arguments: ["-p"],
+    },
+  });
+
+  expect(state.status).toBe("running");
+  expect(state.runningSessionId).toBe("session-2");
+  expect(state.selectedProviderId).toBe("claude");
+  expect(state.log.at(-1)?.text).toBe("Provider started");
+});
+
+test("provider input accepted event appends native submitted user row", () => {
+  const running = {
+    ...reduceSession(initialState("react"), { type: "context", context }),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const state = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.inputAccepted",
+      providerId: "codex",
+      sessionId: "session-1",
+      text: "hello from socket",
+      sentAtMs: 1_850_000_000_000,
+    },
+  });
+
+  expect(state.log.at(-1)?.text).toBe("Sent 17 chars");
+  expect(state.transcript.at(-1)).toMatchObject({
+    role: "user",
+    sentAtMs: 1_850_000_000_000,
+    text: "hello from socket",
+  });
+});
+
+test("provider input accepted event from native submit attaches while idle", () => {
+  const idle = reduceSession(initialState("react"), { type: "context", context });
+  const state = reduceSession(idle, {
+    type: "event",
+    event: {
+      type: "provider.inputAccepted",
+      providerId: "codex",
+      sessionId: "session-3",
+      text: "hello before started event",
+      sentAtMs: 1_850_000_000_001,
+    },
+  });
+
+  expect(state.status).toBe("running");
+  expect(state.runningSessionId).toBe("session-3");
+  expect(state.selectedProviderId).toBe("codex");
+  expect(state.log.at(-1)?.text).toBe("Sent 26 chars");
+  expect(state.transcript.at(-1)).toMatchObject({
+    role: "user",
+    sentAtMs: 1_850_000_000_001,
+    text: "hello before started event",
+  });
+});
+
+test("context active session hydrates running state from native snapshot", () => {
+  const state = reduceSession(initialState("react"), {
+    type: "context",
+    context: {
+      ...context,
+      activeSession: {
+        sessionId: "session-restored",
+        providerId: "claude",
+        executablePath: "/usr/local/bin/claude",
+        arguments: ["-p"],
+        workingDirectory: "/tmp/project",
+      },
+    },
+  });
+
+  expect(state.status).toBe("running");
+  expect(state.runningSessionId).toBe("session-restored");
+  expect(state.selectedProviderId).toBe("claude");
+  expect(state.context?.activeSession?.workingDirectory).toBe("/tmp/project");
+  expect(shouldAutoStartProvider(state)).toBe(false);
+});
+
+test("context load preserves provider event that arrived before context", () => {
+  const startedBeforeContext = reduceSession(initialState("react"), {
+    type: "event",
+    event: {
+      type: "provider.started",
+      providerId: "codex",
+      sessionId: "session-before-context",
+      executablePath: "/usr/local/bin/codex",
+      arguments: ["app-server", "--listen", "stdio://"],
+    },
+  });
+  const state = reduceSession(startedBeforeContext, { type: "context", context });
+
+  expect(state.status).toBe("running");
+  expect(state.runningSessionId).toBe("session-before-context");
+  expect(state.selectedProviderId).toBe("codex");
+});
+
 test("rate limit row event updates context", () => {
   const initial = reduceSession(initialState("react"), { type: "context", context });
   const state = reduceSession(initial, {
@@ -556,7 +664,7 @@ test("accepted start reply tracks session before provider started event", () => 
   );
   const accepted = reduceSession(starting, { type: "startAccepted", sessionId: "session-1" });
 
-  expect(accepted.status).toBe("starting");
+  expect(accepted.status).toBe("running");
   expect(accepted.runningSessionId).toBe("session-1");
   expect(canStopProvider(accepted)).toBe(true);
 

@@ -1,4 +1,5 @@
 @MainActor
+// lint:allow free-function - internal package helper warmControlPoolHasCapacity, preserving existing call sites during UI closeout.
 func warmControlPoolHasCapacity(
     currentControlCount: Int,
     vacatesControlSlot: Bool

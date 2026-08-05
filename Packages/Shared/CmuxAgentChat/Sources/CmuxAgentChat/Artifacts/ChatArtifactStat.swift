@@ -14,6 +14,12 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
     public let kind: ChatArtifactKind
     /// Best-effort MIME type inferred by the Mac, when known.
     public let mimeType: String?
+    /// Intrinsic image width in pixels, when the artifact is an image and the
+    /// Mac can read dimensions without fetching thumbnail bytes.
+    public let pixelWidth: Int?
+    /// Intrinsic image height in pixels, when the artifact is an image and the
+    /// Mac can read dimensions without fetching thumbnail bytes.
+    public let pixelHeight: Int?
 
     /// Creates artifact metadata.
     ///
@@ -24,13 +30,17 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
     ///   - modifiedAt: Last modification time.
     ///   - kind: Preview category.
     ///   - mimeType: Best-effort MIME type.
+    ///   - pixelWidth: Intrinsic image width in pixels.
+    ///   - pixelHeight: Intrinsic image height in pixels.
     public init(
         exists: Bool,
         isDirectory: Bool,
         size: Int64,
         modifiedAt: Date,
         kind: ChatArtifactKind,
-        mimeType: String? = nil
+        mimeType: String? = nil,
+        pixelWidth: Int? = nil,
+        pixelHeight: Int? = nil
     ) {
         self.exists = exists
         self.isDirectory = isDirectory
@@ -38,6 +48,8 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
         self.modifiedAt = modifiedAt
         self.kind = kind
         self.mimeType = mimeType
+        self.pixelWidth = Self.validPixelDimension(pixelWidth)
+        self.pixelHeight = Self.validPixelDimension(pixelHeight)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -47,6 +59,8 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
         case modifiedAt = "modified_at"
         case kind
         case mimeType = "mime_type"
+        case pixelWidth = "pixel_width"
+        case pixelHeight = "pixel_height"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -61,6 +75,8 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
         }
         kind = try container.decode(ChatArtifactKind.self, forKey: .kind)
         mimeType = try container.decodeIfPresent(String.self, forKey: .mimeType)
+        pixelWidth = Self.validPixelDimension(try container.decodeIfPresent(Int.self, forKey: .pixelWidth))
+        pixelHeight = Self.validPixelDimension(try container.decodeIfPresent(Int.self, forKey: .pixelHeight))
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -71,5 +87,12 @@ public struct ChatArtifactStat: Sendable, Equatable, Codable {
         try container.encode(modifiedAt.timeIntervalSince1970, forKey: .modifiedAt)
         try container.encode(kind, forKey: .kind)
         try container.encodeIfPresent(mimeType, forKey: .mimeType)
+        try container.encodeIfPresent(pixelWidth, forKey: .pixelWidth)
+        try container.encodeIfPresent(pixelHeight, forKey: .pixelHeight)
+    }
+
+    private static func validPixelDimension(_ value: Int?) -> Int? {
+        guard let value, value > 0 else { return nil }
+        return value
     }
 }

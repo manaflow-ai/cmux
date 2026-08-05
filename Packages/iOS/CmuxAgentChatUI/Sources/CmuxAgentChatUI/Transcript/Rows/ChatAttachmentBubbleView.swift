@@ -7,10 +7,11 @@ import UIKit
 import AppKit
 #endif
 
-/// An outgoing attachment bubble: a photo glyph plus the attachment's
-/// display name, with the host-side path when known.
+/// An outgoing attachment bubble. Images reserve a stable inline preview;
+/// other files keep a compact filename-and-path treatment.
 public struct ChatAttachmentBubbleView: View {
     private let attachment: ChatAttachment
+    private let role: ChatRole
     private let groupPosition: ChatGroupPosition
     private let showsTimestamp: Bool
     private let timestamp: Date
@@ -22,13 +23,15 @@ public struct ChatAttachmentBubbleView: View {
 
     @State private var thumbnailData: Data?
     @State private var thumbnailFailed = false
-    @State private var thumbnailPath: String?
+    @State private var thumbnailRequest: ChatAttachmentThumbnailRequest?
+    @State private var thumbnailRetryAttempt = 0
     @State private var fallbackSelection: ChatArtifactPathSelection?
 
     /// Creates an attachment bubble.
     ///
     /// - Parameters:
     ///   - attachment: The attachment metadata.
+    ///   - role: Who authored the attachment row.
     ///   - groupPosition: Position inside the visual bubble group.
     ///   - showsTimestamp: Whether the group timestamp renders under this
     ///     bubble.
@@ -37,12 +40,14 @@ public struct ChatAttachmentBubbleView: View {
     ///     navigation stack. When omitted, the standalone bubble uses a sheet.
     public init(
         attachment: ChatAttachment,
+        role: ChatRole = .user,
         groupPosition: ChatGroupPosition,
         showsTimestamp: Bool,
         timestamp: Date,
         onOpenArtifact: ((String) -> Void)? = nil
     ) {
         self.attachment = attachment
+        self.role = role
         self.groupPosition = groupPosition
         self.showsTimestamp = showsTimestamp
         self.timestamp = timestamp
@@ -51,10 +56,10 @@ public struct ChatAttachmentBubbleView: View {
 
     public var body: some View {
         HStack(spacing: 0) {
-            Spacer(minLength: 64)
-            VStack(alignment: .trailing, spacing: 3) {
-                artifactAwareBubble
-                    .frame(maxWidth: bubbleMaxWidth, alignment: .trailing)
+            if isUser { Spacer(minLength: 64) }
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 3) {
+                attachmentContent
+                    .frame(maxWidth: bubbleMaxWidth, alignment: isUser ? .trailing : .leading)
                 if showsTimestamp {
                     Text(timestamp.formatted(.dateTime.hour().minute()))
                         .font(.caption2)
@@ -62,123 +67,203 @@ public struct ChatAttachmentBubbleView: View {
                         .padding(.horizontal, 4)
                 }
             }
-            .accessibilityElement(children: .combine)
+            if !isUser { Spacer(minLength: 64) }
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .sheet(item: $fallbackSelection) { selection in
             ChatArtifactViewerSheet(path: selection.path)
+                .environment(\.chatArtifactLoader, artifactLoader)
+        }
+    }
+
+    private var isUser: Bool { role == .user }
+
+    @ViewBuilder
+    private var attachmentContent: some View {
+        switch attachment.media {
+        case .image:
+            imageAttachment
+        case .file:
+            fileAttachment
         }
     }
 
     @ViewBuilder
-    private var artifactAwareBubble: some View {
-        if artifactLoader.supportsArtifacts, let hostPath = attachment.hostPath, !hostPath.isEmpty {
+    private var imageAttachment: some View {
+        if let hostPath {
             Button {
-                if let onOpenArtifact {
-                    onOpenArtifact(hostPath)
-                } else {
-                    fallbackSelection = ChatArtifactPathSelection(path: hostPath)
-                }
+                openArtifact(path: hostPath)
             } label: {
-                if thumbnailFailed {
-                    bubble
-                } else {
-                    thumbnailBubble(hostPath: hostPath)
-                }
+                imagePreview
             }
             .buttonStyle(.plain)
-            .task(id: hostPath) {
-                await loadThumbnail(path: hostPath)
+            .accessibilityLabel(displayName)
+            .accessibilityHint(openPreviewHint)
+            .accessibilityIdentifier("ChatAttachmentImagePreview")
+            .task(id: currentThumbnailTaskID) {
+                guard let taskID = currentThumbnailTaskID else { return }
+                await loadThumbnail(taskID: taskID)
             }
         } else {
-            bubble
+            imagePreview
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(displayName)
+                .accessibilityIdentifier("ChatAttachmentImagePreview")
         }
     }
 
-    private var bubble: some View {
+    @ViewBuilder
+    private var fileAttachment: some View {
+        if artifactLoader.supportsArtifacts, let hostPath {
+            Button {
+                openArtifact(path: hostPath)
+            } label: {
+                fileBubble
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(displayName)
+            .accessibilityHint(openPreviewHint)
+        } else {
+            fileBubble
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(displayName)
+        }
+    }
+
+    private var fileBubble: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Image(systemName: "photo")
+                Image(systemName: "doc")
                     .font(.caption)
                 Text(displayName)
                     .font(.caption)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(fileBubbleTextStyle)
             if let hostPath = attachment.hostPath, !hostPath.isEmpty {
                 Text(hostPath)
                     .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(fileBubbleSecondaryTextStyle)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(theme.outgoingBubbleFill, in: bubbleShape)
+        .background(isUser ? theme.outgoingBubbleFill : theme.incomingBubbleFill, in: bubbleShape)
     }
 
-    private func thumbnailBubble(hostPath: String) -> some View {
-        HStack(spacing: 8) {
-            thumbnailImage
-                .frame(width: 48, height: 48)
-                .background(.white.opacity(0.16), in: .rect(cornerRadius: 6))
-                .clipShape(.rect(cornerRadius: 6))
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Image(systemName: "photo")
-                        .font(.caption)
-                    Text(displayName)
-                        .font(.caption)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Text(hostPath)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
+    private var fileBubbleTextStyle: Color {
+        isUser ? .white : .primary
+    }
+
+    private var fileBubbleSecondaryTextStyle: Color {
+        isUser ? .white.opacity(0.7) : .secondary
+    }
+
+    private var imagePreview: some View {
+        ZStack {
+            theme.terminalCardFill
+            imagePreviewContent
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(theme.outgoingBubbleFill, in: bubbleShape)
+        .frame(width: previewSize.width, height: previewSize.height)
+        .clipShape(bubbleShape)
+        .overlay {
+            bubbleShape
+                .stroke(theme.hairline.opacity(0.7), lineWidth: 0.5)
+        }
+        .contentShape(bubbleShape)
     }
 
     @ViewBuilder
-    private var thumbnailImage: some View {
-        if let thumbnailData {
+    private var imagePreviewContent: some View {
+        if let currentThumbnailRequest,
+           thumbnailRequest == currentThumbnailRequest,
+           let thumbnailData {
             #if canImport(UIKit)
             if let image = UIImage(data: thumbnailData) {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                placeholderThumbnail
+                unavailablePreview
             }
             #elseif canImport(AppKit)
             if let image = NSImage(data: thumbnailData) {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFill()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                placeholderThumbnail
+                unavailablePreview
             }
             #else
-            placeholderThumbnail
+            unavailablePreview
             #endif
+        } else if !artifactLoader.supportsArtifacts
+            || hostPath == nil
+            || (thumbnailRequest == currentThumbnailRequest && thumbnailFailed) {
+            unavailablePreview
         } else {
-            placeholderThumbnail
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white.opacity(0.82))
         }
     }
 
-    private var placeholderThumbnail: some View {
-        Image(systemName: "photo")
-            .font(.title3)
-            .foregroundStyle(.white.opacity(0.82))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private var unavailablePreview: some View {
+        VStack(spacing: 7) {
+            Image(systemName: "photo")
+                .font(.title2)
+            Text(
+                String(
+                    localized: "chat.artifact.preview_unavailable.title",
+                    defaultValue: "Preview unavailable",
+                    bundle: .module
+                )
+            )
+            .font(.caption)
+        }
+        .foregroundStyle(.white.opacity(0.82))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var previewLayout: ChatAttachmentPreviewLayout {
+        ChatAttachmentPreviewLayout(
+            pixelWidth: attachment.pixelWidth,
+            pixelHeight: attachment.pixelHeight,
+            aspectRatio: attachment.aspectRatio
+        )
+    }
+
+    private var previewSize: CGSize {
+        let resolvedMaxWidth = bubbleMaxWidth.isFinite && bubbleMaxWidth > 0 ? bubbleMaxWidth : 320
+        return previewLayout.size(maxWidth: resolvedMaxWidth)
+    }
+
+    private var hostPath: String? {
+        guard let hostPath = attachment.hostPath, !hostPath.isEmpty else { return nil }
+        return hostPath
+    }
+
+    private var currentThumbnailRequest: ChatAttachmentThumbnailRequest? {
+        guard let hostPath else { return nil }
+        return ChatAttachmentThumbnailRequest(
+            path: hostPath,
+            scope: artifactLoader.scope,
+            supportsArtifacts: artifactLoader.supportsArtifacts,
+            byteCount: attachment.byteCount.map(Int64.init)
+        )
+    }
+
+    private var currentThumbnailTaskID: ChatAttachmentThumbnailTaskID? {
+        guard let request = currentThumbnailRequest else { return nil }
+        return ChatAttachmentThumbnailTaskID(
+            request: request,
+            retryAttempt: thumbnailRetryAttempt
+        )
     }
 
     /// Trailing-side grouped-corner shape matching the prose bubble rules.
@@ -187,6 +272,14 @@ public struct ChatAttachmentBubbleView: View {
         let tight = theme.bubbleGroupedCornerRadius
         let tightTop = groupPosition == .middle || groupPosition == .last
         let tightBottom = groupPosition == .first || groupPosition == .middle
+        if !isUser {
+            return UnevenRoundedRectangle(
+                topLeadingRadius: tightTop ? tight : full,
+                bottomLeadingRadius: tightBottom ? tight : full,
+                bottomTrailingRadius: full,
+                topTrailingRadius: full
+            )
+        }
         return UnevenRoundedRectangle(
             topLeadingRadius: full,
             bottomLeadingRadius: full,
@@ -199,20 +292,90 @@ public struct ChatAttachmentBubbleView: View {
         if let name = attachment.displayName, !name.isEmpty {
             return name
         }
-        return String(localized: "chat.attachment.image", defaultValue: "Image", bundle: .module)
+        switch attachment.media {
+        case .image:
+            return String(localized: "chat.attachment.image", defaultValue: "Image", bundle: .module)
+        case .file:
+            return String(localized: "chat.attachment.file", defaultValue: "File", bundle: .module)
+        }
     }
 
-    private func loadThumbnail(path: String) async {
-        if thumbnailPath != path {
-            thumbnailPath = path
+    private var openPreviewHint: String {
+        String(
+            localized: "chat.attachment.open_preview_hint",
+            defaultValue: "Opens the full preview",
+            bundle: .module
+        )
+    }
+
+    private func openArtifact(path: String) {
+        if let onOpenArtifact {
+            onOpenArtifact(path)
+        } else {
+            fallbackSelection = ChatArtifactPathSelection(path: path)
+        }
+    }
+
+    private func loadThumbnail(taskID: ChatAttachmentThumbnailTaskID) async {
+        let request = taskID.request
+        if thumbnailRequest != request {
+            thumbnailRequest = request
             thumbnailData = nil
             thumbnailFailed = false
+            thumbnailRetryAttempt = 0
+        }
+        guard thumbnailRetryAttempt == taskID.retryAttempt else { return }
+        guard request.supportsArtifacts else {
+            thumbnailFailed = true
+            return
         }
         guard thumbnailData == nil, !thumbnailFailed else { return }
         do {
-            thumbnailData = try await artifactLoader.thumbnail(path: path, maxDimension: 256).data
+            let thumbnail = try await artifactLoader.thumbnail(
+                path: request.path,
+                maxDimension: 1_024,
+                size: request.byteCount
+            )
+            guard !Task.isCancelled, thumbnailRequest == request else { return }
+            thumbnailData = thumbnail.data
+        } catch is CancellationError {
+            return
         } catch {
-            thumbnailFailed = true
+            guard thumbnailRequest == request else { return }
+            guard let delay = ChatAttachmentThumbnailRetryPolicy.delayNanoseconds(
+                forAttempt: taskID.retryAttempt
+            ) else {
+                thumbnailFailed = true
+                return
+            }
+            thumbnailFailed = false
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled,
+                  thumbnailRequest == request,
+                  thumbnailData == nil,
+                  thumbnailRetryAttempt == taskID.retryAttempt else { return }
+            thumbnailRetryAttempt = taskID.retryAttempt + 1
         }
+    }
+}
+
+private struct ChatAttachmentThumbnailRequest: Hashable {
+    let path: String
+    let scope: ChatArtifactLoaderScope
+    let supportsArtifacts: Bool
+    let byteCount: Int64?
+}
+
+private struct ChatAttachmentThumbnailTaskID: Hashable {
+    let request: ChatAttachmentThumbnailRequest
+    let retryAttempt: Int
+}
+
+enum ChatAttachmentThumbnailRetryPolicy {
+    private static let delaysInMilliseconds: [UInt64] = [250, 600, 1_200, 2_400]
+
+    static func delayNanoseconds(forAttempt attempt: Int) -> UInt64? {
+        guard delaysInMilliseconds.indices.contains(attempt) else { return nil }
+        return delaysInMilliseconds[attempt] * 1_000_000
     }
 }

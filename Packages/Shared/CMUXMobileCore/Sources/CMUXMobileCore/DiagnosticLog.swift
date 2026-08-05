@@ -315,6 +315,7 @@ public final class DiagnosticLog: Sendable {
             commandContinuation: AsyncStream<DrainCommand>.Continuation
         ) {
             let (events, eventContinuation) = Self.makeEventSegment(capacity: capacity)
+            // lint:allow lock - same sanctioned synchronous DiagnosticLog state lock as the property above.
             self.state = OSAllocatedUnfairLock(initialState: State(
                 capacity: capacity,
                 commandContinuation: commandContinuation,
