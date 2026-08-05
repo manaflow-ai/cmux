@@ -895,9 +895,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// the controller paints the affected cells directly instead.
     private var reorderIndicatorPainter: SidebarWorkspaceTableReorderIndicatorPainter?
 
-    /// Workspace id parsed from the drag pasteboard at validateDrop time.
-    /// Survives dragState teardown (app-resign failsafe) so re-plans and the
-    /// final drop can re-arm the drag instead of silently no-oping.
+    /// Workspace id captured when the source mints its drag payload and
+    /// refreshed from the pasteboard at validateDrop time. Survives dragState
+    /// teardown so re-plans and the final drop can re-arm the drag.
     private var reorderDragPayloadWorkspaceId: UUID?
 
     /// True while `rows` is an AppKit-owned preview derived from
@@ -1193,6 +1193,27 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         reorderDragWindowPoint = windowPoint
         return true
+    }
+
+    /// Resolves a simulated drag target against the controller's displayed
+    /// rows, then enters the same window-point path used by native dragging.
+    /// Target lookup stays pure and never asks the drag source to mint a new
+    /// pasteboard payload, which would replace the workspace being dragged.
+    @discardableResult
+    func updateReorderDrag(targetWorkspaceId: UUID, edge: SidebarDropEdge) -> Bool {
+        guard let table = containerView?.tableView,
+              let targetRow = rows.firstIndex(where: { $0.workspaceId == targetWorkspaceId })
+        else {
+            return false
+        }
+        let rect = table.rect(ofRow: targetRow)
+        guard !rect.isEmpty else { return false }
+        let edgeInset = max(1, rect.height * 0.2)
+        let tablePoint = NSPoint(
+            x: rect.midX,
+            y: edge == .top ? rect.minY + edgeInset : rect.maxY - edgeInset
+        )
+        return updateReorderDrag(windowPoint: table.convert(tablePoint, to: nil))
     }
 
     private func retireReorderIndicator(preservingPreview: Bool = false) {

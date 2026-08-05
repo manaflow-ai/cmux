@@ -10694,28 +10694,9 @@ class TerminalController {
             edge: SidebarDropEdge
         ) -> Bool {
             guard let controller = table.workspaceController else { return false }
-            let pasteboardType = NSPasteboard.PasteboardType(
-                SidebarTabDragPayload.typeIdentifier
-            )
-            let targetRow = (0..<table.numberOfRows).first { row in
-                guard let item = controller.tableView(table, pasteboardWriterForRow: row)
-                        as? NSPasteboardItem else {
-                    return false
-                }
-                return SidebarTabDragPayload.workspaceId(
-                    fromPasteboardString: item.string(forType: pasteboardType)
-                ) == targetWorkspaceId
-            }
-            guard let targetRow else { return false }
-            let rect = table.rect(ofRow: targetRow)
-            guard !rect.isEmpty else { return false }
-            let edgeInset = max(1, rect.height * 0.2)
-            let tablePoint = NSPoint(
-                x: rect.midX,
-                y: edge == .top ? rect.minY + edgeInset : rect.maxY - edgeInset
-            )
             return controller.updateReorderDrag(
-                windowPoint: table.convert(tablePoint, to: nil)
+                targetWorkspaceId: targetWorkspaceId,
+                edge: edge
             )
         }
 
