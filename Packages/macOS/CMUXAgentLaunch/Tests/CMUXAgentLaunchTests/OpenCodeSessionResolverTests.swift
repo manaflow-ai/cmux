@@ -25,6 +25,41 @@ struct OpenCodeSessionResolverTests {
     }
 
     @Test
+    func capturedEffectiveDatabasePathTakesPrecedenceOverDefaultStorage() {
+        let resolver = OpenCodeSessionResolver(defaultHomeDirectory: "/tmp/fallback-home")
+
+        #expect(
+            resolver.capturedDatabasePath(env: [
+                "HOME": "/tmp/custom-home",
+                "CMUX_OPENCODE_DATABASE_PATH": "/tmp/custom-home/.local/share/opencode/opencode-dev.db",
+            ]) == "/tmp/custom-home/.local/share/opencode/opencode-dev.db"
+        )
+    }
+
+    @Test
+    func explicitRelativeDatabaseUsesOpenCodeDataDirectory() {
+        let resolver = OpenCodeSessionResolver(defaultHomeDirectory: "/tmp/fallback-home")
+
+        #expect(
+            resolver.capturedDatabasePath(env: [
+                "HOME": "/tmp/custom-home",
+                "OPENCODE_DB": "custom.db",
+            ]) == "/tmp/custom-home/.local/share/opencode/custom.db"
+        )
+    }
+
+    @Test
+    func inMemoryDatabaseIsNotTransferable() {
+        #expect(
+            OpenCodeSessionResolver(defaultHomeDirectory: "/tmp/fallback-home")
+                .capturedDatabasePath(env: [
+                    "HOME": "/tmp/custom-home",
+                    "OPENCODE_DB": ":memory:",
+                ]) == nil
+        )
+    }
+
+    @Test
     func missingCapturedStorageIdentityDoesNotClaimAnExplicitPath() {
         #expect(
             OpenCodeSessionResolver(defaultHomeDirectory: "/tmp/fallback-home")
