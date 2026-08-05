@@ -83,6 +83,29 @@ final class WorkspaceSidebarRenameUITests: XCTestCase {
         )
     }
 
+    /// Control-click is macOS's equivalent of a right-click and must open the
+    /// same workspace row context menu, including "Rename Workspace…".
+    func testControlClickOpensWorkspaceRowContextMenuWithRename() {
+        let app = launchedApp(tag: "ui-rename-ctrl")
+        let row = firstWorkspaceRow(app: app)
+        XCTAssertTrue(
+            pollUntil(timeout: 10.0) { row.exists && row.isHittable },
+            "Expected the initial workspace row to be visible"
+        )
+
+        XCUIElement.perform(withKeyModifiers: .control) {
+            row.click()
+        }
+
+        let renameItem = app.descendants(matching: .menuItem)
+            .matching(NSPredicate(format: "title BEGINSWITH %@", "Rename Workspace"))
+            .firstMatch
+        XCTAssertTrue(
+            pollUntil(timeout: 5.0) { renameItem.exists },
+            "Control-click on a workspace row should open the row context menu with \"Rename Workspace…\""
+        )
+    }
+
     // MARK: Helpers
 
     private func launchedApp(tag: String) -> XCUIApplication {
