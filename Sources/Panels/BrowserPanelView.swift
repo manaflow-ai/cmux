@@ -351,6 +351,7 @@ struct BrowserPanelView: View {
         isVisibleInUI: Bool,
         portalPriority: Int,
         paneOwnershipOverride: Bool? = nil,
+        portalVisibilityResolver: (@MainActor () -> Bool)? = nil,
         onRequestPanelFocus: @escaping () -> Void
     ) {
         self.panel = panel
@@ -359,6 +360,7 @@ struct BrowserPanelView: View {
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
         self.paneOwnershipOverride = paneOwnershipOverride
+        self.portalVisibilityResolver = portalVisibilityResolver
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
             for: .light,
