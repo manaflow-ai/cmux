@@ -259,6 +259,7 @@ jobs:
 
       - name: Validate SwiftPM lockfile policy
         run: |
+          python3 tests/test_package_resolved_policy_remote_inputs.py
           python3 tests/test_check_package_resolved_policy.py
           python3 scripts/check-package-resolved-policy.py
 
