@@ -16217,12 +16217,17 @@ mod tests {
     #[test]
     fn exited_host_cell_pixels_converge_without_a_live_host() {
         let mux = test_mux();
-        let surface = insert_terminal_identity_surface(
-            &mux,
-            "00112233445566778899aabbccddeeff",
-            "11111111111111111111111111111111",
-            "exited-cell-pixels",
-        );
+        let surface = Surface::exited_terminal_placeholder(
+            mux.next_id(),
+            mux.surface_options.lock().unwrap().clone(),
+            Arc::downgrade(&mux),
+            TerminalHostIdentity {
+                terminal_id: "00112233445566778899aabbccddeeff".into(),
+                incarnation: "11111111111111111111111111111111".into(),
+            },
+        )
+        .unwrap();
+        insert_surface_checked(&mut mux.state.lock().unwrap(), surface.clone()).unwrap();
 
         let update = mux.set_cell_pixel_size(16, 32);
 
