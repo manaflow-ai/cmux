@@ -6088,6 +6088,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // repeating the filesystem operation.
         guard localFileReadAccessPolicy == .fileOnly, fileURL.isFileURL else { return false }
         cancelPendingFileOnlyNavigation()
+        forgetTerminalFileReuseIdentity()
         let request = URLRequest(
             url: fileURL,
             cachePolicy: .reloadIgnoringLocalCacheData
@@ -6116,6 +6117,10 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted?(nil)
             return nil
         }
+        // Invalidate reuse when navigation is requested, before an asynchronous
+        // file-only probe begins. The workspace may record the initial terminal
+        // file identity while that probe is still running.
+        forgetTerminalFileReuseIdentity()
         if localFileReadAccessPolicy == .fileOnly, url.isFileURL {
             enqueueFileOnlyNavigation(
                 request: request,
@@ -6143,7 +6148,6 @@ final class BrowserPanel: Panel, ObservableObject {
         validatedReadableFileURL: URL? = nil,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
-        forgetTerminalFileReuseIdentity()
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
