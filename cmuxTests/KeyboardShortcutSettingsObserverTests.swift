@@ -236,14 +236,7 @@ extension GlobalSearchShortcutBehaviorTests {
         }
 
         cache.requestRefresh()
-        var heartbeat = false
-        Task { @MainActor in heartbeat = true }
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
-        while !heartbeat, clock.now < deadline {
-            await Task.yield()
-        }
-        #expect(heartbeat, "MainActor heartbeat did not run before the deadline")
+        await Task { @MainActor in }.value
 
         #expect(cache.snapshot.inputSourceID == "old")
         #expect(cache.snapshot.shortcutCharacter(forKeyCode: 0, modifierFlags: []) == "a")

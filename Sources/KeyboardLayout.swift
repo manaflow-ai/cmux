@@ -12,11 +12,10 @@ enum KeyboardLayout {
     #endif
 
     @MainActor private static var inputSourceObserver: NSObjectProtocol?
+    private nonisolated static let systemLoader = KeyboardLayoutSystemLoader()
     @MainActor private static let snapshotCache = KeyboardLayoutSnapshotCache(
         initialSnapshot: .usBootstrap,
-        loader: {
-            KeyboardLayoutSystemLoader.loadCurrentSnapshot()
-        }
+        loader: systemLoader.loadCurrentSnapshot
     ) { _ in
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }

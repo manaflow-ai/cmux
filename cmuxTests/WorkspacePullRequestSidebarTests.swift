@@ -711,14 +711,11 @@ final class WorkspacePullRequestSidebarTests {
 
         XCTAssertEqual(cache.snapshot, .disabled)
         cache.requestRefresh()
-        var heartbeat = false
-        Task { @MainActor in heartbeat = true }
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
-        while !heartbeat, clock.now < deadline {
-            await Task.yield()
+        let heartbeat = expectation(description: "MainActor heartbeat")
+        Task { @MainActor in
+            heartbeat.fulfill()
         }
-        XCTAssertTrue(heartbeat, "MainActor heartbeat did not run before the deadline")
+        await fulfillment(of: [heartbeat], timeout: 10)
 
         XCTAssertEqual(cache.snapshot, .disabled)
         loader.release()

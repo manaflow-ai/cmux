@@ -40,12 +40,11 @@ private struct KeyboardLayoutDebugInputSource {
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags
     ) -> String? {
-        let characters = KeyboardLayoutSystemLoader.translatedCharacters(
+        let characters = KeyboardLayoutSystemLoader(keyCodes: [keyCode]).translatedCharacters(
             from: source,
             modifierFlags: [modifierFlags],
             mode: .textInput,
-            lowercased: false,
-            keyCodes: [keyCode]
+            lowercased: false
         )
         return characters[KeyboardLayoutSnapshot.Key(
             keyCode: keyCode,

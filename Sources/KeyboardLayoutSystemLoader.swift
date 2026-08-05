@@ -2,16 +2,26 @@ import AppKit
 import Carbon
 import Foundation
 
-enum KeyboardLayoutSystemLoader {
-    private static let keyCodes = Array(UInt16(0)...UInt16(127))
-    private static let shortcutModifierFlags: [NSEvent.ModifierFlags] = [
-        [], .shift, .command, [.shift, .command],
-    ]
-    private static let textInputModifierFlags: [NSEvent.ModifierFlags] = [
-        [], .shift, .option, [.shift, .option],
-    ]
+struct KeyboardLayoutSystemLoader: Sendable {
+    private let keyCodes: [UInt16]
+    private let shortcutModifierFlags: [NSEvent.ModifierFlags]
+    private let textInputModifierFlags: [NSEvent.ModifierFlags]
 
-    static func loadCurrentSnapshot() -> KeyboardLayoutSnapshot? {
+    init(
+        keyCodes: [UInt16] = Array(UInt16(0)...UInt16(127)),
+        shortcutModifierFlags: [NSEvent.ModifierFlags] = [
+            [], .shift, .command, [.shift, .command],
+        ],
+        textInputModifierFlags: [NSEvent.ModifierFlags] = [
+            [], .shift, .option, [.shift, .option],
+        ]
+    ) {
+        self.keyCodes = keyCodes
+        self.shortcutModifierFlags = shortcutModifierFlags
+        self.textInputModifierFlags = textInputModifierFlags
+    }
+
+    func loadCurrentSnapshot() -> KeyboardLayoutSnapshot? {
         guard let currentSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else {
             return nil
         }
@@ -59,7 +69,7 @@ enum KeyboardLayoutSystemLoader {
         )
     }
 
-    private static func inputSourceID(from source: TISInputSource) -> String? {
+    private func inputSourceID(from source: TISInputSource) -> String? {
         guard let sourceIDPointer = TISGetInputSourceProperty(
             source,
             kTISPropertyInputSourceID
@@ -71,12 +81,11 @@ enum KeyboardLayoutSystemLoader {
             .takeUnretainedValue() as String
     }
 
-    static func translatedCharacters(
+    func translatedCharacters(
         from source: TISInputSource,
         modifierFlags: [NSEvent.ModifierFlags],
         mode: KeyboardLayoutModifierTranslationMode,
-        lowercased: Bool,
-        keyCodes: [UInt16] = Array(UInt16(0)...UInt16(127))
+        lowercased: Bool
     ) -> [KeyboardLayoutSnapshot.Key: String] {
         guard let layoutDataPointer = TISGetInputSourceProperty(
             source,
@@ -119,7 +128,7 @@ enum KeyboardLayoutSystemLoader {
         return result
     }
 
-    private static func translationModifierKeyState(
+    private func translationModifierKeyState(
         for modifierFlags: NSEvent.ModifierFlags,
         mode: KeyboardLayoutModifierTranslationMode
     ) -> UInt32 {
