@@ -2063,6 +2063,9 @@ trait MessageSink: Send + Sync {
     }
     fn is_open(&self) -> bool;
     fn close(&self);
+    fn close_after_control(&self) {
+        self.close();
+    }
 }
 
 /// Transport-independent writer shared by command responses and event streams.
@@ -2267,14 +2270,26 @@ impl MessageWriter {
         }
     }
 
-    fn close(&self) {
+    fn close_with(&self, preserve_control: bool) {
         if self.open.swap(false, Ordering::AcqRel) {
             let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
-            self.sink.close();
+            if preserve_control {
+                self.sink.close_after_control();
+            } else {
+                self.sink.close();
+            }
         }
+    }
+
+    fn close_after_control(&self) {
+        self.close_with(true);
+    }
+
+    fn close(&self) {
+        self.close_with(false);
     }
 }
 
@@ -2918,6 +2933,20 @@ impl BoundedOutbound {
         self.state.lock().unwrap().closed = true;
         self.changed.notify_all();
     }
+
+    fn close_after_control(&self) {
+        let mut state = self.state.lock().unwrap();
+        for usage in state.stream_usage.values() {
+            usage.stream.close();
+        }
+        state.initial.clear();
+        state.regular.clear();
+        state.stream_usage.clear();
+        state.regular_bytes = 0;
+        state.closed = true;
+        drop(state);
+        self.changed.notify_all();
+    }
 }
 
 struct QueuedSink {
@@ -3074,6 +3103,10 @@ impl MessageSink for QueuedSink {
 
     fn close(&self) {
         self.outbound.close();
+    }
+
+    fn close_after_control(&self) {
+        self.outbound.close_after_control();
     }
 }
 
@@ -4697,8 +4730,10 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
                     .send_terminal(&json!({"event": "detached", "surface": surface}), stream);
             }
         }
+        record.writer.close_after_control();
+    } else {
+        record.writer.close();
     }
-    record.writer.close();
     mux.emit(MuxEvent::ClientDetached(client));
     true
 }
@@ -16534,17 +16569,11 @@ mod tests {
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         let events = mux.subscribe();
         let attached_stream = writer.start_stream(&json!({"event": "attach-overflow"})).unwrap();
-        mux.control_clients
-            .attach_surface(client, surface.id, attached_stream.clone())
-            .unwrap();
-        mux.control_clients
-            .commit_surface(client, surface.id, attached_stream.id, None)
-            .unwrap();
+        mux.control_clients.attach_surface(client, surface.id, attached_stream.clone()).unwrap();
+        mux.control_clients.commit_surface(client, surface.id, attached_stream.id, None).unwrap();
         let subscription_stream =
             writer.start_stream(&json!({"event": "subscription-overflow"})).unwrap();
-        writer
-            .send_stream(&json!({"event": "stale-subscription"}), &subscription_stream)
-            .unwrap();
+        writer.send_stream(&json!({"event": "stale-subscription"}), &subscription_stream).unwrap();
         mux.resize_surface_for_client(surface.id, client, 80, 24).unwrap();
 
         assert!(!handle_message(
