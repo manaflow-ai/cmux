@@ -183,6 +183,7 @@ jobs:
       - name: Download pre-built GhosttyKit.xcframework
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHOSTTYKIT_RELEASE_TAG: xcframework-80d7fb35ac74f4c3cb4456b65b3d495cb1513eee-crashsubdir-cmux-crash-v1
         run: |
           set -euo pipefail
           ./scripts/download-prebuilt-ghosttykit.sh
