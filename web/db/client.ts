@@ -24,15 +24,22 @@ const globalForDb = globalThis as typeof globalThis & {
 };
 
 export function createAwsRdsIamPool(config: CloudDbAwsRdsIamConfig): Pool {
+  // Vercel supplies a short-lived OIDC token in deployed functions. The
+  // operator migration command may instead run under an already-authenticated
+  // AWS identity; in that case let the AWS SDK use its standard credential
+  // chain rather than requiring a synthetic Vercel token.
+  const credentials = process.env.VERCEL_OIDC_TOKEN
+    ? awsCredentialsProvider({
+      roleArn: config.awsRoleArn,
+      clientConfig: { region: config.awsRegion },
+    })
+    : undefined;
   const signer = new Signer({
     hostname: config.host,
     port: config.port,
     username: config.user,
     region: config.awsRegion,
-    credentials: awsCredentialsProvider({
-      roleArn: config.awsRoleArn,
-      clientConfig: { region: config.awsRegion },
-    }),
+    ...(credentials ? { credentials } : {}),
   });
 
   return new Pool({
