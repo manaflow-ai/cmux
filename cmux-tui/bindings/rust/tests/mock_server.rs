@@ -42,6 +42,15 @@ fn socket_path() -> PathBuf {
     ))
 }
 
+fn scaled_test_duration(duration: Duration) -> Duration {
+    let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(1)
+        .max(1);
+    duration.saturating_mul(scale)
+}
+
 fn request(reader: &mut BufReader<UnixStream>) -> Value {
     let mut line = String::new();
     assert_ne!(reader.read_line(&mut line).unwrap(), 0);
@@ -1073,6 +1082,10 @@ fn streams_are_typed_and_cancel_uses_the_same_scoped_connection() {
 fn acknowledged_stream_remains_open_past_the_request_timeout() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
+    let request_timeout = scaled_test_duration(Duration::from_millis(250));
+    let idle_delay = request_timeout.saturating_mul(2);
+    let (release_first_half, wait_for_first_half) = mpsc::channel();
+    let (release_second_half, wait_for_second_half) = mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();
@@ -1084,7 +1097,7 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
 
         // The request deadline bounds only opening the stream. An acknowledged
         // stream may remain healthy and idle for longer than that deadline.
-        thread::sleep(Duration::from_millis(150));
+        wait_for_first_half.recv().unwrap();
         let item = serde_json::to_vec(&json!({
             "protocol": "cmux.protocol/1",
             "type": "stream_item",
@@ -1096,7 +1109,7 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
         let midpoint = item.len() / 2;
         stream.write_all(&item[..midpoint]).unwrap();
         stream.flush().unwrap();
-        thread::sleep(Duration::from_millis(150));
+        wait_for_second_half.recv().unwrap();
         stream.write_all(&item[midpoint..]).unwrap();
         stream.write_all(b"\n").unwrap();
 
@@ -1117,16 +1130,22 @@ fn acknowledged_stream_remains_open_past_the_request_timeout() {
         drop(control);
     });
 
-    let client = cmux::Client::connect(
-        Config::from_socket_path(&path).with_timeout(Duration::from_millis(50)),
-    )
-    .unwrap();
+    let client =
+        cmux::Client::connect(Config::from_socket_path(&path).with_timeout(request_timeout))
+            .unwrap();
     let mut events = client
         .session(SessionId::parse(SESSION).unwrap())
         .events(EventStreamOptions::default())
         .unwrap();
+    let release = thread::spawn(move || {
+        thread::sleep(idle_delay);
+        release_first_half.send(()).unwrap();
+        thread::sleep(idle_delay);
+        release_second_half.send(()).unwrap();
+    });
     let item = events.recv().unwrap().unwrap();
     assert!(matches!(item.value, SessionEvent::Unknown { .. }));
+    release.join().unwrap();
     events.cancel().unwrap();
     client.close().unwrap();
     server.join().unwrap();
