@@ -1530,6 +1530,7 @@
       "flagDesc": "Descrizione",
       "flagNameVal": "Imposta il titolo dell'area di lavoro",
       "flagCommand": "Esegui il testo del comando una volta nel terminale remoto iniziale dopo l'avvio della shell",
+      "flagCwd": "Avvia la shell remota in questa directory invece di quella predefinita di accesso; si combina con --command",
       "flagPort": "Porta SSH (predefinita 22)",
       "flagIdentity": "Percorso del file di identità",
       "flagSshOption": "Passa opzioni SSH arbitrarie (ad esempio -o StrictHostKeyChecking=no)",

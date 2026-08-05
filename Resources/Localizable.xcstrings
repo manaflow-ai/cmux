@@ -37985,10 +37985,52 @@
     "cli.help.ssh.workingDirectory": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دليل العمل البعيد:\n  --cwd <path>            يبدأ الصدفة البعيدة في path بدلاً من دليل تسجيل الدخول الافتراضي\n\nيُحلّ المسار على المضيف البعيد، لذا يتوسّع `~` هناك. يمكن دمجه مع --command:\nيغيّر cmux الدليل أولاً ثم يشغّل الأمر هناك.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udaljeni radni direktorij:\n  --cwd <path>            Pokreni udaljenu ljusku u path umjesto u podrazumijevanom direktoriju prijave\n\nPutanja se razrješava na udaljenom hostu, pa se `~` širi tamo. Kombinuje se s\n--command: cmux prvo promijeni direktorij, zatim tamo pokrene naredbu.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstern arbejdsmappe:\n  --cwd <path>            Start fjern-shellen i path i stedet for login-standarden\n\nStien opløses på fjernværten, så `~` udvides der. Den kombineres med\n--command: cmux skifter mappe først og kører derefter kommandoen der.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Arbeitsverzeichnis:\n  --cwd <path>            Remote-Shell in path statt im Login-Standard starten\n\nDer Pfad wird auf dem Remote-Host aufgelöst, `~` wird dort erweitert. Kombinierbar\nmit --command: cmux wechselt zuerst das Verzeichnis und führt den Befehl dort aus.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Remote working directory:\n  --cwd <path>            Start the remote shell in path instead of the login default\n\nThe path is resolved on the remote host, so `~` expands there. It combines\nwith --command: cmux changes directory first, then runs the command there.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directorio de trabajo remoto:\n  --cwd <path>            Inicia el shell remoto en path en lugar del predeterminado de inicio de sesión\n\nLa ruta se resuelve en el host remoto, así que `~` se expande allí. Se combina con\n--command: cmux cambia de directorio primero y luego ejecuta el comando allí.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répertoire de travail distant :\n  --cwd <path>            Démarre le shell distant dans path au lieu du répertoire par défaut\n\nLe chemin est résolu sur l’hôte distant, donc `~` y est développé. Combinable avec\n--command : cmux change d’abord de répertoire, puis exécute la commande là-bas.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directory di lavoro remota:\n  --cwd <path>            Avvia la shell remota in path invece della predefinita di accesso\n\nIl percorso viene risolto sull’host remoto, quindi `~` si espande lì. Si combina con\n--command: cmux cambia prima directory, poi esegue lì il comando.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
           }
         },
         "ja": {
@@ -37996,16 +38038,124 @@
             "state": "translated",
             "value": "リモート作業ディレクトリ:\n  --cwd <path>            ログイン既定のディレクトリではなく path でリモートシェルを開始します\n\nパスはリモートホスト側で解決されるため、`~` はリモートで展開されます。--command と併用でき、cmux は先にディレクトリを移動してからコマンドを実行します。\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតការងារពីចម្ងាយ:\n  --cwd <path>            ចាប់ផ្តើម shell ពីចម្ងាយនៅ path ជំនួសថតលំនាំដើម\n\nផ្លូវត្រូវបានដោះស្រាយនៅលើ host ពីចម្ងាយ ដូច្នេះ `~` ពង្រីកនៅទីនោះ។ អាចប្រើជាមួយ\n--command៖ cmux ប្តូរថតជាមុនសិន បន្ទាប់មកដំណើរការពាក្យបញ្ជានៅទីនោះ។\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 작업 디렉터리:\n  --cwd <path>            로그인 기본값 대신 path에서 원격 셸을 시작합니다\n\n경로는 원격 호스트에서 확인되므로 `~`도 원격에서 확장됩니다. --command와 함께\n사용할 수 있으며, cmux가 먼저 디렉터리를 옮긴 뒤 그곳에서 명령을 실행합니다.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstern arbeidsmappe:\n  --cwd <path>            Start fjernskallet i path i stedet for påloggingsstandarden\n\nStien løses opp på den eksterne verten, så `~` utvides der. Kan kombineres med\n--command: cmux bytter mappe først og kjører deretter kommandoen der.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zdalny katalog roboczy:\n  --cwd <path>            Uruchom zdalną powłokę w path zamiast domyślnego katalogu logowania\n\nŚcieżka jest rozwiązywana na zdalnym hoście, więc `~` rozwija się tam. Łączy się z\n--command: cmux najpierw zmienia katalog, a potem uruchamia tam polecenie.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diretório de trabalho remoto:\n  --cwd <path>            Inicia o shell remoto em path em vez do padrão de login\n\nO caminho é resolvido no host remoto, então `~` se expande lá. Combina com\n--command: o cmux muda de diretório primeiro e executa o comando ali.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалённый рабочий каталог:\n  --cwd <path>            Запустить удалённую оболочку в path вместо каталога входа по умолчанию\n\nПуть разрешается на удалённом хосте, поэтому `~` раскрывается там. Сочетается с\n--command: cmux сначала меняет каталог, затем выполняет там команду.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไดเรกทอรีทำงานระยะไกล:\n  --cwd <path>            เริ่มเชลล์ระยะไกลใน path แทนค่าเริ่มต้นเมื่อเข้าสู่ระบบ\n\nเส้นทางถูกแปลงบนโฮสต์ระยะไกล ดังนั้น `~` จะขยายที่นั่น ใช้ร่วมกับ --command ได้:\ncmux จะเปลี่ยนไดเรกทอรีก่อน แล้วจึงรันคำสั่งที่นั่น\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzak çalışma dizini:\n  --cwd <path>            Uzak kabuğu oturum açma varsayılanı yerine path içinde başlat\n\nYol uzak makinede çözülür, bu yüzden `~` orada genişler. --command ile birlikte\nkullanılır: cmux önce dizini değiştirir, sonra komutu orada çalıştırır.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Віддалений робочий каталог:\n  --cwd <path>            Запустити віддалену оболонку в path замість типового каталогу входу\n\nШлях розв’язується на віддаленому хості, тож `~` розгортається там. Поєднується з\n--command: cmux спершу змінює каталог, а потім виконує там команду.\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程工作目录：\n  --cwd <path>            在 path 中启动远程 shell，而不是登录默认目录\n\n路径在远程主机上解析，因此 `~` 在远程展开。可与 --command 组合使用：\ncmux 先切换目录，然后在该目录中运行命令。\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端工作目錄：\n  --cwd <path>            在 path 中啟動遠端 shell，而非登入預設目錄\n\n路徑在遠端主機上解析，因此 `~` 會在遠端展開。可與 --command 併用：\ncmux 會先切換目錄，再於該目錄執行命令。\n\nExample:\n  cmux ssh dev@my-host --cwd /srv/app\n  cmux ssh dev@my-host --cwd ~/work/cmux --command 'git status'"
+          }
         }
       }
     },
     "cli.ssh.error.cwdInvalidPath": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: يجب أن يكون ‎--cwd مسار دليل بعيد بدون أحرف تحكّم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd mora biti putanja udaljenog direktorija bez kontrolnih znakova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd skal være en ekstern mappesti uden kontroltegn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd muss ein Remote-Verzeichnispfad ohne Steuerzeichen sein"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "ssh: --cwd must be a remote directory path without control characters"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd debe ser una ruta de directorio remoto sin caracteres de control"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : --cwd doit être un chemin de répertoire distant sans caractères de contrôle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd deve essere un percorso di directory remota senza caratteri di controllo"
           }
         },
         "ja": {
@@ -38013,22 +38163,196 @@
             "state": "translated",
             "value": "ssh: --cwd には制御文字を含まないリモートディレクトリのパスを指定してください"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd ត្រូវតែជាផ្លូវថតពីចម្ងាយ ដោយគ្មានតួអក្សរបញ្ជា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd는 제어 문자가 없는 원격 디렉터리 경로여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd må være en ekstern mappesti uten kontrolltegn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd musi być ścieżką zdalnego katalogu bez znaków sterujących"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd deve ser um caminho de diretório remoto sem caracteres de controle"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd должен быть путём к удалённому каталогу без управляющих символов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd ต้องเป็นพาธไดเรกทอรีระยะไกลที่ไม่มีอักขระควบคุม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd denetim karakterleri içermeyen bir uzak dizin yolu olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd має бути шляхом до віддаленого каталогу без керуючих символів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--cwd 必须是不含控制字符的远程目录路径"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--cwd 必須是不含控制字元的遠端目錄路徑"
+          }
         }
       }
     },
     "cli.ssh.error.cwdRequiresPath": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: يتطلّب ‎--cwd مسار دليل بعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd zahtijeva putanju udaljenog direktorija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd kræver en sti til en ekstern mappe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd erfordert einen Remote-Verzeichnispfad"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "ssh: --cwd requires a remote directory path"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd requiere una ruta de directorio remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : --cwd nécessite un chemin de répertoire distant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd richiede il percorso di una directory remota"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ssh: --cwd にはリモートディレクトリのパスが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd ត្រូវការផ្លូវថតពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd에는 원격 디렉터리 경로가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd krever en sti til en ekstern mappe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd wymaga ścieżki zdalnego katalogu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd exige um caminho de diretório remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: для --cwd требуется путь к удалённому каталогу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd ต้องระบุพาธไดเรกทอรีระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --cwd bir uzak dizin yolu gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: для --cwd потрібен шлях до віддаленого каталогу"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--cwd 需要远程目录路径"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--cwd 需要遠端目錄路徑"
           }
         }
       }

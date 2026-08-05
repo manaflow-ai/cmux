@@ -1529,6 +1529,7 @@
       "flagDesc": "Beskrivelse",
       "flagNameVal": "Indstil arbejdsområdets titel",
       "flagCommand": "Kør kommandoteksten én gang i den første fjernterminal efter shell-start",
+      "flagCwd": "Starter fjern-shellen i denne mappe i stedet for login-standarden; kan kombineres med --command",
       "flagPort": "SSH-port (standard 22)",
       "flagIdentity": "Sti til identitetsfil",
       "flagSshOption": "Bestå vilkårlige SSH-indstillinger (f.eks. -o StrictHostKeyChecking=no)",

@@ -1529,6 +1529,7 @@
       "flagDesc": "Açıklama",
       "flagNameVal": "Çalışma alanı başlığını ayarlayın",
       "flagCommand": "Komut metnini kabuk başladıktan sonra ilk uzak terminalde bir kez çalıştırın",
+      "flagCwd": "Uzak kabuğu oturum açma varsayılanı yerine bu dizinde başlatır; --command ile birlikte kullanılabilir",
       "flagPort": "SSH bağlantı noktası (varsayılan 22)",
       "flagIdentity": "Kimlik dosyasının yolu",
       "flagSshOption": "İsteğe bağlı SSH seçeneklerini iletin (ör. -o StrictHostKeyChecking=no)",

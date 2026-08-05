@@ -10291,7 +10291,7 @@ struct CMUXCLI {
             ).joined(separator: "\n")
         )
         let originalRemoteCommand = (
-            RemoteInteractiveShellBootstrapBuilder.changeDirectoryLines(options.initialWorkingDirectory)
+            RemoteWorkingDirectoryScript(path: options.initialWorkingDirectory).lines
                 + [options.extraArguments.joined(separator: " ")]
         ).joined(separator: "\n")
         let remoteCommandPrefix = [

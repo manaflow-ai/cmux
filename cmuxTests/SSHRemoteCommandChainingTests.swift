@@ -392,6 +392,8 @@ struct SSHRemoteWorkingDirectoryTests {
         )
     }
 
+    /// `--cwd` alone lands the interactive login shell in the requested
+    /// directory, including one whose name contains spaces.
     @Test
     func interactiveShellStartsInRequestedWorkingDirectory() throws {
         let host = try makeRemoteHost(named: "plain")
@@ -411,6 +413,8 @@ struct SSHRemoteWorkingDirectoryTests {
         try expectRecordedDirectory(host.pwdResult, equals: workingDirectory)
     }
 
+    /// A `~`-relative `--cwd` expands against the remote `$HOME`, since the
+    /// local shell never saw the value to expand it.
     @Test
     func tildePathExpandsAgainstTheRemoteHome() throws {
         let host = try makeRemoteHost(named: "tilde")
@@ -430,6 +434,8 @@ struct SSHRemoteWorkingDirectoryTests {
         try expectRecordedDirectory(host.pwdResult, equals: workingDirectory)
     }
 
+    /// `--cwd` composes with `--command`: cmux changes directory first, so the
+    /// command observes the requested directory rather than `$HOME`.
     @Test
     func initialCommandRunsInsideTheRequestedWorkingDirectory() throws {
         let host = try makeRemoteHost(named: "combined")
@@ -451,6 +457,8 @@ struct SSHRemoteWorkingDirectoryTests {
         try expectRecordedDirectory(commandResult, equals: workingDirectory)
     }
 
+    /// Omitting `--cwd` emits no `cd` at all, preserving the prior behavior of
+    /// starting wherever the remote login shell starts.
     @Test
     func omittingWorkingDirectoryKeepsTheLoginShellDefault() throws {
         let host = try makeRemoteHost(named: "default")
@@ -467,6 +475,8 @@ struct SSHRemoteWorkingDirectoryTests {
         try expectRecordedDirectory(host.pwdResult, equals: host.home)
     }
 
+    /// A `--cwd` that cannot be entered warns on stderr and leaves the user
+    /// with a working session instead of dropping the connection.
     @Test
     func unreachableWorkingDirectoryWarnsAndKeepsTheSessionAlive() throws {
         let host = try makeRemoteHost(named: "missing")
@@ -485,6 +495,8 @@ struct SSHRemoteWorkingDirectoryTests {
         try expectRecordedDirectory(host.pwdResult, equals: host.home)
     }
 
+    /// The path is quoted, not evaluated: a directory name containing shell
+    /// syntax is entered literally and its embedded command never runs.
     @Test
     func pathsThatCouldInjectShellSyntaxAreQuotedNotEvaluated() throws {
         let host = try makeRemoteHost(named: "injection")
