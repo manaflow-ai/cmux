@@ -839,6 +839,39 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func testSelectedWorkspaceOverridesStaleHiddenPortalSnapshot() {
+        #expect(
+            WorkspacePanelVisibilityPolicy.workspaceVisibleForPortal(
+                isWorkspaceVisibleSnapshot: false,
+                isWorkspaceInputActiveSnapshot: false,
+                isSelectedWorkspace: true
+            )
+        )
+    }
+
+    @Test
+    func testStaleActiveSnapshotDoesNotKeepDeselectedWorkspacePortalVisible() {
+        #expect(
+            !WorkspacePanelVisibilityPolicy.workspaceVisibleForPortal(
+                isWorkspaceVisibleSnapshot: true,
+                isWorkspaceInputActiveSnapshot: true,
+                isSelectedWorkspace: false
+            )
+        )
+    }
+
+    @Test
+    func testRetiringWorkspaceSnapshotKeepsPortalVisibleDuringHandoff() {
+        #expect(
+            WorkspacePanelVisibilityPolicy.workspaceVisibleForPortal(
+                isWorkspaceVisibleSnapshot: true,
+                isWorkspaceInputActiveSnapshot: false,
+                isSelectedWorkspace: false
+            )
+        )
+    }
+
+    @Test
     @MainActor
     func browserPortalUsesLiveSelectedSurfaceWhenVisibilitySnapshotIsStale() async throws {
         _ = NSApplication.shared
