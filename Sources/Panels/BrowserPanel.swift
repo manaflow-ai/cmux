@@ -2771,14 +2771,15 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
     @Published private(set) var webViewInstanceID: UUID = UUID()
-    private(set) var hasRecoverableWebContentTermination = false {
+    /// A failed navigation with a preserved target that the user can retry.
+    private(set) var hasRecoverableNavigationFailure = false {
         willSet {
-            if newValue != hasRecoverableWebContentTermination {
+            if newValue != hasRecoverableNavigationFailure {
                 objectWillChange.send()
             }
         }
     }
-    private var pendingWebContentRecoveryURL: URL?
+    private var pendingNavigationRecoveryURL: URL?
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
@@ -3182,14 +3183,13 @@ final class BrowserPanel: Panel, ObservableObject {
         let onNavigationStarted: ((WKNavigation?) -> Void)?
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
-    private struct PendingFileOnlyNavigation {
-        let id: UUID
-        let request: URLRequest
-        let recordTypedNavigation: Bool
-        let preserveRestoredSessionHistory: Bool
-        let onNavigationStarted: ((WKNavigation?) -> Void)?
-    }
-    private var pendingFileOnlyNavigation: PendingFileOnlyNavigation?
+    private var pendingFileOnlyNavigation: (
+        id: UUID,
+        request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        onNavigationStarted: ((WKNavigation?) -> Void)?
+    )?
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
@@ -4899,7 +4899,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelDeveloperToolsRestoreRetry()
 
         detachWebViewObservers()
-        clearWebContentTerminationRecovery()
+        clearNavigationRecovery()
         clearBrowserFocusMode(reason: "profileSwitch")
         faviconTask?.cancel()
         faviconTask = nil
@@ -5496,11 +5496,11 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if shouldShowManualRecovery, let restoreURL {
-            pendingWebContentRecoveryURL = restoreURL
-            hasRecoverableWebContentTermination = true
+            pendingNavigationRecoveryURL = restoreURL
+            hasRecoverableNavigationFailure = true
             refreshNavigationAvailability()
         } else {
-            clearWebContentTerminationRecovery()
+            clearNavigationRecovery()
             if shouldRestoreURL, let restoreURL {
                 navigateWithoutInsecureHTTPPrompt(
                     to: restoreURL,
@@ -5527,16 +5527,16 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func recoverTerminatedWebContent(
+    func recoverFailedNavigation(
         reason: String = "manual",
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) -> Bool {
-        guard hasRecoverableWebContentTermination else { return false }
-        let recoveryURL = pendingWebContentRecoveryURL
-        clearWebContentTerminationRecovery()
+        guard hasRecoverableNavigationFailure else { return false }
+        let recoveryURL = pendingNavigationRecoveryURL
+        clearNavigationRecovery()
 #if DEBUG
         cmuxDebugLog(
-            "browser.webcontent.recover panel=\(id.uuidString.prefix(5)) " +
+            "browser.navigation.recover panel=\(id.uuidString.prefix(5)) " +
             "reason=\(reason) url=\(recoveryURL?.absoluteString ?? "nil")"
         )
 #endif
@@ -5553,9 +5553,9 @@ final class BrowserPanel: Panel, ObservableObject {
         return true
     }
 
-    private func clearWebContentTerminationRecovery() {
-        pendingWebContentRecoveryURL = nil
-        hasRecoverableWebContentTermination = false
+    private func clearNavigationRecovery() {
+        pendingNavigationRecoveryURL = nil
+        hasRecoverableNavigationFailure = false
     }
 
 #if DEBUG
@@ -6117,6 +6117,7 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted?(nil)
             return nil
         }
+        clearNavigationRecovery()
         // Invalidate reuse when navigation is requested, before an asynchronous
         // file-only probe begins. The workspace may record the initial terminal
         // file identity while that probe is still running.
@@ -6186,16 +6187,16 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         cancelPendingFileOnlyNavigation()
         let id = UUID()
-        pendingFileOnlyNavigation = PendingFileOnlyNavigation(
+        pendingFileOnlyNavigation = (
             id: id,
             request: request,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
             onNavigationStarted: onNavigationStarted
         )
-        WordPathFilesystemResolutionCoordinator.shared.submit(
+        WordPathFilesystemResolutionCoordinator.shared.submitCoalesced(
             id: id,
-            isUserInitiated: true,
+            coalescingKey: self.id,
             work: {
                 let result = await WordPathFilesystemProbe()
                     .firstExistingPath(in: [originalURL.path])
@@ -6223,6 +6224,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         self.pendingFileOnlyNavigation = nil
         guard let navigationURL else {
+            noteFileOnlyNavigationResolutionFailure(
+                request: pendingFileOnlyNavigation.request
+            )
             pendingFileOnlyNavigation.onNavigationStarted?(nil)
             return
         }
@@ -6245,6 +6249,23 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         self.pendingFileOnlyNavigation = nil
         pendingFileOnlyNavigation.onNavigationStarted?(nil)
+    }
+
+    private func noteFileOnlyNavigationResolutionFailure(request: URLRequest) {
+        guard let url = request.url else { return }
+        pendingNavigationRecoveryURL = url
+        hasRecoverableNavigationFailure = true
+        currentURL = url
+        pageTitle = url.absoluteString
+        faviconPNGData = nil
+        lastFaviconURLString = nil
+        isMainFrameProvisionalNavigationActive = false
+        navigationDelegate?.recordAttemptedRequest(request, displayURL: url)
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        shouldRenderWebView = true
+        refreshBackgroundAppearance()
+        refreshNavigationAvailability()
+        reevaluateHiddenWebViewDiscardScheduling(reason: "file_only_navigation_failed")
     }
 
     private func cancelPendingFileOnlyNavigation() {
@@ -6289,7 +6310,7 @@ final class BrowserPanel: Panel, ObservableObject {
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         cancelHiddenWebViewDiscard()
-        clearWebContentTerminationRecovery()
+        clearNavigationRecovery()
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
@@ -6680,8 +6701,8 @@ extension BrowserPanel {
         isDownloading ||
         activeDownloadCount != 0 ||
         preferredDeveloperToolsVisible ||
-        hasRecoverableWebContentTermination ||
-        pendingWebContentRecoveryURL != nil ||
+        hasRecoverableNavigationFailure ||
+        pendingNavigationRecoveryURL != nil ||
         pendingFileOnlyNavigation != nil ||
         webView.cmuxBrowserViewportAttachmentSuperview != nil
     }
@@ -6722,7 +6743,7 @@ extension BrowserPanel {
         cancelDetachedDeveloperToolsWindowDismissal()
         developerToolsDockControlNormalizationTask?.cancel()
         developerToolsDockControlNormalizationTask = nil
-        clearWebContentTerminationRecovery()
+        clearNavigationRecovery()
 
         loadingEndScheduler.cancel()
         faviconTask?.cancel()
@@ -7126,7 +7147,7 @@ extension BrowserPanel {
     }
 
     private func prepareForReload(reason: String, mode: BrowserPanelReloadMode) -> Bool {
-        if recoverTerminatedWebContent(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
+        if recoverFailedNavigation(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
             return true
         }
         if restoreDiscardedWebViewIfNeeded(reason: reason, cachePolicy: mode.recoveryCachePolicy, forceRestartPendingRestore: true) {

@@ -37,6 +37,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
     private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     private var globalFontObserver: GlobalFontMagnificationChangeObserver?
+    private let fileOnlyNavigationResolutionKey = UUID()
     private var pendingFileOnlyNavigation: (id: UUID, request: URLRequest)?
 
     private static var associatedObjectKey: UInt8 = 0
@@ -365,9 +366,9 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             cancelPendingFileOnlyNavigation()
             let id = UUID()
             pendingFileOnlyNavigation = (id, request)
-            WordPathFilesystemResolutionCoordinator.shared.submit(
+            WordPathFilesystemResolutionCoordinator.shared.submitCoalesced(
                 id: id,
-                isUserInitiated: true,
+                coalescingKey: fileOnlyNavigationResolutionKey,
                 work: {
                     let result = await WordPathFilesystemProbe()
                         .firstExistingPath(in: [originalURL.path])
@@ -402,7 +403,13 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             return
         }
         self.pendingFileOnlyNavigation = nil
-        guard let navigationURL else { return }
+        guard let navigationURL else {
+            popupNavigationDelegate.showFileOnlyNavigationResolutionFailure(
+                pendingFileOnlyNavigation.request,
+                in: webView
+            )
+            return
+        }
         var resolvedRequest = pendingFileOnlyNavigation.request
         resolvedRequest.url = navigationURL
         browserLoadRequest(
@@ -690,6 +697,28 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             lastAttemptedRequest = nil
             lastAttemptedRequestWasDiscardedForReplay = true
         }
+    }
+
+    func showFileOnlyNavigationResolutionFailure(
+        _ request: URLRequest,
+        in webView: WKWebView
+    ) {
+        guard let failedURL = request.url else { return }
+        recordAttemptedRequest(request)
+        activeErrorPageDisplayURL = failedURL
+        let canBypass = BrowserErrorPage(
+            failedURL: failedURL.absoluteString,
+            retry: .disabled,
+            error: NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileReadNoSuchFileError
+            ),
+            sslBypassState: sslBypassState
+        ).load(in: webView)
+        acceptsSSLTrustBypassMessages = canBypass
+        activeSSLTrustBypassErrorPageFailedURL = canBypass
+            ? failedURL.absoluteString
+            : nil
     }
 
     private func clearAttemptedRequest(discardPendingBypasses: Bool = false) {

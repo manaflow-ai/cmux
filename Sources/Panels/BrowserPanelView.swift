@@ -554,7 +554,7 @@ struct BrowserPanelView: View {
             return
         }
 
-        if panel.recoverTerminatedWebContent(reason: "toolbarReload") {
+        if panel.recoverFailedNavigation(reason: "toolbarReload") {
             return
         }
 
@@ -1768,32 +1768,48 @@ struct BrowserPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
-            if panel.hasRecoverableWebContentTermination {
-                webContentRecoveryOverlay
+            if panel.hasRecoverableNavigationFailure {
+                navigationRecoveryOverlay
             }
         }
         .layoutPriority(1)
         .zIndex(0)
     }
 
-    private var webContentRecoveryOverlay: some View {
+    private var navigationRecoveryOverlay: some View {
         ZStack {
             Color(nsColor: browserChromeBackgroundColor)
                 .opacity(0.92)
-            Button(action: {
-                panel.recoverTerminatedWebContent(reason: "overlayButton")
-            }) {
-                Label(
-                    String(localized: "browser.error.reload", defaultValue: "Reload"),
-                    systemImage: "arrow.clockwise"
-                )
-                .cmuxFont(size: 13, weight: .medium)
-                .padding(.horizontal, 6)
+            VStack(spacing: 12) {
+                Text(String(
+                    localized: "browser.error.cantOpen.title",
+                    defaultValue: "Can’t open this page"
+                ))
+                .cmuxFont(size: 16, weight: .semibold)
+                Text(String(
+                    localized: "browser.error.cantOpen.message",
+                    defaultValue: "The page could not be opened. Check the address and try again."
+                ))
+                .cmuxFont(size: 13)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                Button(action: {
+                    panel.recoverFailedNavigation(reason: "overlayButton")
+                }) {
+                    Label(
+                        String(localized: "browser.error.reload", defaultValue: "Reload"),
+                        systemImage: "arrow.clockwise"
+                    )
+                    .cmuxFont(size: 13, weight: .medium)
+                    .padding(.horizontal, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .safeHelp(String(localized: "browser.reload", defaultValue: "Reload"))
+                .accessibilityIdentifier("BrowserWebContentRecoveryButton")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .safeHelp(String(localized: "browser.reload", defaultValue: "Reload"))
-            .accessibilityIdentifier("BrowserWebContentRecoveryButton")
+            .frame(maxWidth: 420)
+            .padding(24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

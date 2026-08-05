@@ -1090,7 +1090,7 @@ struct BrowserWebContentProcessTests {
 
         #expect(!(panel.webView === oldWebView))
         #expect(panel.webViewInstanceID != oldInstanceID)
-        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(panel.hasRecoverableNavigationFailure)
         #expect(panel.webView.navigationDelegate != nil)
         #expect(panel.webView.uiDelegate != nil)
         #expect(panel.webView.superview == nil)
@@ -1148,11 +1148,11 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
 
         panel.debugSimulateWebContentProcessTermination()
-        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(panel.hasRecoverableNavigationFailure)
 
         panel.reload()
 
-        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(!panel.hasRecoverableNavigationFailure)
         #expect(panel.shouldRenderWebView)
     }
 
@@ -1165,11 +1165,11 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
 
         panel.debugSimulateWebContentProcessTermination()
-        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(panel.hasRecoverableNavigationFailure)
 
         panel.resetForWorkspaceContextChange(reason: "test")
 
-        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(!panel.hasRecoverableNavigationFailure)
         #expect(!panel.shouldRenderWebView)
         #expect(panel.preferredURLStringForOmnibar() == nil)
     }
@@ -1189,11 +1189,11 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
 
         panel.debugSimulateWebContentProcessTermination()
-        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(panel.hasRecoverableNavigationFailure)
 
         #expect(panel.switchToProfile(profile.id))
 
-        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(!panel.hasRecoverableNavigationFailure)
     }
 
     @Test
@@ -1205,7 +1205,7 @@ struct BrowserWebContentProcessTests {
         panel.debugSimulateWebContentProcessTermination()
 
         #expect(!panel.shouldRenderWebView)
-        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(!panel.hasRecoverableNavigationFailure)
     }
 
     @Test
