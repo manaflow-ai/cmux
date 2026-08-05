@@ -20859,6 +20859,32 @@ mod tests {
     }
 
     #[test]
+    fn status_message_renders_and_is_selectable_without_a_workspace() {
+        let mux = Mux::new("empty-status-message-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = false;
+        app.status_message = Some("initial terminal launch failed".to_string());
+        app.sync_layout((80, 25));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 25)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let y = 24;
+        let start = (0..80)
+            .find(|x| terminal.backend().buffer()[(*x, y)].symbol() == "i")
+            .expect("status message must render without an active workspace");
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: start,
+            row: y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::StatusMessage { .. })));
+    }
+
+    #[test]
     fn status_message_drag_selection_highlights_the_visible_text() {
         let (mux, _) = test_mux("status-message-selection-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
