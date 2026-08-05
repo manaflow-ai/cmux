@@ -28,6 +28,18 @@ pub enum MachineStatus {
     Unavailable,
 }
 
+/// Client-side transport state. Provider lifecycle state remains in
+/// [`MachineStatus`], so selecting a running VM never has to imply that its
+/// terminal transport has finished opening.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MachineConnectionPhase {
+    #[default]
+    Disconnected,
+    Connecting,
+    Ready,
+    Failed,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MachineCapabilities {
     pub create: bool,
@@ -409,6 +421,7 @@ pub(crate) enum ManagedWorkspaceSessionMutation {
 pub(crate) struct MachineSession {
     pub session: Session,
     pub label: String,
+    pub machine: Option<MachineKey>,
 }
 
 /// The result of one machine-side action. Most actions only update the rail;
@@ -433,9 +446,10 @@ impl MachineActionResult {
     }
 
     pub(crate) fn replace(ui: MachineUiState, session: Session, label: String) -> Self {
+        let machine = ui.snapshot.active;
         Self {
             ui,
-            replacement: Some(MachineSession { session, label }),
+            replacement: Some(MachineSession { session, label, machine }),
             restart_updates: false,
             session_mutation: None,
             session_label: None,
@@ -482,7 +496,7 @@ pub(crate) trait MachineController: Send {
 
     /// Commit controller-side ownership changes for a replacement only after
     /// the replacement session has passed the shared workspace guard.
-    fn commit_replacement(&mut self) -> anyhow::Result<()> {
+    fn commit_replacement(&mut self, _present: bool) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -543,6 +557,7 @@ pub struct MachineUiState {
     pub rail_selection: MachineRailSelection,
     pub creation_sources: Vec<MachineCreationSource>,
     pub connection_targets: Vec<MachineConnectionTarget>,
+    connection_phases: HashMap<MachineKey, MachineConnectionPhase>,
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
     client_renamable_machines: HashSet<MachineKey>,
     managed_machines: Vec<ManagedMachineDescriptor>,
@@ -626,6 +641,11 @@ impl MachineUiState {
     pub fn new(snapshot: MachineSnapshot) -> Self {
         let selection = snapshot.active_index().unwrap_or_default();
         let session_available = snapshot.active_index().is_some();
+        let connection_phases = snapshot
+            .active
+            .map(|active| (active, MachineConnectionPhase::Ready))
+            .into_iter()
+            .collect();
         let mut state = Self {
             snapshot,
             selection,
@@ -637,6 +657,7 @@ impl MachineUiState {
             rail_selection: MachineRailSelection::Machine,
             creation_sources: Vec::new(),
             connection_targets: Vec::new(),
+            connection_phases,
             workspace_creation: HashMap::new(),
             client_renamable_machines: HashSet::new(),
             managed_machines: Vec::new(),
@@ -644,6 +665,31 @@ impl MachineUiState {
         };
         state.ensure_rail_selection();
         state
+    }
+
+    pub fn connection_phase(&self, machine: MachineKey) -> MachineConnectionPhase {
+        self.connection_phases.get(&machine).copied().unwrap_or_default()
+    }
+
+    pub fn set_connection_phase(&mut self, machine: MachineKey, phase: MachineConnectionPhase) {
+        self.connection_phases.insert(machine, phase);
+    }
+
+    pub fn set_connection_phases(
+        &mut self,
+        phases: impl IntoIterator<Item = (MachineKey, MachineConnectionPhase)>,
+    ) {
+        self.connection_phases = phases.into_iter().collect();
+    }
+
+    pub fn extend_connection_phases_from(&mut self, previous: &Self) {
+        let visible =
+            self.snapshot.machines.iter().map(|machine| machine.key).collect::<HashSet<_>>();
+        for (machine, phase) in &previous.connection_phases {
+            if visible.contains(machine) {
+                self.connection_phases.entry(*machine).or_insert(*phase);
+            }
+        }
     }
 
     pub fn selected(&self) -> Option<&MachineDescriptor> {

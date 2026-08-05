@@ -87,7 +87,9 @@ use machine_provider_client::{
 };
 #[cfg(unix)]
 use machine_provider_runtime::ProviderMachineController;
-use machine_runtime::{MachineConnectionLease, MachineRuntime};
+use machine_runtime::{
+    MachineConnection, MachineConnectionHub, MachineConnectionLease, MachineRuntime,
+};
 use session::{RemoteSession, Session};
 use zeroize::Zeroize;
 
@@ -1587,10 +1589,12 @@ fn run_connected_session_client(
     }
 }
 
-fn run_machine_client(mut runtime: MachineRuntime) -> anyhow::Result<()> {
+fn run_machine_client(runtime: MachineRuntime) -> anyhow::Result<()> {
     let active = runtime.initial_key();
-    let connection = runtime.connect(active)?;
-    run_machine_client_with_initial(runtime, connection.session, connection.lease)
+    let connections = MachineConnectionHub::new(runtime.connection_connectors());
+    let session = connections.connect(active)?;
+    connections.warm_all();
+    run_machine_client_with_hub(runtime, session, connections)
 }
 
 fn run_machine_client_with_initial(
@@ -1599,10 +1603,24 @@ fn run_machine_client_with_initial(
     active_lease: Option<Box<dyn MachineConnectionLease>>,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
+    let connections = MachineConnectionHub::new(runtime.connection_connectors());
+    connections
+        .insert_ready(active, MachineConnection { session: session.clone(), _lease: active_lease });
+    connections.warm_all();
+    run_machine_client_with_hub(runtime, session, connections)
+}
+
+fn run_machine_client_with_hub(
+    runtime: MachineRuntime,
+    session: Session,
+    connections: MachineConnectionHub,
+) -> anyhow::Result<()> {
+    let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
-    let machine_ui = runtime.ui_state(active);
+    let mut machine_ui = runtime.ui_state(active);
+    machine_ui.set_connection_phases(connections.phases());
     let controller: Box<dyn MachineController> =
-        Box::new(StaticMachineController { runtime, active, active_lease, pending: None });
+        Box::new(StaticMachineController { runtime, active, connections, pending: None });
     match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
@@ -1614,13 +1632,8 @@ fn run_machine_client_with_initial(
 struct StaticMachineController {
     runtime: MachineRuntime,
     active: machine::MachineKey,
-    active_lease: Option<Box<dyn MachineConnectionLease>>,
-    pending: Option<PendingStaticMachine>,
-}
-
-struct PendingStaticMachine {
-    machine: machine::MachineKey,
-    lease: Option<Box<dyn MachineConnectionLease>>,
+    connections: MachineConnectionHub,
+    pending: Option<machine::MachineKey>,
 }
 
 impl MachineController for StaticMachineController {
@@ -1629,6 +1642,7 @@ impl MachineController for StaticMachineController {
             MachineRequest::Switch(machine) => self.switch(machine),
             MachineRequest::Connect { target, route: MachineConnectRoute::Local } => {
                 let machine = self.runtime.connect_machine(&target)?;
+                self.register(machine)?;
                 self.switch(machine)
             }
             MachineRequest::Connect { route: MachineConnectRoute::Provider, .. } => Ok(self
@@ -1639,14 +1653,16 @@ impl MachineController for StaticMachineController {
                 Ok(self.notice(localization::catalog().sidebar.machine_catalog_create_unsupported))
             }
             MachineRequest::CreateFrom { source_id } => {
-                let (_, name) = self.runtime.create_from(&source_id)?;
+                let (machine, name) = self.runtime.create_from(&source_id)?;
+                self.register(machine)?;
+                self.connections.warm_all();
                 let message =
                     format!("{}: {name}", localization::catalog().sidebar.prototype_machine_added);
                 Ok(self.notice(message))
             }
             MachineRequest::RenameClientMachine { machine, name } => {
                 let name = self.runtime.rename_machine(machine, &name)?;
-                let result = MachineActionResult::ui(self.runtime.ui_state(self.active));
+                let result = MachineActionResult::ui(self.ui_state(self.active));
                 Ok(if machine == self.active { result.with_session_label(name) } else { result })
             }
             MachineRequest::SelectProviderScope(_)
@@ -1669,38 +1685,58 @@ impl MachineController for StaticMachineController {
         }
     }
 
-    fn commit_replacement(&mut self) -> anyhow::Result<()> {
-        let pending = self.pending.take().ok_or_else(|| {
+    fn commit_replacement(&mut self, present: bool) -> anyhow::Result<()> {
+        let machine = self.pending.take().ok_or_else(|| {
             anyhow::anyhow!(localization::catalog().sidebar.machine_replacement_target_missing)
         })?;
-        self.active = pending.machine;
-        self.active_lease = pending.lease;
+        if present {
+            self.active = machine;
+        }
         Ok(())
     }
 
     fn abort_replacement(&mut self) {
-        self.pending = None;
+        if let Some(machine) = self.pending.take()
+            && machine != self.active
+        {
+            self.connections.remove(machine);
+        }
     }
 
     fn close(&mut self) {
         self.pending = None;
-        self.active_lease = None;
+        self.connections.close();
     }
 }
 
 impl StaticMachineController {
     fn switch(&mut self, machine: machine::MachineKey) -> anyhow::Result<MachineActionResult> {
-        let connection = self.runtime.connect(machine)?;
+        self.register(machine)?;
+        let session = self.connections.connect(machine)?;
         let label = self.runtime.name(machine).unwrap_or("machine").to_string();
-        self.pending = Some(PendingStaticMachine { machine, lease: connection.lease });
-        let ui = self.runtime.ui_state(machine);
-        Ok(MachineActionResult::replace(ui, connection.session, label))
+        self.pending = Some(machine);
+        let ui = self.ui_state(machine);
+        Ok(MachineActionResult::replace(ui, session, label))
     }
 
     fn notice(&self, notice: impl Into<String>) -> MachineActionResult {
-        let mut ui = self.runtime.ui_state(self.active);
+        let mut ui = self.ui_state(self.active);
         ui.notice = Some(notice.into());
         MachineActionResult::ui(ui)
+    }
+
+    fn register(&self, machine: machine::MachineKey) -> anyhow::Result<()> {
+        let connector = self.runtime.connection_connector(machine).ok_or_else(|| {
+            anyhow::anyhow!(localization::catalog().sidebar.client_machine_unavailable)
+        })?;
+        self.connections.register(machine, connector);
+        Ok(())
+    }
+
+    fn ui_state(&self, active: machine::MachineKey) -> MachineUiState {
+        let mut ui = self.runtime.ui_state(active);
+        ui.set_connection_phases(self.connections.phases());
+        ui
     }
 }
 
@@ -1725,6 +1761,7 @@ fn run_provider_machine_client(
             &error,
         )),
     };
+    runtime.warm_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);
     match run_tui_once(session, label, None, Some(machine_ui), Some(controller))? {
         app::RunOutcome::Quit => Ok(()),
@@ -2016,8 +2053,9 @@ mod tests {
 
         let runtime = MachineRuntime::new(PathBuf::from("/tmp/static-machine-notice.sock"), vec![]);
         let active = runtime.initial_key();
+        let connections = MachineConnectionHub::new(runtime.connection_connectors());
         let mut controller =
-            StaticMachineController { runtime, active, active_lease: None, pending: None };
+            StaticMachineController { runtime, active, connections, pending: None };
 
         assert_eq!(
             controller.perform(MachineRequest::Create).unwrap().ui.notice.as_deref(),
@@ -2046,43 +2084,39 @@ mod tests {
             }
         }
 
-        fn lease(counter: &Arc<AtomicUsize>) -> Option<Box<dyn MachineConnectionLease>> {
-            Some(Box::new(CountedLease(Arc::clone(counter))))
-        }
-
         let dropped = Arc::new(AtomicUsize::new(0));
-        let runtime = MachineRuntime::new(PathBuf::from("/tmp/static-machine-lease.sock"), vec![]);
-        let active = runtime.initial_key();
-        let mut controller = StaticMachineController {
-            runtime,
-            active,
-            active_lease: lease(&dropped),
-            pending: Some(PendingStaticMachine {
-                machine: machine::MachineKey(2),
-                lease: lease(&dropped),
-            }),
+        let connects = Arc::new(AtomicUsize::new(0));
+        let connector = |key: machine::MachineKey| {
+            let dropped = Arc::clone(&dropped);
+            let connects = Arc::clone(&connects);
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+                connects.fetch_add(1, Ordering::SeqCst);
+                Ok(MachineConnection {
+                    session: Session::Local(Mux::new(
+                        format!("machine-hub-{}", key.0),
+                        SurfaceOptions::default(),
+                    )),
+                    _lease: Some(Box::new(CountedLease(Arc::clone(&dropped)))),
+                })
+            });
+            (key, connector)
         };
+        let first = machine::MachineKey(1);
+        let second = machine::MachineKey(2);
+        let connections = MachineConnectionHub::new([connector(first), connector(second)]);
 
-        controller.abort_replacement();
-        assert_eq!(dropped.load(Ordering::SeqCst), 1, "abort drops only the prepared lease");
-        assert_eq!(controller.active, active);
-
-        controller.pending =
-            Some(PendingStaticMachine { machine: machine::MachineKey(3), lease: lease(&dropped) });
-        controller.commit_replacement().unwrap();
+        connections.connect(first).unwrap();
+        connections.connect(second).unwrap();
+        connections.connect(first).unwrap();
         assert_eq!(
             dropped.load(Ordering::SeqCst),
-            1,
-            "commit must keep the previous machine connection warm"
+            0,
+            "switching must keep every connected machine lease warm"
         );
-        assert_eq!(controller.active, machine::MachineKey(3));
+        assert_eq!(connects.load(Ordering::SeqCst), 2, "returning to a machine reuses its session");
 
-        drop(controller);
-        assert_eq!(
-            dropped.load(Ordering::SeqCst),
-            3,
-            "every committed lease lives with the controller"
-        );
+        connections.close();
+        assert_eq!(dropped.load(Ordering::SeqCst), 2, "all leases close with the connection hub");
     }
 
     #[cfg(unix)]

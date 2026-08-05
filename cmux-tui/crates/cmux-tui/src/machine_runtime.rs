@@ -1,19 +1,22 @@
 //! Config-backed machine catalog and transport connectors.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 
 use crate::config::{MachineConfig, MachineCreationSourceConfig, MachineTargetConfig};
 use crate::machine::{
-    MachineCapabilities, MachineConnectionTarget, MachineCreationSource, MachineDescriptor,
-    MachineKey, MachineSnapshot, MachineStatus, MachineUiState,
+    MachineCapabilities, MachineConnectionPhase, MachineConnectionTarget, MachineCreationSource,
+    MachineDescriptor, MachineKey, MachineSnapshot, MachineStatus, MachineUiState,
 };
 use crate::session::{RemoteSession, Session};
 
 const SSH_CONFIG_MAX_DEPTH: usize = 16;
 const SSH_CONFIG_MAX_FILES: usize = 256;
 const SSH_CONFIG_MAX_HOSTS: usize = 4096;
+const MACHINE_WARM_WORKERS: usize = 4;
 /// Provider-backed machine keys grow upward from one. Client-local overlay
 /// keys live in the upper half so the two process-local catalogs cannot
 /// collide without changing the provider protocol.
@@ -212,19 +215,20 @@ impl MachineRuntime {
         Ok(entry.descriptor.name.clone())
     }
 
-    pub fn connect(&mut self, key: MachineKey) -> anyhow::Result<MachineConnection> {
-        let entry =
-            self.entry(key).cloned().ok_or_else(|| anyhow::anyhow!("unknown machine {}", key.0))?;
-        match connect_target(&entry.target) {
-            Ok(session) => {
-                self.set_status(key, MachineStatus::Running);
-                Ok(session)
-            }
-            Err(error) => {
-                self.set_status(key, MachineStatus::Unavailable);
-                Err(error)
-            }
-        }
+    pub(crate) fn connection_connectors(&self) -> Vec<(MachineKey, MachineConnectFn)> {
+        self.entries
+            .iter()
+            .map(|entry| {
+                let target = entry.target.clone();
+                let connector: MachineConnectFn = Arc::new(move || connect_target(&target));
+                (entry.descriptor.key, connector)
+            })
+            .collect()
+    }
+
+    pub(crate) fn connection_connector(&self, key: MachineKey) -> Option<MachineConnectFn> {
+        let target = self.entry(key)?.target.clone();
+        Some(Arc::new(move || connect_target(&target)))
     }
 
     pub fn connect_machine(&mut self, target: &str) -> anyhow::Result<MachineKey> {
@@ -258,12 +262,6 @@ impl MachineRuntime {
 
     fn entry(&self, key: MachineKey) -> Option<&Entry> {
         self.entries.iter().find(|entry| entry.descriptor.key == key)
-    }
-
-    fn set_status(&mut self, key: MachineKey, status: MachineStatus) {
-        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.descriptor.key == key) {
-            entry.descriptor.status = status;
-        }
     }
 }
 
@@ -419,14 +417,275 @@ impl<T: Send> MachineConnectionLease for T {}
 
 pub(crate) struct MachineConnection {
     pub session: Session,
-    pub lease: Option<Box<dyn MachineConnectionLease>>,
+    pub _lease: Option<Box<dyn MachineConnectionLease>>,
+}
+
+pub(crate) type MachineConnectFn = Arc<dyn Fn() -> anyhow::Result<MachineConnection> + Send + Sync>;
+
+#[derive(Clone)]
+pub(crate) struct MachineConnectionHub {
+    inner: Arc<MachineConnectionHubInner>,
+}
+
+struct MachineConnectionHubInner {
+    slots: Mutex<HashMap<MachineKey, MachineConnectionSlot>>,
+    changed: Condvar,
+    closed: AtomicBool,
+}
+
+struct MachineConnectionSlot {
+    connector: MachineConnectFn,
+    state: MachineConnectionState,
+}
+
+enum MachineConnectionState {
+    Disconnected,
+    Connecting,
+    Ready(MachineConnection),
+    Failed(String),
+}
+
+impl MachineConnectionHub {
+    pub(crate) fn new(
+        connectors: impl IntoIterator<Item = (MachineKey, MachineConnectFn)>,
+    ) -> Self {
+        let slots = connectors
+            .into_iter()
+            .map(|(key, connector)| {
+                (
+                    key,
+                    MachineConnectionSlot {
+                        connector,
+                        state: MachineConnectionState::Disconnected,
+                    },
+                )
+            })
+            .collect();
+        Self {
+            inner: Arc::new(MachineConnectionHubInner {
+                slots: Mutex::new(slots),
+                changed: Condvar::new(),
+                closed: AtomicBool::new(false),
+            }),
+        }
+    }
+
+    pub(crate) fn register(&self, key: MachineKey, connector: MachineConnectFn) {
+        let Ok(mut slots) = self.inner.slots.lock() else { return };
+        match slots.get_mut(&key) {
+            Some(slot) => slot.connector = connector,
+            None => {
+                slots.insert(
+                    key,
+                    MachineConnectionSlot {
+                        connector,
+                        state: MachineConnectionState::Disconnected,
+                    },
+                );
+            }
+        }
+    }
+
+    pub(crate) fn insert_ready(&self, key: MachineKey, connection: MachineConnection) {
+        let Ok(mut slots) = self.inner.slots.lock() else { return };
+        let Some(slot) = slots.get_mut(&key) else { return };
+        slot.state = MachineConnectionState::Ready(connection);
+        self.inner.changed.notify_all();
+    }
+
+    pub(crate) fn connect(&self, key: MachineKey) -> anyhow::Result<Session> {
+        self.connect_with_retry(key, true)
+    }
+
+    fn connect_with_retry(&self, key: MachineKey, retry_failed: bool) -> anyhow::Result<Session> {
+        loop {
+            if self.inner.closed.load(Ordering::Acquire) {
+                anyhow::bail!(crate::localization::catalog().sidebar.no_active_session);
+            }
+            let mut slots = self.inner.slots.lock().map_err(|_| {
+                anyhow::anyhow!(
+                    crate::localization::catalog().sidebar.machine_catalog_updates_failed
+                )
+            })?;
+            let slot = slots.get_mut(&key).ok_or_else(|| {
+                anyhow::anyhow!(crate::localization::catalog().sidebar.client_machine_unavailable)
+            })?;
+            match &slot.state {
+                MachineConnectionState::Ready(connection) => {
+                    return Ok(connection.session.clone());
+                }
+                MachineConnectionState::Connecting => {
+                    drop(self.inner.changed.wait(slots).map_err(|_| {
+                        anyhow::anyhow!(
+                            crate::localization::catalog().sidebar.machine_catalog_updates_failed
+                        )
+                    })?);
+                }
+                MachineConnectionState::Failed(error) if !retry_failed => {
+                    return Err(anyhow::anyhow!(error.clone()));
+                }
+                MachineConnectionState::Disconnected | MachineConnectionState::Failed(_) => {
+                    let connector = Arc::clone(&slot.connector);
+                    slot.state = MachineConnectionState::Connecting;
+                    drop(slots);
+                    let result = connector();
+                    let mut slots = self.inner.slots.lock().map_err(|_| {
+                        anyhow::anyhow!(
+                            crate::localization::catalog().sidebar.machine_catalog_updates_failed
+                        )
+                    })?;
+                    let Some(slot) = slots.get_mut(&key) else {
+                        return Err(anyhow::anyhow!(
+                            crate::localization::catalog().sidebar.client_machine_unavailable
+                        ));
+                    };
+                    if self.inner.closed.load(Ordering::Acquire) {
+                        slot.state = MachineConnectionState::Disconnected;
+                        self.inner.changed.notify_all();
+                        anyhow::bail!(crate::localization::catalog().sidebar.no_active_session);
+                    }
+                    match result {
+                        Ok(connection) => {
+                            let session = connection.session.clone();
+                            slot.state = MachineConnectionState::Ready(connection);
+                            self.inner.changed.notify_all();
+                            return Ok(session);
+                        }
+                        Err(error) => {
+                            let message = error.to_string();
+                            slot.state = MachineConnectionState::Failed(message);
+                            self.inner.changed.notify_all();
+                            return Err(error);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Warm every explicitly registered machine without extending startup.
+    /// A fixed worker count prevents a large catalog from spawning an SSH
+    /// process storm.
+    pub(crate) fn warm_all(&self) {
+        let keys = {
+            let Ok(slots) = self.inner.slots.lock() else { return };
+            slots
+                .iter()
+                .filter_map(|(key, slot)| {
+                    matches!(slot.state, MachineConnectionState::Disconnected).then_some(*key)
+                })
+                .collect::<VecDeque<_>>()
+        };
+        if keys.is_empty() {
+            return;
+        }
+        let queue = Arc::new(Mutex::new(keys));
+        let worker_count = MACHINE_WARM_WORKERS.min(queue.lock().map_or(0, |queue| queue.len()));
+        for index in 0..worker_count {
+            let hub = self.clone();
+            let queue = Arc::clone(&queue);
+            let _ = std::thread::Builder::new().name(format!("machine-warm-{index}")).spawn(
+                move || {
+                    loop {
+                        if hub.inner.closed.load(Ordering::Acquire) {
+                            break;
+                        }
+                        let key = queue.lock().ok().and_then(|mut queue| queue.pop_front());
+                        let Some(key) = key else { break };
+                        let _ = hub.connect_with_retry(key, false);
+                    }
+                },
+            );
+        }
+    }
+
+    pub(crate) fn phases(&self) -> Vec<(MachineKey, MachineConnectionPhase)> {
+        let Ok(slots) = self.inner.slots.lock() else { return Vec::new() };
+        slots
+            .iter()
+            .map(|(key, slot)| {
+                let phase = match &slot.state {
+                    MachineConnectionState::Disconnected => MachineConnectionPhase::Disconnected,
+                    MachineConnectionState::Connecting => MachineConnectionPhase::Connecting,
+                    MachineConnectionState::Ready(_) => MachineConnectionPhase::Ready,
+                    MachineConnectionState::Failed(_) => MachineConnectionPhase::Failed,
+                };
+                (*key, phase)
+            })
+            .collect()
+    }
+
+    pub(crate) fn is_ready(&self, key: MachineKey) -> bool {
+        self.inner.slots.lock().ok().and_then(|slots| {
+            slots.get(&key).map(|slot| matches!(slot.state, MachineConnectionState::Ready(_)))
+        }) == Some(true)
+    }
+
+    pub(crate) fn remove(&self, key: MachineKey) {
+        let connection = self.inner.slots.lock().ok().and_then(|mut slots| {
+            slots.remove(&key).and_then(|slot| match slot.state {
+                MachineConnectionState::Ready(connection) => Some(connection),
+                MachineConnectionState::Disconnected
+                | MachineConnectionState::Connecting
+                | MachineConnectionState::Failed(_) => None,
+            })
+        });
+        if let Some(connection) = connection {
+            connection.session.begin_shutdown();
+        }
+        self.inner.changed.notify_all();
+    }
+
+    pub(crate) fn retain(&self, keep: &HashSet<MachineKey>) {
+        let removed = self.inner.slots.lock().ok().map(|mut slots| {
+            let removed =
+                slots.keys().copied().filter(|key| !keep.contains(key)).collect::<Vec<_>>();
+            removed
+                .into_iter()
+                .filter_map(|key| slots.remove(&key))
+                .filter_map(|slot| match slot.state {
+                    MachineConnectionState::Ready(connection) => Some(connection),
+                    MachineConnectionState::Disconnected
+                    | MachineConnectionState::Connecting
+                    | MachineConnectionState::Failed(_) => None,
+                })
+                .collect::<Vec<_>>()
+        });
+        for connection in removed.into_iter().flatten() {
+            connection.session.begin_shutdown();
+        }
+        self.inner.changed.notify_all();
+    }
+
+    pub(crate) fn close(&self) {
+        if self.inner.closed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let connections = self.inner.slots.lock().ok().map(|mut slots| {
+            slots
+                .values_mut()
+                .filter_map(|slot| {
+                    match std::mem::replace(&mut slot.state, MachineConnectionState::Disconnected) {
+                        MachineConnectionState::Ready(connection) => Some(connection),
+                        MachineConnectionState::Disconnected
+                        | MachineConnectionState::Connecting
+                        | MachineConnectionState::Failed(_) => None,
+                    }
+                })
+                .collect::<Vec<_>>()
+        });
+        for connection in connections.into_iter().flatten() {
+            connection.session.begin_shutdown();
+        }
+        self.inner.changed.notify_all();
+    }
 }
 
 fn connect_target(target: &MachineTargetConfig) -> anyhow::Result<MachineConnection> {
     match target {
         MachineTargetConfig::Unix { socket } => Ok(MachineConnection {
             session: Session::Remote(RemoteSession::connect(socket)?),
-            lease: None,
+            _lease: None,
         }),
         MachineTargetConfig::Ssh { host, user, port, identity_file, session, binary } => {
             #[cfg(unix)]
@@ -441,7 +700,7 @@ fn connect_target(target: &MachineTargetConfig) -> anyhow::Result<MachineConnect
                 )?)?;
                 Ok(MachineConnection {
                     session: connected.session,
-                    lease: Some(Box::new(connected.lease)),
+                    _lease: Some(Box::new(connected.lease)),
                 })
             }
             #[cfg(not(unix))]

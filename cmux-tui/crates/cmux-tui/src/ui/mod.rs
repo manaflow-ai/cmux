@@ -25,7 +25,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::{App, Hit, RailKind};
 use crate::config::Action;
 use crate::localization::catalog;
-use crate::machine::DurableNoticeLevel;
+use crate::machine::{DurableNoticeLevel, MachineConnectionPhase};
 
 pub(crate) use overlay::toast_rect;
 pub(crate) use scrollbar::{
@@ -135,7 +135,11 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         }
     }
 
-    let pane_cursors = pane::draw_all(app, frame);
+    let pane_cursors = if draw_machine_transition(app, frame) {
+        pane::DrawCursors::default()
+    } else {
+        pane::draw_all(app, frame)
+    };
     if app.is_surface_only() {
         draw_surface_status(app, frame);
     } else {
@@ -158,6 +162,48 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     }
     draw_durable_notice_banner(app, frame);
     sanitize_render_buffer(frame.buffer_mut());
+}
+
+fn draw_machine_transition(app: &mut App, frame: &mut Frame) -> bool {
+    let Some((name, phase)) =
+        app.machine_transition().map(|(name, phase)| (name.to_string(), phase))
+    else {
+        return false;
+    };
+    let area = app.content_area;
+    app.pane_areas.clear();
+    if area.width == 0 || area.height == 0 {
+        return true;
+    }
+    app.hits.retain(|(rect, _)| {
+        rect.x >= area.x.saturating_add(area.width)
+            || area.x >= rect.x.saturating_add(rect.width)
+            || rect.y >= area.y.saturating_add(area.height)
+            || area.y >= rect.y.saturating_add(rect.height)
+    });
+    let status = match phase {
+        MachineConnectionPhase::Failed => catalog().sidebar.unavailable,
+        MachineConnectionPhase::Disconnected
+        | MachineConnectionPhase::Connecting
+        | MachineConnectionPhase::Ready => catalog().sidebar.connecting,
+    };
+    let style = Style::default().fg(app.chrome.sidebar_dim_fg);
+    let title_style =
+        Style::default().fg(app.chrome.sidebar_selected_fg).add_modifier(Modifier::BOLD);
+    let buffer = frame.buffer_mut();
+    for y in area.y..area.y.saturating_add(area.height) {
+        for x in area.x..area.x.saturating_add(area.width) {
+            buffer[(x, y)].set_symbol(" ").set_style(Style::default());
+        }
+    }
+    let center_y = area.y.saturating_add(area.height / 2);
+    let title_width = name.width().min(area.width as usize);
+    let title_x = area.x.saturating_add(area.width.saturating_sub(title_width as u16) / 2);
+    buffer.set_stringn(title_x, center_y.saturating_sub(1), &name, title_width, title_style);
+    let status_width = status.width().min(area.width as usize);
+    let status_x = area.x.saturating_add(area.width.saturating_sub(status_width as u16) / 2);
+    buffer.set_stringn(status_x, center_y, status, status_width, style);
+    true
 }
 
 fn draw_durable_notice_banner(app: &mut App, frame: &mut Frame) {

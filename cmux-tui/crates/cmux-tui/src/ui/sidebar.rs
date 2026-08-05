@@ -90,7 +90,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.machine_sidebar_area(frame.area().height) else { return };
     let Some(machine_ui) = app.machine_ui.as_ref() else { return };
     let machines = machine_ui.snapshot.machines.clone();
-    let active = machine_ui.snapshot.active;
+    let active = app.selected_machine();
     let capabilities = machine_ui.snapshot.capabilities;
     let selection = machine_ui.selection;
     let managed_machines = machine_ui.managed_machines().to_vec();
@@ -220,12 +220,18 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         let recoverable = managed.is_some_and(|managed| {
             managed.status == crate::machine::ManagedMachineStatus::Recoverable
         });
-        let status = match machine.status {
-            MachineStatus::Running => messages.running,
-            MachineStatus::Connecting => messages.connecting,
-            MachineStatus::Sleeping => messages.sleeping,
-            MachineStatus::Stopped => messages.stopped,
-            MachineStatus::Unavailable => messages.unavailable,
+        let connection_phase = machine_ui.connection_phase(machine.key);
+        let status = match connection_phase {
+            crate::machine::MachineConnectionPhase::Connecting => messages.connecting,
+            crate::machine::MachineConnectionPhase::Failed => messages.unavailable,
+            crate::machine::MachineConnectionPhase::Disconnected
+            | crate::machine::MachineConnectionPhase::Ready => match machine.status {
+                MachineStatus::Running => messages.running,
+                MachineStatus::Connecting => messages.connecting,
+                MachineStatus::Sleeping => messages.sleeping,
+                MachineStatus::Stopped => messages.stopped,
+                MachineStatus::Unavailable => messages.unavailable,
+            },
         };
         let recoverable_subtitle = recoverable.then(|| {
             managed.and_then(|managed| managed.recoverable_until.as_ref()).map_or_else(
@@ -239,13 +245,22 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         let indicator = if recoverable {
             Some(app.config.theme.notification_warning)
         } else {
-            match machine.status {
-                MachineStatus::Running => Some(app.config.theme.notification_info),
-                MachineStatus::Connecting | MachineStatus::Sleeping => {
+            match connection_phase {
+                crate::machine::MachineConnectionPhase::Connecting => {
                     Some(app.config.theme.notification_warning)
                 }
-                MachineStatus::Stopped => None,
-                MachineStatus::Unavailable => Some(app.config.theme.notification_error),
+                crate::machine::MachineConnectionPhase::Failed => {
+                    Some(app.config.theme.notification_error)
+                }
+                crate::machine::MachineConnectionPhase::Ready
+                | crate::machine::MachineConnectionPhase::Disconnected => match machine.status {
+                    MachineStatus::Running => Some(app.config.theme.notification_info),
+                    MachineStatus::Connecting | MachineStatus::Sleeping => {
+                        Some(app.config.theme.notification_warning)
+                    }
+                    MachineStatus::Stopped => None,
+                    MachineStatus::Unavailable => Some(app.config.theme.notification_error),
+                },
             }
         };
         rail::entry(

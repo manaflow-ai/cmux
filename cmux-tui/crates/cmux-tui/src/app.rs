@@ -59,12 +59,12 @@ use crate::keys;
 use crate::localization;
 use crate::machine::{
     DurableNoticeDelivery, DurableProviderNotice, MachineActionResult, MachineConnectRoute,
-    MachineController, MachineKey, MachineRailSelection, MachineRailTarget, MachineRequest,
-    MachineSession, MachineSnapshot, MachineUiState, MachineUpdate, MachineUpdateStream,
-    ManagedMachineDescriptor, ManagedMachineStatus, ManagedWorkspaceDescriptor,
-    ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus, ProviderActionContext,
-    ProviderActionInputError, ProviderPresentation, WorkspaceCreationMode, WorkspaceCreationPolicy,
-    validate_machine_session,
+    MachineConnectionPhase, MachineController, MachineKey, MachineRailSelection, MachineRailTarget,
+    MachineRequest, MachineSession, MachineSnapshot, MachineUiState, MachineUpdate,
+    MachineUpdateStream, ManagedMachineDescriptor, ManagedMachineStatus,
+    ManagedWorkspaceDescriptor, ManagedWorkspaceSessionMutation, ManagedWorkspaceStatus,
+    ProviderActionContext, ProviderActionInputError, ProviderPresentation, WorkspaceCreationMode,
+    WorkspaceCreationPolicy, validate_machine_session,
 };
 use crate::pty_input::{
     PTY_OPERATION_QUEUE_CAPACITY, PtyInputBytes, PtyInputDispatcher, PtyInputEnqueueResult,
@@ -5680,6 +5680,10 @@ pub struct App {
     machine_action_worker: Option<MachineActionWorker>,
     machine_action_in_flight: bool,
     machine_action_request: Option<MachineRequest>,
+    machine_action_intent_generation: Option<u64>,
+    machine_selection_intent: Option<MachineKey>,
+    machine_selection_generation: u64,
+    machine_presented: Option<MachineKey>,
     machine_provider_reconnect_attempts: u8,
     machine_provider_reconnect_retry_at: Option<Instant>,
     pending_machine_replacement: Option<PendingMachineReplacement>,
@@ -6285,7 +6289,7 @@ enum MachineControllerCommand {
     Perform { request: MachineRequest, preparation: Box<MachineSessionPreparation> },
     SubscribeUpdates,
     AcknowledgeDurableNotice(DurableNoticeDelivery),
-    CommitReplacement(u64),
+    CommitReplacement { action_id: u64, present: bool },
     AbortReplacement(u64),
 }
 
@@ -6307,6 +6311,7 @@ struct PreparedMachineSession {
     label: String,
     session_available: bool,
     color_error: Option<String>,
+    machine: Option<MachineKey>,
 }
 
 pub(crate) struct PreparedMachineAction {
@@ -6318,6 +6323,7 @@ pub(crate) struct PreparedMachineAction {
 
 struct PendingMachineReplacement {
     action_id: u64,
+    present: bool,
     action: PreparedMachineAction,
 }
 
@@ -6449,11 +6455,11 @@ impl MachineActionWorker {
                                 result,
                             }
                         }
-                        MachineControllerCommand::CommitReplacement(action_id) => {
+                        MachineControllerCommand::CommitReplacement { action_id, present } => {
                             match pending_replacement.take() {
                                 Some((pending_id, restart_updates)) if pending_id == action_id => {
                                     let committed = controller
-                                        .commit_replacement()
+                                        .commit_replacement(present)
                                         .map(|()| true)
                                         .map_err(|error| error.to_string());
                                     if committed.is_err() {
@@ -6550,7 +6556,7 @@ impl MachineActionWorker {
                 MachineControllerCommand::AcknowledgeDurableNotice(_) => {
                     unreachable!("perform returned a durable notice acknowledgement")
                 }
-                MachineControllerCommand::CommitReplacement(_)
+                MachineControllerCommand::CommitReplacement { .. }
                 | MachineControllerCommand::AbortReplacement(_) => {
                     unreachable!("perform returned a replacement decision")
                 }
@@ -6564,7 +6570,7 @@ impl MachineActionWorker {
                     MachineControllerCommand::AcknowledgeDurableNotice(_) => {
                         unreachable!("perform returned a durable notice acknowledgement")
                     }
-                    MachineControllerCommand::CommitReplacement(_)
+                    MachineControllerCommand::CommitReplacement { .. }
                     | MachineControllerCommand::AbortReplacement(_) => {
                         unreachable!("perform returned a replacement decision")
                     }
@@ -6600,9 +6606,11 @@ impl MachineActionWorker {
         }
     }
 
-    fn commit_replacement(&self, action_id: u64) -> bool {
+    fn commit_replacement(&self, action_id: u64, present: bool) -> bool {
         self.sender.as_ref().is_some_and(|sender| {
-            sender.try_send(MachineControllerCommand::CommitReplacement(action_id)).is_ok()
+            sender
+                .try_send(MachineControllerCommand::CommitReplacement { action_id, present })
+                .is_ok()
         })
     }
 
@@ -6669,6 +6677,7 @@ fn prepare_machine_session(
         label: replacement.label,
         session_available,
         color_error,
+        machine: replacement.machine,
     })
 }
 
@@ -7080,6 +7089,8 @@ fn run_with_machine_updates_inner(
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let initial_machine_notice = initial_workspace_error
         .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()));
+    let machine_selection_intent = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
+    let machine_presented = machine_ui.as_ref().and_then(|machine| machine.snapshot.active);
     let mut app = App {
         session,
         session_event_worker: Some(session_event_worker),
@@ -7088,6 +7099,10 @@ fn run_with_machine_updates_inner(
         machine_action_worker,
         machine_action_in_flight: false,
         machine_action_request: None,
+        machine_action_intent_generation: None,
+        machine_selection_intent,
+        machine_selection_generation: 0,
+        machine_presented,
         machine_provider_reconnect_attempts: 0,
         machine_provider_reconnect_retry_at: None,
         pending_machine_replacement: None,
@@ -7609,7 +7624,41 @@ impl App {
     }
 
     pub fn session_available(&self) -> bool {
-        self.machine_ui.as_ref().is_none_or(|machine| machine.session_available)
+        self.machine_ui.as_ref().is_none_or(|machine| {
+            machine.session_available && self.machine_selection_intent == self.machine_presented
+        })
+    }
+
+    pub(crate) fn selected_machine(&self) -> Option<MachineKey> {
+        self.machine_selection_intent.or(self.machine_presented)
+    }
+
+    pub(crate) fn machine_transition(&self) -> Option<(&str, MachineConnectionPhase)> {
+        let selected = self.machine_selection_intent?;
+        let ui = self.machine_ui.as_ref()?;
+        if self.machine_presented == Some(selected) && ui.session_available {
+            return None;
+        }
+        let name =
+            ui.snapshot.machines.iter().find(|machine| machine.key == selected)?.name.as_str();
+        Some((name, ui.connection_phase(selected)))
+    }
+
+    fn select_machine_intent(&mut self, machine: MachineKey) {
+        if self.machine_selection_intent != Some(machine) {
+            self.cancel_pointer_interaction();
+            self.machine_selection_generation =
+                self.machine_selection_generation.wrapping_add(1).max(1);
+            self.machine_selection_intent = Some(machine);
+        }
+        if let Some(ui) = self.machine_ui.as_mut() {
+            let phase = if self.machine_presented == Some(machine) {
+                MachineConnectionPhase::Ready
+            } else {
+                MachineConnectionPhase::Connecting
+            };
+            ui.set_connection_phase(machine, phase);
+        }
     }
 
     pub fn workspace_creation_policy(&self) -> Option<WorkspaceCreationPolicy> {
@@ -8221,6 +8270,9 @@ impl App {
         let Some(request) = self.machine_ui.as_mut().and_then(|ui| ui.request.take()) else {
             return RenderAction::None;
         };
+        if let MachineRequest::Switch(machine) = &request {
+            self.select_machine_intent(*machine);
+        }
         let Some(worker) = self.machine_action_worker.as_ref() else {
             if let Some(ui) = self.machine_ui.as_mut() {
                 ui.request = Some(request);
@@ -8239,6 +8291,7 @@ impl App {
             Ok(()) => {
                 self.machine_action_in_flight = true;
                 self.machine_action_request = Some(request);
+                self.machine_action_intent_generation = Some(self.machine_selection_generation);
             }
             Err(MachineSubmitError::Busy(request)) => {
                 if let Some(ui) = self.machine_ui.as_mut() {
@@ -8276,8 +8329,17 @@ impl App {
         self.machine_provider_reconnect_retry_at = None;
     }
 
-    fn take_machine_action_was_provider_reconnect(&mut self) -> bool {
-        matches!(self.machine_action_request.take(), Some(MachineRequest::ReconnectProvider))
+    fn take_machine_action_request(&mut self) -> Option<MachineRequest> {
+        self.machine_action_intent_generation = None;
+        self.machine_action_request.take()
+    }
+
+    fn fail_machine_action(&mut self, request: Option<&MachineRequest>) {
+        if let Some(MachineRequest::Switch(machine)) = request
+            && let Some(ui) = self.machine_ui.as_mut()
+        {
+            ui.set_connection_phase(*machine, MachineConnectionPhase::Failed);
+        }
     }
 
     fn apply_machine_controller_completion(
@@ -8328,10 +8390,13 @@ impl App {
             }
             MachineControllerCompletion::Action { result, updates } => {
                 self.machine_action_in_flight = false;
-                let reconnecting = self.take_machine_action_was_provider_reconnect();
+                let request = self.take_machine_action_request();
+                let reconnecting =
+                    matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider));
                 let result = match result {
                     Ok(result) => result,
                     Err(error) => {
+                        self.fail_machine_action(request.as_ref());
                         if reconnecting {
                             self.schedule_machine_provider_reconnect();
                         }
@@ -8382,7 +8447,9 @@ impl App {
                         let _ = worker.abort_replacement(action_id);
                     }
                     self.machine_action_in_flight = false;
-                    if self.take_machine_action_was_provider_reconnect() {
+                    let request = self.take_machine_action_request();
+                    self.fail_machine_action(request.as_ref());
+                    if matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider)) {
                         self.schedule_machine_provider_reconnect();
                     }
                     self.status_message = Some(format!(
@@ -8392,16 +8459,27 @@ impl App {
                     ));
                     return RenderAction::Draw;
                 }
+                let present = self.machine_action_intent_generation
+                    == Some(self.machine_selection_generation)
+                    && match self.machine_action_request.as_ref() {
+                        Some(MachineRequest::Switch(_)) => action
+                            .session
+                            .machine
+                            .is_none_or(|machine| self.machine_selection_intent == Some(machine)),
+                        _ => true,
+                    };
                 self.pending_machine_replacement =
-                    Some(PendingMachineReplacement { action_id, action: *action });
+                    Some(PendingMachineReplacement { action_id, present, action: *action });
                 if self
                     .machine_action_worker
                     .as_ref()
-                    .is_none_or(|worker| !worker.commit_replacement(action_id))
+                    .is_none_or(|worker| !worker.commit_replacement(action_id, present))
                 {
                     self.pending_machine_replacement.take();
                     self.machine_action_in_flight = false;
-                    if self.take_machine_action_was_provider_reconnect() {
+                    let request = self.take_machine_action_request();
+                    self.fail_machine_action(request.as_ref());
+                    if matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider)) {
                         self.schedule_machine_provider_reconnect();
                     }
                     self.status_message = Some(format!(
@@ -8431,23 +8509,38 @@ impl App {
                     .take()
                     .expect("matching pending replacement was checked");
                 self.machine_action_in_flight = false;
-                let reconnecting = self.take_machine_action_was_provider_reconnect();
+                let request = self.take_machine_action_request();
+                let reconnecting =
+                    matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider));
                 let mut action = RenderAction::None;
                 match committed {
                     Ok(true) => {
                         if reconnecting {
                             self.clear_machine_provider_reconnect();
                         }
+                        let PendingMachineReplacement { present, action: prepared, .. } = pending;
                         let PreparedMachineAction { ui, session_mutation, session_label, session } =
-                            pending.action;
-                        self.install_prepared_machine_session(session);
-                        if let Some(label) = session_label {
-                            self.session_label = label;
-                        }
-                        action = action.merge(self.apply_machine_ui_update(ui));
-                        // Provider notices apply before local mirror errors so they cannot mask them.
-                        if let Some(mutation) = session_mutation {
-                            self.apply_managed_workspace_session_mutation(mutation);
+                            prepared;
+                        let target = session.machine;
+                        if present {
+                            self.machine_presented = target.or(ui.snapshot.active);
+                            self.install_prepared_machine_session(session, false);
+                            if let Some(label) = session_label {
+                                self.session_label = label;
+                            }
+                            action = action.merge(self.apply_machine_ui_update(ui));
+                            // Provider notices apply before local mirror errors so they cannot mask them.
+                            if let Some(mutation) = session_mutation {
+                                self.apply_managed_workspace_session_mutation(mutation);
+                            }
+                        } else {
+                            if let Some(target) = target
+                                && let Some(ui) = self.machine_ui.as_mut()
+                            {
+                                ui.set_connection_phase(target, MachineConnectionPhase::Ready);
+                            }
+                            drop((ui, session_mutation, session_label, session));
+                            action = action.merge(RenderAction::Draw);
                         }
                     }
                     Ok(false) => {
@@ -8458,6 +8551,7 @@ impl App {
                     }
                     Err(error) => {
                         drop(pending);
+                        self.fail_machine_action(request.as_ref());
                         if reconnecting {
                             self.schedule_machine_provider_reconnect();
                         }
@@ -8521,6 +8615,16 @@ impl App {
     }
 
     fn apply_machine_ui_update(&mut self, mut update: MachineUiState) -> RenderAction {
+        if self.machine_ui.is_none()
+            && self.machine_selection_intent.is_none()
+            && self.machine_presented.is_none()
+        {
+            self.machine_selection_intent = update.snapshot.active;
+            self.machine_presented = update.snapshot.active;
+        }
+        update.snapshot.active = self.machine_presented.filter(|presented| {
+            update.snapshot.machines.iter().any(|machine| machine.key == *presented)
+        });
         let guard_error = (uses_provider_managed_workspaces(Some(&update))
             && !self.session.workspaces_are_provider_managed())
         .then(|| self.session.mark_workspaces_provider_managed().err())
@@ -8559,6 +8663,12 @@ impl App {
             }
         }
         if let Some(previous) = self.machine_ui.as_ref() {
+            if let Some(MachineRequest::Switch(machine)) = previous.request.as_ref()
+                && self.machine_selection_intent == Some(*machine)
+            {
+                update.request = Some(MachineRequest::Switch(*machine));
+            }
+            update.extend_connection_phases_from(previous);
             update.reconcile_navigation_from(previous);
         }
         let notice = update.notice.clone();
@@ -8699,7 +8809,11 @@ impl App {
         }
     }
 
-    fn install_prepared_machine_session(&mut self, prepared: PreparedMachineSession) {
+    fn install_prepared_machine_session(
+        &mut self,
+        prepared: PreparedMachineSession,
+        retire_previous: bool,
+    ) {
         self.cancel_pointer_interaction();
         let PreparedMachineSession {
             session,
@@ -8711,6 +8825,7 @@ impl App {
             label,
             session_available,
             color_error,
+            machine: _,
         } = prepared;
         self.pty_input.activate_session_generation(generation);
         self.session_generation = generation;
@@ -8740,7 +8855,9 @@ impl App {
         if let Some(mut previous_worker) = previous_worker {
             previous_worker.stop_and_join();
         }
-        previous_session.begin_shutdown();
+        if retire_previous {
+            previous_session.begin_shutdown();
+        }
     }
 
     fn reset_session_presentation(&mut self, tree: TreeView) {
@@ -12948,14 +13065,21 @@ impl App {
     }
 
     fn activate_machine(&mut self, key: MachineKey) {
+        self.select_machine_intent(key);
         if self.managed_machine(key).is_some_and(|machine| {
             machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.restore
         }) {
             self.request_restore_managed_machine(key);
-        } else if let Some(ui) = self.machine_ui.as_mut()
-            && ui.snapshot.active != Some(key)
-        {
-            ui.request = Some(MachineRequest::Switch(key));
+        } else {
+            let needs_switch = self.machine_presented != Some(key)
+                || self.machine_ui.as_ref().is_some_and(|ui| !ui.session_available);
+            if let Some(ui) = self.machine_ui.as_mut() {
+                if needs_switch {
+                    ui.request = Some(MachineRequest::Switch(key));
+                } else if matches!(ui.request, Some(MachineRequest::Switch(_))) {
+                    ui.request = None;
+                }
+            }
         }
     }
 
@@ -31510,6 +31634,8 @@ mod tests {
             active: Some(MachineKey(41)),
             capabilities: MachineCapabilities::default(),
         }));
+        app.machine_selection_intent = Some(MachineKey(41));
+        app.machine_presented = Some(MachineKey(41));
         app.sync_layout((100, 14));
 
         let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
@@ -31538,6 +31664,21 @@ mod tests {
             Some(app.chrome.sidebar_selected_bg),
             "mouse-down must paint the selected machine before its connection commits"
         );
+
+        let active_hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Machine { key: MachineKey(41), .. }).then_some(*rect)
+            })
+            .unwrap();
+        app.handle_left_down(active_hit.x, active_hit.y, KeyModifiers::NONE).unwrap();
+        assert!(
+            app.machine_ui.as_ref().unwrap().request.is_none(),
+            "returning to the presented machine must cancel an unsubmitted remote switch"
+        );
+        assert_eq!(app.selected_machine(), Some(MachineKey(41)));
+        assert!(app.session_available());
     }
 
     #[test]
@@ -34177,6 +34318,7 @@ mod tests {
         let tree = session.tree();
         super::PendingMachineReplacement {
             action_id,
+            present: true,
             action: super::PreparedMachineAction {
                 ui: provider_machine_ui(),
                 session_mutation: None,
@@ -34191,6 +34333,7 @@ mod tests {
                     label: label.into(),
                     session_available: true,
                     color_error: None,
+                    machine: None,
                 },
             },
         }
@@ -34495,17 +34638,21 @@ mod tests {
         .unwrap();
         let tree = session.tree();
 
-        app.install_prepared_machine_session(super::PreparedMachineSession {
-            session,
-            event_worker,
-            generation: 2,
-            mux_titles,
-            mux_recovery_generation,
-            tree,
-            label: "second".into(),
-            session_available: true,
-            color_error: None,
-        });
+        app.install_prepared_machine_session(
+            super::PreparedMachineSession {
+                session,
+                event_worker,
+                generation: 2,
+                mux_titles,
+                mux_recovery_generation,
+                tree,
+                label: "second".into(),
+                session_available: true,
+                color_error: None,
+                machine: None,
+            },
+            true,
+        );
 
         let pending_pointer_settlement = old_pending_pointer_mutations.load(Ordering::Acquire);
         release_tx.send(()).unwrap();
@@ -34569,17 +34716,21 @@ mod tests {
         .unwrap();
         let tree = session.tree();
 
-        app.install_prepared_machine_session(super::PreparedMachineSession {
-            session,
-            event_worker,
-            generation: 2,
-            mux_titles,
-            mux_recovery_generation,
-            tree,
-            label: "second".into(),
-            session_available: true,
-            color_error: None,
-        });
+        app.install_prepared_machine_session(
+            super::PreparedMachineSession {
+                session,
+                event_worker,
+                generation: 2,
+                mux_titles,
+                mux_recovery_generation,
+                tree,
+                label: "second".into(),
+                session_available: true,
+                color_error: None,
+                machine: None,
+            },
+            true,
+        );
 
         assert_eq!(
             blocked.drain_mouse_lifetimes(),
@@ -34658,17 +34809,21 @@ mod tests {
         .unwrap();
         let tree = session.tree();
 
-        app.install_prepared_machine_session(super::PreparedMachineSession {
-            session,
-            event_worker,
-            generation: 2,
-            mux_titles,
-            mux_recovery_generation,
-            tree,
-            label: "second".into(),
-            session_available: false,
-            color_error: Some("offline".into()),
-        });
+        app.install_prepared_machine_session(
+            super::PreparedMachineSession {
+                session,
+                event_worker,
+                generation: 2,
+                mux_titles,
+                mux_recovery_generation,
+                tree,
+                label: "second".into(),
+                session_available: false,
+                color_error: Some("offline".into()),
+                machine: None,
+            },
+            true,
+        );
 
         assert_eq!(
             app.status_message.as_deref(),
@@ -34712,17 +34867,21 @@ mod tests {
         )
         .unwrap();
         let tree = session.tree();
-        app.install_prepared_machine_session(super::PreparedMachineSession {
-            session,
-            event_worker,
-            generation: 2,
-            mux_titles,
-            mux_recovery_generation,
-            tree,
-            label: "second".into(),
-            session_available: true,
-            color_error: None,
-        });
+        app.install_prepared_machine_session(
+            super::PreparedMachineSession {
+                session,
+                event_worker,
+                generation: 2,
+                mux_titles,
+                mux_recovery_generation,
+                tree,
+                label: "second".into(),
+                session_available: true,
+                color_error: None,
+                machine: None,
+            },
+            true,
+        );
 
         release_tx.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
@@ -35045,17 +35204,21 @@ mod tests {
         .unwrap();
         let tree = session.tree();
 
-        app.install_prepared_machine_session(super::PreparedMachineSession {
-            session,
-            event_worker,
-            generation: 2,
-            mux_titles,
-            mux_recovery_generation,
-            tree,
-            label: "second".into(),
-            session_available: true,
-            color_error: None,
-        });
+        app.install_prepared_machine_session(
+            super::PreparedMachineSession {
+                session,
+                event_worker,
+                generation: 2,
+                mux_titles,
+                mux_recovery_generation,
+                tree,
+                label: "second".into(),
+                session_available: true,
+                color_error: None,
+                machine: None,
+            },
+            true,
+        );
         while app.session.has_pending_mutations() {
             let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
             app.handle(event).unwrap();
@@ -35526,6 +35689,10 @@ mod tests {
             machine_action_worker: None,
             machine_action_in_flight: false,
             machine_action_request: None,
+            machine_action_intent_generation: None,
+            machine_selection_intent: None,
+            machine_selection_generation: 0,
+            machine_presented: None,
             machine_provider_reconnect_attempts: 0,
             machine_provider_reconnect_retry_at: None,
             pending_machine_replacement: None,
