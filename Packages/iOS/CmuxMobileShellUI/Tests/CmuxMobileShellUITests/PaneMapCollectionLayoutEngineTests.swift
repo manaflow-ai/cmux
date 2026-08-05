@@ -296,6 +296,23 @@ import UIKit
         #expect(collectionView.numberOfItems(inSection: 0) == panes.count)
         #expect(collectionView.visibleCells.count == panes.count)
     }
+
+    /// The navigation-stack root can also stay entirely unsized while covered;
+    /// the pre-warm must impose the scene estimate itself before forcing layout.
+    @Test func zeroSizedDetachedContainerAdoptsTheEstimatedSize() {
+        let collectionView = UICollectionView(
+            frame: .zero,
+            collectionViewLayout: UICollectionViewFlowLayout()
+        )
+        let container = PaneMapCollectionContainerView(collectionView: collectionView)
+
+        container.prewarmDetachedCellLayout(
+            estimatedSize: CGSize(width: 390, height: 700)
+        )
+
+        #expect(container.bounds.size == CGSize(width: 390, height: 700))
+        #expect(collectionView.bounds.size == CGSize(width: 390, height: 700))
+    }
 }
 
 @MainActor

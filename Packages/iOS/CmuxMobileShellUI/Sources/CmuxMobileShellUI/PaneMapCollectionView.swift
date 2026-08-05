@@ -194,6 +194,15 @@ struct PaneMapCollectionView: UIViewRepresentable {
             collectionView?.reloadData()
             collectionView?.collectionViewLayout.invalidateLayout()
             container?.setNeedsLayout()
+            container?.prewarmDetachedCellLayout(estimatedSize: Self.detachedPrewarmSize())
+        }
+
+        private static func detachedPrewarmSize() -> CGSize {
+            let scenes = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+            let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+            guard let scene else { return .zero }
+            return scene.keyWindow?.bounds.size ?? scene.screen.bounds.size
         }
 
         func numberOfSections(in collectionView: UICollectionView) -> Int { 1 }
@@ -546,6 +555,24 @@ final class PaneMapCollectionContainerView: UIView {
         }
         collectionView.layoutIfNeeded()
         updateOverflowIndicators()
+    }
+
+    /// Materializes the map's cells while this view has no window.
+    ///
+    /// The map is the navigation-stack root and a restored workspace starts
+    /// with the terminal pushed on top, so UIKit never lays this view out
+    /// before the first terminal→map pop. The zoom transition's matched
+    /// source tile lives inside a cell; if no cell exists when that pop
+    /// begins, the unzoom degrades to a hard cut. Sizing the detached
+    /// container to the scene estimate and forcing layout creates the tiles
+    /// ahead of the first pop; the real layout pass corrects the geometry.
+    func prewarmDetachedCellLayout(estimatedSize: CGSize) {
+        guard window == nil else { return }
+        if bounds.size == .zero {
+            guard estimatedSize != .zero else { return }
+            frame = CGRect(origin: .zero, size: estimatedSize)
+        }
+        layoutIfNeeded()
     }
 
     func updateOverflowIndicators() {
