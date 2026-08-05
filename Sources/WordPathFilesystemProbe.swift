@@ -21,12 +21,13 @@ struct WordPathFilesystemProbe: Sendable {
     index=0
     for candidate do
         if [ -e "$candidate" ]; then
+            resolved_candidate=$("$realpath_executable" "$candidate") || exit 1
             kind=other
-            if [ -f "$candidate" ] && [ -r "$candidate" ]; then
+            if [ -f "$resolved_candidate" ] && [ -r "$resolved_candidate" ]; then
                 kind=readable-file
             fi
-            printf '%s\\0%s\\0' "$index" "$kind"
-            exec "$realpath_executable" "$candidate"
+            printf '%s\\0%s\\0%s\\n' "$index" "$kind" "$resolved_candidate"
+            exit 0
         fi
         index=$((index + 1))
     done

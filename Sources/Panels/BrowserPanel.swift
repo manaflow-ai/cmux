@@ -6715,8 +6715,6 @@ extension BrowserPanel {
         forceWebViewReplacement: Bool = false
     ) {
         let shouldReset = forceWebViewReplacement || needsWorkspaceContextReset
-        cancelPendingFileOnlyNavigation()
-        forgetTerminalFileReuseIdentity()
         guard shouldReset else {
             resetWebViewLifecycleMetadata()
 #if DEBUG
@@ -6727,6 +6725,8 @@ extension BrowserPanel {
 #endif
             return
         }
+        cancelPendingFileOnlyNavigation()
+        forgetTerminalFileReuseIdentity()
 
 #if DEBUG
         cmuxDebugLog(
@@ -6957,12 +6957,16 @@ extension BrowserPanel {
         bypassInsecureHTTPHostOnce: String?
     ) {
         let finishResolution: @MainActor @Sendable (URL?) -> Void = { [weak self] resolvedFileURL in
-            guard let self,
-                  let resolvedFileURL,
+            guard let self else { return }
+            guard let resolvedFileURL,
                   let navigationURL = BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
                       for: fileURL,
                       resolvedFileURL: resolvedFileURL
                   ) else {
+                self.openResolvedLinkInNewTab(
+                    request: request,
+                    bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+                )
                 return
             }
             var resolvedRequest = request
