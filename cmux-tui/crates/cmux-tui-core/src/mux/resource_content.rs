@@ -105,7 +105,7 @@ impl Mux {
                         pane_id: pane_id.clone(),
                         position: final_index,
                         content_id: content_id.clone(),
-                        name: name.clone(),
+                        name,
                         browser_url: None,
                         terminal_id: Some(host_id.clone()),
                     },
