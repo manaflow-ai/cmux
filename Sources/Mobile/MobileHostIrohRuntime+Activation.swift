@@ -56,6 +56,10 @@ extension MobileHostIrohRuntime {
         }
         let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
+            // A cached binding id is only best-effort revocation context. It
+            // never skips online resolution: fresh registration replaces it
+            // in `recordRegisteredBinding`/`recordActiveRoute`, while public
+            // route status exposes peer identity and path hints, not this id.
             lastKnownBindingID = cachedBinding.bindingID
             lastKnownAccountID = accountID
             lastKnownTag = tag

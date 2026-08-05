@@ -232,6 +232,11 @@ extension AuthCoordinator {
             return stored
         }
         await awaitBootstrapped()
+        // A session writer owns both identity and tokens during this window.
+        // Check it before published identity, which may be temporarily empty.
+        guard !sessionTokenTransitionIsActive else {
+            throw AuthError.networkError
+        }
         guard isAuthenticated,
               let accountID = currentUser?.id,
               !accountID.isEmpty else {
@@ -240,10 +245,9 @@ extension AuthCoordinator {
         // A transition-owned token store is transient: every foreground return
         // revalidates the session over the network, and classifying that
         // window as unauthorized made the iroh broker source fail closed on
-        // every app launch. Match `accessToken()`'s classification.
-        guard !sessionTokenTransitionIsActive else {
-            throw AuthError.networkError
-        }
+        // every app launch. The transition guard above runs before the
+        // identity read for that reason; no suspension point sits between it
+        // and this line, so the window cannot reopen here.
         let generation = sessionGeneration
         // Read both tokens as one coherent pair so a concurrent force refresh
         // cannot pair an old access token with a rotated refresh token; the
@@ -359,6 +363,32 @@ extension AuthCoordinator {
     ///   `false` and the root scene routes to the sign-in page instead of
     ///   showing a stale shell.
     public func forceRefreshAccessToken() async throws -> String {
+        let generation = sessionGeneration
+        if let activeForcedAccessTokenRefresh,
+           activeForcedAccessTokenRefresh.generation == generation {
+            return try await activeForcedAccessTokenRefresh.task.value
+        }
+
+        let refreshID = UUID()
+        let refreshTask = Task { @MainActor [weak self] () throws -> String in
+            guard let self else { throw CancellationError() }
+            defer { self.finishForcedAccessTokenRefresh(id: refreshID) }
+            return try await self.performForcedAccessTokenRefresh()
+        }
+        activeForcedAccessTokenRefresh = (
+            id: refreshID,
+            generation: generation,
+            task: refreshTask
+        )
+        return try await refreshTask.value
+    }
+
+    private func finishForcedAccessTokenRefresh(id: UUID) {
+        guard activeForcedAccessTokenRefresh?.id == id else { return }
+        activeForcedAccessTokenRefresh = nil
+    }
+
+    private func performForcedAccessTokenRefresh() async throws -> String {
         do {
             return try await runTokenTouchingPhase(.forceRefreshAccessToken, timeout: timeouts.network) {
                 try await self.forceRefreshAccessTokenWithoutStateClear()

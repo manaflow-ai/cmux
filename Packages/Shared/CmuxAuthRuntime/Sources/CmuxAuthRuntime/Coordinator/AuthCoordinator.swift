@@ -130,6 +130,14 @@ public final class AuthCoordinator {
     @ObservationIgnored var activeSessionValidations: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var activePostSignInHooks: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var activeTokenTouchingPhases: [UUID: AuthTrackedTokenWork] = [:]
+    /// One forced access-token mint per session generation. Broker operations
+    /// can reject the same credential concurrently; every recovery waiter must
+    /// observe the one replacement rather than rotate the session repeatedly.
+    @ObservationIgnored var activeForcedAccessTokenRefresh: (
+        id: UUID,
+        generation: UInt64,
+        task: Task<String, any Error>
+    )?
     @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
     @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
     @ObservationIgnored var isCapturingSignOutCredentials = false

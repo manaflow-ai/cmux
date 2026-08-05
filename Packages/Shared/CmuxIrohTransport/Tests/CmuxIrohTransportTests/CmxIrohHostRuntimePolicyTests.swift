@@ -159,6 +159,40 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func unauthorizedRegistrationRefreshPreservesActiveEndpoint() async throws {
+        let fixture = try HostRuntimeFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            subsequentRegistrationErrors: [
+                .rejected(statusCode: 401, code: "unauthorized"),
+            ]
+        )
+        let deactivations = HostRuntimeDeactivationRecorder()
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() },
+            handleDeactivation: { bindingID in
+                await deactivations.record(bindingID)
+            }
+        )
+        try await runtime.start()
+
+        await endpoint.emit(.networkChanged)
+        await broker.waitForRegistrationCount(2)
+        await runtime.waitForRegistrationRefreshForTesting()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await endpoint.observedCloseCallCount() == 0)
+        #expect(await deactivations.values().isEmpty)
+        await runtime.stop()
+    }
+
+    @Test
     func networkChangeDuringRegistrationIsObservedAfterStartup() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
@@ -267,6 +301,7 @@ extension CmxIrohHostRuntimeTests {
 
     @Test(arguments: [
         CmxIrohTrustBrokerClientError.missingAuthentication,
+        .rejected(statusCode: 401, code: "unauthorized"),
         .rejected(statusCode: 400, code: "invalid_request"),
         .invalidResponse,
     ])

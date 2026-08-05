@@ -125,6 +125,109 @@ extension MobileHostAuthorizationTests {
         #expect(registry.count == 0)
     }
 
+    @Test func testDebugReadinessValidationRejectsStaleAndWrongActorClaims() async throws {
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+        defer { _ = registry.removeAll() }
+
+        let connectionID = UUID()
+        let transport = ScriptedMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                request.method == "workspace.list"
+                    ? .ok(["workspaces": [["id": "workspace-a"]]])
+                    : .ok([:])
+            },
+            // Deliberately retain the closed actor in the registry so the
+            // validator must reject `isClosed`, not merely a missing lookup.
+            onClose: { _ in }
+        )
+        #expect(registry.insert(
+            session,
+            id: connectionID,
+            authorization: .stackBearer,
+            limit: 1
+        ))
+        let runTask = Task { await session.run() }
+
+        await transport.enqueue(try Self.mobileHostWorkspaceListFrame(id: "workspace"))
+        _ = await transport.waitForSentBufferCount(1)
+        await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
+        _ = await transport.waitForSentBufferCount(2)
+
+        #expect(await registry.debugValidateReadiness(
+            connectionID: connectionID,
+            clientID: "phone-a",
+            launchID: Self.mobileHostLaunchID,
+            streamID: "events",
+            transport: "control_v1"
+        ))
+        #expect(!(await registry.debugValidateReadiness(
+            connectionID: connectionID,
+            clientID: "phone-a",
+            launchID: "22222222-2222-2222-2222-222222222222",
+            streamID: "events",
+            transport: "control_v1"
+        )))
+        #expect(!(await registry.debugValidateReadiness(
+            connectionID: connectionID,
+            clientID: "wrong-phone",
+            launchID: Self.mobileHostLaunchID,
+            streamID: "events",
+            transport: "control_v1"
+        )))
+        #expect(!(await registry.debugValidateReadiness(
+            connectionID: connectionID,
+            clientID: "phone-a",
+            launchID: Self.mobileHostLaunchID,
+            streamID: "wrong-stream",
+            transport: "control_v1"
+        )))
+        #expect(!(await registry.debugValidateReadiness(
+            connectionID: connectionID,
+            clientID: "phone-a",
+            launchID: Self.mobileHostLaunchID,
+            streamID: "events",
+            transport: "iroh_server_events_v1"
+        )))
+
+        let incompleteSubscribe = MobileHostRPCRequest(
+            id: "incomplete",
+            method: "mobile.events.subscribe",
+            params: [
+                "client_id": "phone-a",
+                "launch_id": Self.mobileHostLaunchID,
+                "stream_id": "events",
+                "topics": ["workspace.updated"],
+            ],
+            auth: nil
+        )
+        _ = await session.debugHandleSubscriptionRPCForTesting(incompleteSubscribe)
+        #expect(!(await registry.debugValidateReadiness(
+            connectionID: connectionID,
+            clientID: "phone-a",
+            launchID: Self.mobileHostLaunchID,
+            streamID: "events",
+            transport: "control_v1"
+        )))
+
+        await session.close(reason: "stale retained readiness claim")
+        await runTask.value
+        #expect(!(await registry.debugValidateReadiness(
+            connectionID: connectionID,
+            clientID: "phone-a",
+            launchID: Self.mobileHostLaunchID,
+            streamID: "events",
+            transport: "control_v1"
+        )))
+    }
+
     @Test func testNewestUsableIrohConnectionSupersedesOlderOverlap() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
@@ -231,6 +334,7 @@ extension MobileHostAuthorizationTests {
         #expect(payload?["workspace_count"] as? Int == 1)
         #expect(payload?["stream_id"] as? String == "events")
         #expect(payload?["client_id"] as? String == "phone-a")
+        #expect(payload?["launch_id"] as? String == Self.mobileHostLaunchID)
         #expect(payload?["transport"] as? String == "control_v1")
 
         await transport.enqueue(try Self.mobileHostWorkspaceListFrame(id: "workspace-again"))
@@ -345,11 +449,14 @@ extension MobileHostAuthorizationTests {
         try MobileSyncFrameCodec.encodeFrame(
             Data(
                 """
-                {"id":"\(id)","method":"mobile.events.subscribe","params":{"client_id":"phone-a","stream_id":"events","topics":["workspace.updated","mobile.sync.delta","terminal.render_grid"]}}
+                {"id":"\(id)","method":"mobile.events.subscribe","params":{"client_id":"phone-a","launch_id":"\(mobileHostLaunchID)","stream_id":"events","topics":["workspace.updated","mobile.sync.delta","terminal.render_grid"]}}
                 """.utf8
             )
         )
     }
+
+    private static let mobileHostLaunchID =
+        "11111111-1111-1111-1111-111111111111"
 
     private static func mobileHostUnsubscribeFrame(id: String) throws -> Data {
         try MobileSyncFrameCodec.encodeFrame(

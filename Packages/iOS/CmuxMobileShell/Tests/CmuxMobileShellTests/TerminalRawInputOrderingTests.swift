@@ -114,10 +114,17 @@ import Testing
             routeKind: .iroh,
             terminalLaneProvider: { _, _, _ in lane }
         )
-        let outputStream = store.terminalOutputStream(
+        let collector = OutputCollector()
+        collector.mount(
+            store: store,
             surfaceID: RoutingHostRouter.terminalA
         )
-        _ = outputStream
+        defer { collector.unmount() }
+        #expect(try await pollUntil {
+            !store.terminalReplaySurfaceIDsInFlight.contains(
+                RoutingHostRouter.terminalA
+            )
+        })
 
         await store.submitTerminalRawInput(
             Data("a".utf8),
@@ -297,10 +304,17 @@ import Testing
             terminalLaneProvider: { _, _, _ in lane },
             rpcRequestTimeoutNanoseconds: 1_000_000_000
         )
-        let outputStream = store.terminalOutputStream(
+        let collector = OutputCollector()
+        collector.mount(
+            store: store,
             surfaceID: RoutingHostRouter.terminalA
         )
-        _ = outputStream
+        defer { collector.unmount() }
+        #expect(try await pollUntil {
+            !store.terminalReplaySurfaceIDsInFlight.contains(
+                RoutingHostRouter.terminalA
+            )
+        })
 
         await store.submitTerminalRawInput(
             Data("a".utf8),
@@ -387,15 +401,10 @@ import Testing
         router: RoutingHostRouter,
         deadline deadlineDuration: Duration = .milliseconds(500)
     ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: deadlineDuration)
-        while clock.now < deadline {
-            if await router.recordedTerminalInputs().count >= expectedCount {
-                return true
-            }
-            await Task.yield()
-        }
-        return false
+        await router.waitForTerminalInputCount(
+            atLeast: expectedCount,
+            timeout: deadlineDuration
+        )
     }
 
     private func waitForTerminalInputQuiescence(router: RoutingHostRouter) async -> Bool {

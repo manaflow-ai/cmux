@@ -21,6 +21,7 @@ actor LivenessHostRouter {
     struct RecordedRequest: Sendable {
         var method: String?
         var topics: [String]?
+        var launchID: String?
         var workspaceID: String?
         var streamID: String?
         var groupID: String?
@@ -114,6 +115,7 @@ actor LivenessHostRouter {
     func record(
         method: String?,
         topics: [String]?,
+        launchID: String? = nil,
         workspaceID: String? = nil,
         streamID: String? = nil,
         groupID: String? = nil,
@@ -125,6 +127,7 @@ actor LivenessHostRouter {
         recorded.append(RecordedRequest(
             method: method,
             topics: topics,
+            launchID: launchID,
             workspaceID: workspaceID,
             streamID: streamID,
             groupID: groupID,
@@ -231,6 +234,10 @@ actor LivenessHostRouter {
             guard request.method == method else { return nil }
             return request.topics
         }
+    }
+
+    func launchIDs(for method: String) -> [String?] {
+        recorded.filter { $0.method == method }.map(\.launchID)
     }
 
     func workspaceIDs(for method: String) -> [String?] {
@@ -798,6 +805,7 @@ actor LivenessTransport: CmxByteTransport {
             await router.record(
                 method: method,
                 topics: topics,
+                launchID: params?["launch_id"] as? String,
                 workspaceID: params?["workspace_id"] as? String,
                 streamID: streamID,
                 groupID: params?["group_id"] as? String,
@@ -856,10 +864,24 @@ final class OutputCollector {
     private(set) var lines: [String] = []
     private(set) var viewportPolicies: [MobileTerminalOutputViewportPolicy?] = []
     private var task: Task<Void, Never>?
+    private weak var mountedStore: MobileShellComposite?
+    private var mountedSurfaceID: String?
+    private var mountedStreamToken: UUID?
+    private var mountedContinuation:
+        AsyncStream<MobileTerminalOutputChunk>.Continuation?
 
     func mount(store: MobileShellComposite, surfaceID: String) {
+        mountedStore = store
+        mountedSurfaceID = surfaceID
+        let stream = store.terminalOutputStream(surfaceID: surfaceID)
+        mountedStreamToken = store.terminalOutputStreamTokensBySurfaceID[
+            surfaceID
+        ]
+        mountedContinuation = store.terminalByteContinuationsBySurfaceID[
+            surfaceID
+        ]
         task = Task { @MainActor [weak self] in
-            for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
+            for await chunk in stream {
                 self?.lines.append(String(decoding: chunk.data, as: UTF8.self))
                 self?.viewportPolicies.append(chunk.viewportPolicy)
                 store.terminalOutputDidProcess(
@@ -871,8 +893,22 @@ final class OutputCollector {
     }
 
     func unmount() {
-        task?.cancel()
+        let mountedTask = task
         task = nil
+        mountedContinuation?.finish()
+        if let mountedStore,
+           let mountedSurfaceID,
+           let mountedStreamToken {
+            mountedStore.unregisterTerminalOutput(
+                surfaceID: mountedSurfaceID,
+                streamToken: mountedStreamToken
+            )
+        }
+        mountedTask?.cancel()
+        mountedStore = nil
+        mountedSurfaceID = nil
+        mountedStreamToken = nil
+        mountedContinuation = nil
     }
 }
 
@@ -938,7 +974,9 @@ func makeConnectedStore(
     box: TransportBox,
     clock: TestClock,
     probeTimeoutNanoseconds: UInt64 = 200_000_000,
-    inputAckRetryClock: any Clock<Duration> = ContinuousClock()
+    inputAckRetryClock: any Clock<Duration> = ContinuousClock(),
+    dogfoodLaunchID: String? = nil,
+    awaitInitialSubscription: Bool = true
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -947,7 +985,8 @@ func makeConnectedStore(
     )
     let store = MobileShellComposite.preview(
         runtime: runtime,
-        terminalInputAckResubscribeClock: inputAckRetryClock
+        terminalInputAckResubscribeClock: inputAckRetryClock,
+        dogfoodLaunchID: dogfoodLaunchID
     )
     store.signIn()
     let ticket = try makeTicket(clock: clock)
@@ -957,6 +996,22 @@ func makeConnectedStore(
         !store.supportedHostCapabilities.isEmpty
     }
     #expect(capabilitiesResolved, "scripted connect must resolve host capabilities")
+    if awaitInitialSubscription {
+        let subscriptionIsUsable = try await pollUntil(attempts: 1_000) {
+            guard let listenerID = store.terminalEventListenerID else {
+                return false
+            }
+            return store.lastSuccessfulTerminalSubscription
+                == MobileTerminalSubscriptionValidation(
+                    connectionGeneration: store.connectionGeneration,
+                    listenerID: listenerID
+                )
+        }
+        #expect(
+            subscriptionIsUsable,
+            "a connected-store fixture must not return before its initial event subscription is usable"
+        )
+    }
     return store
 }
 

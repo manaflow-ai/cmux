@@ -62,11 +62,15 @@ function waitForUsableSession(
   status = 0,
   baseline = "100",
   timeout = "15",
-  event = '{"seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","transport":"iroh","stream_id":"events"}}',
+  event = '{"seq":101,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","launch_id":"11111111-1111-1111-1111-111111111111","transport":"iroh","stream_id":"events"}}',
   expectedClientID = "phone-a",
+  expectedLaunchID = "11111111-1111-1111-1111-111111111111",
+  validationStatus = 0,
 ) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-admission-test-"));
   const argsPath = path.join(tempRoot, "args");
+  const eventSentPath = path.join(tempRoot, "event-sent");
+  const validationArgsPath = path.join(tempRoot, "validation-args");
 
   try {
     const result = run(
@@ -77,11 +81,17 @@ function waitForUsableSession(
           'source "$1"',
           'cmux_attach_events() {',
           '  shift 2',
+          '  [[ ! -f "$CMUX_TEST_EVENT_SENT" ]] || return 1',
+          '  : > "$CMUX_TEST_EVENT_SENT"',
           '  printf "%s\\n" "$*" > "$CMUX_TEST_ARGS"',
           '  [[ "$CMUX_TEST_STATUS" == "0" ]] && printf "%s\\n" "$CMUX_TEST_EVENT"',
           '  return "$CMUX_TEST_STATUS"',
           '}',
-          'cmux_attach_wait_for_usable_session "ready" "$2" "$3" "$4" "$5"',
+          'cmux_attach_validate_readiness_claim() {',
+          '  printf "%s\\n" "$*" > "$CMUX_TEST_VALIDATION_ARGS"',
+          '  return "$CMUX_TEST_VALIDATION_STATUS"',
+          '}',
+          'cmux_attach_wait_for_usable_session "ready" "$2" "$3" "$4" "$5" "$6"',
         ].join("\n"),
         "mobile-admission-test",
         validator,
@@ -89,21 +99,88 @@ function waitForUsableSession(
         baseline,
         timeout,
         expectedClientID,
+        expectedLaunchID,
       ],
       {
         CMUX_TEST_ARGS: argsPath,
         CMUX_TEST_EVENT: event,
+        CMUX_TEST_EVENT_SENT: eventSentPath,
         CMUX_TEST_STATUS: String(status),
+        CMUX_TEST_VALIDATION_ARGS: validationArgsPath,
+        CMUX_TEST_VALIDATION_STATUS: String(validationStatus),
       },
     );
     result.eventArgs = fs.existsSync(argsPath) ? fs.readFileSync(argsPath, "utf8").trim() : "";
+    result.validationArgs = fs.existsSync(validationArgsPath)
+      ? fs.readFileSync(validationArgsPath, "utf8").trim()
+      : "";
     return result;
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 }
 
-function writeReadinessReceipt(eventJSON) {
+function newLaunchID() {
+  return run("bash", [
+    "-c",
+    'source "$1"; cmux_attach_new_launch_id',
+    "mobile-launch-id-test",
+    validator,
+  ]);
+}
+
+function validateReadinessClaim({
+  event,
+  expectedClientID = "phone-a",
+  expectedLaunchID = "11111111-1111-1111-1111-111111111111",
+  validatorResponse = '{"valid":true}',
+}) {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-validator-test-"));
+  const scriptsDir = path.join(tempRoot, "scripts");
+  const callLog = path.join(tempRoot, "call.log");
+  fs.mkdirSync(scriptsDir);
+  fs.writeFileSync(
+    path.join(scriptsDir, "cmux-debug-cli.sh"),
+    [
+      "#!/usr/bin/env bash",
+      'printf "%s\\n%s\\n%s\\n" "$1" "$2" "$3" > "$CMUX_TEST_CALL_LOG"',
+      'printf "%s\\n" "$CMUX_TEST_VALIDATOR_RESPONSE"',
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+
+  try {
+    const result = run(
+      "bash",
+      [
+        "-c",
+        'source "$1"; cmux_attach_validate_readiness_claim ready "$2" "$3" "$4" "$5"',
+        "mobile-readiness-validator-test",
+        validator,
+        tempRoot,
+        event,
+        expectedClientID,
+        expectedLaunchID,
+      ],
+      {
+        CMUX_TEST_CALL_LOG: callLog,
+        CMUX_TEST_VALIDATOR_RESPONSE: validatorResponse,
+      },
+    );
+    const call = fs.existsSync(callLog)
+      ? fs.readFileSync(callLog, "utf8").trim().split("\n")
+      : [];
+    result.rpcCommand = call[0] ?? "";
+    result.rpcMethod = call[1] ?? "";
+    result.rpcParams = call[2] ? JSON.parse(call[2]) : null;
+    return result;
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function writeReadinessReceipt(eventJSON, latency = "8421", attempts = "1") {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-receipt-test-"));
   const receiptPath = path.join(tempRoot, "receipt.json");
   const result = run(
@@ -112,13 +189,15 @@ function writeReadinessReceipt(eventJSON) {
       "-c",
       [
         'source "$1"',
-        'cmux_attach_write_readiness_receipt "$2" "$3" iosrdy dev.cmux.ios.iosrdy physical_device phone-a iosrdy /tmp/cmux-debug-iosrdy.sock 8421 1 "$4"',
+        'cmux_attach_write_readiness_receipt "$2" "$3" iosrdy dev.cmux.ios.iosrdy physical_device phone-a iosrdy /tmp/cmux-debug-iosrdy.sock "$5" "$6" "$4"',
       ].join("\n"),
       "mobile-readiness-receipt-test",
       validator,
       receiptPath,
       "0123456789abcdef0123456789abcdef01234567",
       eventJSON,
+      latency,
+      attempts,
     ],
   );
   result.receipt = fs.existsSync(receiptPath)
@@ -426,6 +505,119 @@ function runQRGenerator(payloads) {
   return result;
 }
 
+function runAttachedSimulatorLaunch({ rejectConsoleAttachment }) {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-launch-test-"));
+  const scriptsDir = path.join(tempRoot, "scripts");
+  const libDir = path.join(scriptsDir, "lib");
+  const binDir = path.join(tempRoot, "bin");
+  const prepMarker = path.join(tempRoot, "simulator-prepared");
+  const readyMarker = path.join(tempRoot, "session-ready");
+  const latencyPath = path.join(tempRoot, "latency");
+  const xcrunLog = path.join(tempRoot, "xcrun.log");
+  fs.mkdirSync(libDir, { recursive: true });
+  fs.mkdirSync(binDir);
+  fs.copyFileSync(
+    path.join(repoRoot, "scripts/mobile-dev-launch.sh"),
+    path.join(scriptsDir, "mobile-dev-launch.sh"),
+  );
+  fs.writeFileSync(
+    path.join(libDir, "dev-secrets.sh"),
+    [
+      "cmux_dev_secrets_load() {",
+      '  export CMUX_UITEST_STACK_EMAIL="dogfood@example.com"',
+      '  export CMUX_UITEST_STACK_PASSWORD="test-password"',
+      "}",
+      "",
+    ].join("\n"),
+  );
+  fs.writeFileSync(
+    path.join(libDir, "mobile-attach.sh"),
+    [
+      "cmux_attach_validate_dev_tag() { return 0; }",
+      'cmux_attach__slug() { printf "ready"; }',
+      "cmux_attach_mac_socket_ready() { return 0; }",
+      'cmux_attach_mint_url() { printf "cmux-ios-dev://attach?v=2&kind=debug_loopback"; }',
+      'cmux_attach_readiness_cursor() { printf "842"; }',
+      'cmux_attach_seed_simulator_device_id() { : > "$CMUX_TEST_PREP_MARKER"; printf "sim-device"; }',
+      'cmux_attach_dogfood_client_id() { printf "sim-client"; }',
+      'cmux_attach_new_launch_id() { printf "11111111-1111-4111-8111-111111111111"; }',
+      "cmux_attach_wait_for_usable_session() {",
+      '  : > "$CMUX_TEST_READY_MARKER"',
+      '  printf \'{"name":"mobile.rpc.ready","payload":{"connection_id":"c","client_id":"sim-client","launch_id":"%s","workspace_count":1,"stream_id":"events","transport":"debug_loopback"}}\' "$6"',
+      "}",
+      "cmux_attach_monotonic_milliseconds() {",
+      '  if [[ -f "$CMUX_TEST_READY_MARKER" ]]; then printf "250"',
+      '  elif [[ -f "$CMUX_TEST_PREP_MARKER" ]]; then printf "100"',
+      '  else printf "10"',
+      "  fi",
+      "}",
+      'cmux_attach_socket_path() { printf "/tmp/cmux-debug-ready.sock"; }',
+      'cmux_attach_write_readiness_receipt() { printf "%s" "$9" > "$CMUX_TEST_LATENCY_PATH"; }',
+      "",
+    ].join("\n"),
+  );
+  fs.writeFileSync(
+    path.join(binDir, "xcrun"),
+    [
+      "#!/usr/bin/env bash",
+      'printf "%s\\n" "$*" >> "$CMUX_TEST_XCRUN_LOG"',
+      'if [[ "$*" == simctl\\ launch* ]]; then',
+      '  printf "launch-id=%s\\n" "${SIMCTL_CHILD_CMUX_DOGFOOD_LAUNCH_ID:-}" >> "$CMUX_TEST_XCRUN_LOG"',
+      "fi",
+      'if [[ "$*" == "simctl list devices booted" ]]; then',
+      '  printf "iPhone 17 (AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA) (Booted)\\n"',
+      "  exit 0",
+      "fi",
+      'if [[ "$*" == simctl\\ launch* && "$*" == *--console-pty* && "$CMUX_TEST_REJECT_CONSOLE" == "1" ]]; then',
+      "  exit 75",
+      "fi",
+      "exit 0",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(
+    path.join(binDir, "git"),
+    "#!/usr/bin/env bash\nprintf '0123456789abcdef0123456789abcdef01234567\\n'\n",
+    { mode: 0o755 },
+  );
+
+  try {
+    const result = run(
+      "bash",
+      [
+        path.join(scriptsDir, "mobile-dev-launch.sh"),
+        "--tag",
+        "ready",
+        "--simulator",
+        "iPhone 17",
+        "--attach",
+        "--agent",
+      ],
+      {
+        PATH: `${binDir}:${process.env.PATH}`,
+        CMUX_TEST_LATENCY_PATH: latencyPath,
+        CMUX_TEST_PREP_MARKER: prepMarker,
+        CMUX_TEST_READY_MARKER: readyMarker,
+        CMUX_TEST_REJECT_CONSOLE: rejectConsoleAttachment ? "1" : "0",
+        CMUX_TEST_XCRUN_LOG: xcrunLog,
+      },
+    );
+    result.latency = fs.existsSync(latencyPath)
+      ? Number.parseInt(fs.readFileSync(latencyPath, "utf8"), 10)
+      : null;
+    result.xcrunCalls = fs.existsSync(xcrunLog)
+      ? fs.readFileSync(xcrunLog, "utf8").trim().split("\n")
+      : [];
+    result.launchID = result.xcrunCalls
+      .find((line) => line.startsWith("launch-id="))
+      ?.slice("launch-id=".length) ?? null;
+    return result;
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 test("shared dev-tag validator rejects every spelling that sanitizes to default", () => {
   for (const tag of ["default", "DEFAULT", "...Default..."]) {
     const result = validate(tag);
@@ -502,6 +694,15 @@ test("dogfood readiness captures the Mac event sequence before launch", () => {
   assert.equal(result.stdout, "842");
 });
 
+test("dogfood readiness reads only the authoritative resume cursor", () => {
+  const result = readinessCursor(
+    '{"latest_seq":1,"resume":{"latest_seq":842,"next_seq":843},"diagnostic":{"latest_seq":3}}',
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "842");
+});
+
 test("dogfood readiness clock is stable across helper processes", () => {
   const first = monotonicMilliseconds();
   const second = monotonicMilliseconds();
@@ -534,11 +735,41 @@ test("dogfood readiness rejects an event from another client", () => {
     0,
     "842",
     "1",
-    '{"seq":843,"name":"mobile.rpc.ready","payload":{"client_id":"other-phone"}}',
+    '{"seq":843,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"other-phone","launch_id":"11111111-1111-1111-1111-111111111111","stream_id":"events","transport":"iroh"}}',
     "phone-a",
   );
 
   assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /did not establish a usable RPC session/i);
+  assert.equal(result.validationArgs, "");
+});
+
+test("dogfood readiness rejects an event from an older launch of the same client", () => {
+  const result = waitForUsableSession(
+    0,
+    "842",
+    "1",
+    '{"seq":843,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-old","client_id":"phone-a","launch_id":"22222222-2222-2222-2222-222222222222","stream_id":"events","transport":"iroh"}}',
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /did not establish a usable RPC session/i);
+  assert.equal(result.validationArgs, "");
+});
+
+test("dogfood readiness rejects a stale same-client event when actor validation fails", () => {
+  const result = waitForUsableSession(
+    0,
+    "842",
+    "1",
+    '{"seq":843,"name":"mobile.rpc.ready","payload":{"connection_id":"connection-closed","client_id":"phone-a","launch_id":"11111111-1111-1111-1111-111111111111","stream_id":"events","transport":"iroh"}}',
+    "phone-a",
+    "11111111-1111-1111-1111-111111111111",
+    1,
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.validationArgs, /connection-closed/);
   assert.match(result.stderr, /did not establish a usable RPC session/i);
 });
 
@@ -549,14 +780,55 @@ test("dogfood readiness fails when a usable RPC session misses its deadline", ()
   assert.match(result.stderr, /did not establish a usable RPC session.*readiness deadline/i);
 });
 
+test("readiness validator sends the exact event tuple to the debug actor boundary", () => {
+  const event =
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","launch_id":"11111111-1111-1111-1111-111111111111","workspace_count":2,"stream_id":"events","transport":"iroh_server_events_v1"}}';
+  const result = validateReadinessClaim({ event });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.rpcCommand, "rpc");
+  assert.equal(result.rpcMethod, "debug.mobile.readiness.validate");
+  assert.deepEqual(result.rpcParams, {
+    connection_id: "connection-a",
+    client_id: "phone-a",
+    launch_id: "11111111-1111-1111-1111-111111111111",
+    stream_id: "events",
+    transport: "iroh_server_events_v1",
+  });
+});
+
+test("readiness validator rejects wrong tuple fields when the current actor denies them", () => {
+  const event =
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","launch_id":"11111111-1111-1111-1111-111111111111","workspace_count":2,"stream_id":"wrong-stream","transport":"wrong-transport"}}';
+  const result = validateReadinessClaim({
+    event,
+    validatorResponse: '{"valid":false}',
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(result.rpcParams.stream_id, "wrong-stream");
+  assert.equal(result.rpcParams.transport, "wrong-transport");
+});
+
+test("each dogfood process launch gets a distinct UUID nonce", () => {
+  const first = newLaunchID();
+  const second = newLaunchID();
+
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(second.status, 0, second.stderr);
+  assert.match(first.stdout.trim(), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  assert.match(second.stdout.trim(), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  assert.notEqual(first.stdout.trim(), second.stdout.trim());
+});
+
 test("dogfood readiness writes a secret-free identity and latency receipt", () => {
   const result = writeReadinessReceipt(
-    '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","workspace_count":2,"stream_id":"events","transport":"iroh","access_token":"must-not-appear"}}',
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"connection-a","client_id":"phone-a","launch_id":"11111111-1111-1111-1111-111111111111","workspace_count":2,"stream_id":"events","transport":"iroh","access_token":"must-not-appear"}}',
   );
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.receipt, {
-    schema: "cmux-ios-dogfood-readiness-v1",
+    schema: "cmux-ios-dogfood-readiness-v2",
     git_sha: "0123456789abcdef0123456789abcdef01234567",
     tag: "iosrdy",
     bundle_id: "dev.cmux.ios.iosrdy",
@@ -568,6 +840,7 @@ test("dogfood readiness writes a secret-free identity and latency receipt", () =
     attempt_count: 1,
     connection_id: "connection-a",
     client_id: "phone-a",
+    launch_id: "11111111-1111-1111-1111-111111111111",
     workspace_count: 2,
     stream_id: "events",
     transport: "iroh",
@@ -575,6 +848,35 @@ test("dogfood readiness writes a secret-free identity and latency receipt", () =
   assert.equal(result.directoryMode, 0o700);
   assert.equal(result.receiptMode, 0o600);
   assert.doesNotMatch(JSON.stringify(result.receipt), /must-not-appear|access_token/);
+});
+
+test("dogfood readiness rejects malformed receipt timing and attempts", () => {
+  const event =
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"c","client_id":"p","launch_id":"11111111-1111-1111-1111-111111111111","workspace_count":2,"stream_id":"events","transport":"iroh"}}';
+  for (const result of [
+    writeReadinessReceipt(event, "not-an-integer", "1"),
+    writeReadinessReceipt(event, "8421", "0"),
+  ]) {
+    assert.notEqual(result.status, 0);
+    assert.equal(result.receipt, null);
+  }
+});
+
+test("dogfood readiness rejects events without a usable RPC session", () => {
+  const payload =
+    '"payload":{"connection_id":"c","client_id":"p","launch_id":"11111111-1111-1111-1111-111111111111","workspace_count":2,"stream_id":"events","transport":"iroh"}';
+  const events = [
+    `{"name":"mobile.rpc.pending",${payload}}`,
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"c","client_id":"p","workspace_count":2,"stream_id":"events","transport":"iroh"}}',
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"c","client_id":"p","launch_id":"11111111-1111-1111-1111-111111111111","workspace_count":0,"stream_id":"events","transport":"iroh"}}',
+    '{"name":"mobile.rpc.ready","payload":{"connection_id":"c","client_id":"p","launch_id":"11111111-1111-1111-1111-111111111111","workspace_count":true,"stream_id":"events","transport":"iroh"}}',
+  ];
+
+  for (const event of events) {
+    const result = writeReadinessReceipt(event);
+    assert.notEqual(result.status, 0);
+    assert.equal(result.receipt, null);
+  }
 });
 
 test("macOS and iOS reloads share the dev API backend override", () => {
@@ -697,6 +999,18 @@ test("physical-device mint reports a redacted route-readiness timeout", async ()
   assert.equal(result.status, 1);
   assert.match(result.stderr, /attach readiness exhausted: host_routes_unavailable/);
   assert.doesNotMatch(result.stderr, /secret-token-value/);
+});
+
+test("launcher validation does not expose the readiness environment key", () => {
+  const result = run(
+    "bash",
+    [path.join(repoRoot, "scripts/mobile-dev-launch.sh"), "--tag", "ready"],
+    { CMUX_ATTACH_READY_TIMEOUT_SECONDS: "invalid-secret-value" },
+  );
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /readiness timeout must be a positive integer/);
+  assert.doesNotMatch(result.stderr, /CMUX_ATTACH_READY_TIMEOUT_SECONDS/);
+  assert.doesNotMatch(result.stderr, /invalid-secret-value/);
 });
 
 test("physical-device mint distinguishes malformed successful output", async () => {
@@ -838,6 +1152,24 @@ test("simulator launch seeds a deterministic durable device id before app launch
     seedEnvironment < launch,
     "the sandboxed app must receive its durable identity before launch",
   );
+});
+
+test("attached simulator launch reaches readiness without waiting for console exit", () => {
+  const result = runAttachedSimulatorLaunch({ rejectConsoleAttachment: true });
+
+  assert.equal(result.status, 0, result.stderr);
+  const launch = result.xcrunCalls.find((call) => call.startsWith("simctl launch"));
+  assert.ok(launch, "simulator launch command is missing");
+  assert.doesNotMatch(launch, /--console-pty/);
+  assert.equal(result.launchID, "11111111-1111-4111-8111-111111111111");
+  assert.match(result.stdout, /usable RPC session established/);
+});
+
+test("readiness latency starts after simulator preparation at process launch", () => {
+  const result = runAttachedSimulatorLaunch({ rejectConsoleAttachment: false });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.latency, 150);
 });
 
 test("release gate assigns each mode to its transport proof", () => {

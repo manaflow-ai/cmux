@@ -18,11 +18,11 @@ enum MobileIrohConnectionReadinessOutcome: Equatable, Sendable {
     case ready
     case failed(MobileIrohRuntimePreparationError)
 
-    var failureKind: DiagnosticFailureKind {
+    var failureKind: DiagnosticFailureKind? {
         if case let .failed(error) = self {
             return error.diagnosticFailureKind
         }
-        return .endpointUnavailable
+        return nil
     }
 }
 

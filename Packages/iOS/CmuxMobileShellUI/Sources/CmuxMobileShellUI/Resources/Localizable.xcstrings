@@ -1285,6 +1285,27 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
       }
     },
+    "mobile.workspaces.statusLine.reconnecting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reconnecting…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "再接続中…" } }
+      }
+    },
+    "mobile.workspaces.statusLine.notConnected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Not Connected" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "未接続" } }
+      }
+    },
+    "mobile.workspace.reconnect" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reconnect" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "再接続" } }
+      }
+    },
     "mobile.iroh.diagnostics.failure.unknown" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -14,7 +14,7 @@ import AppKit
 
 #if os(iOS)
 private struct WorkspaceRootToolbarContentWidthKey: EnvironmentKey {
-    static let defaultValue: CGFloat = WorkspaceRootToolbarSizing.maximumPickerWidth
+    static let defaultValue: CGFloat = WorkspaceRootToolbarContent.maximumPickerWidth
 }
 
 private struct WorkspaceRootToolbarRenderContext: Equatable {
@@ -46,23 +46,14 @@ extension EnvironmentValues {
     }
 }
 
-private enum WorkspaceRootToolbarSizing {
-    static let minimumPickerWidth: CGFloat = 98
-    static let maximumPickerWidth: CGFloat = 124
-    private static let nonPickerWidth: CGFloat = 277
-
-    static func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
-        min(
-            maximumPickerWidth,
-            max(minimumPickerWidth, contentWidth - nonPickerWidth)
-        )
-    }
-}
-
 /// The shared root toolbar used by both primary tabs. Keeping the leading
 /// controls and principal picker in one component prevents the notification
 /// feed from drifting away from the workspace-list toolbar contract.
 struct WorkspaceRootToolbarContent: ToolbarContent {
+    nonisolated fileprivate static let maximumPickerWidth: CGFloat = 124
+    private static let minimumPickerWidth: CGFloat = 98
+    private static let nonPickerWidth: CGFloat = 277
+
     @Environment(\.workspaceRootToolbarContentWidth) private var contentWidth
 
     let openSettings: () -> Void
@@ -92,7 +83,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     selection: selection,
                     machines: machines,
                     canAddDevice: showAddDevice != nil,
-                    labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth),
+                    labelWidth: Self.pickerWidth(for: contentWidth),
                     statusLine: statusLine
                 ),
                 actions: WorkspaceMacTitlePickerActions(
@@ -110,6 +101,13 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }
+    }
+
+    private static func pickerWidth(for contentWidth: CGFloat) -> CGFloat {
+        min(
+            maximumPickerWidth,
+            max(minimumPickerWidth, contentWidth - nonPickerWidth)
+        )
     }
 }
 

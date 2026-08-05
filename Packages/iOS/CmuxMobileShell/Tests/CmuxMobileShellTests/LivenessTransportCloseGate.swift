@@ -29,4 +29,8 @@ actor LivenessTransportCloseGate {
         }
         releaseWaiters = []
     }
+
+    func isReleasedForTesting() -> Bool {
+        released
+    }
 }

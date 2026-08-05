@@ -114,17 +114,23 @@ public struct CmxIrohBrokerTokenSource: Sendable {
                 return captured.credentials
             },
             recoveredCredentialPair: { rejected in
+                let captured: CmxIrohAccountCredentialSnapshot?
                 do {
-                    if let captured = try await snapshot(),
-                       captured.accountID == expectedAccountID,
-                       captured.credentials.accessToken != rejected.accessToken {
-                        return captured.credentials
-                    }
+                    captured = try await snapshot()
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
-                    // A transient snapshot read can still be repaired by the
-                    // one explicit refresh below.
+                    return nil
+                }
+                // Only the still-pinned session may rotate credentials. A
+                // missing snapshot or account switch means this rejected
+                // request no longer owns the auth session.
+                guard let captured,
+                      captured.accountID == expectedAccountID else {
+                    return nil
+                }
+                if captured.credentials.accessToken != rejected.accessToken {
+                    return captured.credentials
                 }
                 do {
                     try await forceRefresh()
@@ -142,7 +148,10 @@ public struct CmxIrohBrokerTokenSource: Sendable {
                     return nil
                 }
                 guard let refreshed,
-                      refreshed.accountID == expectedAccountID else { return nil }
+                      refreshed.accountID == expectedAccountID,
+                      refreshed.credentials.accessToken != rejected.accessToken else {
+                    return nil
+                }
                 return refreshed.credentials
             }
         )

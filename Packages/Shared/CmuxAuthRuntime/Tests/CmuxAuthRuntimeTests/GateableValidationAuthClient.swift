@@ -34,11 +34,14 @@ actor GateableValidationAuthClient: AuthClient {
     private let validationGate = Gate()
     private let teamsGate = Gate()
     private let credentialGate = Gate()
+    private let forceRefreshGate = Gate()
     private let clearGate = Gate()
     private let storedAccessGate = Gate()
     private var credentialExchangeIgnoresCancellation = false
     private(set) var credentialStartCount = 0
     private(set) var magicLinkStartCount = 0
+    private(set) var forceRefreshStartCount = 0
+    private var forcedAccessToken: String?
 
     init(user: CMUXAuthUser, teams: [CMUXAuthTeam] = []) {
         self.user = user
@@ -125,6 +128,15 @@ actor GateableValidationAuthClient: AuthClient {
     func releaseParkedCredential() { release(credentialGate) }
     func setCredentialExchangeIgnoresCancellation(_ value: Bool) { credentialExchangeIgnoresCancellation = value }
 
+    // MARK: - Forced access-token refresh gate
+
+    func armForceRefreshGate(returning accessToken: String) {
+        forcedAccessToken = accessToken
+        forceRefreshGate.armed = true
+    }
+    func forceRefreshDidPark() async { await didPark(forceRefreshGate) }
+    func releaseParkedForceRefresh() { release(forceRefreshGate) }
+
     // MARK: - Stored access gate (sign-out credential capture)
 
     func armStoredAccessGate() { storedAccessGate.armed = true }
@@ -176,7 +188,14 @@ actor GateableValidationAuthClient: AuthClient {
 
     func accessToken() async -> String? { access }
     func refreshToken() async -> String? { refresh }
-    func forceRefreshAccessToken() async -> String? { access }
+    func forceRefreshAccessToken() async -> String? {
+        forceRefreshStartCount += 1
+        await parkIfArmed(forceRefreshGate)
+        if let forcedAccessToken {
+            access = forcedAccessToken
+        }
+        return access
+    }
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "nonce" }
     func signInWithMagicLink(code: String) async throws {
         magicLinkStartCount += 1

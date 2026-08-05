@@ -248,19 +248,23 @@ final class MobileHostConnectionRegistry: @unchecked Sendable {
 
 }
 
-enum MobileHostPublicStatusCache {
-    private static let lock = NSLock()
-    private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
-    private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+/// Thread-safe public route projection owned by one ``MobileHostService``.
+///
+/// The store is constructable so tests and future service instances cannot
+/// leak route state through process-global static mutation.
+final class MobileHostPublicStatusStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var legacyRoutes: [CmxAttachRoute] = []
+    private var irohRoute: CmxAttachRoute?
 
-    static func update(routes nextRoutes: [CmxAttachRoute]) {
+    func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
         legacyRoutes = nextRoutes
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func update(
+    func update(
         irohIdentity identity: CmxIrohPeerIdentity?,
         pathHints: [CmxIrohPathHint] = []
     ) {
@@ -282,7 +286,7 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func update(irohBinding binding: CmxIrohBrokerBindingMetadata) {
+    func update(irohBinding binding: CmxIrohBrokerBindingMetadata) {
         lock.lock()
         irohRoute = try? CmxAttachRoute(
             id: CmxAttachTransportKind.iroh.rawValue,
@@ -297,7 +301,7 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func removeAll() {
+    func removeAll() {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
@@ -305,19 +309,19 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    static func snapshot() -> [CmxAttachRoute] {
+    func snapshot() -> [CmxAttachRoute] {
         lock.lock()
         defer { lock.unlock() }
         return mergedRoutesLocked()
     }
 
-    static func hasIrohRoute() -> Bool {
+    func hasIrohRoute() -> Bool {
         lock.lock()
         defer { lock.unlock() }
         return irohRoute != nil
     }
 
-    static func result(
+    func result(
         includeIdentity: Bool = false,
         additionalCapabilities: Set<String> = []
     ) -> MobileHostRPCResult {
@@ -334,7 +338,7 @@ enum MobileHostPublicStatusCache {
         )
     }
 
-    private static func mergedRoutesLocked() -> [CmxAttachRoute] {
+    private func mergedRoutesLocked() -> [CmxAttachRoute] {
         let routes = irohRoute.map { [$0] } ?? []
         return routes + legacyRoutes
     }

@@ -1018,13 +1018,27 @@ private func mountOutputAndReportViewport(
     router: LivenessHostRouter,
     surfaceID: String
 ) async throws {
-    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let stream = store.terminalOutputStream(surfaceID: surfaceID)
+    var iterator = stream.makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     let coldReplayChunk = try #require(await iterator.next())
-    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: coldReplayChunk.streamToken
+    )
 
     _ = await store.updateTerminalViewport(surfaceID: surfaceID, columns: 80, rows: 48)
     let initialViewportChunk = try #require(await iterator.next())
-    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
+    store.terminalOutputDidProcess(
+        surfaceID: surfaceID,
+        streamToken: initialViewportChunk.streamToken
+    )
     #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 1)
+    let streamToken = try #require(
+        store.terminalOutputStreamTokensBySurfaceID[surfaceID]
+    )
+    store.unregisterTerminalOutput(
+        surfaceID: surfaceID,
+        streamToken: streamToken
+    )
 }

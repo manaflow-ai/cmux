@@ -754,6 +754,32 @@ final class TerminalControllerSocketSecurityTests {
         }
     }
 
+    @Test func testDebugMobileReadinessValidationIsReachableOnTheWorkerSocket() async throws {
+        let socketPath = makeSocketPath("mobile-readiness-validator")
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let envelope = try await sendV2RequestAsync(
+            method: "debug.mobile.readiness.validate",
+            params: [
+                "connection_id": UUID().uuidString,
+                "client_id": "phone-a",
+                "launch_id": "11111111-1111-1111-1111-111111111111",
+                "stream_id": "events",
+                "transport": "control_v1",
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(envelope["ok"] as? Bool, true)
+        let result = try XCTUnwrap(envelope["result"] as? [String: Any])
+        XCTAssertEqual(result["valid"] as? Bool, false)
+    }
+
     @Test func testV1PingRunsOnWorkerLaneAndStaysMainThreadCallable() async throws {
         let socketPath = makeSocketPath("v1-ping")
         let tabManager = TabManager()

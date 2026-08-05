@@ -90,6 +90,31 @@ extension ReconnectRouteSelectionTests {
         #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
     }
 
+    @Test func deadConnectionQueuedWhileInactiveRedialsOnForegroundResume() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        let deadClient = try #require(fixture.store.remoteClient)
+
+        fixture.store.suspendForegroundRefresh()
+        fixture.store.recoverDeadConnection(
+            trigger: .liveness,
+            expectedClient: deadClient
+        )
+        #expect(fixture.store.remoteClient === deadClient)
+
+        fixture.store.resumeForegroundRefresh()
+
+        #expect(try await pollUntil {
+            guard let replacement = fixture.store.remoteClient else { return false }
+            return replacement !== deadClient
+                && fixture.store.connectionState == .connected
+        })
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+    }
+
     @Test func staleRecoveryCleanupCannotClearNewerAttempt() async throws {
         let owner = MobileConnectionRecoveryOwner()
         defer { owner.cancel() }
@@ -274,6 +299,16 @@ extension ReconnectRouteSelectionTests {
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil {
+            guard let listenerID = fixture.store.terminalEventListenerID else {
+                return false
+            }
+            return fixture.store.lastSuccessfulTerminalSubscription
+                == MobileTerminalSubscriptionValidation(
+                    connectionGeneration: fixture.store.connectionGeneration,
+                    listenerID: listenerID
+                )
+        })
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
 
@@ -313,6 +348,16 @@ extension ReconnectRouteSelectionTests {
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil {
+            guard let listenerID = fixture.store.terminalEventListenerID else {
+                return false
+            }
+            return fixture.store.lastSuccessfulTerminalSubscription
+                == MobileTerminalSubscriptionValidation(
+                    connectionGeneration: fixture.store.connectionGeneration,
+                    listenerID: listenerID
+                )
+        })
         let foregroundKey = fixture.store.foregroundMacKey
         var staleState = try #require(fixture.store.workspacesByMac[foregroundKey])
         staleState.status = .unavailable
@@ -335,11 +380,13 @@ extension ReconnectRouteSelectionTests {
         #expect(fixture.store.macConnectionStatus == .connected)
         #expect(fixture.store.isRecoveringConnection == false)
         #expect(fixture.store.connectionRecoveryFailed == false)
-        #expect(
-            fixture.store.workspaces
-                .filter { $0.macDeviceID == fixture.store.foregroundMacDeviceID }
-                .allSatisfy { $0.macConnectionStatus == .connected }
-        )
+        let foregroundWorkspaces = fixture.store.workspaces.filter {
+            $0.macDeviceID == fixture.store.foregroundMacDeviceID
+        }
+        #expect(!foregroundWorkspaces.isEmpty)
+        #expect(foregroundWorkspaces.allSatisfy {
+            $0.macConnectionStatus == .connected
+        })
     }
 
     @Test func stalledWriteRedialsExactCurrentIrohClientOnce() async throws {

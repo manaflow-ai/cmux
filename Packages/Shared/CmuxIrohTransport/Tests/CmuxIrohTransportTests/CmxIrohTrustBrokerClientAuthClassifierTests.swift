@@ -34,4 +34,23 @@ struct CmxIrohTrustBrokerClientAuthClassifierTests {
             CmxIrohTrustBrokerClientError.rejected(statusCode: 403, code: nil)
         ))
     }
+
+    @Test
+    func availabilityClassificationNeverTreatsAuthorizationAsAnOutage() {
+        #expect(CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.connectivity
+        ))
+        #expect(CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.rejected(statusCode: 503, code: nil)
+        ))
+        #expect(!CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 401,
+                code: "unauthorized"
+            )
+        ))
+        #expect(!CmxIrohTrustBrokerClientError.isAvailabilityFailure(
+            CmxIrohTrustBrokerClientError.rejected(statusCode: 403, code: nil)
+        ))
+    }
 }

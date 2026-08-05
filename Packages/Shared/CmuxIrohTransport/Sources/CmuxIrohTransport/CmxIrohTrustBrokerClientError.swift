@@ -37,11 +37,10 @@ public enum CmxIrohTrustBrokerClientError:
             // endpoint rebuild. A genuinely dead session clears auth state
             // through the coordinator, which stops the runtime through the
             // lifecycle owner instead.
-            return statusCode == 401
-                || statusCode == 408
-                || statusCode == 425
-                || statusCode == 429
-                || (500...599).contains(statusCode)
+            return isRecoverableStatus(
+                statusCode,
+                includingUnauthorized: true
+            )
         case .invalidBaseURL,
              .missingAuthentication,
              .invalidAuthentication,
@@ -65,10 +64,10 @@ public enum CmxIrohTrustBrokerClientError:
             // is safe while the lifecycle-owned start task remains current.
             // An authentication rejection cannot establish initial trust. It
             // must return to the auth lifecycle instead of retrying forever.
-            return statusCode == 408
-                || statusCode == 425
-                || statusCode == 429
-                || (500...599).contains(statusCode)
+            return isRecoverableStatus(
+                statusCode,
+                includingUnauthorized: false
+            )
         case .invalidBaseURL,
              .missingAuthentication,
              .invalidAuthentication,
@@ -76,6 +75,41 @@ public enum CmxIrohTrustBrokerClientError:
              .invalidResponse:
             return false
         }
+    }
+
+    /// Returns whether the broker was unavailable rather than denying access.
+    /// Cached grants may recover only this failure set.
+    static func isAvailabilityFailure(_ error: any Error) -> Bool {
+        if (error as? any CmxRetryAfterProviding)?.retryAfterSeconds != nil {
+            return true
+        }
+        guard let brokerError = error as? Self else { return false }
+        switch brokerError {
+        case .connectivity, .rateLimited:
+            return true
+        case let .rejected(statusCode, _):
+            return isRecoverableStatus(
+                statusCode,
+                includingUnauthorized: false
+            )
+        case .invalidBaseURL,
+             .missingAuthentication,
+             .invalidAuthentication,
+             .nonHTTPResponse,
+             .invalidResponse:
+            return false
+        }
+    }
+
+    private static func isRecoverableStatus(
+        _ statusCode: Int,
+        includingUnauthorized: Bool
+    ) -> Bool {
+        (includingUnauthorized && statusCode == 401)
+            || statusCode == 408
+            || statusCode == 425
+            || statusCode == 429
+            || (500...599).contains(statusCode)
     }
 
     /// The validated server retry floor, when present.

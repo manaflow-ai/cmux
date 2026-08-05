@@ -16,6 +16,11 @@ actor TerminalRawInputTaskCompletionTracker {
 }
 
 actor RoutingTerminalInputRecorder {
+    private struct CountWaiter {
+        var expectedCount: Int
+        var continuation: CheckedContinuation<Void, Never>
+    }
+
     private var inputs: [RoutingTerminalInputRecord] = []
     private var inFlightCount = 0
     private var maximumInFlightCount = 0
@@ -26,6 +31,7 @@ actor RoutingTerminalInputRecorder {
     private var firstInputContinuation: CheckedContinuation<Void, Never>?
     private var firstInputReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var heldInputContinuations: [CheckedContinuation<Void, Never>] = []
+    private var countWaiters: [UUID: CountWaiter] = [:]
 
     func setHoldFirstInput(_ hold: Bool) {
         holdFirstInput = hold
@@ -61,6 +67,7 @@ actor RoutingTerminalInputRecorder {
     func record(surfaceID: String, text: String) async -> Int {
         let index = inputs.count
         inputs.append(RoutingTerminalInputRecord(surfaceID: surfaceID, text: text))
+        resumeSatisfiedCountWaiters()
         inFlightCount += 1
         maximumInFlightCount = max(maximumInFlightCount, inFlightCount)
         if index == 0 && holdFirstInput {
@@ -83,6 +90,54 @@ actor RoutingTerminalInputRecorder {
     func recordedInFlightCount() -> Int { inFlightCount }
     func recordedMaximumInFlightCount() -> Int { maximumInFlightCount }
     func shouldReject(index: Int) -> Bool { rejectInputAtIndex == index }
+
+    func waitForInputCount(
+        atLeast expectedCount: Int,
+        timeout: Duration
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await self.waitUntilInputCountReached(atLeast: expectedCount)
+                return true
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let reached = await group.next() ?? false
+            group.cancelAll()
+            return reached
+        }
+    }
+
+    private func waitUntilInputCountReached(atLeast expectedCount: Int) async {
+        guard inputs.count < expectedCount else { return }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                countWaiters[waiterID] = CountWaiter(
+                    expectedCount: expectedCount,
+                    continuation: continuation
+                )
+                resumeSatisfiedCountWaiters()
+            }
+        } onCancel: {
+            Task { await self.cancelCountWaiter(id: waiterID) }
+        }
+    }
+
+    private func resumeSatisfiedCountWaiters() {
+        let satisfiedIDs = countWaiters.compactMap { id, waiter in
+            inputs.count >= waiter.expectedCount ? id : nil
+        }
+        for id in satisfiedIDs {
+            countWaiters.removeValue(forKey: id)?.continuation.resume()
+        }
+    }
+
+    private func cancelCountWaiter(id: UUID) {
+        countWaiters.removeValue(forKey: id)?.continuation.resume()
+    }
 }
 
 extension RoutingHostRouter {
@@ -112,6 +167,16 @@ extension RoutingHostRouter {
 
     func recordedTerminalInputs() async -> [RoutingTerminalInputRecord] {
         await terminalInputRecorder.recordedInputs()
+    }
+
+    func waitForTerminalInputCount(
+        atLeast expectedCount: Int,
+        timeout: Duration
+    ) async -> Bool {
+        await terminalInputRecorder.waitForInputCount(
+            atLeast: expectedCount,
+            timeout: timeout
+        )
     }
 
     func recordedTerminalInputInFlightCount() async -> Int {

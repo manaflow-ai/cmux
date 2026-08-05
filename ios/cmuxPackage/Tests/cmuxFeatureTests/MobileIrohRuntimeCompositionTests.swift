@@ -13,6 +13,36 @@ import Testing
 @testable import cmuxFeature
 
 @MainActor
+@discardableResult
+private func expectRetryAwarePreparationFailure<T>(
+    kind expectedKind: DiagnosticFailureKind? = nil,
+    operation: @MainActor () async throws -> T
+) async -> MobileIrohRuntimePreparationError {
+    do {
+        _ = try await operation()
+        Issue.record("Expected Iroh transport preparation to remain unavailable")
+        return MobileIrohRuntimePreparationError(
+            diagnosticFailureKind: .unknown,
+            retryAfterSeconds: nil
+        )
+    } catch let failure as MobileIrohRuntimePreparationError {
+        #expect(failure.retryAfterSeconds.map { $0 > 0 } == true)
+        if let expectedKind {
+            #expect(failure.diagnosticFailureKind == expectedKind)
+        }
+        return failure
+    } catch {
+        Issue.record(
+            "Expected retry-aware preparation failure, got \(String(describing: error))"
+        )
+        return MobileIrohRuntimePreparationError(
+            diagnosticFailureKind: .unknown,
+            retryAfterSeconds: nil
+        )
+    }
+}
+
+@MainActor
 @Suite
 struct MobileIrohRuntimeCompositionTests {
     @Test
@@ -105,7 +135,9 @@ struct MobileIrohRuntimeCompositionTests {
 
     @Test
     func debugTransportModePersistsAndRebindsWithoutRotatingIdentity() async throws {
-        let fixture = try await MobileIrohSignOutFixture.make()
+        let fixture = try await MobileIrohSignOutFixture.make(
+            activatesRuntime: true
+        )
         let initialBindCount = await fixture.endpointFactory.bindCount()
         #expect(fixture.endpointFactoryModes.modes == [.automatic])
 
@@ -924,7 +956,7 @@ struct MobileIrohRuntimeCompositionTests {
         await fixture.auth.signOut(onSignedOut: { _, _ in })
         await fixture.authClient.setUser(fixture.otherUser)
         try await fixture.auth.signInWithPassword(email: "b@example.com", password: "pw")
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await expectRetryAwarePreparationFailure {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
 
@@ -946,7 +978,7 @@ struct MobileIrohRuntimeCompositionTests {
 
         // Auth still reports the signing-out account between preparation and
         // its local clear. That state must not look like a later sign-in.
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await expectRetryAwarePreparationFailure {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
         #expect(await fixture.broker.revokedBindingIDs().isEmpty)
@@ -980,7 +1012,7 @@ struct MobileIrohRuntimeCompositionTests {
 
         await fixture.authClient.setUser(fixture.otherUser)
         try await fixture.auth.signInWithPassword(email: "b@example.com", password: "pw")
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await expectRetryAwarePreparationFailure {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
         #expect(
@@ -993,7 +1025,7 @@ struct MobileIrohRuntimeCompositionTests {
         await fixture.outboxStore.setWriteMode(.normal)
         await fixture.authClient.setUser(fixture.user)
         try await fixture.auth.signInWithPassword(email: "a@example.com", password: "pw")
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
+        await expectRetryAwarePreparationFailure {
             _ = try await fixture.composition.transport(for: fixture.request)
         }
 
@@ -1326,11 +1358,14 @@ private struct MobileIrohSignOutFixture {
     ///     store (Keychain locked before first unlock). Activation must then
     ///     defer instead of registering a binding under an ephemeral id, so no
     ///     endpoint is bound.
+    ///   - activatesRuntime: When `true`, the endpoint and broker fakes complete
+    ///     activation so tests can exercise active-runtime restarts.
     ///   - brokerFactory: Overrides the composition's broker factory so a test
     ///     can observe the token source handed to each direct broker (e.g. the
     ///     forget flow's). `nil` keeps the fixture's standard revocation broker.
     static func make(
         resolvableDeviceID: Bool = true,
+        activatesRuntime: Bool = false,
         brokerFactory: MobileIrohRuntimeComposition.BrokerFactory? = nil
     ) async throws -> Self {
         let suiteName = "MobileIrohRuntimeCompositionTests.signout.\(UUID().uuidString)"
@@ -1438,9 +1473,28 @@ private struct MobileIrohSignOutFixture {
         )
 
         let outbox = CmxIrohPendingRevocationOutbox(secureStore: outboxStore)
-        let endpointFactory = MobileIrohCountingEndpointFactory()
+        let endpointFactory = MobileIrohCountingEndpointFactory(
+            identity: activatesRuntime ? endpointID : nil
+        )
         let endpointFactoryModes = MobileIrohEndpointFactoryModeRecorder()
-        let broker = MobileIrohRevocationBroker()
+        let activationDiscovery: CmxIrohDiscoveryResponse? = if activatesRuntime {
+            try mobileIrohDiscovery(bindings: [
+                mobileIrohBinding(
+                    bindingID: bindingID,
+                    deviceID: deviceID,
+                    appInstanceID: appInstanceID,
+                    endpointID: endpointID.endpointID,
+                    platform: "ios",
+                    pairingEnabled: false,
+                    capabilities: ["mobile-rpc-v1", "multistream-v1"]
+                ),
+            ])
+        } else {
+            nil
+        }
+        let broker = MobileIrohRevocationBroker(
+            activationDiscovery: activationDiscovery
+        )
         let stableDeviceID = deviceID
         let composition = MobileIrohRuntimeComposition(
             appInstances: appInstances,
@@ -1475,8 +1529,15 @@ private struct MobileIrohSignOutFixture {
             expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174074",
             authorizationMode: .transportAdmission
         )
-        await #expect(throws: CmxIrohClientRuntimeError.self) {
-            _ = try await composition.transport(for: request)
+        if activatesRuntime {
+            await composition.prepareForConnection()
+            #expect(composition.runtime != nil)
+        } else {
+            await expectRetryAwarePreparationFailure(
+                kind: resolvableDeviceID ? nil : .endpointUnavailable
+            ) {
+                _ = try await composition.transport(for: request)
+            }
         }
         let initialBindCount = await endpointFactory.bindCount()
         // A resolvable durable id activates and binds an endpoint; an
@@ -1670,13 +1731,21 @@ private final class MobileIrohDataSequence: @unchecked Sendable {
 }
 
 private actor MobileIrohCountingEndpointFactory: CmxIrohEndpointFactory {
+    private let identity: CmxIrohPeerIdentity?
     private var count = 0
+
+    init(identity: CmxIrohPeerIdentity? = nil) {
+        self.identity = identity
+    }
 
     func bind(
         configuration _: CmxIrohEndpointConfiguration
     ) throws -> any CmxIrohEndpoint {
         count += 1
-        throw MobileIrohSignOutTestError.unavailable
+        guard let identity else {
+            throw MobileIrohSignOutTestError.unavailable
+        }
+        return MobileIrohTestEndpoint(identity: identity)
     }
 
     func bindCount() -> Int { count }
@@ -1692,17 +1761,32 @@ private final class MobileIrohEndpointFactoryModeRecorder {
 }
 
 private actor MobileIrohRevocationBroker: CmxIrohClientBrokerServing {
+    private let activationDiscovery: CmxIrohDiscoveryResponse?
     private var bindingIDs: [String] = []
+
+    init(activationDiscovery: CmxIrohDiscoveryResponse? = nil) {
+        self.activationDiscovery = activationDiscovery
+    }
 
     func register(
         prepared _: CmxIrohPreparedRegistration,
         signer _: CmxIrohRegistrationSigner
     ) throws -> CmxIrohRegistrationResponse {
-        throw MobileIrohSignOutTestError.unavailable
+        guard let activationDiscovery,
+              let binding = activationDiscovery.bindings.first else {
+            throw MobileIrohSignOutTestError.unavailable
+        }
+        return CmxIrohRegistrationResponse(
+            binding: binding,
+            relay: .unavailable
+        )
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
-        throw MobileIrohSignOutTestError.unavailable
+        guard let activationDiscovery else {
+            throw MobileIrohSignOutTestError.unavailable
+        }
+        return activationDiscovery
     }
 
     func issuePairGrant(
@@ -1935,6 +2019,7 @@ private func mobileIrohBinding(
     platform: String,
     pairingEnabled: Bool,
     tag: String = "test",
+    capabilities: [String] = ["mobile-rpc-v1"],
     lastSeenAt: String = "2027-07-10T12:00:00.000Z",
     pathHints: [[String: Any]] = []
 ) -> [String: Any] {
@@ -1947,7 +2032,7 @@ private func mobileIrohBinding(
         "endpoint_id": endpointID,
         "identity_generation": 1,
         "pairing_enabled": pairingEnabled,
-        "capabilities": ["mobile-rpc-v1"],
+        "capabilities": capabilities,
         "path_hints": pathHints,
         "last_seen_at": lastSeenAt,
     ]

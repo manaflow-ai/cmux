@@ -13,16 +13,27 @@ import LocalAuthentication
 import Security
 #endif
 
+enum CLIErrorKind: Sendable, Equatable {
+    case transientSocketTransport
+}
+
 struct CLIError: Error, CustomStringConvertible {
     let message: String
     let exitCode: Int32
     /// Structured v2 protocol error code when the failure came from a v2 error response.
     let v2Code: String?
+    let kind: CLIErrorKind?
 
-    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
+    init(
+        message: String,
+        exitCode: Int32 = 1,
+        v2Code: String? = nil,
+        kind: CLIErrorKind? = nil
+    ) {
         self.message = message
         self.exitCode = exitCode
         self.v2Code = v2Code
+        self.kind = kind
     }
 
     var description: String { message }
@@ -1796,6 +1807,12 @@ final class SocketClient {
     private let path: String
     private(set) var socketFD: Int32 = -1
     private var streamReadBuffer = Data()
+    /// First byte not yet checked for a stream-frame delimiter.
+    ///
+    /// A frame may approach four MiB and arrive in 8 KiB reads. Rescanning the
+    /// retained prefix after every read makes parsing quadratic; a newline is
+    /// one byte, so only the newly appended suffix can contain a new match.
+    private var streamReadSearchOffset = 0
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -1961,6 +1978,7 @@ final class SocketClient {
             socketFD = -1
         }
         streamReadBuffer.removeAll(keepingCapacity: true)
+        streamReadSearchOffset = 0
         lastConfiguredReceiveTimeout = nil
     }
 
@@ -2130,7 +2148,10 @@ final class SocketClient {
         // Verify socket is owned by the current user to prevent fake-socket attacks.
         var st = stat()
         guard stat(path, &st) == 0 else {
-            throw CLIError(message: "Socket not found at \(path)")
+            throw CLIError(
+                message: "Socket not found at \(path)",
+                kind: .transientSocketTransport
+            )
         }
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             throw CLIError(message: "Path exists at \(path) but is not a Unix socket")
@@ -2960,12 +2981,16 @@ final class SocketClient {
             throw CLIError(message: "Failed to encode v2 stream request")
         }
 
-        try writeAll(
-            Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
-            timeoutMessage: "Stream request timed out",
-            failureMessage: "Failed to write stream request",
-            deadline: deadline
-        )
+        do {
+            try writeAll(
+                Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
+                timeoutMessage: "Stream request timed out",
+                failureMessage: "Failed to write stream request",
+                deadline: deadline
+            )
+        } catch {
+            throw Self.transientEventStreamError(String(describing: error))
+        }
 
         while true {
             let line = try readStreamLine(deadline: deadline)
@@ -2981,27 +3006,60 @@ final class SocketClient {
             try configureReceiveTimeout(45)
         }
         while true {
-            if let newlineIndex = streamReadBuffer.firstIndex(of: 0x0A) {
+            let boundedSearchOffset = min(
+                streamReadSearchOffset,
+                streamReadBuffer.count
+            )
+            let searchStart = streamReadBuffer.index(
+                streamReadBuffer.startIndex,
+                offsetBy: boundedSearchOffset
+            )
+            if let newlineIndex = streamReadBuffer[searchStart...]
+                .firstIndex(of: 0x0A) {
                 let lineByteCount = streamReadBuffer.distance(
                     from: streamReadBuffer.startIndex,
                     to: newlineIndex
                 )
                 guard lineByteCount < maxBytes else {
-                    throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.events.error.frameTooLarge",
+                            defaultValue: "Event stream frame exceeded %lld bytes"
+                        ),
+                        Int64(maxBytes)
+                    ))
                 }
                 let lineData = streamReadBuffer[..<newlineIndex]
-                guard let line = String(data: Data(lineData), encoding: .utf8) else {
-                    throw CLIError(message: "Invalid UTF-8 event stream frame")
+                guard let line = String(
+                    data: Data(lineData),
+                    encoding: .utf8
+                ) else {
+                    throw CLIError(message: String(
+                        localized: "cli.events.error.invalidUTF8",
+                        defaultValue: "Invalid UTF-8 event stream frame"
+                    ))
                 }
                 streamReadBuffer.removeSubrange(...newlineIndex)
+                streamReadSearchOffset = 0
                 return line.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             guard streamReadBuffer.count < maxBytes else {
-                throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.events.error.frameTooLarge",
+                        defaultValue: "Event stream frame exceeded %lld bytes"
+                    ),
+                    Int64(maxBytes)
+                ))
             }
+
+            // The retained prefix has no newline. Mark it scanned before the
+            // read so EINTR retries never revisit old bytes.
+            streamReadSearchOffset = streamReadBuffer.count
             if let deadline {
                 try waitForReadableStream(deadline: deadline)
             }
+
             var chunk = [UInt8](repeating: 0, count: 8 * 1_024)
             let count = chunk.withUnsafeMutableBytes { bytes in
                 Darwin.read(socketFD, bytes.baseAddress, bytes.count)
@@ -3013,47 +3071,138 @@ final class SocketClient {
                 if errno == EAGAIN || errno == EWOULDBLOCK {
                     if let deadline {
                         guard deadline.timeIntervalSinceNow > 0 else {
-                            throw CLIError(message: "Event stream deadline exceeded")
+                            throw Self.transientEventStreamError(
+                                Self.eventStreamDeadlineMessage
+                            )
                         }
                         continue
                     }
-                    throw CLIError(message: "Timed out waiting for event stream frame")
+                    throw Self.transientEventStreamError(String(
+                        localized: "cli.events.error.frameTimedOut",
+                        defaultValue: "Timed out waiting for event stream frame"
+                    ))
                 }
-                throw CLIError(message: "Event stream socket read error")
+                throw Self.transientEventStreamError(
+                    Self.eventStreamSocketReadMessage
+                )
             }
             if count == 0 {
-                throw CLIError(message: "Event stream closed")
+                throw Self.transientEventStreamError(String(
+                    localized: "cli.events.error.closed",
+                    defaultValue: "Event stream closed"
+                ))
             }
             streamReadBuffer.append(contentsOf: chunk.prefix(count))
+        }
+    }
+
+    static func socketFilesystemIdentity(at path: String) -> String? {
+        UnixSocketReplacementWaiter().socketIdentity(at: path)
+    }
+
+    static func waitForSocketReplacement(
+        at path: String,
+        replacing connectedIdentity: String?,
+        timeout: TimeInterval
+    ) {
+        guard timeout.isFinite,
+              timeout > 0,
+              parseRelayEndpoint(path) == nil else {
+            return
+        }
+        UnixSocketReplacementWaiter().wait(
+            at: path,
+            replacing: connectedIdentity,
+            timeout: timeout
+        )
+    }
+
+    static func isTransientEventStreamError(_ error: Error) -> Bool {
+        if let cliError = error as? CLIError,
+           cliError.kind == .transientSocketTransport {
+            return true
+        }
+        if let connectError = error as? SocketConnectError {
+            switch connectError.errnoValue {
+            case ENOENT, ECONNREFUSED, ECONNRESET, EPIPE, ETIMEDOUT,
+                 EAGAIN, EWOULDBLOCK, ENOTCONN:
+                return true
+            default:
+                return false
+            }
+        }
+        let nsError = error as NSError
+        guard nsError.domain == NSPOSIXErrorDomain,
+              let code = Int32(exactly: nsError.code) else {
+            return false
+        }
+        switch code {
+        case ENOENT, ECONNREFUSED, ECONNRESET, EPIPE, ETIMEDOUT,
+             EAGAIN, EWOULDBLOCK, ENOTCONN:
+            return true
+        default:
+            return false
         }
     }
 
     private func waitForReadableStream(deadline: Date) throws {
         while true {
             let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else {
-                throw CLIError(message: "Event stream deadline exceeded")
+            guard remaining.isFinite, remaining > 0 else {
+                throw Self.transientEventStreamError(
+                    Self.eventStreamDeadlineMessage
+                )
             }
-            var descriptor = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
-            let timeoutMilliseconds = min(
-                max(Int(ceil(remaining * 1_000)), 0),
-                Int(Int32.max)
+            var descriptor = pollfd(
+                fd: socketFD,
+                events: Int16(POLLIN),
+                revents: 0
+            )
+            let timeoutMilliseconds = Int32(
+                min(ceil(remaining * 1_000), Double(Int32.max))
             )
             let ready = Darwin.poll(
                 &descriptor,
                 1,
-                Int32(timeoutMilliseconds)
+                timeoutMilliseconds
             )
             if ready > 0 {
                 return
             }
             if ready == 0 {
-                throw CLIError(message: "Event stream deadline exceeded")
+                throw Self.transientEventStreamError(
+                    Self.eventStreamDeadlineMessage
+                )
             }
             if errno != EINTR {
-                throw CLIError(message: "Event stream socket read error")
+                throw Self.transientEventStreamError(
+                    Self.eventStreamSocketReadMessage
+                )
             }
         }
+    }
+
+    private static func transientEventStreamError(
+        _ message: String
+    ) -> CLIError {
+        CLIError(
+            message: message,
+            kind: .transientSocketTransport
+        )
+    }
+
+    private static var eventStreamDeadlineMessage: String {
+        String(
+            localized: "cli.events.error.deadlineExceeded",
+            defaultValue: "Event stream deadline exceeded"
+        )
+    }
+
+    private static var eventStreamSocketReadMessage: String {
+        String(
+            localized: "cli.events.error.socketRead",
+            defaultValue: "Event stream socket read error"
+        )
     }
 }
 
@@ -15647,36 +15796,31 @@ struct CMUXCLI {
         case "ios":
             return iosSubcommandUsage()
         case "events":
-            let timeoutDescription = String(
-                localized: "cli.events.help.timeout",
-                defaultValue: "Exit unsuccessfully if no matching event arrives before the deadline"
+            return String(
+                localized: "cli.events.usage",
+                defaultValue: """
+                Usage: cmux events [options]
+
+                Stream cmux events as newline-delimited JSON.
+
+                Options:
+                  --after <seq>          Replay retained events after this sequence
+                  --cursor-file <path>   Read the starting sequence from a file and update it after each event
+                  --name <event>         Filter by event name, repeatable
+                  --category <name>      Filter by category, repeatable
+                  --reconnect            Reconnect forever and resume from the last received sequence
+                  --limit <n>            Exit after printing n event frames
+                  --timeout <seconds>    Exit unsuccessfully if no matching event arrives before the deadline
+                  --snapshot             Print the subscription snapshot and exit
+                  --no-ack               Do not print the subscription ack frame
+                  --no-heartbeat         Do not print heartbeat frames
+
+                Examples:
+                  cmux events --category notification
+                  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
+                  cmux events --after 42 --name feed.item.received
+                """
             )
-            let snapshotDescription = String(
-                localized: "cli.events.help.snapshot",
-                defaultValue: "Print the subscription snapshot and exit"
-            )
-            return """
-            Usage: cmux events [options]
-
-            Stream cmux events as newline-delimited JSON.
-
-            Options:
-              --after <seq>          Replay retained events after this sequence
-              --cursor-file <path>   Read the starting sequence from a file and update it after each event
-              --name <event>         Filter by event name, repeatable
-              --category <name>      Filter by category, repeatable
-              --reconnect            Reconnect forever and resume from the last received sequence
-              --limit <n>            Exit after printing n event frames
-              --timeout <seconds>    \(timeoutDescription)
-              --snapshot             \(snapshotDescription)
-              --no-ack               Do not print the subscription ack frame
-              --no-heartbeat         Do not print heartbeat frames
-
-            Examples:
-              cmux events --category notification
-              cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
-              cmux events --after 42 --name feed.item.received
-            """
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>
@@ -36080,7 +36224,7 @@ export default CMUXSessionRestore;
           iroh-diag
           version
           capabilities
-          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--timeout <seconds>] [--snapshot] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)

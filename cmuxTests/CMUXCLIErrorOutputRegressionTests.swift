@@ -2656,6 +2656,135 @@ import Testing
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
     }
 
+    @Test func testEventsParsesNearLimitFrameDeliveredAcrossManyReads() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-events-large-\(UUID().uuidString.prefix(8)).sock"
+        let prefix = #"{"type":"ack","padding":""#
+        let suffix = #""}"#
+        let targetByteCount = 4 * 1_024 * 1_024 - 1
+        let paddingByteCount = targetByteCount
+            - prefix.utf8.count
+            - suffix.utf8.count
+        let frame = prefix + String(repeating: "a", count: paddingByteCount) + suffix
+        #expect(frame.utf8.count == targetByteCount)
+        let responder = try UnixSocketResponder(path: socketPath, response: frame)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "events", "--snapshot", "--no-ack", "--timeout", "8",
+            ],
+            environment: environment,
+            timeout: 10
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(responder.receivedRequests.count == 1)
+    }
+
+    @Test func testEventsReconnectWakesWhenUnixSocketInodeIsReplaced() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-events-replace-\(UUID().uuidString.prefix(8)).sock"
+        let firstRequest = DispatchSemaphore(value: 0)
+        let processFinished = DispatchSemaphore(value: 0)
+        let replacement = UnixSocketResponderBox()
+        let first = try UnixSocketResponder(
+            path: socketPath,
+            response: "",
+            closesAfterResponse: true,
+            onRequest: { _ in firstRequest.signal() }
+        )
+        defer {
+            first.stop()
+            processFinished.signal()
+            replacement.stop()
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard firstRequest.wait(timeout: .now() + 3) == .success else {
+                replacement.record(error: "first event-stream request was not received")
+                return
+            }
+            first.stop()
+            do {
+                replacement.install(try UnixSocketResponder(
+                    path: socketPath,
+                    response: #"{"type":"ack"}"#
+                ))
+            } catch {
+                replacement.record(error: String(describing: error))
+                return
+            }
+            _ = processFinished.wait(timeout: .now() + 8)
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "events", "--reconnect", "--snapshot", "--no-ack",
+                "--timeout", "3",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(replacement.error == nil, Comment(rawValue: replacement.error ?? ""))
+        #expect(replacement.receivedRequestCount == 1)
+    }
+
+    @Test func testEventsRelayReconnectDoesNotWaitOnFilesystemChanges() throws {
+        let cliPath = try bundledCLIPath()
+        let relayID = "cmux-events-test-relay"
+        let relay = try RelaySocketResponder(
+            relayID: relayID,
+            responses: ["", #"{"type":"ack"}"#]
+        )
+        defer { relay.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "00", count: 32)
+        environment["AppleLanguages"] = "(ja)"
+        environment["AppleLocale"] = "ja_JP"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", relay.endpoint,
+                "events", "--reconnect", "--snapshot", "--no-ack",
+                "--timeout", "0.8",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        #expect(relay.receivedRequests.count == 2)
+    }
+
     func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
@@ -3268,21 +3397,41 @@ import Testing
     }
 }
 
-final class UnixSocketResponder {
+final class UnixSocketResponder: @unchecked Sendable {
     let path: String
     private let responses: [String]
     private let responseDelay: TimeInterval
+    private let closesAfterResponse: Bool
+    private let onRequest: (@Sendable (String) -> Void)?
     private let queue = DispatchQueue(label: "com.cmux.tests.unix-socket-responder")
     private let lock = NSLock()
     private var stopped = false
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
 
-    convenience init(path: String, response: String, responseDelay: TimeInterval = 0) throws {
-        try self.init(path: path, responses: [response], responseDelay: responseDelay)
+    convenience init(
+        path: String,
+        response: String,
+        responseDelay: TimeInterval = 0,
+        closesAfterResponse: Bool = false,
+        onRequest: (@Sendable (String) -> Void)? = nil
+    ) throws {
+        try self.init(
+            path: path,
+            responses: [response],
+            responseDelay: responseDelay,
+            closesAfterResponse: closesAfterResponse,
+            onRequest: onRequest
+        )
     }
 
-    init(path: String, responses: [String], responseDelay: TimeInterval = 0) throws {
+    init(
+        path: String,
+        responses: [String],
+        responseDelay: TimeInterval = 0,
+        closesAfterResponse: Bool = false,
+        onRequest: (@Sendable (String) -> Void)? = nil
+    ) throws {
         guard !responses.isEmpty else {
             throw NSError(
                 domain: NSCocoaErrorDomain,
@@ -3293,6 +3442,8 @@ final class UnixSocketResponder {
         self.path = path
         self.responses = responses
         self.responseDelay = responseDelay
+        self.closesAfterResponse = closesAfterResponse
+        self.onRequest = onRequest
 
         unlink(path)
         listenerFD = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -3419,15 +3570,31 @@ final class UnixSocketResponder {
                 responseIndex = requests.count
                 requests.append(line)
                 lock.unlock()
+                onRequest?(line)
             }
             if responseDelay > 0 {
                 Thread.sleep(forTimeInterval: responseDelay)
             }
             let response = responses[min(responseIndex, responses.count - 1)]
-            let payload = response + "\n"
-            payload.withCString { pointer in
-                _ = write(clientFD, pointer, strlen(pointer))
+            let payload = Data((response + "\n").utf8)
+            payload.withUnsafeBytes { bytes in
+                guard let baseAddress = bytes.baseAddress else { return }
+                var offset = 0
+                while offset < bytes.count {
+                    let written = write(
+                        clientFD,
+                        baseAddress.advanced(by: offset),
+                        bytes.count - offset
+                    )
+                    if written < 0 {
+                        if errno == EINTR { continue }
+                        return
+                    }
+                    if written == 0 { return }
+                    offset += written
+                }
             }
+            if closesAfterResponse { return }
         }
     }
 
@@ -3437,6 +3604,45 @@ final class UnixSocketResponder {
             code: Int(errno),
             userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
         )
+    }
+}
+
+private final class UnixSocketResponderBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var responder: UnixSocketResponder?
+    private var recordedError: String?
+
+    var error: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedError
+    }
+
+    var receivedRequestCount: Int {
+        lock.lock()
+        let responder = responder
+        lock.unlock()
+        return responder?.receivedRequests.count ?? 0
+    }
+
+    func install(_ responder: UnixSocketResponder) {
+        lock.lock()
+        self.responder = responder
+        lock.unlock()
+    }
+
+    func record(error: String) {
+        lock.lock()
+        recordedError = error
+        lock.unlock()
+    }
+
+    func stop() {
+        lock.lock()
+        let responder = responder
+        self.responder = nil
+        lock.unlock()
+        responder?.stop()
     }
 }
 

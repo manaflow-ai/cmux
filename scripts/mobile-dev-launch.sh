@@ -30,7 +30,8 @@
 #              When attach flags are repeated, the last flag wins.
 #   --agent    sign in with the shared agent account instead of the dogfood one.
 #   --detach   simulator only: launch without attaching stdio, so the app keeps
-#              running after this script exits.
+#              running after this script exits. Auto-paired launches also omit
+#              stdio attachment so readiness can complete while the app runs.
 #   --iroh-release-gate <automatic|relayOnly|directOnly>
 #              simulator only: run the credential-free Iroh release-gate probe
 #              after sign-in and attach.
@@ -87,7 +88,7 @@ if [[ ! "$ATTACH_MINT_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 if [[ ! "$ATTACH_READY_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
-  echo "error: CMUX_ATTACH_READY_TIMEOUT_SECONDS must be a positive integer" >&2
+  echo "error: readiness timeout must be a positive integer" >&2
   exit 2
 fi
 if [[ "$DETACH" -eq 1 && "$TARGET" != "simulator" ]]; then
@@ -123,6 +124,7 @@ source "$SCRIPT_DIR/lib/mobile-attach.sh"
 if ! cmux_attach_validate_dev_tag "$TAG"; then
   exit 2
 fi
+DOGFOOD_LAUNCH_ID="$(cmux_attach_new_launch_id)"
 if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
   cmux_dev_secrets_load --credentials-file "$AUTH_CREDENTIALS_FILE" || exit $?
 elif [[ "$AGENT" -eq 1 ]]; then
@@ -211,9 +213,6 @@ if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
 fi
 echo "==> launching $BUNDLE_ID on $TARGET (signed in as $SIGN_IN_ACCOUNT_LABEL${ATTACH_URL:+, auto-pairing})"
 READINESS_STARTED_MS=""
-if [[ -n "$READINESS_CURSOR" ]]; then
-  READINESS_STARTED_MS="$(cmux_attach_monotonic_milliseconds)"
-fi
 
 if [[ "$TARGET" == "simulator" ]]; then
   if [[ -n "$SIMULATOR_ID" ]]; then
@@ -233,8 +232,14 @@ if [[ "$TARGET" == "simulator" ]]; then
     cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"
   )"
   launch_args=(launch)
-  if [[ "$DETACH" -ne 1 ]]; then
+  # `--console-pty` stays attached until the app exits. An attached dogfood
+  # launch must instead return to its replayable readiness cursor while the app
+  # is alive, so only intentionally unpaired interactive launches attach stdio.
+  if [[ "$DETACH" -ne 1 && -z "$READINESS_CURSOR" ]]; then
     launch_args+=(--console-pty)
+  fi
+  if [[ -n "$READINESS_CURSOR" ]]; then
+    READINESS_STARTED_MS="$(cmux_attach_monotonic_milliseconds)"
   fi
   SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
@@ -242,6 +247,7 @@ if [[ "$TARGET" == "simulator" ]]; then
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
+  SIMCTL_CHILD_CMUX_DOGFOOD_LAUNCH_ID="$DOGFOOD_LAUNCH_ID" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_MODE="$IROH_RELEASE_GATE_MODE" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_SCENARIO="${CMUX_IROH_RELEASE_GATE_SCENARIO:-standard}" \
   SIMCTL_CHILD_CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="${CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH:-0}" \
@@ -261,11 +267,15 @@ else
   # --help` (518.31): "set them in the calling environment with a DEVICECTL_CHILD_
   # prefix", and the -e note "Using the environment-variables flag will override
   # the caller environment variables prefixed with DEVICECTL_CHILD_".
+  if [[ -n "$READINESS_CURSOR" ]]; then
+    READINESS_STARTED_MS="$(cmux_attach_monotonic_milliseconds)"
+  fi
   DEVICECTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   DEVICECTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
   DEVICECTL_CHILD_CMUX_UITEST_MOCK_DATA="0" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
+  DEVICECTL_CHILD_CMUX_DOGFOOD_LAUNCH_ID="$DOGFOOD_LAUNCH_ID" \
     xcrun devicectl device process launch --terminate-existing \
       --device "$DEVICE_ID" "$BUNDLE_ID"
 fi
@@ -276,7 +286,8 @@ if [[ -n "$READINESS_CURSOR" ]]; then
       "$REPO_ROOT" \
       "$READINESS_CURSOR" \
       "$ATTACH_READY_TIMEOUT_SECONDS" \
-      "$DOGFOOD_CLIENT_ID")"; then
+      "$DOGFOOD_CLIENT_ID" \
+      "$DOGFOOD_LAUNCH_ID")"; then
     exit 1
   fi
   READINESS_FINISHED_MS="$(cmux_attach_monotonic_milliseconds)"
@@ -291,7 +302,7 @@ if [[ -n "$READINESS_CURSOR" ]]; then
   fi
   RECEIPT_DIR="${CMUX_READINESS_RECEIPT_DIR:-/tmp/cmux-ios-dogfood-readiness}"
   RECEIPT_PATH="$RECEIPT_DIR/${slug}-$(cmux_attach__slug "$RECEIPT_TARGET_ID").json"
-  cmux_attach_write_readiness_receipt \
+  if ! cmux_attach_write_readiness_receipt \
     "$RECEIPT_PATH" \
     "$GIT_SHA" \
     "$TAG" \
@@ -302,7 +313,10 @@ if [[ -n "$READINESS_CURSOR" ]]; then
     "$(cmux_attach_socket_path "$TAG")" \
     "$READINESS_LATENCY_MS" \
     "${CMUX_DOGFOOD_LAUNCH_ATTEMPT_COUNT:-1}" \
-    "$READY_EVENT"
+    "$READY_EVENT"; then
+    echo "error: readiness event did not satisfy the dogfood receipt contract" >&2
+    exit 1
+  fi
   echo "==> usable RPC session established between $BUNDLE_ID and tagged Mac '$TAG'"
   echo "==> readiness receipt: $RECEIPT_PATH"
 fi

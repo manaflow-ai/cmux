@@ -390,6 +390,9 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
+        let dogfoodLaunchID = Self.dogfoodLaunchID(
+            environment: ProcessInfo.processInfo.environment
+        )
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
@@ -400,6 +403,7 @@ public struct CMUXMobileRootScene: View {
             personalIrohDiscovery: personalIrohDiscovery,
             personalIrohForget: personalIrohForget,
             presence: makePresenceClient(),
+            dogfoodLaunchID: dogfoodLaunchID,
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
@@ -412,5 +416,18 @@ public struct CMUXMobileRootScene: View {
             taskTemplateStore: UserDefaultsMobileTaskTemplateStore(defaults: .standard),
             browserStreamEvents: browserStreamEvents
         )
+    }
+
+    private static func dogfoodLaunchID(
+        environment: [String: String]
+    ) -> String? {
+        #if DEBUG
+        let value = environment["CMUX_DOGFOOD_LAUNCH_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value, UUID(uuidString: value) != nil else { return nil }
+        return value
+        #else
+        return nil
+        #endif
     }
 }

@@ -10,13 +10,13 @@ import Testing
 @Suite(.serialized)
 struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     private actor AccountSnapshotSource {
-        private var snapshots: [CmxIrohAccountCredentialSnapshot]
+        private var snapshots: [CmxIrohAccountCredentialSnapshot?]
         private var lastSnapshot: CmxIrohAccountCredentialSnapshot?
         private(set) var forceRefreshCount = 0
 
-        init(_ snapshots: [CmxIrohAccountCredentialSnapshot]) {
+        init(_ snapshots: [CmxIrohAccountCredentialSnapshot?]) {
             self.snapshots = snapshots
-            self.lastSnapshot = snapshots.last
+            self.lastSnapshot = snapshots.last ?? nil
         }
 
         func snapshot() -> CmxIrohAccountCredentialSnapshot? {
@@ -207,6 +207,104 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
 
         #expect(await snapshots.forceRefreshCount == 1)
         #expect(await transport.requests().count == 2)
+    }
+
+    @Test
+    func sharedAccountPinnedSourceRejectsUnchangedPairAfterForceRefresh() async throws {
+        let stale = Self.accountSnapshot(
+            accountID: "account-a",
+            accessToken: "stale-access"
+        )
+        let snapshots = AccountSnapshotSource([stale, stale, stale])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+            .json(status: 201, body: Self.challengeBody),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: { await snapshots.snapshot() },
+                forceRefresh: { await snapshots.forceRefresh() }
+            ),
+            transport: transport
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        )) {
+            _ = try await client.issueChallenge(try Self.challengeRequest)
+        }
+
+        #expect(await snapshots.forceRefreshCount == 1)
+        #expect(await transport.requests().count == 1)
+    }
+
+    @Test
+    func sharedAccountPinnedSourceDoesNotRefreshAfterSessionDisappears() async throws {
+        let stale = Self.accountSnapshot(
+            accountID: "account-a",
+            accessToken: "stale-access"
+        )
+        let snapshots = AccountSnapshotSource([stale, nil])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: { await snapshots.snapshot() },
+                forceRefresh: { await snapshots.forceRefresh() }
+            ),
+            transport: transport
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        )) {
+            _ = try await client.issueChallenge(try Self.challengeRequest)
+        }
+
+        #expect(await snapshots.forceRefreshCount == 0)
+        #expect(await transport.requests().count == 1)
+    }
+
+    @Test
+    func sharedAccountPinnedSourceDoesNotRefreshAfterAccountSwitch() async throws {
+        let stale = Self.accountSnapshot(
+            accountID: "account-a",
+            accessToken: "stale-access"
+        )
+        let switched = Self.accountSnapshot(
+            accountID: "account-b",
+            accessToken: "other-account-access"
+        )
+        let snapshots = AccountSnapshotSource([stale, switched])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 401, body: #"{"error":"unauthorized"}"#),
+        ])
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: .accountPinned(
+                to: "account-a",
+                snapshot: { await snapshots.snapshot() },
+                forceRefresh: { await snapshots.forceRefresh() }
+            ),
+            transport: transport
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rejected(
+            statusCode: 401,
+            code: "unauthorized"
+        )) {
+            _ = try await client.issueChallenge(try Self.challengeRequest)
+        }
+
+        #expect(await snapshots.forceRefreshCount == 0)
+        #expect(await transport.requests().count == 1)
     }
 
     @Test

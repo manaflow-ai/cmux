@@ -300,6 +300,78 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testConnectedWorkspaceSurvivesTenColdLaunchesAndForegroundCycles()
+        async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+        try assertConnectedWorkspaceReady(
+            in: app,
+            phase: "initial",
+            startedAt: Date(),
+            requiresTerminalWithoutTap: true
+        )
+
+        let initial = XCTAttachment(screenshot: app.screenshot())
+        initial.name = "connected-lifecycle-initial"
+        initial.lifetime = .keepAlways
+        add(initial)
+
+        for cycle in 1 ... 10 {
+            XCUIDevice.shared.press(.home)
+            XCTAssertTrue(
+                app.wait(for: .runningBackground, timeout: 5),
+                "Cycle \(cycle) must background the connected app"
+            )
+            let startedAt = Date()
+            app.activate()
+            XCTAssertTrue(
+                app.wait(for: .runningForeground, timeout: 5),
+                "Cycle \(cycle) must foreground without user action"
+            )
+            try assertConnectedWorkspaceReady(
+                in: app,
+                phase: "foreground-\(cycle)",
+                startedAt: startedAt,
+                requiresTerminalWithoutTap: true
+            )
+        }
+
+        let resumed = XCTAttachment(screenshot: app.screenshot())
+        resumed.name = "connected-lifecycle-after-ten-foreground-cycles"
+        resumed.lifetime = .keepAlways
+        add(resumed)
+
+        for cycle in 1 ... 10 {
+            app.terminate()
+            XCTAssertTrue(
+                app.wait(for: .notRunning, timeout: 5),
+                "Cold launch \(cycle) must begin from a stopped process"
+            )
+            let startedAt = Date()
+            app.launch()
+            XCTAssertTrue(
+                app.wait(for: .runningForeground, timeout: 8),
+                "Cold launch \(cycle) must reach the foreground"
+            )
+            try assertConnectedWorkspaceReady(
+                in: app,
+                phase: "cold-launch-\(cycle)",
+                startedAt: startedAt,
+                requiresTerminalWithoutTap: false
+            )
+        }
+
+        let relaunched = XCTAttachment(screenshot: app.screenshot())
+        relaunched.name = "connected-lifecycle-after-ten-cold-launches"
+        relaunched.lifetime = .keepAlways
+        add(relaunched)
+    }
+
+    @MainActor
     func testDeleteComputersVerifierPasses() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_DELETE_COMPUTERS_VERIFIER": "1",
@@ -4723,6 +4795,125 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func assertConnectedWorkspaceReady(
+        in app: XCUIApplication,
+        phase: String,
+        startedAt: Date,
+        requiresTerminalWithoutTap: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let terminalSurface = app.otherElements["MobileTerminalSurface"]
+        let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        let shellExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                terminalSurface.exists || workspaceRow.exists
+            },
+            object: app
+        )
+        let shellResult = XCTWaiter.wait(for: [shellExpectation], timeout: 20)
+        XCTAssertEqual(
+            shellResult,
+            .completed,
+            "\(phase) must reach the connected workspace shell",
+            file: file,
+            line: line
+        )
+        guard shellResult == .completed else { return }
+
+        let blockingConnectionSurfaceIDs = [
+            "MobileOnboardingConnectScene",
+            "MobilePairingView",
+            "MobileAddDeviceForm",
+            "MobilePairingScannerSheet",
+            "MobileInitialConnectionRetry",
+            "MobileMacReconnectButton",
+            "MobileWorkspaceMacPickerReconnect",
+            "MobileConnectionReauthBanner",
+            "MobileConnectionReauthRow",
+        ]
+        for identifier in blockingConnectionSurfaceIDs {
+            XCTAssertFalse(
+                app.descendants(matching: .any)[identifier].exists,
+                "\(phase) must not present \(identifier)",
+                file: file,
+                line: line
+            )
+        }
+
+        if requiresTerminalWithoutTap {
+            XCTAssertTrue(
+                terminalSurface.exists,
+                "\(phase) must restore the open terminal without a tap",
+                file: file,
+                line: line
+            )
+        } else if !terminalSurface.exists {
+            XCTAssertTrue(
+                workspaceRow.isHittable,
+                "\(phase) must make the prior workspace immediately usable",
+                file: file,
+                line: line
+            )
+            workspaceRow.tap()
+            XCTAssertTrue(
+                terminalSurface.waitForExistence(timeout: 8),
+                "\(phase) must open the terminal after one workspace tap",
+                file: file,
+                line: line
+            )
+        }
+
+        assertTerminalRow(
+            0,
+            label: "$ cmux ios status",
+            in: app,
+            file: file,
+            line: line
+        )
+        assertTerminalRow(
+            1,
+            label: "Mobile Core: connected",
+            in: app,
+            file: file,
+            line: line
+        )
+
+        // Rendered terminal rows are retained across transport loss, so their
+        // presence cannot prove this shell is live. The status pill is backed by
+        // `macConnectionStatus` and exists for every non-connected state; it is
+        // removed only after the current RPC connection has a validated terminal
+        // event subscription.
+        let connectionStatus = app.descendants(matching: .any)[
+            "MobileTerminalMacConnectionStatus"
+        ]
+        let connectedExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: connectionStatus
+        )
+        let connectedResult = XCTWaiter.wait(
+            for: [connectedExpectation],
+            timeout: 20
+        )
+        XCTAssertEqual(
+            connectedResult,
+            .completed,
+            "\(phase) must reach a live terminal connection; status: \(connectionStatus.label)",
+            file: file,
+            line: line
+        )
+        guard connectedResult == .completed else { return }
+
+        let readyMilliseconds = Int(
+            Date().timeIntervalSince(startedAt) * 1_000
+        )
+        print(
+            "CMUX_LIFECYCLE_READY phase=\(phase) "
+                + "shell=terminal connection=connected ready_ms=\(readyMilliseconds)"
+        )
+    }
+
+    @MainActor
     private func assertTerminalRow(
         _ index: Int,
         label expectedLabel: String,
@@ -7169,6 +7360,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
+    private var eventStreamIDsByConnection: [ObjectIdentifier: Set<String>] = [:]
     private var selectedWorkspaceID = "workspace-main"
     private var selectedTerminalID = "terminal-build"
     private var workspaceCreateRequests: [WorkspaceCreateRequest] = []
@@ -7287,6 +7479,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+            self.eventStreamIDsByConnection.removeAll()
         }
     }
 
@@ -7433,8 +7626,15 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private func accept(_ connection: NWConnection) {
         connections.append(connection)
+        eventStreamIDsByConnection[ObjectIdentifier(connection)] = []
         connection.start(queue: queue)
         receiveRequest(on: connection)
+    }
+
+    private func close(_ connection: NWConnection) {
+        connection.cancel()
+        connections.removeAll { $0 === connection }
+        eventStreamIDsByConnection.removeValue(forKey: ObjectIdentifier(connection))
     }
 
     private func receiveRequest(on connection: NWConnection, buffer: Data = Data()) {
@@ -7463,7 +7663,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             }
 
             if isComplete || error != nil {
-                connection.cancel()
+                self.close(connection)
                 return
             }
 
@@ -7473,27 +7673,28 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
-            let responseFrame = try makeResponseFrame(for: payload)
+            let responseFrame = try makeResponseFrame(for: payload, on: connection)
             connection.send(
                 content: responseFrame,
                 contentContext: .defaultMessage,
                 isComplete: false,
                 completion: .contentProcessed { [weak self, weak connection] error in
-                    guard error == nil,
-                          let self,
-                          let connection else {
-                        connection?.cancel()
+                    guard let self, let connection else {
+                        return
+                    }
+                    guard error == nil else {
+                        self.close(connection)
                         return
                     }
                     self.receiveRequest(on: connection, buffer: remainingBuffer)
                 }
             )
         } catch {
-            connection.cancel()
+            close(connection)
         }
     }
 
-    private func makeResponseFrame(for payload: Data) throws -> Data {
+    private func makeResponseFrame(for payload: Data, on connection: NWConnection) throws -> Data {
         guard let request = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
               let method = request["method"] as? String else {
             throw serverError("Invalid request.")
@@ -7525,7 +7726,36 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         case "terminal.create":
             result = createTerminalResult(params: params)
         case "mobile.events.subscribe":
-            result = ["stream_id": params["stream_id"] as? String ?? "events"]
+            let streamID = params["stream_id"] as? String ?? "events"
+            let connectionID = ObjectIdentifier(connection)
+            var streamIDs = eventStreamIDsByConnection[connectionID, default: []]
+            let alreadySubscribed = streamIDs.contains(streamID)
+            streamIDs.insert(streamID)
+            eventStreamIDsByConnection[connectionID] = streamIDs
+            result = [
+                "stream_id": streamID,
+                "topics": params["topics"] as? [String] ?? [],
+                "already_subscribed": alreadySubscribed,
+                "event_transport": "control_v1",
+            ]
+        case "mobile.events.probe":
+            let streamID = params["stream_id"] as? String ?? "events"
+            let connectionID = ObjectIdentifier(connection)
+            result = [
+                "stream_id": streamID,
+                "subscribed": eventStreamIDsByConnection[connectionID]?.contains(streamID) == true,
+                "event_transport": "control_v1",
+            ]
+        case "mobile.events.unsubscribe":
+            let streamID = params["stream_id"] as? String ?? "events"
+            let connectionID = ObjectIdentifier(connection)
+            var streamIDs = eventStreamIDsByConnection[connectionID, default: []]
+            let removed = streamIDs.remove(streamID) != nil
+            eventStreamIDsByConnection[connectionID] = streamIDs
+            result = [
+                "stream_id": streamID,
+                "removed": removed,
+            ]
         case "mobile.host.status":
             result = mobileHostStatusResult()
         case "mobile.terminal.viewport", "terminal.viewport":

@@ -12,6 +12,12 @@ final class ControlPoolManualClock: Clock, @unchecked Sendable {
     var minimumResolution: Duration { .zero }
     var sleeperCount: Int { lock.withLock { sleepers.count } }
 
+    func sleeperCount(at deadline: Instant) -> Int {
+        lock.withLock {
+            sleepers.lazy.filter { $0.deadline == deadline }.count
+        }
+    }
+
     func sleep(until deadline: Instant, tolerance _: Duration?) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {

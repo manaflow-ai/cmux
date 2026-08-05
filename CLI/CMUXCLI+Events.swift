@@ -62,12 +62,21 @@ extension CMUXCLI {
                 throw timeoutError()
             }
             let client = SocketClient(path: socketPath)
+            // Capture an existing dead inode before connect so a refused
+            // connection waits for that exact socket to be replaced instead
+            // of treating its mere presence as a wake signal.
+            var connectedSocketIdentity = SocketClient.socketFilesystemIdentity(
+                at: socketPath
+            )
             do {
                 if let connectDeadline = socketDeadline() {
                     try client.connect(deadline: connectDeadline)
                 } else {
                     try client.connect()
                 }
+                connectedSocketIdentity = SocketClient.socketFilesystemIdentity(
+                    at: socketPath
+                ) ?? connectedSocketIdentity
                 // Connection setup may have consumed the rest of the budget;
                 // re-check before starting authentication so it always gets a
                 // non-negative timeout.
@@ -156,13 +165,20 @@ extension CMUXCLI {
                 guard remaining > 0 else {
                     throw timeoutError()
                 }
-                waitBeforeReconnectingEventStream(maximumDelay: remaining)
+                waitBeforeReconnectingEventStream(
+                    socketPath: socketPath,
+                    replacing: connectedSocketIdentity,
+                    maximumDelay: remaining
+                )
                 continue
             }
         }
     }
 
     func isTransientEventStreamError(_ error: Error) -> Bool {
+        if SocketClient.isTransientEventStreamError(error) {
+            return true
+        }
         if let cliError = error as? CLIError {
             let message = cliError.message.lowercased()
             let transientMarkers = [
@@ -193,16 +209,21 @@ extension CMUXCLI {
             || description.contains("timed out")
     }
 
-    func waitBeforeReconnectingEventStream(maximumDelay: TimeInterval = 1) {
+    func waitBeforeReconnectingEventStream(
+        socketPath: String,
+        replacing connectedSocketIdentity: String?,
+        maximumDelay: TimeInterval = 1
+    ) {
         let delay = min(1, max(0, maximumDelay))
-        guard delay > 0 else { return }
-        // This retry path runs on the CLI's synchronous command thread, which
-        // pumps no run loop: a Timer + RunLoop.run() wait can spin or park
-        // with `didFire` as its only exit. A bounded thread sleep is the
-        // deterministic wait; the caller already clamps the delay to the
-        // command's remaining --timeout budget, and killing the process (the
-        // CLI's only cancellation) interrupts it.
-        Thread.sleep(forTimeInterval: delay)
+        guard delay.isFinite, delay > 0 else { return }
+        // Wait on the socket directory rather than pumping a RunLoop timer.
+        // A tagged app restart or socket replacement wakes the retry
+        // immediately; the deadline remains only a quiet-period ceiling.
+        SocketClient.waitForSocketReplacement(
+            at: socketPath,
+            replacing: connectedSocketIdentity,
+            timeout: delay
+        )
     }
 
     private func parseEventsOptions(_ args: [String]) throws -> EventsCommandOptions {

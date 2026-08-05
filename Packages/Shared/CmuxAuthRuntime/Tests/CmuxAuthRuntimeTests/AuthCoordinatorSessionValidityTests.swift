@@ -54,6 +54,47 @@ import Testing
         #expect(await client.observedCurrentUserStartCount() == baseline + 1)
     }
 
+    @Test func concurrentForcedRefreshesJoinTheActiveMint() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(
+                keyValueStore: store,
+                key: "selected_team"
+            ),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        let secondCompletion = AuthRevalidationCompletionRecorder()
+        await client.armForceRefreshGate(returning: "fresh-access")
+
+        let first = Task { try await coordinator.forceRefreshAccessToken() }
+        await client.forceRefreshDidPark()
+        let second = Task {
+            let token = try await coordinator.forceRefreshAccessToken()
+            await secondCompletion.record()
+            return token
+        }
+        for _ in 0 ..< 20 { await Task.yield() }
+
+        #expect(!(await secondCompletion.didComplete()))
+        #expect(await client.forceRefreshStartCount == 1)
+
+        await client.releaseParkedForceRefresh()
+        let firstToken = try await first.value
+        let secondToken = try await second.value
+
+        #expect(firstToken == "fresh-access")
+        #expect(secondToken == "fresh-access")
+        #expect(await client.forceRefreshStartCount == 1)
+    }
+
     private func makeCoordinator(
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),

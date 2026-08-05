@@ -36423,10 +36423,52 @@
     "cli.events.error.invalidTimeout": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة --timeout أكبر من 0"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout mora biti veći od 0"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout skal være større end 0"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout muss größer als 0 sein"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "--timeout must be greater than 0"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout debe ser mayor que 0"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout doit être supérieur à 0"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout deve essere maggiore di 0"
           }
         },
         "ja": {
@@ -36434,16 +36476,124 @@
             "state": "translated",
             "value": "--timeout は0より大きい値である必要があります"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout ត្រូវតែធំជាង 0"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout은 0보다 커야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout må være større enn 0"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout musi być większy niż 0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout deve ser maior que 0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значение --timeout должно быть больше 0"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout ต้องมากกว่า 0"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 0'dan büyük olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значення --timeout має бути більшим за 0"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 必须大于 0"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 必須大於 0"
+          }
         }
       }
     },
     "cli.events.error.timeout": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة انتظار حدث مطابق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isteklo je vrijeme čekanja na odgovarajući događaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiden udløb under venten på en matchende hændelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung beim Warten auf ein passendes Ereignis"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Timed out waiting for a matching event"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo de espera de un evento coincidente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Délai d’attente dépassé pour un événement correspondant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo scaduto in attesa di un evento corrispondente"
           }
         },
         "ja": {
@@ -36451,63 +36601,196 @@
             "state": "translated",
             "value": "一致するイベントを待機中にタイムアウトしました"
           }
-        }
-      }
-    },
-    "cli.events.help.snapshot": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Print the subscription snapshot and exit"
-          }
         },
-        "ja": {
+        "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "購読スナップショットを表示して終了"
+            "value": "អស់ពេលរង់ចាំព្រឹត្តិការណ៍ដែលត្រូវគ្នា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "구독 스냅샷을 출력하고 종료"
+            "value": "일치하는 이벤트를 기다리는 동안 시간이 초과되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd mens det ble ventet på en samsvarende hendelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upłynął limit czasu oczekiwania na pasujące zdarzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O tempo de espera por um evento correspondente esgotou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Истекло время ожидания подходящего события"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หมดเวลารอเหตุการณ์ที่ตรงกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşen bir olay beklenirken zaman aşımına uğradı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вивести знімок підписки та завершити роботу"
+            "value": "Час очікування відповідної події вичерпано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待匹配事件超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待相符事件逾時"
           }
         }
       }
     },
-    "cli.events.help.timeout": {
+    "cli.events.usage": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux events [options]\n\nبث أحداث cmux بصيغة JSON مفصولة بأسطر.\n\nالخيارات:\n  --after <seq>          إعادة تشغيل الأحداث المحتفظ بها بعد هذا التسلسل\n  --cursor-file <path>   قراءة تسلسل البدء من ملف وتحديثه بعد كل حدث\n  --name <event>         التصفية حسب اسم الحدث، ويمكن تكراره\n  --category <name>      التصفية حسب الفئة، ويمكن تكرارها\n  --reconnect            إعادة الاتصال باستمرار والاستئناف من آخر تسلسل مستلم\n  --limit <n>            الخروج بعد طباعة n من إطارات الأحداث\n  --timeout <seconds>    الخروج بخطأ إذا لم يصل حدث مطابق قبل المهلة\n  --snapshot             طباعة لقطة الاشتراك والخروج\n  --no-ack               عدم طباعة إطار إقرار الاشتراك\n  --no-heartbeat         عدم طباعة إطارات نبضات الحياة\n\nأمثلة:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux events [options]\n\nPrenosi cmux događaje kao JSON odvojen novim redovima.\n\nOpcije:\n  --after <seq>          Ponovi sačuvane događaje nakon ove sekvence\n  --cursor-file <path>   Pročitaj početnu sekvencu iz datoteke i ažuriraj je nakon svakog događaja\n  --name <event>         Filtriraj po nazivu događaja, može se ponavljati\n  --category <name>      Filtriraj po kategoriji, može se ponavljati\n  --reconnect            Stalno se ponovo povezuj i nastavi od zadnje primljene sekvence\n  --limit <n>            Završi nakon ispisa n okvira događaja\n  --timeout <seconds>    Završi s greškom ako odgovarajući događaj ne stigne prije roka\n  --snapshot             Ispiši snimak pretplate i završi\n  --no-ack               Ne ispisuj okvir potvrde pretplate\n  --no-heartbeat         Ne ispisuj okvire otkucaja\n\nPrimjeri:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux events [options]\n\nStream cmux-hændelser som linjeopdelt JSON.\n\nIndstillinger:\n  --after <seq>          Afspil gemte hændelser efter denne sekvens\n  --cursor-file <path>   Læs startsekvensen fra en fil, og opdater den efter hver hændelse\n  --name <event>         Filtrer efter hændelsesnavn, kan gentages\n  --category <name>      Filtrer efter kategori, kan gentages\n  --reconnect            Genopret forbindelsen løbende, og fortsæt fra senest modtagne sekvens\n  --limit <n>            Afslut efter udskrift af n hændelsesrammer\n  --timeout <seconds>    Afslut med fejl, hvis ingen matchende hændelse ankommer før fristen\n  --snapshot             Udskriv abonnementsøjebliksbilledet, og afslut\n  --no-ack               Udskriv ikke abonnementets kvitteringsramme\n  --no-heartbeat         Udskriv ikke heartbeat-rammer\n\nEksempler:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux events [options]\n\nStreamt cmux-Ereignisse als zeilengetrenntes JSON.\n\nOptionen:\n  --after <seq>          Gespeicherte Ereignisse nach dieser Sequenz wiedergeben\n  --cursor-file <path>   Startsequenz aus einer Datei lesen und nach jedem Ereignis aktualisieren\n  --name <event>         Nach Ereignisname filtern, wiederholbar\n  --category <name>      Nach Kategorie filtern, wiederholbar\n  --reconnect            Dauerhaft neu verbinden und ab der zuletzt empfangenen Sequenz fortsetzen\n  --limit <n>            Nach der Ausgabe von n Ereignis-Frames beenden\n  --timeout <seconds>    Mit Fehler beenden, wenn vor Ablauf kein passendes Ereignis eintrifft\n  --snapshot             Abonnement-Snapshot ausgeben und beenden\n  --no-ack               Bestätigungs-Frame des Abonnements nicht ausgeben\n  --no-heartbeat         Heartbeat-Frames nicht ausgeben\n\nBeispiele:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exit unsuccessfully if no matching event arrives before the deadline"
+            "value": "Usage: cmux events [options]\n\nStream cmux events as newline-delimited JSON.\n\nOptions:\n  --after <seq>          Replay retained events after this sequence\n  --cursor-file <path>   Read the starting sequence from a file and update it after each event\n  --name <event>         Filter by event name, repeatable\n  --category <name>      Filter by category, repeatable\n  --reconnect            Reconnect forever and resume from the last received sequence\n  --limit <n>            Exit after printing n event frames\n  --timeout <seconds>    Exit unsuccessfully if no matching event arrives before the deadline\n  --snapshot             Print the subscription snapshot and exit\n  --no-ack               Do not print the subscription ack frame\n  --no-heartbeat         Do not print heartbeat frames\n\nExamples:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux events [options]\n\nTransmite eventos de cmux como JSON delimitado por saltos de línea.\n\nOpciones:\n  --after <seq>          Reproducir eventos retenidos después de esta secuencia\n  --cursor-file <path>   Leer la secuencia inicial de un archivo y actualizarla después de cada evento\n  --name <event>         Filtrar por nombre de evento, se puede repetir\n  --category <name>      Filtrar por categoría, se puede repetir\n  --reconnect            Reconectar indefinidamente y reanudar desde la última secuencia recibida\n  --limit <n>            Salir después de imprimir n marcos de eventos\n  --timeout <seconds>    Salir con error si no llega un evento coincidente antes del límite\n  --snapshot             Imprimir la instantánea de la suscripción y salir\n  --no-ack               No imprimir el marco de confirmación de la suscripción\n  --no-heartbeat         No imprimir marcos de latido\n\nEjemplos:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux events [options]\n\nDiffuse les événements cmux au format JSON délimité par des sauts de ligne.\n\nOptions :\n  --after <seq>          Rejouer les événements conservés après cette séquence\n  --cursor-file <path>   Lire la séquence initiale dans un fichier et la mettre à jour après chaque événement\n  --name <event>         Filtrer par nom d’événement, répétable\n  --category <name>      Filtrer par catégorie, répétable\n  --reconnect            Se reconnecter indéfiniment et reprendre à la dernière séquence reçue\n  --limit <n>            Quitter après l’affichage de n trames d’événement\n  --timeout <seconds>    Quitter avec une erreur si aucun événement correspondant n’arrive avant l’échéance\n  --snapshot             Afficher l’instantané de l’abonnement et quitter\n  --no-ack               Ne pas afficher la trame d’accusé de réception de l’abonnement\n  --no-heartbeat         Ne pas afficher les trames de pulsation\n\nExemples :\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux events [options]\n\nTrasmette gli eventi cmux come JSON delimitato da nuove righe.\n\nOpzioni:\n  --after <seq>          Riproduci gli eventi conservati dopo questa sequenza\n  --cursor-file <path>   Leggi la sequenza iniziale da un file e aggiornala dopo ogni evento\n  --name <event>         Filtra per nome evento, ripetibile\n  --category <name>      Filtra per categoria, ripetibile\n  --reconnect            Riconnettiti continuamente e riprendi dall’ultima sequenza ricevuta\n  --limit <n>            Esci dopo aver stampato n frame di evento\n  --timeout <seconds>    Esci con errore se non arriva un evento corrispondente prima della scadenza\n  --snapshot             Stampa l’istantanea dell’abbonamento ed esci\n  --no-ack               Non stampare il frame di conferma dell’abbonamento\n  --no-heartbeat         Non stampare i frame heartbeat\n\nEsempi:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "期限までに一致するイベントが届かない場合はエラーで終了"
+            "value": "使用法: cmux events [options]\n\ncmux イベントを改行区切りの JSON としてストリームします。\n\nオプション:\n  --after <seq>          このシーケンスより後の保持イベントを再生\n  --cursor-file <path>   ファイルから開始シーケンスを読み、イベントごとに更新\n  --name <event>         イベント名で絞り込み（複数指定可）\n  --category <name>      カテゴリで絞り込み（複数指定可）\n  --reconnect            継続的に再接続し、最後に受信したシーケンスから再開\n  --limit <n>            n 個のイベントフレームを出力したら終了\n  --timeout <seconds>    期限までに一致するイベントが届かなければエラーで終了\n  --snapshot             購読スナップショットを表示して終了\n  --no-ack               購読確認フレームを表示しない\n  --no-heartbeat         ハートビートフレームを表示しない\n\n例:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux events [options]\n\nស្ទ្រីមព្រឹត្តិការណ៍ cmux ជា JSON ដែលបំបែកដោយបន្ទាត់ថ្មី។\n\nជម្រើស៖\n  --after <seq>          ចាក់ព្រឹត្តិការណ៍ដែលបានរក្សាទុកឡើងវិញបន្ទាប់ពីលំដាប់នេះ\n  --cursor-file <path>   អានលំដាប់ចាប់ផ្តើមពីឯកសារ ហើយធ្វើបច្ចុប្បន្នភាពបន្ទាប់ពីព្រឹត្តិការណ៍នីមួយៗ\n  --name <event>         ត្រងតាមឈ្មោះព្រឹត្តិការណ៍ អាចប្រើម្តងហើយម្តងទៀត\n  --category <name>      ត្រងតាមប្រភេទ អាចប្រើម្តងហើយម្តងទៀត\n  --reconnect            ភ្ជាប់ឡើងវិញជានិច្ច ហើយបន្តពីលំដាប់ដែលបានទទួលចុងក្រោយ\n  --limit <n>            ចាកចេញបន្ទាប់ពីបោះពុម្ពស៊ុមព្រឹត្តិការណ៍ n\n  --timeout <seconds>    ចាកចេញដោយកំហុស ប្រសិនបើគ្មានព្រឹត្តិការណ៍ត្រូវគ្នាមកដល់មុនកំណត់\n  --snapshot             បោះពុម្ពរូបថតស្ថានភាពនៃការជាវ ហើយចាកចេញ\n  --no-ack               កុំបោះពុម្ពស៊ុមបញ្ជាក់ការជាវ\n  --no-heartbeat         កុំបោះពុម្ពស៊ុម heartbeat\n\nឧទាហរណ៍៖\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제한 시간 전에 일치하는 이벤트가 도착하지 않으면 오류로 종료"
+            "value": "사용법: cmux events [options]\n\ncmux 이벤트를 줄바꿈으로 구분된 JSON으로 스트리밍합니다.\n\n옵션:\n  --after <seq>          이 시퀀스 이후의 보관된 이벤트 재생\n  --cursor-file <path>   파일에서 시작 시퀀스를 읽고 각 이벤트 후 업데이트\n  --name <event>         이벤트 이름으로 필터링, 반복 가능\n  --category <name>      카테고리로 필터링, 반복 가능\n  --reconnect            계속 다시 연결하고 마지막으로 받은 시퀀스부터 재개\n  --limit <n>            이벤트 프레임 n개를 출력한 후 종료\n  --timeout <seconds>    제한 시간 전에 일치하는 이벤트가 없으면 오류로 종료\n  --snapshot             구독 스냅샷을 출력하고 종료\n  --no-ack               구독 확인 프레임을 출력하지 않음\n  --no-heartbeat         하트비트 프레임을 출력하지 않음\n\n예:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux events [options]\n\nStrøm cmux-hendelser som linjedelt JSON.\n\nAlternativer:\n  --after <seq>          Spill av lagrede hendelser etter denne sekvensen\n  --cursor-file <path>   Les startsekvensen fra en fil og oppdater den etter hver hendelse\n  --name <event>         Filtrer etter hendelsesnavn, kan gjentas\n  --category <name>      Filtrer etter kategori, kan gjentas\n  --reconnect            Koble til på nytt kontinuerlig og fortsett fra sist mottatte sekvens\n  --limit <n>            Avslutt etter utskrift av n hendelsesrammer\n  --timeout <seconds>    Avslutt med feil hvis ingen samsvarende hendelse kommer før fristen\n  --snapshot             Skriv ut abonnementsøyeblikksbildet og avslutt\n  --no-ack               Ikke skriv ut abonnementets bekreftelsesramme\n  --no-heartbeat         Ikke skriv ut heartbeat-rammer\n\nEksempler:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux events [options]\n\nPrzesyła zdarzenia cmux jako JSON rozdzielany znakami nowego wiersza.\n\nOpcje:\n  --after <seq>          Odtwórz zachowane zdarzenia po tej sekwencji\n  --cursor-file <path>   Odczytaj sekwencję początkową z pliku i aktualizuj ją po każdym zdarzeniu\n  --name <event>         Filtruj według nazwy zdarzenia, opcję można powtarzać\n  --category <name>      Filtruj według kategorii, opcję można powtarzać\n  --reconnect            Stale łącz się ponownie i wznawiaj od ostatniej odebranej sekwencji\n  --limit <n>            Zakończ po wypisaniu n ramek zdarzeń\n  --timeout <seconds>    Zakończ z błędem, jeśli przed terminem nie nadejdzie pasujące zdarzenie\n  --snapshot             Wypisz migawkę subskrypcji i zakończ\n  --no-ack               Nie wypisuj ramki potwierdzenia subskrypcji\n  --no-heartbeat         Nie wypisuj ramek heartbeat\n\nPrzykłady:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux events [options]\n\nTransmite eventos do cmux como JSON delimitado por novas linhas.\n\nOpções:\n  --after <seq>          Reproduzir eventos retidos após esta sequência\n  --cursor-file <path>   Ler a sequência inicial de um arquivo e atualizá-la após cada evento\n  --name <event>         Filtrar pelo nome do evento, pode ser repetido\n  --category <name>      Filtrar por categoria, pode ser repetido\n  --reconnect            Reconectar continuamente e retomar da última sequência recebida\n  --limit <n>            Sair após imprimir n quadros de eventos\n  --timeout <seconds>    Sair com erro se nenhum evento correspondente chegar antes do prazo\n  --snapshot             Imprimir o snapshot da assinatura e sair\n  --no-ack               Não imprimir o quadro de confirmação da assinatura\n  --no-heartbeat         Não imprimir quadros de heartbeat\n\nExemplos:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux events [options]\n\nПотоковая передача событий cmux в формате JSON с разделением строками.\n\nПараметры:\n  --after <seq>          Воспроизвести сохранённые события после этой последовательности\n  --cursor-file <path>   Прочитать начальную последовательность из файла и обновлять её после каждого события\n  --name <event>         Фильтровать по имени события, можно повторять\n  --category <name>      Фильтровать по категории, можно повторять\n  --reconnect            Постоянно переподключаться и продолжать с последней полученной последовательности\n  --limit <n>            Завершить после вывода n кадров событий\n  --timeout <seconds>    Завершить с ошибкой, если до срока не придёт подходящее событие\n  --snapshot             Вывести снимок подписки и завершить\n  --no-ack               Не выводить кадр подтверждения подписки\n  --no-heartbeat         Не выводить кадры heartbeat\n\nПримеры:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux events [options]\n\nสตรีมเหตุการณ์ cmux เป็น JSON ที่คั่นด้วยบรรทัดใหม่\n\nตัวเลือก:\n  --after <seq>          เล่นเหตุการณ์ที่เก็บไว้หลังลำดับนี้\n  --cursor-file <path>   อ่านลำดับเริ่มต้นจากไฟล์และอัปเดตหลังแต่ละเหตุการณ์\n  --name <event>         กรองตามชื่อเหตุการณ์ ระบุซ้ำได้\n  --category <name>      กรองตามหมวดหมู่ ระบุซ้ำได้\n  --reconnect            เชื่อมต่อใหม่ต่อเนื่องและทำต่อจากลำดับล่าสุดที่ได้รับ\n  --limit <n>            ออกหลังพิมพ์เฟรมเหตุการณ์ n เฟรม\n  --timeout <seconds>    ออกพร้อมข้อผิดพลาดหากไม่มีเหตุการณ์ที่ตรงกันก่อนกำหนด\n  --snapshot             พิมพ์สแนปช็อตการสมัครแล้วออก\n  --no-ack               ไม่พิมพ์เฟรมยืนยันการสมัคร\n  --no-heartbeat         ไม่พิมพ์เฟรม heartbeat\n\nตัวอย่าง:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux events [options]\n\ncmux olaylarını yeni satırla ayrılmış JSON olarak yayınlar.\n\nSeçenekler:\n  --after <seq>          Bu diziden sonraki saklanan olayları yeniden oynat\n  --cursor-file <path>   Başlangıç dizisini dosyadan oku ve her olaydan sonra güncelle\n  --name <event>         Olay adına göre filtrele, yinelenebilir\n  --category <name>      Kategoriye göre filtrele, yinelenebilir\n  --reconnect            Sürekli yeniden bağlan ve son alınan diziden devam et\n  --limit <n>            n olay çerçevesi yazdırdıktan sonra çık\n  --timeout <seconds>    Süre dolmadan eşleşen olay gelmezse hatayla çık\n  --snapshot             Abonelik anlık görüntüsünü yazdır ve çık\n  --no-ack               Abonelik onay çerçevesini yazdırma\n  --no-heartbeat         Heartbeat çerçevelerini yazdırma\n\nÖrnekler:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Завершити з помилкою, якщо відповідна подія не надійде до кінцевого терміну"
+            "value": "Використання: cmux events [options]\n\nПотокове передавання подій cmux у форматі JSON з розділенням рядками.\n\nПараметри:\n  --after <seq>          Відтворити збережені події після цієї послідовності\n  --cursor-file <path>   Прочитати початкову послідовність із файлу й оновлювати її після кожної події\n  --name <event>         Фільтрувати за назвою події, можна повторювати\n  --category <name>      Фільтрувати за категорією, можна повторювати\n  --reconnect            Постійно перепідключатися й продовжувати з останньої отриманої послідовності\n  --limit <n>            Завершити після виведення n кадрів подій\n  --timeout <seconds>    Завершити з помилкою, якщо до кінцевого терміну не надійде відповідна подія\n  --snapshot             Вивести знімок підписки та завершити\n  --no-ack               Не виводити кадр підтвердження підписки\n  --no-heartbeat         Не виводити кадри heartbeat\n\nПриклади:\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux events [options]\n\n以换行分隔的 JSON 流式输出 cmux 事件。\n\n选项：\n  --after <seq>          重放此序列之后保留的事件\n  --cursor-file <path>   从文件读取起始序列，并在每个事件后更新\n  --name <event>         按事件名称筛选，可重复指定\n  --category <name>      按类别筛选，可重复指定\n  --reconnect            持续重新连接，并从最后收到的序列继续\n  --limit <n>            输出 n 个事件帧后退出\n  --timeout <seconds>    如果截止前没有匹配事件到达，则以错误退出\n  --snapshot             输出订阅快照并退出\n  --no-ack               不输出订阅确认帧\n  --no-heartbeat         不输出心跳帧\n\n示例：\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux events [options]\n\n以換行分隔的 JSON 串流輸出 cmux 事件。\n\n選項：\n  --after <seq>          重播此序列之後保留的事件\n  --cursor-file <path>   從檔案讀取起始序列，並在每個事件後更新\n  --name <event>         依事件名稱篩選，可重複指定\n  --category <name>      依類別篩選，可重複指定\n  --reconnect            持續重新連線，並從最後收到的序列繼續\n  --limit <n>            輸出 n 個事件影格後結束\n  --timeout <seconds>    若截止前沒有相符事件抵達，則以錯誤結束\n  --snapshot             輸出訂閱快照並結束\n  --no-ack               不輸出訂閱確認影格\n  --no-heartbeat         不輸出心跳影格\n\n範例：\n  cmux events --category notification\n  cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect\n  cmux events --after 42 --name feed.item.received"
           }
         }
       }
@@ -262649,6 +262932,756 @@
           "stringUnit": {
             "state": "translated",
             "value": "到達可能"
+          }
+        }
+      }
+    },
+    "cli.events.error.frameTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاوز إطار تدفق الأحداث %lld بايت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okvir toka događaja premašio je %lld bajtova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hændelsesstreamrammen overskred %lld byte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ereignisstream-Frame überschritt %lld Byte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event stream frame exceeded %lld bytes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El marco del flujo de eventos superó los %lld bytes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La trame du flux d’événements a dépassé %lld octets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il frame del flusso di eventi ha superato %lld byte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームのフレームが %lld バイトを超えました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស៊ុមស្ទ្រីមព្រឹត្តិការណ៍បានលើស %lld បៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림 프레임이 %lld바이트를 초과했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hendelsesstrømrammen overskred %lld byte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ramka strumienia zdarzeń przekroczyła %lld bajtów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O quadro do fluxo de eventos excedeu %lld bytes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кадр потока событий превысил %lld байт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฟรมสตรีมเหตุการณ์มีขนาดเกิน %lld ไบต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı çerçevesi %lld baytı aştı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кадр потоку подій перевищив %lld байт"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件流帧超过了 %lld 字节"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件串流影格超過 %lld 位元組"
+          }
+        }
+      }
+    },
+    "cli.events.error.invalidUTF8": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إطار تدفق الأحداث ليس بترميز UTF-8 صالح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okvir toka događaja nije valjan UTF-8"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hændelsesstreamrammen er ikke gyldig UTF-8"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ereignisstream-Frame ist kein gültiges UTF-8"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid UTF-8 event stream frame"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El marco del flujo de eventos no es UTF-8 válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La trame du flux d’événements n’est pas en UTF-8 valide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il frame del flusso di eventi non è UTF-8 valido"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームの UTF-8 フレームが無効です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស៊ុមស្ទ្រីមព្រឹត្តិការណ៍មិនមែនជា UTF-8 ត្រឹមត្រូវទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림 프레임의 UTF-8이 올바르지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hendelsesstrømrammen er ikke gyldig UTF-8"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ramka strumienia zdarzeń nie jest prawidłowym UTF-8"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O quadro do fluxo de eventos não é UTF-8 válido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кадр потока событий содержит недопустимую кодировку UTF-8"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฟรมสตรีมเหตุการณ์ไม่ใช่ UTF-8 ที่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı çerçevesi geçerli UTF-8 değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кадр потоку подій містить неприпустиме кодування UTF-8"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件流帧不是有效的 UTF-8"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件串流影格不是有效的 UTF-8"
+          }
+        }
+      }
+    },
+    "cli.events.error.frameTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة انتظار إطار تدفق الأحداث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isteklo je vrijeme čekanja na okvir toka događaja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiden udløb under ventetiden på en hændelsesstreamramme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung beim Warten auf einen Ereignisstream-Frame"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out waiting for event stream frame"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo de espera del marco del flujo de eventos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le délai d’attente de la trame du flux d’événements a expiré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo scaduto in attesa del frame del flusso di eventi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームのフレーム待機中にタイムアウトしました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អស់ពេលរង់ចាំស៊ុមស្ទ្រីមព្រឹត្តិការណ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림 프레임을 기다리는 동안 시간이 초과되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd mens det ble ventet på en hendelsesstrømramme"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upłynął limit czasu oczekiwania na ramkę strumienia zdarzeń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O tempo de espera pelo quadro do fluxo de eventos esgotou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Истекло время ожидания кадра потока событий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หมดเวลารอเฟรมสตรีมเหตุการณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı çerçevesi beklenirken zaman aşımına uğradı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Минув час очікування кадру потоку подій"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待事件流帧超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待事件串流影格逾時"
+          }
+        }
+      }
+    },
+    "cli.events.error.closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إغلاق تدفق الأحداث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tok događaja je zatvoren"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hændelsesstreamen blev lukket"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ereignisstream wurde geschlossen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event stream closed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El flujo de eventos se cerró"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le flux d’événements a été fermé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il flusso di eventi è stato chiuso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームが閉じられました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ទ្រីមព្រឹត្តិការណ៍បានបិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림이 닫혔습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hendelsesstrømmen ble lukket"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumień zdarzeń został zamknięty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O fluxo de eventos foi fechado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поток событий закрыт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สตรีมเหตุการณ์ถูกปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı kapatıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потік подій закрито"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件流已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件串流已關閉"
+          }
+        }
+      }
+    },
+    "cli.events.error.deadlineExceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تجاوز الموعد النهائي لتدفق الأحداث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prekoračen je rok toka događaja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deadline for hændelsesstreamen blev overskredet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Frist für den Ereignisstream wurde überschritten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event stream deadline exceeded"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se superó el plazo del flujo de eventos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’échéance du flux d’événements a été dépassée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scadenza del flusso di eventi è stata superata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームの期限を超過しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ទ្រីមព្រឹត្តិការណ៍បានលើសកំណត់ពេល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림 기한을 초과했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsfristen for hendelsesstrømmen ble overskredet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekroczono termin strumienia zdarzeń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O prazo do fluxo de eventos foi excedido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Превышен срок ожидания потока событий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เกินกำหนดเวลาของสตรีมเหตุการณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı zaman sınırı aşıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевищено строк очікування потоку подій"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件流超过截止时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件串流超過截止時間"
+          }
+        }
+      }
+    },
+    "cli.events.error.socketRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطأ في قراءة مقبس تدفق الأحداث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Greška pri čitanju utičnice toka događaja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fejl ved læsning fra hændelsesstreamens socket"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler beim Lesen des Ereignisstream-Sockets"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Event stream socket read error"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error al leer el socket del flujo de eventos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erreur de lecture du socket du flux d’événements"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Errore di lettura del socket del flusso di eventi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イベントストリームのソケット読み取りエラー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំហុសក្នុងការអាន socket ស្ទ្រីមព្រឹត្តិការណ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이벤트 스트림 소켓 읽기 오류"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feil ved lesing av hendelsesstrømsocketen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Błąd odczytu gniazda strumienia zdarzeń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erro ao ler o socket do fluxo de eventos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка чтения сокета потока событий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อผิดพลาดในการอ่านซ็อกเก็ตสตรีมเหตุการณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olay akışı soketi okuma hatası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помилка читання сокета потоку подій"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取事件流套接字时出错"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取事件串流通訊端時發生錯誤"
           }
         }
       }
