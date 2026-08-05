@@ -1,10 +1,11 @@
 import { DaytonaProvider } from "./daytona";
 import { E2BProvider } from "./e2b";
 import { FreestyleProvider } from "./freestyle";
+import { SpritesProvider } from "./sprites";
 import type { ProviderId, VMProvider } from "./types";
 
 export * from "./types";
-export { DaytonaProvider, E2BProvider, FreestyleProvider };
+export { DaytonaProvider, E2BProvider, FreestyleProvider, SpritesProvider };
 
 let registry: Map<ProviderId, VMProvider> | null = null;
 
@@ -13,6 +14,7 @@ function buildRegistry(): Map<ProviderId, VMProvider> {
   map.set("e2b", new E2BProvider());
   map.set("freestyle", new FreestyleProvider());
   map.set("daytona", new DaytonaProvider());
+  map.set("sprites", new SpritesProvider());
   return map;
 }
 
@@ -25,7 +27,12 @@ export function getProvider(id: ProviderId): VMProvider {
 
 export function defaultProviderId(): ProviderId {
   const configured = process.env.CMUX_VM_DEFAULT_PROVIDER as ProviderId | undefined;
-  if (configured === "e2b" || configured === "freestyle" || configured === "daytona") return configured;
+  if (
+    configured === "e2b" ||
+    configured === "freestyle" ||
+    configured === "daytona" ||
+    configured === "sprites"
+  ) return configured;
   // Freestyle is the default for interactive work. The route layer still resolves
   // the provider image from the manifest/env before any paid create.
   return "freestyle";

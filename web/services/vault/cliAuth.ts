@@ -7,7 +7,7 @@ export type CliAuthTokens = {
   readonly refreshToken: string;
 };
 
-export type CliAuthClient = "cmux-vault" | "subrouter";
+export type CliAuthClient = "cmux-vault" | "subrouter" | "cmux-sprites";
 
 type ApprovedClaimRow = {
   readonly id: string;
@@ -184,5 +184,7 @@ export function drizzleCliAuthRepository(): CliAuthRepository {
 }
 
 function cliAuthClient(value: unknown): CliAuthClient | null {
-  return value === "cmux-vault" || value === "subrouter" ? value : null;
+  return value === "cmux-vault" || value === "subrouter" || value === "cmux-sprites"
+    ? value
+    : null;
 }

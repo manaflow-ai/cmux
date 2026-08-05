@@ -14,6 +14,7 @@
         "@effect/platform": "0.93.6",
         "@effect/sql": "0.48.6",
         "@effect/sql-pg": "0.49.7",
+        "@fly/sprites": "0.1.0",
         "@opentelemetry/api": "^1.9.1",
         "@orpc/client": "^1.14.7",
         "@orpc/openapi": "^1.14.7",
@@ -293,6 +294,8 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.8", "", { "dependencies": { "@floating-ui/dom": "^1.7.6" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-cC52bHwM/n/CxS87FH0yWdngEZrjdtLW/qVruo68qg+prK7ZQ4YGdut2GyDVpoGeAYe/h899rVeOVm6Oi40k2A=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
+
+    "@fly/sprites": ["@fly/sprites@0.1.0", "", {}, "sha512-08jnuPEFmImqy3/iwL+jQJ6IwrHuZlmR3w9dRSSUiZ3N4uMSqWMi5FLyL1UKiL/vtcAb9Cayj8gHsEtckDDfkQ=="],
 
     "@formatjs/fast-memoize": ["@formatjs/fast-memoize@3.1.6", "", {}, "sha512-H5aexk1Le7T9TPmscacZ+1pR6CTa2n1wq+HDVGXhH8TzUlQQpeXzZs91dRtmFHrbeNbjPFPfQujUqm7MHgVoXQ=="],
 

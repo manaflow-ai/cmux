@@ -41,18 +41,26 @@ export default async function VaultCliAuthPage({
     ? await pendingCliAuthClientForUserCode(initialCode, new Date())
     : null;
   const subrouter = client === "subrouter";
+  const sprites = client === "cmux-sprites";
+  const eyebrowKey = sprites ? "spritesEyebrow" : subrouter ? "subrouterEyebrow" : "eyebrow";
+  const titleKey = sprites ? "spritesTitle" : subrouter ? "subrouterTitle" : "title";
+  const descriptionKey = sprites
+    ? "spritesDescription"
+    : subrouter
+    ? "subrouterDescription"
+    : "description";
 
   return (
     <div className="mx-auto w-full max-w-3xl px-3 py-4">
       <div className="border-b border-border pb-3">
         <p className="text-xs font-medium text-muted">
-          {t(subrouter ? "subrouterEyebrow" : "eyebrow")}
+          {t(eyebrowKey)}
         </p>
         <h1 className="mt-1 text-sm font-medium">
-          {t(subrouter ? "subrouterTitle" : "title")}
+          {t(titleKey)}
         </h1>
         <p className="mt-1 max-w-2xl text-muted">
-          {t(subrouter ? "subrouterDescription" : "description")}
+          {t(descriptionKey)}
         </p>
       </div>
       <ApproveForm initialCode={initialCode} />

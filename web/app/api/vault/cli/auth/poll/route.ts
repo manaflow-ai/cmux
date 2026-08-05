@@ -23,7 +23,7 @@ async function mintStackTokens(
   userId: string,
   client: CliAuthClient,
 ): Promise<CliAuthTokens | null> {
-  if (client !== "cmux-vault" && client !== "subrouter") return null;
+  if (client !== "cmux-vault" && client !== "subrouter" && client !== "cmux-sprites") return null;
   const user = await getStackServerApp().getUser(userId);
   if (!user) return null;
   // Stack sessions establish identity only. Every Subrouter route separately

@@ -92,6 +92,7 @@ export async function GET(request: Request): Promise<Response> {
         image: entry.image,
         imageVersion: entry.imageVersion,
         createdAt: entry.createdAt,
+        ...(entry.connectionUrl ? { connectionUrl: entry.connectionUrl } : {}),
       }));
       return jsonResponse({ vms });
     },
@@ -166,7 +167,12 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona") {
+          if (
+            candidate.provider !== "e2b" &&
+            candidate.provider !== "freestyle" &&
+            candidate.provider !== "daytona" &&
+            candidate.provider !== "sprites"
+          ) {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
@@ -358,9 +364,11 @@ export async function POST(request: Request): Promise<Response> {
         return jsonResponse({
           id: created.providerVmId,
           provider: created.provider,
+          status: created.status,
           image: created.image,
           imageVersion: created.imageVersion,
           createdAt: created.createdAt,
+          ...(created.connectionUrl ? { connectionUrl: created.connectionUrl } : {}),
         });
       }
     },

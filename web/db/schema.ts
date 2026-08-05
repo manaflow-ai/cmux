@@ -14,7 +14,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle", "daytona"]);
+export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle", "daytona", "sprites"]);
 
 export const vmStatus = pgEnum("vm_status", [
   "provisioning",
@@ -622,7 +622,7 @@ export const vaultCliAuthRequests = pgTable(
     index("vault_cli_auth_requests_user_code_idx").on(table.userCode),
     check(
       "vault_cli_auth_requests_client_check",
-      sql`${table.client} in ('cmux-vault', 'subrouter')`,
+      sql`${table.client} in ('cmux-vault', 'subrouter', 'cmux-sprites')`,
     ),
   ],
 );

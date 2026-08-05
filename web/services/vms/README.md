@@ -1,6 +1,6 @@
 # Cloud VMs service
 
-Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Freestyle and E2B prefer `cmuxd-remote` WebSocket PTY with short-lived leases; older Freestyle VMs can fall back to its SSH gateway.
+Backend for `cmux vm new/ls/rm/exec/attach`, `cmux-sprites`, and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Freestyle and E2B prefer `cmuxd-remote` WebSocket PTY with short-lived leases; Sprites use native cmux Noise enrollment through the dedicated CLI.
 
 ## Layout
 
@@ -9,7 +9,7 @@ services/vms/
   auth.ts             Stack Auth request verification helpers
   billingGateway.ts   Stack Auth VM create-credit reservations
   entitlements.ts     Team plan and active VM limit resolution
-  drivers/            Provider SDK adapters for E2B, Freestyle, and Daytona
+  drivers/            Provider SDK adapters for E2B, Freestyle, Daytona, and Sprites
   images/             Checked-in known-good provider image manifest
   errors.ts           Typed Effect errors for VM workflows
   config.ts           Runtime kill switches and deployment guards
@@ -191,14 +191,17 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_E2B_ENABLED`, per-provider E2B create kill switch.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
 - `CMUX_VM_DAYTONA_ENABLED`, per-provider Daytona create kill switch.
+- `CMUX_VM_SPRITES_ENABLED`, per-provider Sprites create kill switch.
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
 - `E2B_API_KEY`, E2B provider key.
 - `FREESTYLE_API_KEY`, Freestyle provider key.
 - `DAYTONA_API_KEY`, Daytona provider key.
+- `SPRITE_TOKEN`, server-only Fly Sprites provider token.
 - `E2B_CMUXD_WS_TEMPLATE`, E2B template alias/name for WebSocket PTY sandboxes.
 - `FREESTYLE_SANDBOX_SNAPSHOT`, Freestyle snapshot id.
 - `DAYTONA_SANDBOX_SNAPSHOT`, Daytona snapshot name for WebSocket PTY sandboxes.
-- `CMUX_VM_DEFAULT_PROVIDER`, `freestyle`, `e2b`, or `daytona`.
+- `CMUX_SPRITES_NPM_SPEC`, exact `cmux@x.y.z` package installed when public template forking is unavailable.
+- `CMUX_VM_DEFAULT_PROVIDER`, `freestyle`, `e2b`, `daytona`, or `sprites`.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID`, optional Stack Auth team item used as the free-plan create-credit bucket. Leave unset to skip free-plan create-credit accounting; set to `none`, `disabled`, `off`, or `false` to explicitly opt out.
 - `CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST`, optional free-plan per-create cost. Defaults to `1`.
 - `CMUX_VM_PLAN_FREE_INITIAL_CREATE_CREDITS`, optional first-use seed for the free-plan Stack Auth create-credit item. Defaults to `20`.
@@ -300,16 +303,21 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 
 ## Provider matrix
 
-| Verb                        | Freestyle | E2B | Daytona |
-|-----------------------------|-----------|-----|---------|
-| `cmux vm new`               | yes       | yes | yes |
-| `cmux vm new --workspace`   | yes       | yes | yes |
-| `cmux vm new --detach`      | yes       | yes | yes |
-| `cmux vm attach <id>`       | yes       | yes | yes |
-| `cmux vm ssh <id>`          | yes       | yes | yes |
-| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only | no (WebSocket only) |
-| `cmux vm exec <id> -- ...`  | yes       | yes | yes |
-| `cmux vm ls / rm`           | yes       | yes | yes |
+| Verb                        | Freestyle | E2B | Daytona | Sprites |
+|-----------------------------|-----------|-----|---------|---------|
+| `cmux vm new`               | yes       | yes | yes | yes |
+| `cmux vm new --workspace`   | yes       | yes | yes | use `cmux-sprites connect` |
+| `cmux vm new --detach`      | yes       | yes | yes | yes |
+| `cmux vm attach <id>`       | yes       | yes | yes | use `cmux-sprites connect` |
+| `cmux vm ssh <id>`          | yes       | yes | yes | no |
+| `cmux vm ssh-info <id>`     | legacy SSH info only | legacy SSH info only | no (WebSocket only) | no |
+| `cmux vm exec <id> -- ...`  | yes       | yes | yes | yes |
+| `cmux vm ls / rm`           | yes       | yes | yes | yes |
+
+`cmux-sprites` uses the same authenticated rows and workflows, but exposes the
+Sprites-specific create, list, exec, connect, and destroy UX. Its Stack device
+flow prints an eight-character code and does not start a localhost callback.
+The Fly token remains in the Next.js backend.
 
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH debugging.

@@ -147,6 +147,18 @@
       },
       "validationStatus": "passed",
       "notes": "Validated Daytona preview gate (healthz 401 without x-daytona-preview-token), WS PTY lease auth + single-use replay rejection, shell round trip, RPC hello + reusable lease, and RPC HTTP proxy to healthz. Region: shared us (runner in Corona, CA). binarySha256=d7d2a6b1ef9080ae0deadca3ced6fefbb4aeb88292d136b31bd0ea0784c01461 nodeMajor=22 agentTools=@anthropic-ai/claude-code@2.1.137,opencode-ai@1.14.41,@openai/codex@0.130.0,@earendil-works/pi-coding-agent@0.74.0"
+    },
+    {
+      "provider": "sprites",
+      "version": "sprites-bootstrap-20260805a",
+      "imageId": "cmux@0.9.11",
+      "envVar": "CMUX_SPRITES_NPM_SPEC",
+      "defaultForLocalDev": true,
+      "cmuxdRemoteCommit": "a2b3c10f119324c9dbfecc29881d30ff54404a84",
+      "builtAt": "2026-08-05T04:30:00.000Z",
+      "builderScriptVersion": "bootstrap-v1",
+      "validationStatus": "passed",
+      "notes": "Validated direct Noise-enrolled cmux TUI over a public Sprite WSS carrier. Public Sprite fork templates are not yet documented, so create bootstraps this exact npm package."
     }
   ]
 }

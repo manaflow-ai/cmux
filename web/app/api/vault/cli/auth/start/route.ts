@@ -49,7 +49,9 @@ export async function POST(request: Request): Promise<Response> {
       const requestedClient = body.value.client;
       const client = requestedClient === undefined
         ? "cmux-vault"
-        : requestedClient === "cmux-vault" || requestedClient === "subrouter"
+        : requestedClient === "cmux-vault" ||
+            requestedClient === "subrouter" ||
+            requestedClient === "cmux-sprites"
         ? requestedClient
         : null;
       if (!client) {

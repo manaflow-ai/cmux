@@ -40,6 +40,8 @@ export function providerImageEnvKey(provider: ProviderId): string {
       return "FREESTYLE_SANDBOX_SNAPSHOT";
     case "daytona":
       return "DAYTONA_SANDBOX_SNAPSHOT";
+    case "sprites":
+      return "CMUX_SPRITES_NPM_SPEC";
     default:
       return assertNever(provider);
   }
