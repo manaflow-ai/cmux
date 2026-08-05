@@ -18957,6 +18957,7 @@ mod tests {
     use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
 
+    use cmux_tui_core::resource::FrontendProjectionPublicId;
     use cmux_tui_core::{
         BrowserFrame, BrowserStatus, Direction, LayoutUndoError, Mux, MuxEvent, Node,
         PointerSnapshotProbe, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions, VirtualRect,
