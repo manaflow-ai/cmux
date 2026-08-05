@@ -12,8 +12,8 @@ struct WordPathFilesystemProbe: Sendable {
     index=0
     for candidate do
         if [ -e "$candidate" ]; then
-            printf '%s\\n' "$index"
-            exit 0
+            printf '%s\\0' "$index"
+            exec /bin/realpath "$candidate"
         fi
         index=$((index + 1))
     done
@@ -31,7 +31,7 @@ struct WordPathFilesystemProbe: Sendable {
         self.timeout = timeout
     }
 
-    func firstExistingPathIndex(in paths: [String]) async -> Int? {
+    func firstExistingPath(in paths: [String]) async -> (index: Int, resolvedPath: String)? {
         guard !paths.isEmpty, !Task.isCancelled else { return nil }
         let result = await commands.run(
             directory: "/",
@@ -43,12 +43,18 @@ struct WordPathFilesystemProbe: Sendable {
               result.executionError == nil,
               !result.timedOut,
               result.exitStatus == 0,
-              let firstLine = result.stdout?.split(whereSeparator: \.isNewline).first,
-              let index = Int(firstLine),
+              let output = result.stdout,
+              let separator = output.firstIndex(of: "\0"),
+              let index = Int(output[..<separator]),
               paths.indices.contains(index)
         else {
             return nil
         }
-        return index
+        var resolvedPath = String(output[output.index(after: separator)...])
+        if resolvedPath.last == "\n" {
+            resolvedPath.removeLast()
+        }
+        guard resolvedPath.hasPrefix("/") else { return nil }
+        return (index, resolvedPath)
     }
 }

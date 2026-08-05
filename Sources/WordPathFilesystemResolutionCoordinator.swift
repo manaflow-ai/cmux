@@ -3,21 +3,36 @@ import Foundation
 /// Bounds command-hover and command-click filesystem work process-wide.
 ///
 /// Mutable scheduling state is main-actor isolated. At most one asynchronous,
-/// deadline-bounded probe runs at a time, while the actor retains only the
-/// newest pending click and hover jobs. Clicks run first.
+/// deadline-bounded probe runs at a time. Discrete clicks use a bounded FIFO,
+/// hover movement collapses to the newest request, and hover starts are rate
+/// limited. Clicks run first.
 @MainActor
 final class WordPathFilesystemResolutionCoordinator {
     typealias Completion = @MainActor @Sendable () -> Void
     typealias Work = @Sendable () async -> Completion
     typealias Discarded = @MainActor @Sendable () -> Void
-    typealias Job = (id: UUID, work: Work, discarded: Discarded)
+    typealias Job = (
+        id: UUID,
+        isUserInitiated: Bool,
+        work: Work,
+        discarded: Discarded
+    )
 
     static let shared = WordPathFilesystemResolutionCoordinator()
 
+    private static let maximumPendingClicks = 32
+
+    private let minimumHoverInterval: DispatchTimeInterval
     private var runningID: UUID?
     private var runningTask: Task<Void, Never>?
-    private var pendingClick: Job?
+    private var pendingClicks: [Job] = []
     private var pendingHover: Job?
+    private var nextHoverStartDeadline = DispatchTime.now()
+    private var hoverStartTimer: DispatchSourceTimer?
+
+    init(minimumHoverInterval: DispatchTimeInterval = .milliseconds(100)) {
+        self.minimumHoverInterval = minimumHoverInterval
+    }
 
     func submit(
         id: UUID,
@@ -25,39 +40,46 @@ final class WordPathFilesystemResolutionCoordinator {
         work: @escaping Work,
         discarded: @escaping Discarded
     ) {
-        let job = Job(id: id, work: work, discarded: discarded)
-        guard runningID != nil else {
-            start(job)
-            return
-        }
+        let job = Job(
+            id: id,
+            isUserInitiated: isUserInitiated,
+            work: work,
+            discarded: discarded
+        )
 
         if isUserInitiated {
-            pendingClick?.discarded()
-            pendingClick = job
+            if pendingClicks.count == Self.maximumPendingClicks {
+                pendingClicks.removeFirst().discarded()
+            }
+            pendingClicks.append(job)
         } else {
             pendingHover?.discarded()
             pendingHover = job
         }
+        startNextIfPossible()
     }
 
     func cancelPending(id: UUID) {
         if runningID == id {
             runningTask?.cancel()
         }
-        if pendingClick?.id == id {
-            let discarded = pendingClick?.discarded
-            pendingClick = nil
-            discarded?()
+        if let index = pendingClicks.firstIndex(where: { $0.id == id }) {
+            pendingClicks.remove(at: index).discarded()
         }
         if pendingHover?.id == id {
             let discarded = pendingHover?.discarded
             pendingHover = nil
             discarded?()
         }
+        startNextIfPossible()
     }
 
     private func start(_ job: Job) {
+        cancelScheduledHoverStart()
         runningID = job.id
+        if !job.isUserInitiated {
+            nextHoverStartDeadline = .now() + minimumHoverInterval
+        }
         let id = job.id
         let work = job.work
         runningTask = Task.detached(priority: .utility) { [weak self, id, work] in
@@ -73,13 +95,53 @@ final class WordPathFilesystemResolutionCoordinator {
         guard runningID == id else { return }
         runningID = nil
         runningTask = nil
+        startNextIfPossible()
+    }
 
-        if let next = pendingClick {
-            pendingClick = nil
+    private func startNextIfPossible() {
+        guard runningID == nil else { return }
+        if !pendingClicks.isEmpty {
+            let next = pendingClicks.removeFirst()
             start(next)
-        } else if let next = pendingHover {
-            pendingHover = nil
-            start(next)
+            return
         }
+
+        guard let next = pendingHover else {
+            cancelScheduledHoverStart()
+            return
+        }
+        let now = DispatchTime.now()
+        guard now >= nextHoverStartDeadline else {
+            scheduleHoverStart(at: nextHoverStartDeadline)
+            return
+        }
+        pendingHover = nil
+        start(next)
+    }
+
+    private func scheduleHoverStart(at deadline: DispatchTime) {
+        if let hoverStartTimer {
+            hoverStartTimer.schedule(deadline: deadline)
+            return
+        }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: deadline)
+        timer.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                self?.hoverStartTimerDidFire()
+            }
+        }
+        hoverStartTimer = timer
+        timer.resume()
+    }
+
+    private func hoverStartTimerDidFire() {
+        cancelScheduledHoverStart()
+        startNextIfPossible()
+    }
+
+    private func cancelScheduledHoverStart() {
+        hoverStartTimer?.cancel()
+        hoverStartTimer = nil
     }
 }

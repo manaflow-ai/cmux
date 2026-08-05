@@ -6707,12 +6707,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var seenPaths: Set<String> = []
         candidates = candidates.filter { seenPaths.insert($0.path).inserted }
         guard !isCancelled(), !Task.isCancelled,
-              let index = await WordPathFilesystemProbe()
-                  .firstExistingPathIndex(in: candidates.map(\.path)),
+              let probeResult = await WordPathFilesystemProbe()
+                  .firstExistingPath(in: candidates.map(\.path)),
               !isCancelled(), !Task.isCancelled else {
             return nil
         }
-        return candidates[index]
+        let candidate = candidates[probeResult.index]
+        return WordPathResolution(
+            path: probeResult.resolvedPath,
+            source: candidate.source,
+            rawToken: candidate.rawToken
+        )
     }
 
     private func wordPathQuicklookSnapshot(surface: ghostty_surface_t) -> WordPathQuicklookSnapshot? {

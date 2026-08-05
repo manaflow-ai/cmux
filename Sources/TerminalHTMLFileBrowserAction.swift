@@ -11,15 +11,21 @@ struct TerminalHTMLFileBrowserAction {
         self.defaults = defaults
     }
 
-    func browserURL(for fileURL: URL) -> URL? {
+    func browserURL(
+        for fileURL: URL,
+        isAlreadyResolved: Bool = false
+    ) -> URL? {
         let pathExtension = fileURL.pathExtension.lowercased()
         guard fileURL.isFileURL,
               pathExtension == "html" || pathExtension == "htm",
-              BrowserAvailabilitySettings.isEnabled(defaults: defaults) else {
+              BrowserAvailabilitySettings.isEnabled(defaults: defaults)
+        else {
             return nil
         }
-        return BrowserLocalFileReadAccessPolicy.fileOnly
-            .resolvedNavigationURL(for: fileURL)
+        if isAlreadyResolved {
+            return fileURL.standardizedFileURL
+        }
+        return BrowserLocalFileReadAccessPolicy.fileOnly.resolvedNavigationURL(for: fileURL)
     }
 
     @discardableResult
@@ -30,7 +36,7 @@ struct TerminalHTMLFileBrowserAction {
     ) -> Bool {
         guard let browserURL = browserURL(for: fileURL) else { return false }
         return container.openOrFocusTerminalBrowserFileLink(
-            url: browserURL,
+            resolvedURL: browserURL,
             sourcePanelId: sourcePanelId
         )
     }

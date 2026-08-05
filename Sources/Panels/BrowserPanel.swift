@@ -2724,6 +2724,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var workspaceId: UUID
 
     let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
+    private(set) var terminalFileReuseIdentity: BrowserLocalFileIdentity?
+    private(set) var terminalFileReuseURL: URL?
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
 
@@ -6050,13 +6052,20 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func reloadTerminalFileForReuse(_ fileURL: URL) -> Bool {
+    func reloadTerminalFileForReuse(
+        _ fileURL: URL,
+        identity: BrowserLocalFileIdentity
+    ) -> Bool {
         guard localFileReadAccessPolicy == .fileOnly else { return false }
-        return navigateWithoutInsecureHTTPPrompt(
+        guard navigateWithoutInsecureHTTPPrompt(
             to: fileURL,
             recordTypedNavigation: false,
             cachePolicy: .reloadIgnoringLocalCacheData
-        ) != nil
+        ) != nil else {
+            return false
+        }
+        rememberTerminalFileForReuse(fileURL, identity: identity)
+        return true
     }
 
     @discardableResult
@@ -6820,6 +6829,30 @@ extension BrowserPanel {
         return restorableDisplayURLForCurrentErrorPage(liveURL: webView.url)
             ?? webView.url
             ?? currentURL
+    }
+
+    func canReuseTerminalFile(
+        _ fileURL: URL,
+        identity: BrowserLocalFileIdentity
+    ) -> Bool {
+        guard localFileReadAccessPolicy == .fileOnly,
+              bypassesRemoteWorkspaceProxyForTabDuplication,
+              terminalFileReuseIdentity == identity,
+              let rememberedPath = terminalFileReuseURL?.standardizedFileURL.path,
+              rememberedPath == fileURL.standardizedFileURL.path,
+              let effectivePath = effectiveURLForTerminalFileReuse?
+                  .standardizedFileURL.path else {
+            return false
+        }
+        return effectivePath == rememberedPath
+    }
+
+    func rememberTerminalFileForReuse(
+        _ fileURL: URL,
+        identity: BrowserLocalFileIdentity
+    ) {
+        terminalFileReuseURL = fileURL.standardizedFileURL
+        terminalFileReuseIdentity = identity
     }
 
     var bypassesRemoteWorkspaceProxyForTabDuplication: Bool {

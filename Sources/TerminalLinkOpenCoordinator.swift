@@ -119,7 +119,8 @@ struct TerminalLinkOpenCoordinator {
             fileURL,
             request: request,
             container: container,
-            unavailableReason: "resolved file container unavailable"
+            unavailableReason: "resolved file container unavailable",
+            fileURLIsResolved: true
         )
     }
 
@@ -127,7 +128,8 @@ struct TerminalLinkOpenCoordinator {
         _ fileURL: URL,
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?,
-        unavailableReason: String
+        unavailableReason: String,
+        fileURLIsResolved: Bool = false
     ) -> Bool {
         guard let sourcePanelId = request.sourcePanelId,
               let container,
@@ -135,8 +137,10 @@ struct TerminalLinkOpenCoordinator {
             return openExternally(fileURL, reason: unavailableReason)
         }
 
-        if let browserURL = TerminalHTMLFileBrowserAction(defaults: defaults)
-            .browserURL(for: fileURL) {
+        if let browserURL = TerminalHTMLFileBrowserAction(defaults: defaults).browserURL(
+            for: fileURL,
+            isAlreadyResolved: fileURLIsResolved
+        ) {
             return deferHTMLFileOpen(
                 fileURL,
                 browserURL: browserURL,
@@ -189,10 +193,9 @@ struct TerminalLinkOpenCoordinator {
                 return
             }
 
-            if TerminalHTMLFileBrowserAction(defaults: self.defaults).open(
-                fileURL: fileURL,
-                sourcePanelId: sourcePanelId,
-                container: currentContainer
+            if currentContainer.openOrFocusTerminalBrowserFileLink(
+                resolvedURL: browserURL,
+                sourcePanelId: sourcePanelId
             ) {
                 return
             }

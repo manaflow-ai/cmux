@@ -60,35 +60,38 @@ extension Workspace: TerminalLinkOpenContainer {
         ) != nil
     }
 
-    func openOrFocusTerminalBrowserFileLink(url: URL, sourcePanelId: UUID) -> Bool {
-        let canonicalURL = BrowserLocalFileReadAccessPolicy.fileOnly
-            .resolvedNavigationURL(for: url)
-        guard let targetIdentity = BrowserLocalFileIdentity(url: canonicalURL) else { return false }
+    func openOrFocusTerminalBrowserFileLink(resolvedURL: URL, sourcePanelId: UUID) -> Bool {
+        guard let targetIdentity = BrowserLocalFileIdentity(resolvedURL: resolvedURL) else { return false }
         if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
-            $0.localFileReadAccessPolicy == .fileOnly
-                && $0.bypassesRemoteWorkspaceProxyForTabDuplication
-                && $0.effectiveURLForTerminalFileReuse
-                    .flatMap { BrowserLocalFileIdentity(url: $0) } == targetIdentity
-        }), existing.reloadTerminalFileForReuse(canonicalURL) {
+            $0.canReuseTerminalFile(resolvedURL, identity: targetIdentity)
+        }), existing.reloadTerminalFileForReuse(resolvedURL, identity: targetIdentity) {
             focusPanel(existing.id)
             return true
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
-            return newBrowserSurface(
+            guard let browser = newBrowserSurface(
                 inPane: targetPane,
-                url: canonicalURL,
+                url: resolvedURL,
                 focus: true,
                 bypassRemoteProxy: true,
                 localFileReadAccessPolicy: .fileOnly
-            ) != nil
+            ) else {
+                return false
+            }
+            browser.rememberTerminalFileForReuse(resolvedURL, identity: targetIdentity)
+            return true
         }
-        return newBrowserSplit(
+        guard let browser = newBrowserSplit(
             from: sourcePanelId,
             orientation: .horizontal,
-            url: canonicalURL,
+            url: resolvedURL,
             bypassRemoteProxy: true,
             localFileReadAccessPolicy: .fileOnly
-        ) != nil
+        ) else {
+            return false
+        }
+        browser.rememberTerminalFileForReuse(resolvedURL, identity: targetIdentity)
+        return true
     }
 }

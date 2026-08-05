@@ -91,16 +91,11 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         ) != nil
     }
 
-    func openOrFocusTerminalBrowserFileLink(url: URL, sourcePanelId: UUID) -> Bool {
-        let canonicalURL = BrowserLocalFileReadAccessPolicy.fileOnly
-            .resolvedNavigationURL(for: url)
-        guard let targetIdentity = BrowserLocalFileIdentity(url: canonicalURL) else { return false }
+    func openOrFocusTerminalBrowserFileLink(resolvedURL: URL, sourcePanelId: UUID) -> Bool {
+        guard let targetIdentity = BrowserLocalFileIdentity(resolvedURL: resolvedURL) else { return false }
         if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
-            $0.localFileReadAccessPolicy == .fileOnly
-                && $0.bypassesRemoteWorkspaceProxyForTabDuplication
-                && $0.effectiveURLForTerminalFileReuse
-                    .flatMap { BrowserLocalFileIdentity(url: $0) } == targetIdentity
-        }), existing.reloadTerminalFileForReuse(canonicalURL) {
+            $0.canReuseTerminalFile(resolvedURL, identity: targetIdentity)
+        }), existing.reloadTerminalFileForReuse(resolvedURL, identity: targetIdentity) {
             focusPanel(existing.id)
             return true
         }
@@ -110,24 +105,32 @@ extension DockSplitStore: TerminalLinkOpenContainer {
             from: sourcePane,
             in: bonsplitController
         ) {
-            return newSurface(
+            guard let browserID = newSurface(
                 kind: .browser,
                 inPane: targetPane,
-                url: canonicalURL,
+                url: resolvedURL,
                 focus: true,
                 bypassRemoteProxy: true,
                 localFileReadAccessPolicy: .fileOnly
-            ) != nil
+            ), let browser = panels[browserID] as? BrowserPanel else {
+                return false
+            }
+            browser.rememberTerminalFileForReuse(resolvedURL, identity: targetIdentity)
+            return true
         }
-        return newSplit(
+        guard let browserID = newSplit(
             kind: .browser,
             orientation: .horizontal,
             insertFirst: false,
             sourcePanelId: sourcePanelId,
-            url: canonicalURL,
+            url: resolvedURL,
             bypassRemoteProxy: true,
             localFileReadAccessPolicy: .fileOnly,
             focus: true
-        ) != nil
+        ), let browser = panels[browserID] as? BrowserPanel else {
+            return false
+        }
+        browser.rememberTerminalFileForReuse(resolvedURL, identity: targetIdentity)
+        return true
     }
 }

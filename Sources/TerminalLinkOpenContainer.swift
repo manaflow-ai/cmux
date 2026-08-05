@@ -23,7 +23,7 @@ protocol TerminalLinkOpenContainer: AnyObject {
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool
 
     @discardableResult
-    func openOrFocusTerminalBrowserFileLink(url: URL, sourcePanelId: UUID) -> Bool
+    func openOrFocusTerminalBrowserFileLink(resolvedURL: URL, sourcePanelId: UUID) -> Bool
 }
 
 extension TerminalLinkOpenContainer {
