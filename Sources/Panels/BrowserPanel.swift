@@ -6808,8 +6808,10 @@ extension BrowserPanel {
             work: {
                 let result = await WordPathFilesystemProbe()
                     .firstExistingPath(in: [fileURL.path])
-                let resolvedFileURL = result.map {
-                    URL(fileURLWithPath: $0.resolvedPath)
+                let resolvedFileURL = result.flatMap {
+                    $0.isReadableRegularFile
+                        ? URL(fileURLWithPath: $0.resolvedPath)
+                        : nil
                 }
                 return { @MainActor in
                     finishResolution(resolvedFileURL)

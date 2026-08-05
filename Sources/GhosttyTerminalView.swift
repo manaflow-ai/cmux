@@ -6680,6 +6680,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 WordPathResolution(
                     path: candidate.path,
                     resolvedPath: candidate.path,
+                    isReadableRegularFile: false,
                     source: .snapshot,
                     rawToken: candidate.rawToken
                 )
@@ -6694,6 +6695,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 WordPathResolution(
                     path: path,
                     resolvedPath: path,
+                    isReadableRegularFile: false,
                     source: .quicklook,
                     rawToken: quicklookWord
                 )
@@ -6719,6 +6721,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return WordPathResolution(
             path: probeResult.candidatePath,
             resolvedPath: probeResult.resolvedPath,
+            isReadableRegularFile: probeResult.isReadableRegularFile,
             source: candidate.source,
             rawToken: candidate.rawToken
         )
@@ -7488,7 +7491,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // local filesystem. Route supported files through the same container
         // coordinator as structured Ghostty links so Workspace and Dock
         // terminals share browser behavior and deferred state validation.
-        if CommandClickFileOpenRouter.shouldRouteResolvedFileInCmux(path: resolution.path) {
+        if resolution.isReadableRegularFile,
+           CommandClickFileOpenRouter.shouldRouteResolvedFileInCmux(path: resolution.path) {
             let coordinator = TerminalLinkOpenCoordinator(
                 externalOpen: { url in
                     PreferredEditorService(defaults: .standard).open(url)

@@ -231,8 +231,10 @@ struct TerminalLinkOpenCoordinator {
                 work: {
                     let result = await WordPathFilesystemProbe()
                         .firstExistingPath(in: [fileURL.path])
-                    let currentResolvedFileURL = result.map {
-                        URL(fileURLWithPath: $0.resolvedPath)
+                    let currentResolvedFileURL = result.flatMap {
+                        $0.isReadableRegularFile
+                            ? URL(fileURLWithPath: $0.resolvedPath)
+                            : nil
                     }
                     return { @MainActor in
                         finishResolution(currentResolvedFileURL)

@@ -16,7 +16,7 @@ struct CommandClickHTMLOpenRoutingTests {
     @Test
     func filesystemProbeUsesDeadlineAndPreservesCandidateOrder() async throws {
         let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
-            stdout: "1\0/private/tmp/second.html\n",
+            stdout: "1\0readable-file\0/private/tmp/second.html\n",
             stderr: "",
             exitStatus: 0,
             timedOut: false,
@@ -32,6 +32,7 @@ struct CommandClickHTMLOpenRoutingTests {
         #expect(resolution?.index == 1)
         #expect(resolution?.candidatePath == "/tmp/second.html")
         #expect(resolution?.resolvedPath == "/private/tmp/second.html")
+        #expect(resolution?.isReadableRegularFile == true)
         let invocation = try #require(await runner.lastInvocation())
         #expect(invocation.directory == "/")
         #expect(invocation.executable == "/bin/sh")
@@ -56,7 +57,7 @@ struct CommandClickHTMLOpenRoutingTests {
     @Test
     func filesystemProbeKeepsClickedExtensionSeparateFromCanonicalTarget() async throws {
         let runner = RecordingWordPathProbeCommandRunner(result: CommandResult(
-            stdout: "0\0/private/tmp/generated-file\n",
+            stdout: "0\0readable-file\0/private/tmp/generated-file\n",
             stderr: "",
             exitStatus: 0,
             timedOut: false,
@@ -70,6 +71,7 @@ struct CommandClickHTMLOpenRoutingTests {
 
         #expect(resolution.candidatePath == "/tmp/preview.html")
         #expect(resolution.resolvedPath == "/private/tmp/generated-file")
+        #expect(resolution.isReadableRegularFile)
     }
 
     @Test
@@ -89,12 +91,14 @@ struct CommandClickHTMLOpenRoutingTests {
         )
         #expect(fileResolution.candidatePath == fileURL.path)
         #expect(fileResolution.resolvedPath == fileURL.resolvingSymlinksInPath().path)
+        #expect(fileResolution.isReadableRegularFile)
 
         let directoryResolution = try #require(
             await probe.firstExistingPath(in: [fixtureDirectory.path])
         )
         #expect(directoryResolution.candidatePath == fixtureDirectory.path)
         #expect(directoryResolution.resolvedPath == fixtureDirectory.resolvingSymlinksInPath().path)
+        #expect(!directoryResolution.isReadableRegularFile)
     }
 
     @Test
