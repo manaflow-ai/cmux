@@ -6249,6 +6249,160 @@ class TerminalController {
         return .success(outcome.0)
     }
 
+    /// Strict CSP prevents the ordinary `eval` wrapper and WebKit's async-function
+    /// API from compiling user source in the page world. Directly injected source
+    /// is allowed, but `evaluateJavaScript` cannot bridge a Promise result. For a
+    /// source expression, inject an async IIFE and deliver its settled value through
+    /// a random, one-shot page-world message handler instead.
+    private nonisolated func v2RunStrictCSPBrowserExpression(
+        _ webView: WKWebView,
+        script: String,
+        framePrelude: String,
+        timeout: TimeInterval,
+        fallbackMessage: String
+    ) -> (result: BrowserJavaScriptEvaluationResult, statementFallbackRequired: Bool) {
+        let handlerName = "cmuxBrowserEval_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let token = UUID().uuidString
+        let handlerNameLiteral = v2JSONLiteral(handlerName)
+        let tokenLiteral = v2JSONLiteral(token)
+        let expressionScript = """
+        {
+          \(framePrelude)
+          const __cmuxBridge = window.webkit &&
+            window.webkit.messageHandlers &&
+            window.webkit.messageHandlers[\(handlerNameLiteral)];
+          if (!__cmuxBridge || typeof __cmuxBridge.postMessage !== 'function') {
+            throw new Error('cmux browser eval result bridge is unavailable');
+          }
+
+          const __cmuxPost = (__payload) => {
+            __cmuxBridge.postMessage(Object.assign({ token: \(tokenLiteral) }, __payload));
+          };
+          const __cmuxErrorText = (__error) => {
+            try {
+              return String(__error);
+            } catch (_) {
+              return 'JavaScript evaluation failed';
+            }
+          };
+          const __cmuxPostFailure = (__error) => {
+            try {
+              __cmuxPost({ state: 'failure', message: __cmuxErrorText(__error) });
+            } catch (_) {}
+          };
+
+          void (async () => {
+            const document = __cmuxDoc;
+            const __value = await (\(script));
+            return {
+              __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
+              __cmux_v: (typeof __value === 'undefined') ? null : __value
+            };
+          })().then(
+            (__result) => {
+              try {
+                __cmuxPost({ state: 'success', result: __result });
+              } catch (__postError) {
+                __cmuxPostFailure(__postError);
+              }
+            },
+            (__error) => __cmuxPostFailure(__error)
+          );
+        }
+        """
+
+        let expectedWebViewIdentifier = ObjectIdentifier(webView)
+        let browserControl = v2BrowserControl
+        let outcome: (BrowserJavaScriptEvaluationResult, Bool)? = v2AwaitCallback(
+            timeout: max(0.01, timeout)
+        ) { finish in
+            v2MainSync {
+                let contentController = webView.configuration.userContentController
+                var didComplete = false
+                let complete: @MainActor ((BrowserJavaScriptEvaluationResult, Bool)) -> Void = { result in
+                    guard !didComplete else { return }
+                    didComplete = true
+                    contentController.removeScriptMessageHandler(forName: handlerName, contentWorld: .page)
+                    finish(result)
+                }
+                let handler = BrowserEvalResultMessageHandler(
+                    expectedWebViewIdentifier: expectedWebViewIdentifier
+                ) { body in
+                    guard let message = body as? [String: Any],
+                          message["token"] as? String == token,
+                          let state = message["state"] as? String else { return }
+                    switch state {
+                    case "success":
+                        complete((.success(message["result"]), false))
+                    case "failure":
+                        complete((.failure(message["message"] as? String ?? fallbackMessage), false))
+                    default:
+                        complete((.failure(fallbackMessage), false))
+                    }
+                }
+                contentController.addScriptMessageHandler(
+                    handler,
+                    contentWorld: .page,
+                    name: handlerName
+                )
+                webView.evaluateJavaScript(expressionScript, in: nil, in: .page) { result in
+                    if case .failure(let error) = result {
+                        let nsError = error as NSError
+                        guard nsError.code == WKError.Code.javaScriptExceptionOccurred.rawValue else {
+                            complete((.failure(browserControl.describeJavaScriptError(error)), false))
+                            return
+                        }
+                        // A source that is not a single expression fails while
+                        // parsing, before the async IIFE or any user code runs.
+                        // The caller can therefore retry it once as a direct
+                        // statement block without duplicating side effects.
+                        complete((.failure(fallbackMessage), true))
+                    }
+                }
+            }
+        }
+
+        // A timed-out page may never post back (for example, after navigating).
+        // Always remove the random handler so the content controller cannot retain
+        // one bridge per timed-out command for the lifetime of the web view.
+        v2MainSync {
+            webView.configuration.userContentController.removeScriptMessageHandler(
+                forName: handlerName,
+                contentWorld: .page
+            )
+        }
+        guard let outcome else { return (result: .timedOut, statementFallbackRequired: false) }
+        return (result: outcome.0, statementFallbackRequired: outcome.1)
+    }
+
+    /// A few JavaScript forms are valid both as expressions and statements but
+    /// have different completion values under `eval` (for example `{ answer: 1 }`
+    /// is a labelled block). Keep those forms on direct statement evaluation;
+    /// ordinary expressions use the async bridge above.
+    private nonisolated func v2StrictCSPSourceRequiresStatementSemantics(_ script: String) -> Bool {
+        let source = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return false }
+        if source.hasPrefix("{") { return true }
+
+        func startsWithKeyword(_ keyword: String, in value: Substring) -> Bool {
+            guard value.hasPrefix(keyword) else { return false }
+            let boundary = value.index(value.startIndex, offsetBy: keyword.count)
+            guard boundary < value.endIndex else { return true }
+            let character = value[boundary]
+            return character.isWhitespace || character == "*" || character == "{"
+        }
+
+        let sourceSlice = source[...]
+        if startsWithKeyword("function", in: sourceSlice) || startsWithKeyword("class", in: sourceSlice) {
+            return true
+        }
+        if startsWithKeyword("async", in: sourceSlice) {
+            let remainder = sourceSlice.dropFirst("async".count).drop(while: { $0.isWhitespace })
+            return startsWithKeyword("function", in: remainder)
+        }
+        return false
+    }
+
     private nonisolated func v2WaitForBrowserCondition(
         _ webView: WKWebView,
         browserPanel: BrowserPanel,
@@ -6533,10 +6687,10 @@ class TerminalController {
 
         // Page CSP without 'unsafe-eval' can block both callAsyncJavaScript's implicit function
         // construction and the explicit eval() used to preserve completion values. For eval-wrapped
-        // requests, retry the original source through evaluateJavaScript in the page world. WebKit
-        // injects that source directly, so CSP does not reject it and page-defined globals remain
-        // visible. Nested blocks let user declarations shadow the selected-frame helper bindings
-        // while preserving the source block's JavaScript completion value.
+        // requests, inject the original source in the page world, where CSP allows WebKit's direct
+        // evaluation and page-defined globals remain visible. Promise-valued expressions settle
+        // through a bounded one-shot message bridge because evaluateJavaScript itself cannot return
+        // a Promise. Sources that require statement completion fall back to a direct nested block.
         //
         // Gating on the CSP signature matters: a script can fail in the page world for ordinary
         // reasons (a thrown exception, a timeout) after performing a side effect, and an
@@ -6548,27 +6702,47 @@ class TerminalController {
         if case .failure(let pageMessage) = rawResult,
            v2BrowserFailureLooksLikeCSPEvalBlock(pageMessage) {
             if useEval {
-                let directEvaluationScript = """
-                {
-                  \(framePrelude)
-                  {
-                    const document = __cmuxDoc;
-                    {
-                      \(script)
-                    }
-                  }
-                }
-                """
-                let directResult = v2RunJavaScript(
-                    webView,
-                    script: directEvaluationScript,
-                    timeout: timeout,
-                    world: .page
+                let expressionOutcome: (
+                    result: BrowserJavaScriptEvaluationResult,
+                    statementFallbackRequired: Bool
                 )
-                if case .success = directResult {
-                    usedDirectPageEvaluation = true
+                if v2StrictCSPSourceRequiresStatementSemantics(script) {
+                    expressionOutcome = (result: .failure(pageMessage), statementFallbackRequired: true)
+                } else {
+                    expressionOutcome = v2RunStrictCSPBrowserExpression(
+                        webView,
+                        script: script,
+                        framePrelude: framePrelude,
+                        timeout: timeout,
+                        fallbackMessage: pageMessage
+                    )
                 }
-                rawResult = directResult
+
+                if expressionOutcome.statementFallbackRequired {
+                    let directEvaluationScript = """
+                    {
+                      \(framePrelude)
+                      {
+                        const document = __cmuxDoc;
+                        {
+                          \(script)
+                        }
+                      }
+                    }
+                    """
+                    let directResult = v2RunJavaScript(
+                        webView,
+                        script: directEvaluationScript,
+                        timeout: timeout,
+                        world: .page
+                    )
+                    if case .success = directResult {
+                        usedDirectPageEvaluation = true
+                    }
+                    rawResult = directResult
+                } else {
+                    rawResult = expressionOutcome.result
+                }
             } else if !requiresPageWorld, #available(macOS 11.0, *) {
                 let isolatedResult = v2RunJavaScript(
                     webView,

@@ -19,6 +19,10 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     private var appLogPath = ""
     private var launchTag = ""
     private var appProcess: Process?
+    private var appLogHandle: FileHandle?
+    /// Process-launch configuration for the socket-driven app. This helper does
+    /// not launch the `XCUIApplication`; a subclass must call `activate()` before
+    /// using it for UI queries against the independently launched process.
     private(set) var app: XCUIApplication?
 
     override func setUp() {
@@ -54,6 +58,9 @@ class BrowserFixtureSocketTestCase: XCTestCase {
 
     // MARK: - Launch
 
+    /// Launches the built app as a child process and waits for its control socket.
+    /// The returned `XCUIApplication` holds the launch configuration but is not
+    /// attached unless a UI-driven subclass explicitly calls `activate()`.
     @discardableResult
     func launchApp(additionalLaunchArguments: [String] = []) throws -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
@@ -132,13 +139,23 @@ class BrowserFixtureSocketTestCase: XCTestCase {
         let logHandle = try FileHandle(forWritingTo: URL(fileURLWithPath: appLogPath))
         process.standardOutput = logHandle
         process.standardError = logHandle
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            try? logHandle.close()
+            throw error
+        }
         appProcess = process
+        appLogHandle = logHandle
     }
 
     private func terminateLaunchedApp() {
+        defer {
+            appProcess = nil
+            try? appLogHandle?.close()
+            appLogHandle = nil
+        }
         guard let process = appProcess else { return }
-        defer { appProcess = nil }
         guard process.isRunning else { return }
 
         process.terminate()
@@ -148,6 +165,7 @@ class BrowserFixtureSocketTestCase: XCTestCase {
         }
         guard process.isRunning else { return }
         _ = kill(process.processIdentifier, SIGKILL)
+        process.waitUntilExit()
     }
 
     private func appProcessDiagnostics() -> String {
@@ -782,8 +800,7 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         )
         try server.start()
         defer { server.stop() }
-        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(server.port)/"))
-        let sid = try openFixture("csp-no-unsafe-eval", baseURL: baseURL)
+        let sid = try openFixture("csp-no-unsafe-eval", baseURL: server.baseURL)
 
         let evalResult = try socketResult(
             method: "browser.eval",

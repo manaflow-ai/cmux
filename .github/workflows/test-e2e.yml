@@ -385,15 +385,19 @@ jobs:
             case "$NORMALIZED_FILTER" in
               BrowserFixtureInteractionUITests|BrowserFixtureInteractionUITests/*|BrowserReliabilityRegressionUITests|BrowserReliabilityRegressionUITests/*)
                 BROWSER_FIXTURE_SERVER_LOG="$RUNNER_TEMP/cmux-browser-fixture-server.log"
+                BROWSER_FIXTURE_BASE_URL_FILE="$PWD/cmuxUITests/BrowserFixtures/.cmux-ui-test-base-url"
                 rm -f "$BROWSER_FIXTURE_SERVER_LOG"
+                rm -f "$BROWSER_FIXTURE_BASE_URL_FILE"
                 python3 -u scripts/ci/serve-browser-fixtures.py \
                   cmuxUITests/BrowserFixtures \
                   --strict-csp-fixture csp-no-unsafe-eval.html \
+                  --configuration-file "$BROWSER_FIXTURE_BASE_URL_FILE" \
                   >"$BROWSER_FIXTURE_SERVER_LOG" 2>&1 &
                 BROWSER_FIXTURE_SERVER_PID=$!
 
                 for _ in $(seq 1 100); do
-                  if grep -Eq '^READY [0-9]+$' "$BROWSER_FIXTURE_SERVER_LOG" 2>/dev/null; then
+                  if grep -Eq '^READY [0-9]+$' "$BROWSER_FIXTURE_SERVER_LOG" 2>/dev/null && \
+                     [ -s "$BROWSER_FIXTURE_BASE_URL_FILE" ]; then
                     break
                   fi
                   if ! kill -0 "$BROWSER_FIXTURE_SERVER_PID" 2>/dev/null; then
@@ -411,8 +415,6 @@ jobs:
                   exit 1
                 fi
                 BROWSER_FIXTURE_BASE_URL="http://127.0.0.1:$BROWSER_FIXTURE_PORT/"
-                BROWSER_FIXTURE_BASE_URL_FILE="$PWD/cmuxUITests/BrowserFixtures/.cmux-ui-test-base-url"
-                printf '%s\n' "$BROWSER_FIXTURE_BASE_URL" > "$BROWSER_FIXTURE_BASE_URL_FILE"
                 echo "Browser fixture server ready at $BROWSER_FIXTURE_BASE_URL (PID $BROWSER_FIXTURE_SERVER_PID)"
                 ;;
             esac

@@ -5,7 +5,12 @@ final class BrowserRecoveryHTTPServer {
     let port: UInt16
     let baseURL: URL
 
-    private let serverArguments: [String]
+    private struct ExternalFixtureConfiguration {
+        let baseURL: URL
+        let strictCSPFixture: String
+    }
+
+    private let pythonArguments: [String]
     private let managesProcess: Bool
     private let inputPipe = Pipe()
     private let outputPipe = Pipe()
@@ -15,40 +20,66 @@ final class BrowserRecoveryHTTPServer {
 
     convenience init() throws {
         let port = try Self.availablePort()
-        self.init(port: port, serverArguments: ["recovery"])
+        self.init(
+            port: port,
+            pythonArguments: ["-u", "-c", Self.recoveryServerScript, String(port)]
+        )
     }
 
     convenience init(fixtureDirectory: URL, strictCSPFixture: String) throws {
-        if let externalBaseURL = try Self.externalFixtureBaseURL(fixtureDirectory: fixtureDirectory) {
-            guard let externalPort = externalBaseURL.port else {
-                throw ServerError.invalidExternalFixtureBaseURL(externalBaseURL.absoluteString)
+        try Self.validateStrictCSPFixture(strictCSPFixture, in: fixtureDirectory)
+        if let externalConfiguration = try Self.externalFixtureConfiguration(
+            fixtureDirectory: fixtureDirectory
+        ) {
+            guard externalConfiguration.strictCSPFixture == strictCSPFixture else {
+                throw ServerError.externalStrictCSPFixtureMismatch(
+                    expected: strictCSPFixture,
+                    actual: externalConfiguration.strictCSPFixture
+                )
+            }
+            guard let externalPort = externalConfiguration.baseURL.port else {
+                throw ServerError.invalidExternalFixtureBaseURL(
+                    externalConfiguration.baseURL.absoluteString
+                )
             }
             self.init(
                 port: UInt16(externalPort),
-                baseURL: externalBaseURL,
-                serverArguments: [],
+                baseURL: externalConfiguration.baseURL,
+                pythonArguments: [],
                 managesProcess: false
             )
             return
         }
 
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let fixtureServerScript = repositoryRoot
+            .appendingPathComponent("scripts/ci/serve-browser-fixtures.py")
+        guard FileManager.default.isReadableFile(atPath: fixtureServerScript.path) else {
+            throw ServerError.fixtureServerScriptMissing(fixtureServerScript.path)
+        }
         let port = try Self.availablePort()
-        self.init(port: port, serverArguments: [
-            "fixtures",
+        self.init(port: port, pythonArguments: [
+            "-u",
+            fixtureServerScript.path,
             fixtureDirectory.path,
+            "--strict-csp-fixture",
             strictCSPFixture,
+            "--port",
+            String(port),
         ])
     }
 
     private init(
         port: UInt16,
         baseURL: URL? = nil,
-        serverArguments: [String],
+        pythonArguments: [String],
         managesProcess: Bool = true
     ) {
         self.port = port
         self.baseURL = baseURL ?? URL(string: "http://127.0.0.1:\(port)/")!
-        self.serverArguments = serverArguments
+        self.pythonArguments = pythonArguments
         self.managesProcess = managesProcess
     }
 
@@ -62,19 +93,15 @@ final class BrowserRecoveryHTTPServer {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [
-            "-u",
-            "-c",
-            Self.serverScript,
-            String(port),
-        ] + serverArguments
+        process.arguments = pythonArguments
         process.standardInput = inputPipe
         process.standardOutput = outputPipe
         process.standardError = Pipe()
         try process.run()
         self.process = process
 
-        guard try nextSignal(timeoutMilliseconds: 5_000) == "READY" else {
+        let readySignal = try nextSignal(timeoutMilliseconds: 5_000)
+        guard readySignal == "READY" || readySignal == "READY \(port)" else {
             throw ServerError.unexpectedSignal
         }
     }
@@ -157,22 +184,54 @@ final class BrowserRecoveryHTTPServer {
         return UInt16(bigEndian: resolvedAddress.sin_port)
     }
 
-    private static func externalFixtureBaseURL(fixtureDirectory: URL) throws -> URL? {
-        let key = "CMUX_UI_TEST_BROWSER_FIXTURE_BASE_URL"
-        if let rawValue = ProcessInfo.processInfo.environment[key], !rawValue.isEmpty {
-            return try validateExternalFixtureBaseURL(rawValue)
+    private static func validateStrictCSPFixture(_ fixtureName: String, in fixtureDirectory: URL) throws {
+        guard !fixtureName.isEmpty,
+              !fixtureName.contains("/"),
+              !fixtureName.contains("\\") else {
+            throw ServerError.invalidStrictCSPFixture(fixtureName)
+        }
+        let fixtureURL = fixtureDirectory.appendingPathComponent(fixtureName)
+        guard FileManager.default.isReadableFile(atPath: fixtureURL.path) else {
+            throw ServerError.strictCSPFixtureMissing(fixtureURL.path)
+        }
+    }
+
+    private static func externalFixtureConfiguration(
+        fixtureDirectory: URL
+    ) throws -> ExternalFixtureConfiguration? {
+        let environment = ProcessInfo.processInfo.environment
+        let baseURLKey = "CMUX_UI_TEST_BROWSER_FIXTURE_BASE_URL"
+        let strictFixtureKey = "CMUX_UI_TEST_BROWSER_STRICT_CSP_FIXTURE"
+        if let rawBaseURL = environment[baseURLKey], !rawBaseURL.isEmpty {
+            guard let strictFixture = environment[strictFixtureKey], !strictFixture.isEmpty else {
+                throw ServerError.invalidExternalFixtureConfiguration(
+                    "\(strictFixtureKey) is required when \(baseURLKey) is set"
+                )
+            }
+            return ExternalFixtureConfiguration(
+                baseURL: try validateExternalFixtureBaseURL(rawBaseURL),
+                strictCSPFixture: strictFixture
+            )
         }
 
         // xcodebuild does not pass arbitrary shell environment variables into
-        // its hosted XCTest process. CI writes the same URL beside the fixture
-        // files, which are already readable through their #filePath directory.
+        // its hosted XCTest process. The external server writes its authoritative
+        // URL and strict-CSP fixture beside the source fixtures instead.
         let markerURL = fixtureDirectory.appendingPathComponent(".cmux-ui-test-base-url")
         guard FileManager.default.fileExists(atPath: markerURL.path) else {
             return nil
         }
-        let rawValue = try String(contentsOf: markerURL, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return try validateExternalFixtureBaseURL(rawValue)
+        let data = try Data(contentsOf: markerURL)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawBaseURL = object["base_url"] as? String,
+              let strictFixture = object["strict_csp_fixture"] as? String,
+              !strictFixture.isEmpty else {
+            throw ServerError.invalidExternalFixtureConfiguration(markerURL.path)
+        }
+        return ExternalFixtureConfiguration(
+            baseURL: try validateExternalFixtureBaseURL(rawBaseURL),
+            strictCSPFixture: strictFixture
+        )
     }
 
     private static func validateExternalFixtureBaseURL(_ rawValue: String) throws -> URL {
@@ -180,7 +239,12 @@ final class BrowserRecoveryHTTPServer {
               url.scheme == "http",
               url.host == "127.0.0.1",
               let port = url.port,
-              (1...Int(UInt16.max)).contains(port) else {
+              (1...Int(UInt16.max)).contains(port),
+              url.user == nil,
+              url.password == nil,
+              url.query == nil,
+              url.fragment == nil,
+              url.path == "/" else {
             throw ServerError.invalidExternalFixtureBaseURL(rawValue)
         }
         return url
@@ -188,49 +252,33 @@ final class BrowserRecoveryHTTPServer {
 
     private enum ServerError: Error {
         case couldNotReservePort
+        case externalStrictCSPFixtureMismatch(expected: String, actual: String)
+        case fixtureServerScriptMissing(String)
         case invalidExternalFixtureBaseURL(String)
+        case invalidExternalFixtureConfiguration(String)
+        case invalidStrictCSPFixture(String)
         case signalStreamClosed
         case signalTimedOut
+        case strictCSPFixtureMissing(String)
         case unexpectedSignal
     }
 
-    private static let serverScript = #"""
+    private static let recoveryServerScript = #"""
 import sys
-from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import unquote, urlparse
 
 port = int(sys.argv[1])
-mode = sys.argv[2]
-fixture_root = Path(sys.argv[3]).resolve() if mode == 'fixtures' else None
-strict_csp_fixture = sys.argv[4] if mode == 'fixtures' else None
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if mode == 'recovery':
-            print('REQUEST', flush=True)
-            if sys.stdin.readline().strip() != 'RELEASE':
-                self.send_error(500)
-                return
-            body = b'<!doctype html><body data-cmux-recovered="true">recovered</body>'
-        else:
-            fixture_name = unquote(urlparse(self.path).path).lstrip('/')
-            if not fixture_name or '/' in fixture_name:
-                self.send_error(404)
-                return
-            fixture_path = (fixture_root / fixture_name).resolve()
-            if fixture_path.parent != fixture_root or not fixture_path.is_file():
-                self.send_error(404)
-                return
-            body = fixture_path.read_bytes()
+        print('REQUEST', flush=True)
+        if sys.stdin.readline().strip() != 'RELEASE':
+            self.send_error(500)
+            return
+        body = b'<!doctype html><body data-cmux-recovered="true">recovered</body>'
 
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
-        if mode == 'fixtures' and fixture_name == strict_csp_fixture:
-            self.send_header(
-                'Content-Security-Policy',
-                "default-src 'none'; script-src 'nonce-cmux-fixture'; object-src 'none'",
-            )
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)

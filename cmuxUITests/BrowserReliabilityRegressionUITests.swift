@@ -225,6 +225,79 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
             "page-defined globals cannot be read from an isolated content world"
         )
 
+        let promiseResult = try socketResult(
+            method: "browser.eval",
+            params: [
+                "surface_id": strictCSPSurfaceID,
+                "script": "new Promise((resolve) => setTimeout(() => resolve(42), 25))",
+            ],
+            responseTimeout: 15.0
+        )
+        XCTAssertEqual(
+            (promiseResult["value"] as? NSNumber)?.intValue,
+            42,
+            "browser.eval must await promise-valued expressions under strict CSP: \(promiseResult)"
+        )
+
+        let statementResult = try socketResult(
+            method: "browser.eval",
+            params: [
+                "surface_id": strictCSPSurfaceID,
+                "script": "{ const statementValue = 1; statementValue + 1; }",
+            ],
+            responseTimeout: 15.0
+        )
+        XCTAssertEqual(
+            (statementResult["value"] as? NSNumber)?.intValue,
+            2,
+            "strict-CSP recovery must preserve JavaScript statement completion values: \(statementResult)"
+        )
+
+        let undefinedResult = try socketResult(
+            method: "browser.eval",
+            params: ["surface_id": strictCSPSurfaceID, "script": "void 0"],
+            responseTimeout: 15.0
+        )
+        let undefinedEnvelope = try XCTUnwrap(
+            undefinedResult["value"] as? [String: Any],
+            "browser.eval must return the undefined envelope under strict CSP: \(undefinedResult)"
+        )
+        XCTAssertEqual(Set(undefinedEnvelope.keys), Set(["__cmux_t", "__cmux_v"]))
+        XCTAssertEqual(undefinedEnvelope["__cmux_t"] as? String, "undefined")
+        XCTAssertTrue(undefinedEnvelope["__cmux_v"] is NSNull)
+
+        let nullResult = try socketResult(
+            method: "browser.eval",
+            params: ["surface_id": strictCSPSurfaceID, "script": "null"],
+            responseTimeout: 15.0
+        )
+        XCTAssertTrue(
+            nullResult["value"] is NSNull,
+            "browser.eval must keep null distinct from undefined under strict CSP: \(nullResult)"
+        )
+
+        let rejectedPromiseEnvelope = try XCTUnwrap(
+            socketEnvelope(
+                method: "browser.eval",
+                params: [
+                    "surface_id": strictCSPSurfaceID,
+                    "script": "Promise.reject(new Error('strict-csp-expected-rejection'))",
+                ],
+                responseTimeout: 15.0
+            ),
+            "Expected a socket response for the rejected strict-CSP promise"
+        )
+        XCTAssertEqual(rejectedPromiseEnvelope["ok"] as? Bool, false)
+        let rejectedPromiseError = try XCTUnwrap(
+            rejectedPromiseEnvelope["error"] as? [String: Any],
+            "Expected js_error for rejected strict-CSP promise: \(rejectedPromiseEnvelope)"
+        )
+        XCTAssertEqual(rejectedPromiseError["code"] as? String, "js_error")
+        XCTAssertTrue(
+            (rejectedPromiseError["message"] as? String)?.contains("strict-csp-expected-rejection") == true,
+            "Rejected promise must surface its JavaScript error: \(rejectedPromiseEnvelope)"
+        )
+
         let noCSPSurfaceID = try openFixture("sticky-input", baseURL: server.baseURL)
         let noCSPArithmeticResult = try socketResult(
             method: "browser.eval",
@@ -254,6 +327,17 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
         XCTAssertNil(
             noCSPTitleResult["content_world"],
             "browser.eval must keep using the page world on pages without CSP"
+        )
+
+        let noCSPPromiseResult = try socketResult(
+            method: "browser.eval",
+            params: ["surface_id": noCSPSurfaceID, "script": "Promise.resolve(43)"],
+            responseTimeout: 15.0
+        )
+        XCTAssertEqual(
+            (noCSPPromiseResult["value"] as? NSNumber)?.intValue,
+            43,
+            "browser.eval promise behavior must remain unchanged on pages without CSP: \(noCSPPromiseResult)"
         )
     }
 
