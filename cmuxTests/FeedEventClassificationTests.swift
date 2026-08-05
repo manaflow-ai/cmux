@@ -22,7 +22,7 @@ struct FeedEventClassificationTests {
         -> (name: String, actionable: Bool)
     {
         let result = FeedEventClassifier.classify(source: source, event: event, toolName: tool)
-        return (result.0, result.1)
+        return (result.hookEventName, result.isActionable)
     }
 
     // MARK: Hermes Agent (the reported bug)
@@ -112,14 +112,28 @@ struct FeedEventClassificationTests {
     }
 
     /// Codex runs `PermissionRequest` hooks before its own approval reviewer,
-    /// so Feed must keep both pre-tool events and permission requests as
-    /// telemetry. Otherwise "Approve for me" gets bypassed by cmux's Feed UI.
+    /// so Feed must keep both pre-tool events and permission requests
+    /// non-actionable. The dedicated permission event still requests a
+    /// non-blocking user notification; ordinary pre-tool telemetry does not.
     @Test func codexPreToolUseIsTelemetry() {
         #expect(classify("codex", "PreToolUse", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
         #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PreToolUse")
         #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
+
+        let permission = FeedEventClassifier.classify(
+            source: "codex",
+            event: "PermissionRequest",
+            toolName: "shell"
+        )
+        let preTool = FeedEventClassifier.classify(
+            source: "codex",
+            event: "PreToolUse",
+            toolName: "shell"
+        )
+        #expect(permission.nonBlockingNotification == .needsPermission)
+        #expect(preTool.nonBlockingNotification == nil)
     }
 
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {

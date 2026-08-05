@@ -1,7 +1,7 @@
 import Foundation
 
-/// Classifies a raw agent hook event into our wire `hook_event_name` plus an
-/// `isActionable` flag.
+/// Classifies a raw agent hook event into its wire event, blocking behavior,
+/// and any non-blocking notification it should request.
 ///
 /// This is the single source of truth behind both the running `cmux` CLI
 /// (`cmux hooks feed …`) and the `FeedEventClassificationTests` regression
@@ -11,17 +11,37 @@ import Foundation
 ///
 /// The mapping is driven by an explicit, typed registry
 /// (``feedEventSemantic(source:event:)``) keyed on `(source, event)` rather
-/// than by pattern-matching raw event-name strings. Notification eligibility
-/// is derived only from the resolved ``FeedEventSemantic``, so a
+/// than by pattern-matching raw event-name strings. Blocking and notification
+/// eligibility are both derived from the resolved ``FeedEventSemantic``, so a
 /// tool-*starting* lifecycle event can never be mistaken for an approval
-/// request — and unknown / future event names default to non-actionable
-/// telemetry that never notifies. Conflating a tool-start with an approval
-/// is the bug behind https://github.com/manaflow-ai/cmux/issues/4985.
+/// request — while a Codex-owned approval can notify without taking over its
+/// decision. Unknown / future event names default to non-actionable telemetry
+/// that never notifies. Conflating a tool-start with an approval is the bug
+/// behind https://github.com/manaflow-ai/cmux/issues/4985.
 struct FeedEventClassifier {
-    /// Classifies a raw agent hook event into our wire `hook_event_name`
-    /// plus an `isActionable` flag that drives whether the Feed bridge
-    /// blocks waiting for a user decision (and whether `FeedCoordinator`
-    /// posts a "needs approval" notification).
+    enum NonBlockingNotification: Equatable {
+        case needsPermission
+    }
+
+    struct Classification: Equatable {
+        let hookEventName: String
+        let isActionable: Bool
+        let nonBlockingNotification: NonBlockingNotification?
+
+        init(
+            _ hookEventName: String,
+            isActionable: Bool = false,
+            nonBlockingNotification: NonBlockingNotification? = nil
+        ) {
+            self.hookEventName = hookEventName
+            self.isActionable = isActionable
+            self.nonBlockingNotification = nonBlockingNotification
+        }
+    }
+
+    /// Classifies a raw agent hook event into our wire `hook_event_name`,
+    /// whether the Feed bridge blocks for a decision, and whether the CLI
+    /// should request a notification without blocking.
     ///
     /// - Parameters:
     ///   - source: The agent id that emitted the event (`claude`, `codex`,
@@ -29,13 +49,12 @@ struct FeedEventClassifier {
     ///   - event: The agent's raw hook event name.
     ///   - toolName: The tool the event refers to, used only for the two
     ///     tool-dependent semantics.
-    /// - Returns: The wire `hook_event_name` and whether the event is
-    ///   Feed-actionable (blocks + may notify).
+    /// - Returns: The complete wire, blocking, and notification classification.
     static func classify(
         source: String,
         event: String,
         toolName: String
-    ) -> (String, Bool) {
+    ) -> Classification {
         let semantic = feedEventSemantic(source: source, event: event)
         return wireMapping(for: semantic, source: source, toolName: toolName)
     }
@@ -50,6 +69,10 @@ struct FeedEventClassifier {
         /// Resolved against the tool name so Claude's `ExitPlanMode` /
         /// `AskUserQuestion` approvals route to their dedicated kinds.
         case approvalRequest
+        /// A real permission wait whose decision remains agent-owned. Codex
+        /// emits this before its own approval reviewer, so cmux requests user
+        /// attention without blocking or answering the hook.
+        case permissionTelemetry
         /// A tool is about to run but no approval is pending. Telemetry
         /// only. Used by agents that expose a *separate* approval event
         /// (Claude, Codex, Hermes) so their pre-tool hook never escalates.
@@ -97,10 +120,10 @@ struct FeedEventClassifier {
     /// Tool names that carry their own dedicated approval wire event rather
     /// than the generic `PermissionRequest`. Returns the actionable wire
     /// mapping for such a tool, or `nil` for ordinary tools.
-    private static func dedicatedApprovalEvent(for toolName: String) -> (String, Bool)? {
+    private static func dedicatedApprovalEvent(for toolName: String) -> Classification? {
         switch toolName {
-        case "ExitPlanMode": return ("ExitPlanMode", true)
-        case "AskUserQuestion": return ("AskUserQuestion", true)
+        case "ExitPlanMode": return Classification("ExitPlanMode", isActionable: true)
+        case "AskUserQuestion": return Classification("AskUserQuestion", isActionable: true)
         default: return nil
         }
     }
@@ -112,10 +135,18 @@ struct FeedEventClassifier {
         for semantic: FeedEventSemantic,
         source: String,
         toolName: String
-    ) -> (String, Bool) {
+    ) -> Classification {
         switch semantic {
         case .approvalRequest:
-            return dedicatedApprovalEvent(for: toolName) ?? ("PermissionRequest", true)
+            return dedicatedApprovalEvent(for: toolName) ?? Classification(
+                "PermissionRequest",
+                isActionable: true
+            )
+        case .permissionTelemetry:
+            return Classification(
+                "PreToolUse",
+                nonBlockingNotification: .needsPermission
+            )
         case .toolStartMaybeApproval:
             if let dedicated = dedicatedApprovalEvent(for: toolName) {
                 return dedicated
@@ -125,34 +156,34 @@ struct FeedEventClassifier {
             // Feed sidebar. Read-only tools stay non-actionable
             // telemetry so we don't flood the Actionable view.
             if Self.isSideEffectingTool(toolName, source: source) {
-                return ("PermissionRequest", true)
+                return Classification("PermissionRequest", isActionable: true)
             }
-            return ("PreToolUse", false)
+            return Classification("PreToolUse")
         case .toolStart:
-            return ("PreToolUse", false)
+            return Classification("PreToolUse")
         case .toolEnd:
-            return ("PostToolUse", false)
+            return Classification("PostToolUse")
         case .preCompact:
-            return ("PreCompact", false)
+            return Classification("PreCompact")
         case .postCompact:
-            return ("PostCompact", false)
+            return Classification("PostCompact")
         case .promptSubmit:
-            return ("UserPromptSubmit", false)
+            return Classification("UserPromptSubmit")
         case .subagentStart:
-            return ("SubagentStart", false)
+            return Classification("SubagentStart")
         case .response:
-            return ("Stop", false)
+            return Classification("Stop")
         case .subagentResponse:
-            return ("SubagentStop", false)
+            return Classification("SubagentStop")
         case .sessionStart:
-            return ("SessionStart", false)
+            return Classification("SessionStart")
         case .sessionEnd:
-            return ("SessionEnd", false)
+            return Classification("SessionEnd")
         case .statusNotification:
-            return ("Notification", false)
+            return Classification("Notification")
         case .unknown:
             // Safe default: telemetry, no approval, no notification.
-            return ("PreToolUse", false)
+            return Classification("PreToolUse")
         }
     }
 
@@ -181,10 +212,11 @@ struct FeedEventClassifier {
         ],
         "codex": [
             // Codex runs PermissionRequest hooks before its own approval
-            // reviewer. Treat this as telemetry so "Approve for me" can still
-            // use Codex's auto-review path instead of blocking on cmux Feed.
-            "PermissionRequest": .toolStart,
-            "permission_request": .toolStart,
+            // reviewer. Keep the Feed event non-blocking so "Approve for me"
+            // still runs, but retain the permission semantic long enough to
+            // request a gated user notification.
+            "PermissionRequest": .permissionTelemetry,
+            "permission_request": .permissionTelemetry,
             "PreToolUse": .toolStart,
             "pre_tool_use": .toolStart,
             "beforeShellExecution": .toolStart,

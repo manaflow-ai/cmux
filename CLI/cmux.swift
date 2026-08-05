@@ -32657,13 +32657,16 @@ export default CMUXSessionRestore;
         print(def.name == "pi" ? piHookResolvedTargetOutput(strictPiTarget) : "{}")
     }
 
-    // MARK: - Feed telemetry helper
+    // MARK: - Best-effort hook socket delivery
 
-    /// Best-effort `feed.push` call used by the per-agent hook handlers
-    /// so session-start / prompt-submit / stop events show up in Feed's
-    /// "All" view even when no permission/plan/question event fires.
-    /// Failures are swallowed.
-    func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
+    /// Sends a fire-and-forget hook command on its own short-lived socket.
+    /// Used by telemetry and notification delivery paths where hook execution
+    /// must not wait for an app response. Failures are swallowed.
+    func sendBestEffortHookCommand(
+        socketPath: String,
+        command: String,
+        socketPassword: String?
+    ) {
         let oneWayClient = SocketClient(path: socketPath)
         defer { oneWayClient.close() }
         do {
@@ -32674,7 +32677,7 @@ export default CMUXSessionRestore;
                 socketPath: socketPath,
                 responseTimeout: 0.05
             )
-            try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
+            try oneWayClient.sendOneWay(command: command, writeTimeout: 0.05)
         } catch {
             return
         }
@@ -32751,7 +32754,11 @@ export default CMUXSessionRestore;
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
         else { return }
-        sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
+        sendBestEffortHookCommand(
+            socketPath: client.socketPath,
+            command: line,
+            socketPassword: socketPassword
+        )
     }
 
     private func feedContextForEvent(
@@ -34634,12 +34641,60 @@ export default CMUXSessionRestore;
 
     // MARK: - Feed (workstream) hook bridge
 
+    private func nonBlockingFeedNotificationCommand(
+        classification: FeedEventClassifier.Classification,
+        source: String,
+        toolName: String,
+        event: [String: Any],
+        env: [String: String]
+    ) -> String? {
+        guard let notification = classification.nonBlockingNotification,
+              let workspaceId = normalizedHookValue(event["workspace_id"] as? String),
+              let surfaceId = normalizedHookValue(env["CMUX_SURFACE_ID"])
+        else {
+            return nil
+        }
+
+        switch notification {
+        case .needsPermission:
+            let title = Self.agentDef(named: source)?.displayName ?? source.capitalized
+            let subtitle = String(
+                localized: "agent.generic.notification.subtitle.permission",
+                defaultValue: "Permission"
+            )
+            let body: String
+            if let normalizedToolName = normalizedHookValue(toolName) {
+                body = String.localizedStringWithFormat(
+                    String(
+                        localized: "feed.notification.permission.body",
+                        defaultValue: "%@ needs approval"
+                    ),
+                    normalizedToolName
+                )
+            } else {
+                body = String(
+                    localized: "agent.generic.notification.body.approvalNeeded",
+                    defaultValue: "Approval needed"
+                )
+            }
+            let payload = notificationPayload(
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
+            )
+            return "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
+        }
+    }
+
     /// Reads an agent hook JSON payload from stdin, forwards it to the
     /// running cmux app via the `feed.push` V2 socket verb, and (for
     /// actionable events: ExitPlanMode, AskUserQuestion, permission-
     /// requiring tools) blocks until the user resolves the item. The
     /// decision JSON is emitted on stdout in the agent's expected format
-    /// so the agent honors the user's choice.
+    /// so the agent honors the user's choice. Agent-owned permission waits
+    /// can additionally request a gated notification without becoming
+    /// Feed-actionable.
     ///
     /// Usage:
     ///   echo "<hook_json>" | cmux hooks feed --source <claude|codex|...>
@@ -34709,14 +34764,15 @@ export default CMUXSessionRestore;
             ?? toolCall.flatMap { firstString(in: $0, keys: ["name"]) }
             ?? ""
 
-        // Decide whether this event is Feed-actionable. Non-actionable
-        // events are forwarded as telemetry (non-blocking) and exit `{}`
-        // so the agent proceeds without a decision.
-        let (hookEventName, isActionable) = FeedEventClassifier.classify(
+        // Decide independently whether this event blocks for a Feed decision
+        // and whether a non-blocking agent-owned wait should notify.
+        let classification = FeedEventClassifier.classify(
             source: source,
             event: rawEvent,
             toolName: toolName
         )
+        let hookEventName = classification.hookEventName
+        let isActionable = classification.isActionable
         let env = ProcessInfo.processInfo.environment
         if Self.shouldSuppressKiroFeedEvent(
             source: source,
@@ -34839,18 +34895,38 @@ export default CMUXSessionRestore;
         if waitTimeout > 0 || shouldAwaitTelemetryIngestion {
             request["id"] = UUID().uuidString
         }
+        let notificationCommand = nonBlockingFeedNotificationCommand(
+            classification: classification,
+            source: source,
+            toolName: toolName,
+            event: eventDict,
+            env: env
+        )
 
         if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
+                if let notificationCommand {
+                    _ = try? client.sendOneWay(
+                        command: notificationCommand,
+                        writeTimeout: 0.05
+                    )
+                }
             } else if let socketPath {
-                sendBestEffortFeedTelemetry(
+                sendBestEffortHookCommand(
                     socketPath: socketPath,
-                    line: line,
+                    command: line,
                     socketPassword: socketPassword
                 )
+                if let notificationCommand {
+                    sendBestEffortHookCommand(
+                        socketPath: socketPath,
+                        command: notificationCommand,
+                        socketPassword: socketPassword
+                    )
+                }
             }
             print("{}")
             return
