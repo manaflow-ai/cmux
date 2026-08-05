@@ -22,19 +22,23 @@ application of a restored model remain pending.
 2. A state mutation appends its record in the same SQLite transaction as its
    materialized projection and idempotency receipt. Both commit or neither
    commits.
-3. Retrying one idempotency key returns the original result and does not append
+3. An accepted external effect gets exactly one durable outcome. A
+   state-changing success uses its state record; a receipt-only success,
+   definite failure, or indeterminate execution appends a non-replayable
+   `effect` record in the receipt transaction.
+4. Retrying one idempotency key returns the original result and does not append
    another record.
-4. Logical records cannot be updated or deleted. SQLite triggers protect both
+5. Logical records cannot be updated or deleted. SQLite triggers protect both
    active rows and sealed segments. Sealing moves a checkpoint-covered prefix
    into an immutable checksummed segment without changing its records.
-5. The commit path performs one journal insert. It does not start a process,
+6. The commit path performs one journal insert. It does not start a process,
    wait for a hook, render UI, or perform network I/O. Dispatchers tail only
    after commit.
-6. Sequence is commit order. `occurred_at_ms` describes producer time and is
+7. Sequence is commit order. `occurred_at_ms` describes producer time and is
    never used to reorder records.
-7. Every record names the stable public resources it concerns. Runtime slot
+8. Every record names the stable public resources it concerns. Runtime slot
    numbers and frontend-local positions are not durable identities.
-8. A record says whether restoration requires it. Observations and external
+9. A record says whether restoration requires it. Observations and external
    effects are never silently replayed as state mutations.
 
 “Everything” means every accepted semantic transition and effect outcome. It

@@ -189,6 +189,23 @@ pub(super) struct JournalAppend<'a> {
     pub(super) previous_resource_revision: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ResourceEffectJournalState {
+    Succeeded,
+    Failed,
+    Indeterminate,
+}
+
+impl ResourceEffectJournalState {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Indeterminate => "indeterminate",
+        }
+    }
+}
+
 pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let subject_index_existed = transaction.query_row(
         "SELECT EXISTS(
@@ -524,6 +541,93 @@ pub(super) fn append_resource_journal_record(
         changes,
         unix_epoch_ms()?,
     )
+}
+
+pub(super) fn append_resource_effect_journal_record(
+    transaction: &Transaction<'_>,
+    idempotency_key: &str,
+    operation: &str,
+    intent: &Value,
+    outcome: Option<&Value>,
+    state: ResourceEffectJournalState,
+) -> anyhow::Result<()> {
+    validate_identifier("journal operation", operation)?;
+    let session_id = transaction.query_row(
+        "SELECT value FROM meta WHERE key = 'session_public_id'",
+        [],
+        |row| row.get::<_, String>(0),
+    )?;
+    let creation = transaction
+        .query_row(
+            "SELECT correlation_key, attempt
+             FROM resource_creation_receipts
+             WHERE idempotency_key = ?1
+             ORDER BY correlation_key
+             LIMIT 1",
+            [idempotency_key],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?;
+    let correlation_id = creation
+        .as_ref()
+        .map(|(correlation_key, _)| correlation_key.as_str())
+        .unwrap_or(idempotency_key);
+    let attempt = creation
+        .as_ref()
+        .map(|(_, attempt)| u64::try_from(*attempt).context("effect attempt is negative"))
+        .transpose()?;
+
+    let mut subjects =
+        BTreeSet::from([JournalSubject { kind: "session".into(), id: session_id.clone() }]);
+    collect_subjects(intent, &mut subjects);
+    if let Some(outcome) = outcome {
+        collect_subjects(outcome, &mut subjects);
+    }
+    expand_topology_subjects(transaction, &mut subjects)?;
+    let subjects = subjects.into_iter().collect::<Vec<_>>();
+
+    let mut event_digest = Sha256::new();
+    event_digest.update(b"cmux.resource-effect.v1\0");
+    event_digest.update(session_id.as_bytes());
+    event_digest.update(b"\0");
+    event_digest.update(idempotency_key.as_bytes());
+    let event_id = format!("event_effect_{}", encode_bytes_hex(&event_digest.finalize()));
+    let state_name = state.as_str();
+    let kind = format!("{operation}.effect.{state_name}");
+    let producer = JournalProducer { kind: "resource_operation".into(), id: "resource-api".into() };
+    let payload = serde_json::json!({
+        "format":"cmux.resource-effect.v1",
+        "operation":operation,
+        "idempotency_key":idempotency_key,
+        "correlation_key":creation.as_ref().map(|(correlation_key, _)| correlation_key),
+        "attempt":attempt.map(|attempt| attempt.to_string()),
+        "state":state_name,
+        "intent":intent,
+        "outcome":outcome,
+    });
+    append_journal_record(
+        transaction,
+        &JournalAppend {
+            event_id: &event_id,
+            schema_version: JOURNAL_RECORD_SCHEMA_VERSION,
+            kind: &kind,
+            class: JournalClass::Effect,
+            replay: JournalReplayPolicy::Never,
+            occurred_at_ms: unix_epoch_ms()?,
+            producer: &producer,
+            authority: None,
+            causation_id: None,
+            correlation_id: Some(correlation_id),
+            causation_depth: 0,
+            subjects: &subjects,
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: &payload,
+            content: None,
+            resource_revision: None,
+            previous_resource_revision: None,
+        },
+    )?;
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

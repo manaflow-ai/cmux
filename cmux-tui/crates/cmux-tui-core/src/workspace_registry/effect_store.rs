@@ -177,6 +177,25 @@ pub(super) fn delete_legacy_sensitive_effect_receipts(
 }
 
 pub(super) fn recover_resource_effects(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let interrupted = {
+        let mut statement = transaction.prepare(
+            "SELECT idempotency_key, operation, intent_json
+             FROM resource_effect_receipts
+             WHERE state = 'executing'
+               AND NOT EXISTS (
+                 SELECT 1 FROM resource_creation_receipts creation
+                 WHERE creation.idempotency_key = resource_effect_receipts.idempotency_key
+                   AND creation.execution_kind = 'effect'
+                   AND creation.state = 'executing'
+               )
+             ORDER BY idempotency_key",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
     transaction.execute(
         "UPDATE resource_effect_receipts
          SET state = 'indeterminate'
@@ -189,6 +208,16 @@ pub(super) fn recover_resource_effects(transaction: &Transaction<'_>) -> anyhow:
            )",
         [],
     )?;
+    for (idempotency_key, operation, intent_json) in interrupted {
+        append_resource_effect_journal_record(
+            transaction,
+            &idempotency_key,
+            &operation,
+            &serde_json::from_str(&intent_json)?,
+            None,
+            ResourceEffectJournalState::Indeterminate,
+        )?;
+    }
     transaction.execute(
         "UPDATE resource_creation_receipts
          SET state = 'prepared', execution_generation = NULL
@@ -819,7 +848,7 @@ impl WorkspaceRegistry {
         let outcome_json = canonical_json(&outcome_value)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
-        let (stored_operation, stored_fingerprint, state, _) =
+        let (stored_operation, stored_fingerprint, state, intent_json) =
             read_effect_record(&tx, idempotency_key)?.ok_or_else(|| {
                 anyhow::anyhow!("resource effect intent {idempotency_key:?} is missing")
             })?;
@@ -858,6 +887,17 @@ impl WorkspaceRegistry {
             resource_store::prune_resource_mutations(&tx)?;
             revision
         } else {
+            append_resource_effect_journal_record(
+                &tx,
+                idempotency_key,
+                operation,
+                &serde_json::from_str(&intent_json)?,
+                Some(&outcome_value),
+                match outcome {
+                    ResourceEffectOutcome::Success(_) => ResourceEffectJournalState::Succeeded,
+                    ResourceEffectOutcome::Failure(_) => ResourceEffectJournalState::Failed,
+                },
+            )?;
             previous_revision
         };
         tx.execute(
@@ -1031,12 +1071,21 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<()> {
         validate_identifier("idempotency key", idempotency_key)?;
         let tx = self.connection.transaction()?;
-        tx.execute(
+        let Some((operation, _, state, intent_json)) = read_effect_record(&tx, idempotency_key)?
+        else {
+            anyhow::bail!("resource effect intent {idempotency_key:?} is missing");
+        };
+        if state != "executing" {
+            tx.commit()?;
+            return Ok(());
+        }
+        let changed = tx.execute(
             "UPDATE resource_effect_receipts
              SET state = 'indeterminate', outcome_json = NULL, committed_revision = NULL
              WHERE idempotency_key = ?1 AND state = 'executing'",
             [idempotency_key],
         )?;
+        anyhow::ensure!(changed == 1, "resource effect changed while marking indeterminate");
         tx.execute(
             "UPDATE resource_creation_receipts
              SET state = 'indeterminate', execution_generation = NULL,
@@ -1044,6 +1093,14 @@ impl WorkspaceRegistry {
              WHERE idempotency_key = ?1 AND execution_kind = 'effect'
                AND state = 'executing'",
             [idempotency_key],
+        )?;
+        append_resource_effect_journal_record(
+            &tx,
+            idempotency_key,
+            &operation,
+            &serde_json::from_str(&intent_json)?,
+            None,
+            ResourceEffectJournalState::Indeterminate,
         )?;
         tx.commit()?;
         Ok(())
@@ -1611,9 +1668,10 @@ mod tests {
         assert_eq!(record.correlation_id.as_deref(), Some("creation-correlation"));
         assert_eq!(record.payload["state"], "failed");
         assert_eq!(record.payload["attempt"], "1");
-        assert_eq!(record.payload["outcome"], serde_json::to_value(
-            ResourceEffectOutcome::Failure(failure)
-        ).unwrap());
+        assert_eq!(
+            record.payload["outcome"],
+            serde_json::to_value(ResourceEffectOutcome::Failure(failure)).unwrap()
+        );
         for (kind, id) in [
             ("workspace", "ws_11111111111111111111111111111111"),
             ("pane", "pane_22222222222222222222222222222222"),
