@@ -115,7 +115,6 @@ export interface TabSnapshot extends Snapshot<TabId> {
 }
 export type TerminalLifecycle = "launching" | "running" | "exited";
 export interface TerminalSnapshot extends Snapshot<TerminalId> {
-  readonly tabId: TabId | null;
   readonly tabIds: readonly TabId[];
   readonly title: string;
   readonly cwd?: string;

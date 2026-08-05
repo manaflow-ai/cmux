@@ -149,7 +149,6 @@ TerminalLifecycle = Literal["launching", "running", "exited"]
 
 @dataclass(frozen=True)
 class TerminalSnapshot(Snapshot[TerminalId]):
-    tab_id: Optional[TabId]
     tab_ids: Tuple[TabId, ...]
     title: str
     cols: int

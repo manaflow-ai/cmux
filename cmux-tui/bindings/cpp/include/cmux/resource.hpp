@@ -781,7 +781,6 @@ struct TerminalExit {
 
 struct TerminalSnapshot {
     TerminalId id;
-    std::optional<TabId> tab_id;
     std::vector<TabId> tab_ids;
     std::string title;
     std::optional<std::string> cwd;

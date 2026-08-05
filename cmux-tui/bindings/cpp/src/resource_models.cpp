@@ -961,7 +961,6 @@ TerminalSnapshot parse_terminal(const Json& value) {
         value,
         {
             "id",
-            "tab_id",
             "tab_ids",
             "title",
             "cwd",
@@ -974,7 +973,6 @@ TerminalSnapshot parse_terminal(const Json& value) {
         },
         {
             "id",
-            "tab_id",
             "tab_ids",
             "title",
             "cols",
@@ -1001,22 +999,15 @@ TerminalSnapshot parse_terminal(const Json& value) {
         exit.has_value() != (lifecycle == TerminalLifecycle::exited)) {
         fail("terminal running, lifecycle, and exit fields are inconsistent");
     }
-    auto tab_id = required_nullable_id_value<TabId>(
-        object, "tab_id", "terminal tab_id");
     auto tab_ids = array_value<TabId>(
         field(object, "tab_ids", "terminal"),
         "terminal tab_ids",
         [](const Json& item) {
             return id_value<TabId>(item, "terminal tab_id");
         });
-    if (tab_id.has_value() != !tab_ids.empty() ||
-        (tab_id.has_value() && tab_id.value() != tab_ids.front())) {
-        fail("terminal tab_id must be the first tab_ids item");
-    }
     return {
         id_value<TerminalId>(
             field(object, "id", "terminal"), "terminal id"),
-        std::move(tab_id),
         std::move(tab_ids),
         string_value(
             field(object, "title", "terminal"), "terminal title"),

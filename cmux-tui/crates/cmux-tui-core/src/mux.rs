@@ -13987,7 +13987,6 @@ fn terminal_exit_snapshot_in_state(
     let (cols, rows) = surface.map(|surface| surface.size()).unwrap_or((80, 24));
     let mut snapshot = serde_json::json!({
         "id": public_id,
-        "tab_id": tab_ids.first(),
         "tab_ids": tab_ids,
         "title": surface.map(|surface| surface.title()).unwrap_or_default(),
         "cols": cols.max(1),

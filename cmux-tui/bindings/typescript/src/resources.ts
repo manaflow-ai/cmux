@@ -568,10 +568,6 @@ function terminalSnapshot(value: unknown): TerminalSnapshot {
   const tabIds = Object.freeze(
     rawTabIds.map((item) => requiredId({ id: item }, ["id"], tabId)),
   );
-  const selectedTabId = requiredNullableId(payload, "tab_id", tabId);
-  if (selectedTabId !== (tabIds[0] ?? null)) {
-    throw new CmuxProtocolError("terminal tab_id must be the first tab_ids item");
-  }
   const running = requiredBoolean(payload, "running");
   const lifecycle = requiredEnum(
     payload,
@@ -596,11 +592,10 @@ function terminalSnapshot(value: unknown): TerminalSnapshot {
       payload,
       terminalId,
       [
-        "tab_id", "tab_ids", "title", "cwd", "cols", "rows", "running", "lifecycle",
+        "tab_ids", "title", "cwd", "cols", "rows", "running", "lifecycle",
         "exit",
       ],
     ),
-    tabId: selectedTabId,
     tabIds,
     title: requiredString(payload, "title"),
     ...optionalProperty("cwd", optionalString(payload, "cwd")),

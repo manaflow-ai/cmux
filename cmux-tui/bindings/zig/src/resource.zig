@@ -6529,7 +6529,6 @@ pub const TerminalLifecycle = union(enum) {
 
 pub const TerminalSnapshot = struct {
     id: TerminalId,
-    tab_id: ?TabId,
     tab_ids: []const TabId,
     title: []const u8,
     cwd: ?[]const u8,
@@ -8747,7 +8746,6 @@ fn decodeTerminalSnapshot(
         object,
         &.{
             "id",
-            "tab_id",
             "tab_ids",
             "title",
             "cwd",
@@ -8772,7 +8770,6 @@ fn decodeTerminalSnapshot(
     {
         return error.InvalidTerminalState;
     }
-    const tab_id = try requiredNullableId(TabId, object, "tab_id");
     const raw_tab_ids = switch (object.get("tab_ids") orelse
         return error.MissingField) {
         .array => |items| items.items,
@@ -8786,14 +8783,8 @@ fn decodeTerminalSnapshot(
             else => return error.ExpectedString,
         };
     }
-    if ((tab_id == null) != (tab_ids.len == 0) or
-        (tab_id != null and !std.meta.eql(tab_id.?, tab_ids[0])))
-    {
-        return error.InvalidTerminalPlacement;
-    }
     return .{
         .id = try parseRequiredId(TerminalId, object, "id"),
-        .tab_id = tab_id,
         .tab_ids = tab_ids,
         .title = try objectString(object, "title"),
         .cwd = try strictOptionalString(object, "cwd"),
@@ -17658,7 +17649,6 @@ test "terminal lifecycle and durable exit constraints are strict" {
     var running = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
             "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"shell\",\"cols\":120,\"rows\":40," ++
             "\"running\":true,\"lifecycle\":\"running\"," ++
@@ -17680,7 +17670,6 @@ test "terminal lifecycle and durable exit constraints are strict" {
     var missing_attached_views = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
             "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
             "\"running\":true,\"lifecycle\":\"running\"}",
         .{},
@@ -17694,26 +17683,27 @@ test "terminal lifecycle and durable exit constraints are strict" {
         ),
     );
 
-    var missing_detached_views = try raw.wire.parse(
+    var legacy_alias = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":null,\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"tab_id\":null,\"tab_ids\":[]," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
             "\"running\":true,\"lifecycle\":\"running\"}",
         .{},
     );
-    defer missing_detached_views.deinit();
+    defer legacy_alias.deinit();
     try std.testing.expectError(
-        error.MissingField,
+        error.UnexpectedField,
         decodeTerminalSnapshot(
             decoded_arena.allocator(),
-            missing_detached_views.value,
+            legacy_alias.value,
         ),
     );
 
     var exited = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":null,\"tab_ids\":[]," ++
+            "\"tab_ids\":[]," ++
             "\"title\":\"done\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"exited\",\"exit\":{" ++
             "\"outcome\":{\"kind\":\"exit\",\"code\":-7}," ++
@@ -17726,7 +17716,6 @@ test "terminal lifecycle and durable exit constraints are strict" {
         decoded_arena.allocator(),
         exited.value,
     );
-    try std.testing.expect(exited_snapshot.tab_id == null);
     try std.testing.expectEqual(@as(usize, 0), exited_snapshot.tab_ids.len);
     try std.testing.expectEqual(
         std.math.maxInt(u64),
@@ -17747,7 +17736,6 @@ test "terminal lifecycle and durable exit constraints are strict" {
     var future = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
             "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"future\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"suspended\"}",
@@ -17769,7 +17757,6 @@ test "terminal lifecycle and durable exit constraints are strict" {
     var inconsistent = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
             "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"bad\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"running\"}",

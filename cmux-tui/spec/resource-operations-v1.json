@@ -2041,17 +2041,6 @@
             "resource": "terminal"
           }
         },
-        "tab_id": {
-          "required": true,
-          "type": {
-            "kind": "nullable",
-            "value": {
-              "kind": "resource_id",
-              "resource": "tab"
-            }
-          },
-          "description": "Compatibility alias for the first view placement, or null when the terminal has no views."
-        },
         "tab_ids": {
           "required": true,
           "type": {
@@ -2127,7 +2116,6 @@
       },
       "extra": false,
       "constraints": [
-        "tab_id is the first item in tab_ids, or null when tab_ids is empty.",
         "running is true exactly when lifecycle is running.",
         "exit is present exactly when lifecycle is exited."
       ]

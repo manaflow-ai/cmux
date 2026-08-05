@@ -437,7 +437,6 @@ pub(crate) fn public_terminal_snapshot(
         .unwrap_or_else(|| (durable_size("cols", 80), durable_size("rows", 24)));
     let mut terminal = json!({
         "id": terminal_id,
-        "tab_id": tab_ids.first(),
         "tab_ids": tab_ids,
         "title": surface.map(crate::Surface::title).unwrap_or_default(),
         "cols": cols.max(1),

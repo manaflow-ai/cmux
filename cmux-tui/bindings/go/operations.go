@@ -770,7 +770,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		}
 	case *TerminalSnapshot:
 		required = []string{
-			"id", "tab_id", "tab_ids", "title", "cols", "rows", "running", "lifecycle",
+			"id", "tab_ids", "title", "cols", "rows", "running", "lifecycle",
 		}
 	case *BrowserSnapshot:
 		required = []string{
@@ -908,13 +908,6 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		if decoded.ID == "" || decoded.TabIDs == nil ||
 			decoded.Cols == 0 || decoded.Rows == 0 {
 			return fmt.Errorf("terminal snapshot ids and dimensions must be present")
-		}
-		if len(decoded.TabIDs) == 0 {
-			if decoded.TabID != nil {
-				return fmt.Errorf("terminal tab_id must be null when tab_ids is empty")
-			}
-		} else if decoded.TabID == nil || *decoded.TabID != decoded.TabIDs[0] {
-			return fmt.Errorf("terminal tab_id must be the first tab_ids item")
 		}
 		switch decoded.Lifecycle {
 		case TerminalLifecycleLaunching, TerminalLifecycleRunning,
