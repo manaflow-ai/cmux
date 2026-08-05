@@ -2556,6 +2556,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5659A0035659A0035659A003 /* WorkspaceSidebarObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */; };
 		4CC1722A934F4D8B99FC64C5 /* WorkspaceSidebarProcessTitleObservationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AF91981B8F4A2690981D2D /* WorkspaceSidebarProcessTitleObservationModel.swift */; };
 		A1F4B4A6F4F043FCB3288A3D /* WorkspaceSidebarProcessTitleObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D09524E94048DBB6773437 /* WorkspaceSidebarProcessTitleObservationTests.swift */; };
+		A96580011000000000009658 /* WorkspaceSidebarRenameUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A96580021000000000009658 /* WorkspaceSidebarRenameUITests.swift */; };
 		F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */; };
 		6B524A0CB34FD46A771335AB /* WorkspaceSplitStartupCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */; };
 		F6120000A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6120001A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift */; };
@@ -5149,6 +5150,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarObservationTests.swift; sourceTree = "<group>"; };
 		D7AF91981B8F4A2690981D2D /* WorkspaceSidebarProcessTitleObservationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarProcessTitleObservationModel.swift; sourceTree = "<group>"; };
 		14D09524E94048DBB6773437 /* WorkspaceSidebarProcessTitleObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarProcessTitleObservationTests.swift; sourceTree = "<group>"; };
+		A96580021000000000009658 /* WorkspaceSidebarRenameUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarRenameUITests.swift; sourceTree = "<group>"; };
 		F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarScrollUITests.swift; sourceTree = "<group>"; };
 		71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSplitStartupCommandTests.swift; sourceTree = "<group>"; };
 		F6120001A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSSHFishShellTests.swift; sourceTree = "<group>"; };
@@ -5415,6 +5417,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */,
 				B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */,
 				F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */,
+				A96580021000000000009658 /* WorkspaceSidebarRenameUITests.swift */,
 				C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */,
 				B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */,
 				E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */,
@@ -10306,6 +10309,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */,
 				C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
 				E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */,
+				A96580011000000000009658 /* WorkspaceSidebarRenameUITests.swift in Sources */,
 				F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */,
 				B95EC019F70D4F23BD3C8D1D /* WorkspaceWorkingDirectorySpawnUITests.swift in Sources */,
 				A78C42010000000000000001 /* XCUIApplication+CmuxTestApplication.swift in Sources */,
