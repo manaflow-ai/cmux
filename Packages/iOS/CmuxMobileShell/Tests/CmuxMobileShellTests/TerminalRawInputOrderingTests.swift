@@ -117,7 +117,7 @@ import Testing
         let outputStream = store.terminalOutputStream(
             surfaceID: RoutingHostRouter.terminalA
         )
-        _ = outputStream
+        defer { withExtendedLifetime(outputStream) {} }
 
         await store.submitTerminalRawInput(
             Data("a".utf8),
@@ -300,7 +300,7 @@ import Testing
         let outputStream = store.terminalOutputStream(
             surfaceID: RoutingHostRouter.terminalA
         )
-        _ = outputStream
+        defer { withExtendedLifetime(outputStream) {} }
 
         await store.submitTerminalRawInput(
             Data("a".utf8),

@@ -12,6 +12,12 @@ final class ControlPoolManualClock: Clock, @unchecked Sendable {
     var minimumResolution: Duration { .zero }
     var sleeperCount: Int { lock.withLock { sleepers.count } }
 
+    func sleeperCount(at deadline: Instant) -> Int {
+        lock.withLock {
+            sleepers.lazy.filter { $0.deadline == deadline }.count
+        }
+    }
+
     func sleep(until deadline: Instant, tolerance _: Duration?) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
@@ -49,25 +55,6 @@ final class ControlPoolManualClock: Clock, @unchecked Sendable {
         for sleeper in due {
             sleeper.continuation.resume()
         }
-    }
-
-    @discardableResult
-    func advanceToNextSleeper() -> Bool {
-        lock.lock()
-        guard let nextDeadline = sleepers.map(\.deadline).min() else {
-            lock.unlock()
-            return false
-        }
-        current = max(current, nextDeadline)
-        let due = sleepers
-            .filter { $0.deadline <= current }
-            .sorted { $0.deadline < $1.deadline }
-        sleepers.removeAll { $0.deadline <= current }
-        lock.unlock()
-        for sleeper in due {
-            sleeper.continuation.resume()
-        }
-        return true
     }
 
     private func cancelSleeper(id: UUID) {

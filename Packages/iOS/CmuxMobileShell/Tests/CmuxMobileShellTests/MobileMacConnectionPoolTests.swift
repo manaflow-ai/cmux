@@ -4106,6 +4106,12 @@ import Testing
                 try controlPoolWorkspaceUpdatedEventFrame()
             )
         }
+        let firstDeferredDeadline = clock.now.advanced(
+            by: .milliseconds(500)
+        )
+        let firstDeferredSleeperCount = clock.sleeperCount(
+            at: firstDeferredDeadline
+        )
         await router.releaseNextHeld()
 
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 3))
@@ -4130,13 +4136,14 @@ import Testing
         #expect(try await pollUntil {
             subscription.deferredRefreshTask != nil
         })
-        subscription.isTransitioningToFocus = true
         #expect(try await pollUntil {
-            guard subscription.deferredRefreshTask != nil else {
-                return true
-            }
-            _ = clock.advanceToNextSleeper()
-            return false
+            clock.sleeperCount(at: firstDeferredDeadline)
+                > firstDeferredSleeperCount
+        })
+        subscription.isTransitioningToFocus = true
+        clock.advance(by: .milliseconds(500))
+        #expect(try await pollUntil {
+            subscription.deferredRefreshTask == nil
         })
         #expect(await router.count(of: "workspace.list") == 3)
         #expect(subscription.refreshPending)
@@ -4144,6 +4151,12 @@ import Testing
             of: "notification.feed.list"
         )
 
+        let secondDeferredDeadline = clock.now.advanced(
+            by: .milliseconds(500)
+        )
+        let secondDeferredSleeperCount = clock.sleeperCount(
+            at: secondDeferredDeadline
+        )
         await shell.resumeSecondarySubscriptionAfterAbortedPromotion(
             subscription
         )
@@ -4155,12 +4168,10 @@ import Testing
             subscription.deferredRefreshTask != nil
         })
         #expect(try await pollUntil {
-            if await router.count(of: "workspace.list") >= 4 {
-                return true
-            }
-            _ = clock.advanceToNextSleeper()
-            return false
+            clock.sleeperCount(at: secondDeferredDeadline)
+                > secondDeferredSleeperCount
         })
+        clock.advance(by: .milliseconds(500))
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 4))
         #expect(try await pollUntil {
             shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "mmpool")]?.workspaces.first?.name
