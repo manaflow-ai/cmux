@@ -356,6 +356,14 @@ extension Workspace {
         }
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
+        // A manual-I/O terminal's process and durable state belong to an
+        // external broker. Serializing it as an ordinary terminal causes
+        // restore to spawn a local PTY with the same panel identity.
+        if let terminalPanel = panel as? TerminalPanel,
+           terminalPanel.surface.ioMode != .exec {
+            return nil
+        }
+
         let indexedRestorableAgent = restorableAgentObservation?.snapshot
         let compatibleIndexedRestorableAgent = indexedRestorableAgent.flatMap {
             Self.restorableAgentForSessionRestore(
@@ -5589,6 +5597,15 @@ final class Workspace: Identifiable, ObservableObject {
         }) {
             return false
         }
+        // External-only workspaces are reconstructed from their owner's
+        // journal. Keeping them in the Swift snapshot would create a local
+        // terminal before that reattachment can occur. Mixed workspaces stay
+        // restorable; sessionPanelSnapshot omits only their external panels.
+        let hasSwiftOwnedPanel = panels.values.contains { panel in
+            guard let terminalPanel = panel as? TerminalPanel else { return true }
+            return terminalPanel.surface.ioMode == .exec
+        }
+        guard hasSwiftOwnedPanel else { return false }
         guard let remoteConfiguration else { return true }
         return remoteConfiguration.sessionSnapshot() != nil
     }
