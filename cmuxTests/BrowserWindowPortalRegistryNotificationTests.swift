@@ -20,6 +20,24 @@ struct BrowserWindowPortalRegistryNotificationTests {
         }
     }
 
+    private final class LayoutCallbackView: NSView {
+        var onLayout: (() -> Void)?
+
+        override func layout() {
+            super.layout()
+            onLayout?()
+        }
+    }
+
+    private final class CountingLayoutView: NSView {
+        var layoutPassCount = 0
+
+        override func layout() {
+            layoutPassCount += 1
+            super.layout()
+        }
+    }
+
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -168,6 +186,55 @@ struct BrowserWindowPortalRegistryNotificationTests {
         #expect(
             contentView.layoutPassCount == layoutCountBeforeNoOpBurst + 1,
             "A real browser portal visibility change should still wake Workspace layout follow-up"
+        )
+    }
+
+    @Test func anchorSyncInsideLayoutDefersHostedSubtreeLayout() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let contentView = try #require(window.contentView)
+
+        let anchor = LayoutCallbackView(frame: NSRect(x: 24, y: 24, width: 360, height: 220))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        defer { BrowserWindowPortalRegistry.detach(webView: webView) }
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        let slot = try #require(
+            webView.cmuxBrowserViewportAttachmentSuperview as? WindowBrowserSlotView
+        )
+        let layoutProbe = CountingLayoutView(frame: slot.bounds)
+        slot.addSubview(layoutProbe)
+        layoutProbe.layoutPassCount = 0
+        layoutProbe.needsLayout = true
+
+        var layoutPassesDuringAnchorLayout = -1
+        anchor.onLayout = {
+            BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+            layoutPassesDuringAnchorLayout = layoutProbe.layoutPassCount
+        }
+        anchor.needsLayout = true
+        contentView.layoutSubtreeIfNeeded()
+        anchor.onLayout = nil
+
+        #expect(
+            layoutPassesDuringAnchorLayout == 0,
+            "A browser portal sync from an anchor layout callback must not synchronously lay out the hosted subtree while SwiftUI/AppKit still owns the surrounding layout pass"
+        )
+
+        advanceAnimations()
+        #expect(
+            layoutProbe.layoutPassCount > 0,
+            "The coalesced browser portal follow-up must still lay out the hosted subtree after the surrounding layout pass unwinds"
         )
     }
 
