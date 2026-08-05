@@ -1,41 +1,55 @@
-import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShellUI
 
+/// Startup admission contract for an explicitly injected attach URL.
+///
+/// The original version of this suite was written against a
+/// `connectInjectedAttach(_:attachURL:_:)` coordinator API that was reworked
+/// before it merged, so the file has not compiled since it landed — and a
+/// compile-broken test target blocks every `cmux.xctestplan` run (the plan
+/// builds all of its targets even under `-only-testing`). These tests assert
+/// the same admission contract against the coordinator API that shipped; the
+/// URL-connect side effects live in `CMUXMobileRootView`, which claims and
+/// finishes attempts through exactly these entry points.
 @Suite
 struct MobileInjectedAttachStartupTests {
     @Test
     @MainActor
-    func beginsRouteAdmissionWithoutAnExternalTransportReadinessBarrier() async throws {
+    func connectedInjectedAttachConsumesStartupWithoutFallback() throws {
         let coordinator = MobileStartupConnectionCoordinator()
         let attempt = try #require(coordinator.claimInjectedAttach())
-        let recorder = MobileInjectedAttachURLRecorder()
-        let attachURL = "cmux-ios://attach?v=2&payload=iroh-route"
 
-        let completion = await coordinator.connectInjectedAttach(
-            attempt,
-            attachURL: attachURL
-        ) { rawURL in
-            await recorder.record(rawURL)
-            return MobilePairingURLConnectionResult.connected
-        }
+        let shouldFallBack = coordinator.finishInjectedAttach(attempt, outcome: .connected)
 
-        let completedAttempt = try #require(completion)
-        #expect(await recorder.values() == [attachURL])
-        #expect(completedAttempt.result == .connected)
-        #expect(!completedAttempt.shouldReconnectStoredMac)
+        #expect(!shouldFallBack)
+        #expect(!coordinator.shouldFallBackFromInjectedAttach)
+        // A consumed explicit route keeps owning startup: the saved-Mac
+        // reconnect must not also dial.
         #expect(coordinator.claimStoredReconnect() == nil)
     }
-}
 
-private actor MobileInjectedAttachURLRecorder {
-    private var urls: [String] = []
+    @Test
+    @MainActor
+    func failedInjectedAttachReleasesStartupToStoredReconnect() throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+        let attempt = try #require(coordinator.claimInjectedAttach())
 
-    func record(_ url: String) {
-        urls.append(url)
+        let shouldFallBack = coordinator.finishInjectedAttach(attempt, outcome: .failed)
+
+        #expect(shouldFallBack)
+        #expect(coordinator.shouldFallBackFromInjectedAttach)
+        // A failed explicit route releases startup so the authenticated shell
+        // is not stranded disconnected.
+        #expect(coordinator.claimStoredReconnect() != nil)
     }
 
-    func values() -> [String] {
-        urls
+    @Test
+    @MainActor
+    func onlyOneStartupSourceCanClaimAdmission() throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+
+        #expect(coordinator.claimInjectedAttach() != nil)
+        #expect(coordinator.claimInjectedAttach() == nil)
+        #expect(coordinator.claimStoredReconnect() == nil)
     }
 }
