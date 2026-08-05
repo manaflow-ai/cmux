@@ -104,20 +104,13 @@ struct SidebarCreationContextColumn: View {
                 )
             )
         }
-        .onReceive(remoteObservationPublisher) { _ in
+        .sidebarWorkspaceObservations(
+            ids: tabManager.tabs.map(\.id),
+            workspaces: tabManager.tabs,
+            debouncedInterval: .milliseconds(40)
+        ) { _ in
             observationRevision &+= 1
         }
-    }
-
-    private var remoteObservationPublisher: AnyPublisher<Void, Never> {
-        Publishers.MergeMany(tabManager.tabs.flatMap { workspace in
-            [
-                workspace.sidebarImmediateObservationPublisher,
-                workspace.sidebarObservationPublisher,
-            ]
-        })
-        .receive(on: DispatchQueue.main)
-        .eraseToAnyPublisher()
     }
 
     private func contextRow(
