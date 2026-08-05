@@ -94,6 +94,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             0
         }
         Ok(ParsedCommand::Command { global, plan }) => match plan {
+            CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
             CommandPlan::Protocol(request) => wire::run(global, request),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
             CommandPlan::ProviderAuthority(authority) => {
@@ -411,6 +412,7 @@ const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
+  cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
 ";
 

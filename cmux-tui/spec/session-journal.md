@@ -12,8 +12,8 @@ browser lifecycle; continuous terminal output and geometry; frontend focus,
 viewport, and geometry observations; frontend projections; explicit agent
 reports; and normalized native agent-hook observations. A pure restoration
 reducer can preview the state reconstructed from a checkpoint and its tail.
-Provider-specific hook installers, verified root ownership leases, and live
-application of a restored model remain pending.
+Verified root ownership leases and live application of a restored model remain
+pending.
 
 ## Invariants
 
@@ -151,7 +151,9 @@ retained records. Reconnecting with the last delivered cursor resumes after
 that record. A cursor from another session, or one ahead of the current head,
 fails with `cursor.invalid`. A bounded subscriber that falls behind receives a
 `gap` stream end with its last safe cursor and reconnects from that cursor.
-`start` and `cursor` are mutually exclusive.
+Successful bounded replay queues its final `stream_end` after every admitted
+record, so completion cannot overtake or discard the replay tail. Overflow and
+cancellation remain destructive. `start` and `cursor` are mutually exclusive.
 
 Each committed subject is also inserted into an append-only
 `(kind, id, sequence)` index in the record transaction. Retained catch-up for
@@ -302,12 +304,26 @@ no state changed.
 
 Terminal output is a high-volume content stream, not inline journal payload.
 The PTY reader copies accepted output only when journaling is enabled, releases
-the terminal lock, and sends it to the single journal writer. That writer
-coalesces adjacent chunks up to 256 KiB, assigns generation-local byte offsets,
-and stores the exact bytes accepted by the authoritative terminal parser in
-SQLite BLOBs. JSON wire and sealed-segment forms use base64; storage and regex
-matching use those parser input bytes. Accepted geometry
-changes use the same ordered ingress actor.
+the terminal lock, and sends it through a dedicated bounded terminal lane to
+the single journal writer. That writer coalesces adjacent chunks up to 256 KiB,
+assigns generation-local byte offsets, and stores the exact bytes accepted by
+the authoritative terminal parser in SQLite BLOBs. JSON wire and sealed-segment
+forms use base64; storage and regex matching use those parser input bytes.
+Accepted geometry changes use the same FIFO terminal lane.
+
+External producers and durable frontend observations use a second bounded
+lane. One coalesced wake signal drives both lanes; each batch reserves capacity
+for up to 4 MiB of terminal ingress and 8 MiB of resident producer payloads,
+then gives both lanes another turn. Saturating the agent lane therefore cannot
+occupy the terminal lane or block the PTY reader. Byte order is strict within
+the terminal lane, durable producer order is strict within the producer lane,
+and the writer assigns commit order when independent lanes race.
+
+Lossless terminal capture can still backpressure the PTY after its own bounded
+lane fills during a prolonged storage stall. Removing that final bound requires
+an acknowledged durable output spool or an explicit loss policy at the
+terminal-host boundary. Moving the same queue into another process does not
+remove the storage bound.
 
 The checkpoint writer captures each terminal under its terminal lock as a
 bounded VT replay blob, compresses it with deterministic gzip, and stores it by
@@ -370,6 +386,41 @@ session socket, waits for the durable receipt with a bounded timeout, and
 exits. It does not initialize the TUI frontend. The main terminal process owns
 only the bounded socket handler and single-writer journal actor; provider hook
 execution remains in the provider's external process.
+
+Install, inspect, or remove all detected provider adapters with:
+
+```bash
+cmux agent hook install
+cmux agent hook status
+cmux agent hook uninstall
+```
+
+An explicit provider list limits the operation, for example
+`cmux agent hook install codex claude gemini`. The built-in set is Codex,
+Claude Code, Gemini CLI, Cursor Agent, Grok, Hermes Agent, OpenCode, Amp, and Pi. Installation
+copies the matching `cmux-tui-hook` beside the CLI into the stable user data
+directory, then atomically merges command-hook configuration or installs one
+owned plugin file. Existing unrelated hooks remain in place. Reinstallation is
+idempotent, legacy cmux-tui journal shims are migrated, and an unrecognized
+file at an owned plugin path is never overwritten.
+
+Command-hook providers wait for only the helper's bounded durable receipt.
+Plugin providers return from their callback immediately and let an external
+helper child finish that same bounded receipt. Provider work, normalization,
+SQLite writes, and downstream hook execution never run on the PTY reader,
+terminal parser, render, or frontend input threads.
+
+Plugin adapters subscribe to finite semantic transitions, not provider token
+or message-part deltas. The terminal lane already retains the visible byte
+stream, while a process per model token would duplicate content and create an
+unbounded process fan-out. OpenCode's adapter also carries its observed session
+ancestry beside the untouched native event so nested session trees retain root
+and parent edges across arbitrary depth. Grok receives one native adapter;
+guards on its Claude and Cursor compatibility imports prevent duplicate events
+with misidentified providers.
+Hermes uses a separately enabled, owned plugin; installation removes the
+journal half of a recognized legacy cmux-irc tee while preserving cmux-irc's
+native plugin.
 
 A provider-specific adapter manifest declares:
 
@@ -532,10 +583,11 @@ may be compacted because canonical records remain rebuildable.
 SQLite is the durable ordering boundary because the journal record, state
 projection, and idempotency receipt can commit in one transaction. WAL permits
 the shared read tailer to run concurrently with the single serialized writer.
-Concurrent durable producer requests enter that writer's bounded queue and
-share a transaction while retaining one result and idempotency receipt per
-request. Terminal output, frontend observations, and producer events therefore
-have one commit-order boundary instead of competing SQLite writers.
+Concurrent durable producer requests enter that writer's bounded producer lane
+and share a transaction while retaining one result and idempotency receipt per
+request. A separate bounded terminal lane isolates parser ingress while the
+same writer gives terminal output, frontend observations, and producer events
+one commit-order boundary instead of competing SQLite writers.
 The public stream is asynchronous, while blocking SQLite work stays on the
 session writer or dedicated read workers. An async SQLite wrapper would move
 the same synchronous SQLite calls onto another worker and add scheduling hops;
@@ -560,7 +612,8 @@ markers.
 | Checkpoint terminal VT content references | Implemented with content-addressed gzip blobs |
 | Continuous terminal content chunks and geometry | Implemented with raw BLOBs and generation-local offsets |
 | Built-in lossless agent-hook ingress, semantic normalization, and indexed agent forest | Implemented in storage v1; explicit parent session IDs form cross-process ancestry without provider agent IDs |
-| Provider-specific agent hook installers and root leases | Pending |
+| Provider-specific agent hook installers | Implemented for Codex, Claude Code, Gemini CLI, Cursor Agent, Grok, Hermes Agent, OpenCode, Amp, and Pi |
+| Verified agent root ownership leases | Pending |
 | Schema-validated producer manifests and ingress | Implemented in storage v1 |
 | Hook dispatcher and delivery projections | Implemented in storage v1 |
 | Checkpoint writer and restoration preview reducer | Implemented in storage v1 |

@@ -1161,8 +1161,7 @@ mod tests {
         hook.permissions = vec!["journal.read.sensitive".into()];
         mux.put_journal_hook(&hook, "client_probe", "hook_probe_v1").unwrap();
 
-        let barrier = Arc::new(std::sync::Barrier::new(AGENTS));
-        let append_started = Instant::now();
+        let barrier = Arc::new(std::sync::Barrier::new(AGENTS + 1));
         let handles = (0..AGENTS)
             .map(|agent| {
                 let mux = mux.clone();
@@ -1201,18 +1200,14 @@ mod tests {
                 })
             })
             .collect::<Vec<_>>();
-        let mut append_latencies =
-            handles.into_iter().flat_map(|handle| handle.join().unwrap()).collect::<Vec<_>>();
-        let append_elapsed = append_started.elapsed();
-        append_latencies.sort_unstable();
-        let event_count = append_latencies.len();
-
         let terminal_id = Arc::new(
             crate::resource::TerminalPublicId::parse("term_00000000000000000000000000000077")
                 .unwrap(),
         );
         let generation: Arc<str> = Arc::from("hook-saturation-generation");
         let terminal_chunk = vec![b'x'; TERMINAL_CHUNK_BYTES];
+        let append_started = Instant::now();
+        barrier.wait();
         let terminal_started = Instant::now();
         let mut maximum_enqueue = Duration::ZERO;
         for _ in 0..TERMINAL_CHUNKS {
@@ -1224,20 +1219,13 @@ mod tests {
             );
             maximum_enqueue = maximum_enqueue.max(started.elapsed());
         }
-        mux.journal_local_frontend_event(crate::FrontendJournalEvent::Resize {
-            event_id: "event_hook_saturation_barrier".into(),
-            frontend_projection_id: crate::resource::FrontendProjectionPublicId::parse(
-                "projection_00000000000000000000000000000077",
-            )
-            .unwrap(),
-            generation: "hook-saturation-frontend".into(),
-            cols: 80,
-            rows: 24,
-            cell_width: 8,
-            cell_height: 16,
-        })
-        .unwrap();
+        mux.flush_terminal_journal().unwrap();
         let terminal_elapsed = terminal_started.elapsed();
+        let mut append_latencies =
+            handles.into_iter().flat_map(|handle| handle.join().unwrap()).collect::<Vec<_>>();
+        let append_elapsed = append_started.elapsed();
+        append_latencies.sort_unstable();
+        let event_count = append_latencies.len();
 
         let deadline = Instant::now() + Duration::from_secs(60);
         let mut cursor = 0;

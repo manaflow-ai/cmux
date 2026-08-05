@@ -2058,6 +2058,11 @@ trait MessageSink: Send + Sync {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()>;
+    fn send_ordered_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()>;
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
@@ -2220,6 +2225,24 @@ impl MessageWriter {
             .render_service
             .serialize_control(value)
             .and_then(|text| self.sink.send_terminal(text, stream));
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
+    fn send_ordered_terminal<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize_control(value)
+            .and_then(|text| self.sink.send_ordered_terminal(text, stream));
         if result.is_err() {
             self.close();
         }
@@ -2815,6 +2838,65 @@ impl BoundedOutbound {
         Ok(())
     }
 
+    /// Gracefully closes a stream after every item already admitted for it.
+    ///
+    /// Overflow and cancellation use `push_terminal`, which intentionally
+    /// purges stale items. Successful bounded replay must preserve FIFO order.
+    fn push_ordered_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        let bytes = text.len();
+        if bytes > OUTBOUND_BYTE_CAPACITY {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "outbound stream terminal exceeds its byte capacity",
+            ));
+        }
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if state.closed {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "connection closed",
+                ));
+            }
+            if stream.terminal_enqueued.load(Ordering::Acquire) {
+                return Ok(());
+            }
+            if !stream.is_open() {
+                return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
+            }
+            let (stream_messages, stream_bytes) = state
+                .stream_usage
+                .get(&stream.id)
+                .map(|usage| (usage.messages, usage.bytes))
+                .unwrap_or_default();
+            let stream_full = stream_messages >= OUTBOUND_CAPACITY
+                || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(stream_bytes);
+            let connection_full = state.initial.len() + state.regular.len()
+                >= OUTBOUND_CONNECTION_CAPACITY
+                || bytes > OUTBOUND_CONNECTION_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
+            if !stream_full && !connection_full {
+                state.regular_bytes += bytes;
+                let usage = state.stream_usage.entry(stream.id).or_insert_with(|| {
+                    StreamOutboundUsage { messages: 0, bytes: 0, stream: stream.clone() }
+                });
+                usage.messages += 1;
+                usage.bytes += bytes;
+                state.regular.push_back(RegularOutbound { text, stream: stream.clone() });
+                stream.terminal_enqueued.store(true, Ordering::Release);
+                stream.close();
+                drop(state);
+                self.changed.notify_all();
+                return Ok(());
+            }
+            let (next, _) = self.changed.wait_timeout(state, STREAM_DISCONNECT_POLL).unwrap();
+            state = next;
+        }
+    }
+
     fn terminate_stream_locked(
         state: &mut BoundedOutboundState,
         stream: &OutboundStream,
@@ -2847,6 +2929,7 @@ impl BoundedOutbound {
         state
             .stream_usage
             .values()
+            .filter(|usage| !usage.stream.terminal_enqueued.load(Ordering::Acquire))
             .max_by_key(|usage| if by_bytes { usage.bytes } else { usage.messages })
             .map(|usage| usage.stream.clone())
     }
@@ -3091,6 +3174,14 @@ impl MessageSink for QueuedSink {
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         self.outbound.push_terminal(text, stream)
+    }
+
+    fn send_ordered_terminal(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.outbound.push_ordered_terminal(text, stream)
     }
 
     fn is_open(&self) -> bool {
@@ -8082,7 +8173,7 @@ fn complete_bounded_journal_replay(
         None,
         None,
     );
-    let _ = writer.send_terminal(&end, &stream.outbound);
+    let _ = writer.send_ordered_terminal(&end, &stream.outbound);
     true
 }
 
@@ -12871,6 +12962,14 @@ mod tests {
             self.outbound.push_terminal(text, stream)
         }
 
+        fn send_ordered_terminal(
+            &self,
+            text: Arc<BudgetedText>,
+            stream: &OutboundStream,
+        ) -> std::io::Result<()> {
+            self.outbound.push_ordered_terminal(text, stream)
+        }
+
         fn is_open(&self) -> bool {
             self.outbound.is_open()
         }
@@ -14414,6 +14513,93 @@ mod tests {
     }
 
     #[test]
+    fn bounded_journal_read_includes_the_durable_exact_subject_head() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-subject-head-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux =
+            Mux::open_persistent("journal-subject-head", SurfaceOptions::default(), &root).unwrap();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        for index in 0..32_u128 {
+            let marker = format!("subject-head-marker-{index}");
+            let ingress = crate::agent_hook_journal_ingress(
+                "codex",
+                "SubagentStop",
+                None,
+                json!({
+                    "session_id":"subject-head-root",
+                    "root_session_id":"subject-head-root",
+                    "parent_session_id":"subject-head-root",
+                    "child_agent_id":format!("subject-head-child-{index}"),
+                    "message":marker,
+                }),
+            )
+            .unwrap();
+            let subject = ingress
+                .subjects
+                .iter()
+                .find(|subject| subject.kind == "agent_tree")
+                .cloned()
+                .unwrap();
+            let commit = mux
+                .append_journal_ingress(
+                    &ingress,
+                    "client_subject_head",
+                    &format!("subject_head_{index}"),
+                )
+                .unwrap();
+            let filter_value = json!({
+                "kinds":["agent.child.completed"],
+                "subjects":[subject.clone()],
+                "max_sensitivity":"sensitive",
+                "regex":{
+                    "pattern":marker,
+                    "field":"payload",
+                    "case_sensitive":true,
+                },
+            });
+            let direct = mux
+                .session_journal_reader()
+                .unwrap()
+                .unwrap()
+                .after_subjects(commit.sequence.saturating_sub(1), 1, &[subject.clone()])
+                .unwrap();
+            let document = JournalDocument::new(direct.records.into_iter().next().unwrap());
+            assert!(JournalStreamFilter::parse(Some(&filter_value)).unwrap().matches(&document));
+            let stream_id = format!("stream_{:032x}", 0x5000_u128 + index);
+            let open = resource_request(
+                &format!("subject-head-open-{index}"),
+                "session.journal.subscribe",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "stream_id":stream_id,
+                    "start":"beginning",
+                    "follow":false,
+                    "filter":filter_value,
+                }),
+                None,
+            );
+            assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+            assert_eq!(pop_json(&outbound)["ok"], true);
+            let item = pop_json(&outbound);
+            assert_eq!(item["type"], "stream_item", "missing durable subject head {index}");
+            assert_eq!(item["item"]["sequence"], commit.sequence.to_string());
+            assert_eq!(pop_json(&outbound)["reason"], "completed");
+        }
+
+        assert!(disconnect_client(&mux, client, false));
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn bounded_session_journal_replay_completes_at_its_open_head() {
         let mux = test_mux();
         crate::resource_router::handle_resource_message(
@@ -14526,19 +14712,7 @@ mod tests {
             Arc::from("terminal-regex-generation"),
             output.clone(),
         );
-        mux.journal_local_frontend_event(crate::FrontendJournalEvent::Resize {
-            event_id: "event_terminal_regex_barrier".into(),
-            frontend_projection_id: crate::resource::FrontendProjectionPublicId::parse(
-                "projection_00000000000000000000000000000041",
-            )
-            .unwrap(),
-            generation: "frontend_terminal_regex_generation".into(),
-            cols: 80,
-            rows: 24,
-            cell_width: 8,
-            cell_height: 16,
-        })
-        .unwrap();
+        mux.flush_terminal_journal().unwrap();
 
         let (writer, outbound) = captured_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
@@ -14680,9 +14854,17 @@ mod tests {
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
 
-        for (request_id, operation) in [
-            ("private-producer-manifest", "session.journal.producer.put"),
-            ("private-hook-manifest", "session.journal.hook.put"),
+        for (request_id, operation, expected_field) in [
+            (
+                "private-producer-manifest",
+                "session.journal.producer.put",
+                "session.journal.producer.put.manifest",
+            ),
+            (
+                "private-hook-manifest",
+                "session.journal.hook.put",
+                "session.journal.hook.put.manifest",
+            ),
         ] {
             let request = resource_request(
                 request_id,
@@ -14698,7 +14880,7 @@ mod tests {
             let response = pop_json(&outbound);
             assert_eq!(response["ok"], false);
             assert_eq!(response["error"]["code"], "validation.invalid");
-            assert_eq!(response["error"]["details"]["field"], "manifest");
+            assert_eq!(response["error"]["details"]["field"], expected_field);
             assert!(!response.to_string().contains("private-provider-token-name"));
         }
 
@@ -16806,6 +16988,25 @@ mod tests {
         );
         assert!(quiet.is_open());
         assert!(writer.is_open());
+    }
+
+    #[test]
+    fn graceful_stream_terminal_is_ordered_after_queued_items() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&json!({"event":"overflow"})).unwrap();
+        writer.send_stream(&json!({"event":"first"}), &stream).unwrap();
+        writer.send_stream(&json!({"event":"second"}), &stream).unwrap();
+        writer.send_ordered_terminal(&json!({"event":"completed"}), &stream).unwrap();
+
+        assert_eq!(pop_json(&outbound)["event"], "first");
+        assert_eq!(pop_json(&outbound)["event"], "second");
+        assert_eq!(pop_json(&outbound)["event"], "completed");
+        assert!(!stream.is_open());
+        assert_eq!(
+            writer.send_stream(&json!({"event":"late"}), &stream).unwrap_err().kind(),
+            std::io::ErrorKind::BrokenPipe
+        );
     }
 
     #[test]

@@ -172,6 +172,11 @@ session <selector> config reload
 session <selector> window title set|clear
 session <selector> terminal defaults set
 
+agent list
+agent report --terminal <selector> --state <state> --source <source>
+agent hook emit --source <provider> --event <native-event> [--terminal <id>]
+agent hook install|uninstall|status [provider...]
+
 client list
 client <selector> show|detach
 client <selector> metadata set

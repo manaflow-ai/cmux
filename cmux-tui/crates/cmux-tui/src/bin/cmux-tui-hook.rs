@@ -2,7 +2,7 @@ use std::env;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow, bail};
 use base64::Engine as _;
@@ -111,29 +111,87 @@ fn append(socket: &Path, event: Value) -> anyhow::Result<()> {
         bail!("agent hook request exceeds the 4 MiB protocol limit");
     }
 
-    let mut stream =
-        transport::connect(socket).with_context(|| format!("connect to {}", socket.display()))?;
-    stream.set_read_timeout(Some(SOCKET_TIMEOUT))?;
-    stream.set_write_timeout(Some(SOCKET_TIMEOUT))?;
-    stream.write_all(&encoded)?;
-    stream.flush()?;
+    retry_until(SOCKET_TIMEOUT, |remaining| append_once(socket, &encoded, &request_id, remaining))
+}
+
+#[derive(Debug)]
+enum AppendAttemptError {
+    Retryable(anyhow::Error),
+    Fatal(anyhow::Error),
+}
+
+fn retry_until<T>(
+    timeout: Duration,
+    mut attempt: impl FnMut(Duration) -> Result<T, AppendAttemptError>,
+) -> anyhow::Result<T> {
+    let deadline = Instant::now() + timeout;
+    let mut last_error = None;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            let error = last_error.unwrap_or_else(|| anyhow!("journal append timed out"));
+            return Err(error).context(format!(
+                "journal append was not acknowledged within {} ms",
+                timeout.as_millis()
+            ));
+        }
+        match attempt(remaining) {
+            Ok(value) => return Ok(value),
+            Err(AppendAttemptError::Fatal(error)) => return Err(error),
+            Err(AppendAttemptError::Retryable(error)) => {
+                last_error = Some(error);
+                // Admission reopens as short-lived clients finish. Yielding lets
+                // the server make progress without adding a timer to hook paths.
+                std::thread::yield_now();
+            }
+        }
+    }
+}
+
+fn append_once(
+    socket: &Path,
+    encoded: &[u8],
+    request_id: &str,
+    timeout: Duration,
+) -> Result<(), AppendAttemptError> {
+    let mut stream = transport::connect(socket)
+        .with_context(|| format!("connect to {}", socket.display()))
+        .map_err(AppendAttemptError::Retryable)?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+    stream.write_all(encoded).map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+    stream.flush().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
 
     let mut response = Vec::new();
-    BufReader::new(stream).take(MAX_RESPONSE_BYTES + 2).read_until(b'\n', &mut response)?;
+    BufReader::new(stream)
+        .take(MAX_RESPONSE_BYTES + 2)
+        .read_until(b'\n', &mut response)
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
     if response.is_empty() || !response.ends_with(b"\n") {
-        bail!("journal append closed without a complete response");
+        return Err(AppendAttemptError::Retryable(anyhow!(
+            "journal append closed without a complete response"
+        )));
     }
     if response.len() as u64 > MAX_RESPONSE_BYTES {
-        bail!("journal append response exceeds 16 MiB");
+        return Err(AppendAttemptError::Fatal(anyhow!("journal append response exceeds 16 MiB")));
     }
-    let response: Value = serde_json::from_slice(&response)?;
+    let response: Value = serde_json::from_slice(&response)
+        .map_err(|error| AppendAttemptError::Fatal(error.into()))?;
     if response.get("protocol").and_then(Value::as_str) != Some("cmux.protocol/1")
         || response.get("type").and_then(Value::as_str) != Some("response")
     {
-        bail!("journal append returned an invalid response envelope");
+        return Err(AppendAttemptError::Fatal(anyhow!(
+            "journal append returned an invalid response envelope"
+        )));
     }
-    if response.get("id").and_then(Value::as_str) != Some(request_id.as_str()) {
-        bail!("journal append returned a mismatched request id");
+    if response.get("id").and_then(Value::as_str) != Some(request_id) {
+        return Err(AppendAttemptError::Fatal(anyhow!(
+            "journal append returned a mismatched request id"
+        )));
     }
     if response.get("ok").and_then(Value::as_bool) != Some(true) {
         let error = response
@@ -141,7 +199,19 @@ fn append(socket: &Path, event: Value) -> anyhow::Result<()> {
             .and_then(|error| error.get("message"))
             .and_then(Value::as_str)
             .unwrap_or("journal append failed");
-        bail!("{error}");
+        let error = anyhow!(error.to_owned());
+        return Err(
+            if response
+                .get("error")
+                .and_then(|error| error.get("retryable"))
+                .and_then(Value::as_bool)
+                == Some(true)
+            {
+                AppendAttemptError::Retryable(error)
+            } else {
+                AppendAttemptError::Fatal(error)
+            },
+        );
     }
     Ok(())
 }
@@ -176,5 +246,32 @@ mod tests {
     fn invalid_utf8_is_retained_as_base64() {
         let native = read_native_payload(&[0xff, 0x00][..]).unwrap();
         assert_eq!(native, json!({"encoding":"base64","data":"/wA="}));
+    }
+
+    #[test]
+    fn retries_transient_admission_loss_within_one_bounded_receipt_window() {
+        let mut attempts = 0;
+        retry_until(Duration::from_millis(100), |_| {
+            attempts += 1;
+            if attempts < 3 {
+                Err(AppendAttemptError::Retryable(anyhow!("connection dropped")))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn does_not_retry_a_durable_rejection() {
+        let mut attempts = 0;
+        let error = retry_until(Duration::from_millis(100), |_| {
+            attempts += 1;
+            Err::<(), _>(AppendAttemptError::Fatal(anyhow!("invalid event")))
+        })
+        .unwrap_err();
+        assert_eq!(attempts, 1);
+        assert_eq!(error.to_string(), "invalid event");
     }
 }

@@ -471,14 +471,15 @@ impl WorkspaceRegistry {
 
     #[cfg(test)]
     pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
-        self.connection
-            .execute(
-                "UPDATE resource_agent_projections
+        self.connection.execute_batch("PRAGMA ignore_check_constraints = ON").unwrap();
+        let result = self.connection.execute(
+            "UPDATE resource_agent_projections
                  SET result_json = '{'
                  WHERE terminal_id = ?1",
-                [terminal_id.as_str()],
-            )
-            .unwrap();
+            [terminal_id.as_str()],
+        );
+        self.connection.execute_batch("PRAGMA ignore_check_constraints = OFF").unwrap();
+        result.unwrap();
     }
 }
 

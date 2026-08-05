@@ -2249,14 +2249,18 @@ impl Surface {
                             scroll_changed = Some(after);
                             broadcast_render_scroll_locked(pty, after);
                         }
-                        let journal_output = journal_enabled.then(|| normalized.into_owned());
+                        // Keep the terminal lock scoped to parser and observer work. A
+                        // borrowed normalized frame still points into `buf`, which lives
+                        // for the reader loop, so any journal allocation can happen after
+                        // releasing the lock.
+                        let journal_output = journal_enabled.then_some(normalized);
                         (pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1, journal_output)
                     };
                     let (generation, journal_output) = generation;
                     if let (Some(journal_target), Some(journal_output)) =
                         (journal_target, journal_output)
                     {
-                        pty.journal_output(journal_target, journal_output);
+                        pty.journal_output(journal_target, journal_output.into_owned());
                     }
                     pty.stream_progress.notify();
                     pty.request_frame(generation);

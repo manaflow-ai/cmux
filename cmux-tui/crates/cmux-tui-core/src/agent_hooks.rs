@@ -156,12 +156,13 @@ fn semantic_kind(
     if tool == "exitplanmode" {
         return "agent.plan_review.requested";
     }
+    if event == "questionasked" {
+        return "agent.question.requested";
+    }
     match (source, event.as_str()) {
         // These providers use their session-end callback as a per-turn
         // boundary and expose a distinct finalization event where available.
-        ("grok" | "antigravity" | "hermes-agent", "sessionend" | "onsessionend") => {
-            "agent.turn.completed"
-        }
+        ("antigravity" | "hermes-agent", "sessionend" | "onsessionend") => "agent.turn.completed",
         ("opencode", "sessioncreated") => "agent.session.started",
         ("opencode", "sessionidle") => "agent.turn.completed",
         ("opencode", "sessiondeleted") => "agent.session.ended",
@@ -182,9 +183,10 @@ fn semantic_kind(
             "stop" | "afteragent" | "afteragentresponse" | "postllmcall" | "oncomplete"
             | "turncompletion" | "agentend" | "taskcompleted" | "turnend" | "agentsettled",
         ) => "agent.turn.completed",
-        (_, "permissionrequest" | "preapprovalrequest" | "ontoolpermission") => {
-            "agent.approval.requested"
-        }
+        (
+            _,
+            "permissionrequest" | "permissionasked" | "preapprovalrequest" | "ontoolpermission",
+        ) => "agent.approval.requested",
         (_, "stopfailure" | "onerror" | "error" | "posttoolusefailure") => "agent.error.reported",
         (_, "sessionend" | "onsessionend" | "onsessionfinalize" | "sessionshutdown") => {
             "agent.session.ended"
@@ -234,6 +236,11 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["properties", "sessionID"][..],
                 &["properties", "sessionId"][..],
                 &["properties", "info", "id"][..],
+                &["event", "properties", "sessionID"][..],
+                &["event", "properties", "sessionId"][..],
+                &["event", "properties", "info", "id"][..],
+                &["event", "properties", "info", "sessionID"][..],
+                &["event", "properties", "info", "sessionId"][..],
                 &["event", "session_id"][..],
                 &["event", "sessionId"][..],
                 &["event", "thread", "id"][..],
@@ -279,6 +286,9 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["workspace", "root"][..],
                 &["properties", "cwd"][..],
                 &["properties", "info", "directory"][..],
+                &["event", "properties", "cwd"][..],
+                &["event", "properties", "directory"][..],
+                &["event", "properties", "info", "directory"][..],
                 &["event", "cwd"][..],
                 &["event", "directory"][..],
                 &["context", "cwd"][..],
@@ -305,6 +315,8 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["tool", "name"][..],
                 &["properties", "tool"][..],
                 &["properties", "tool_name"][..],
+                &["event", "properties", "tool", "name"][..],
+                &["event", "properties", "tool_name"][..],
                 &["event", "tool_name"][..],
                 &["event", "toolName"][..],
                 &["event", "tool", "name"][..],
@@ -320,6 +332,8 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["response"][..],
                 &["summary"][..],
                 &["properties", "message"][..],
+                &["event", "properties", "message"][..],
+                &["event", "properties", "info", "message"][..],
                 &["event", "message"][..],
                 &["event", "last_assistant_message"][..],
                 &["event", "response"][..],
@@ -402,12 +416,16 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["rootSessionId"][..],
                 &["root_thread_id"][..],
                 &["rootThreadId"][..],
+                &["rootThreadID"][..],
                 &["event", "root_session_id"][..],
                 &["event", "rootSessionId"][..],
                 &["event", "root_thread_id"][..],
                 &["event", "rootThreadId"][..],
                 &["context", "root_session_id"][..],
                 &["context", "rootSessionId"][..],
+                &["context", "rootSessionID"][..],
+                &["context", "thread", "root_session_id"][..],
+                &["context", "thread", "rootSessionId"][..],
             ][..],
         ),
         (
@@ -417,12 +435,27 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
                 &["parentSessionId"][..],
                 &["parent_thread_id"][..],
                 &["parentThreadId"][..],
+                &["parentThreadID"][..],
+                &["parent_id"][..],
+                &["parentId"][..],
+                &["parentID"][..],
+                &["properties", "parentID"][..],
+                &["properties", "parentId"][..],
+                &["properties", "info", "parentID"][..],
+                &["properties", "info", "parentId"][..],
+                &["event", "properties", "parentID"][..],
+                &["event", "properties", "parentId"][..],
+                &["event", "properties", "info", "parentID"][..],
+                &["event", "properties", "info", "parentId"][..],
                 &["event", "parent_session_id"][..],
                 &["event", "parentSessionId"][..],
                 &["event", "parent_thread_id"][..],
                 &["event", "parentThreadId"][..],
                 &["context", "parent_session_id"][..],
                 &["context", "parentSessionId"][..],
+                &["context", "parentSessionID"][..],
+                &["context", "thread", "parent_session_id"][..],
+                &["context", "thread", "parentSessionId"][..],
             ][..],
         ),
         (
@@ -698,7 +731,6 @@ mod tests {
     #[test]
     fn provider_specific_turn_boundaries_do_not_end_restorable_sessions() {
         for (source, event) in [
-            ("grok", "SessionEnd"),
             ("antigravity", "SessionEnd"),
             ("hermes-agent", "on_session_end"),
             ("copilot", "Notification"),
@@ -712,6 +744,8 @@ mod tests {
             agent_hook_journal_ingress("hermes-agent", "on_session_finalize", None, json!({}))
                 .unwrap();
         assert_eq!(finalized.kind, "agent.session.ended");
+        let grok = agent_hook_journal_ingress("grok", "SessionEnd", None, json!({})).unwrap();
+        assert_eq!(grok.kind, "agent.session.ended");
     }
 
     #[test]
@@ -743,6 +777,46 @@ mod tests {
         let deleted =
             agent_hook_journal_ingress("opencode", "session.deleted", None, json!({})).unwrap();
         assert_eq!(deleted.kind, "agent.session.ended");
+    }
+
+    #[test]
+    fn wrapped_opencode_events_keep_native_shape_and_normalize_properties() {
+        let native = json!({
+            "event": {
+                "type":"session.created",
+                "properties": {
+                    "info": {
+                        "id":"opencode-session",
+                        "directory":"/tmp/opencode"
+                    }
+                }
+            },
+            "context": {"worktree":"/tmp/opencode"}
+        });
+        let ingress =
+            agent_hook_journal_ingress("opencode", "session.created", None, native.clone())
+                .unwrap();
+        assert_eq!(ingress.payload["native"], native);
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "opencode-session");
+        assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/opencode");
+        assert_eq!(ingress.kind, "agent.session.started");
+
+        let approval = agent_hook_journal_ingress(
+            "opencode",
+            "permission.asked",
+            None,
+            json!({"event":{"properties":{"sessionID":"opencode-session"}}}),
+        )
+        .unwrap();
+        assert_eq!(approval.kind, "agent.approval.requested");
+        let question = agent_hook_journal_ingress(
+            "opencode",
+            "question.asked",
+            None,
+            json!({"event":{"properties":{"sessionID":"opencode-session"}}}),
+        )
+        .unwrap();
+        assert_eq!(question.kind, "agent.question.requested");
     }
 
     #[test]

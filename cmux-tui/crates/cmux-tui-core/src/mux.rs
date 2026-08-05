@@ -4465,6 +4465,10 @@ impl Mux {
         });
     }
 
+    pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
+        self.journal_ingress.flush_terminal()
+    }
+
     pub(crate) fn terminal_journal_enabled(&self) -> bool {
         self.journal_ingress.enabled()
     }
@@ -11954,7 +11958,7 @@ impl Mux {
         // Output stays on the bounded asynchronous ingress path. Exit is the
         // one terminal transition that fences it, preserving byte order and
         // full topology subjects before the atomic detach transaction.
-        self.journal_ingress.flush()?;
+        self.flush_terminal_journal()?;
         let exit = surface.terminal_exit().unwrap_or_else(|| TerminalExit::unknown(reason));
         self.persist_terminal_exit(&identity.terminal_id, Some(&identity.incarnation), &exit)?;
         self.detach_exited_terminal_topology(&identity.terminal_id)?;

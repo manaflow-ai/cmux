@@ -142,7 +142,7 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Build cmux-tui (Linux cross)
@@ -163,7 +163,7 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+          cargo zigbuild -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Build cmux-tui (macOS cross)
@@ -184,7 +184,7 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Stage binary
@@ -192,11 +192,14 @@ jobs:
         run: |
           mkdir -p dist
           binary="dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
+          hook_binary="dist/cmux-tui-hook-${{ matrix.target }}${{ matrix.ext }}"
           relay_binary="dist/cmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
+          cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           if [[ -n "${{ matrix.compatibility_target }}" ]]; then
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+            cp "$hook_binary" "dist/cmux-tui-hook-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
           ls -la dist
@@ -376,7 +379,7 @@ jobs:
           cd ghostty
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
-          cargo build -p cmux-tui --bin cmux-tui --release --locked --target x86_64-pc-windows-gnu
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
 
       - name: Verify remote commands fail clearly on Windows
         shell: bash
@@ -394,13 +397,16 @@ jobs:
         run: |
           mkdir -p dist
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe" "dist/cmux-tui-x86_64-pc-windows-gnu.exe"
+          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui-hook.exe" "dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe"
           ls -la dist
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-tui-x86_64-pc-windows-gnu
-          path: dist/cmux-tui-x86_64-pc-windows-gnu.exe
+          path: |
+            dist/cmux-tui-x86_64-pc-windows-gnu.exe
+            dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
 
   package:
@@ -501,6 +507,9 @@ jobs:
               binary = root / name / "bin" / "cmux-tui"
               if not binary.stat().st_mode & stat.S_IXUSR:
                   raise SystemExit(f"{binary} is not executable")
+              hook = root / name / "bin" / "cmux-tui-hook"
+              if not hook.stat().st_mode & stat.S_IXUSR:
+                  raise SystemExit(f"{hook} is not executable")
           PY
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
@@ -544,6 +553,18 @@ jobs:
           for wheel in dist/pypi-wheels/*.whl; do
             python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
           done
+          python3 - <<'PY'
+          import glob
+          import stat
+          import zipfile
+
+          for path in glob.glob("dist/pypi-wheels/*.whl"):
+              with zipfile.ZipFile(path) as wheel:
+                  info = wheel.getinfo("cmux_tui/bin/cmux-tui-hook")
+                  mode = info.external_attr >> 16
+                  if not mode & stat.S_IXUSR:
+                      raise SystemExit(f"{path}: bundled cmux-tui-hook is not executable")
+          PY
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
             dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1

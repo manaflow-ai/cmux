@@ -1084,7 +1084,7 @@ mod tests {
     }
 
     #[test]
-    fn topology_close_commit_failure_leaves_every_projection_live() {
+    fn topology_close_commit_failure_leaves_every_projection_live_and_fences_replay() {
         let mux = mux();
         let created = terminal_workspace(&mux, "atomic-close-rollback");
         let workspace = created["value"]["workspace_id"].as_str().unwrap();
@@ -1103,8 +1103,20 @@ mod tests {
             ),
         )
         .unwrap_err();
-        assert_eq!(error.code, "operation.failed");
+        assert_eq!(error.code, "mutation.indeterminate");
         mux.set_resource_patch_failure_for_test(false);
+
+        let replay = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceClose,
+                selectors(Some(workspace), None, None, None),
+                json!({}),
+                Some("atomic-close-rollback-effect"),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(replay.code, "mutation.indeterminate");
 
         assert_eq!(mux.with_state(|state| state.resource_revision), before_resource);
         assert_eq!(mux.with_state(|state| state.workspace_revision), before_workspace);

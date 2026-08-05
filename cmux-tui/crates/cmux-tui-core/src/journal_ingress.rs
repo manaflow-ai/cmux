@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
-use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
+use std::mem::size_of;
+use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
@@ -11,8 +12,10 @@ use crate::resource::{
     TerminalPublicId, WorkspacePublicId,
 };
 
-const JOURNAL_QUEUE_CAPACITY: usize = 1024;
-const JOURNAL_DRAIN_LIMIT: usize = 1024;
+const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
+const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
+const JOURNAL_TERMINAL_BATCH_CHUNKS: usize = 64;
+const JOURNAL_DURABLE_BATCH_BYTES: usize = 8 * 1024 * 1024;
 const TERMINAL_OUTPUT_INGRESS_BYTES: usize = 64 * 1024;
 const TERMINAL_OUTPUT_BATCH_BYTES: usize = 256 * 1024;
 
@@ -86,10 +89,10 @@ impl FrontendJournalEvent {
 
 #[derive(Debug)]
 pub(crate) enum JournalIngressEvent {
-    /// Queue-ordering fence. It appends no record, but its durable completion
-    /// proves every earlier ingress item committed before an exit transaction
-    /// can remove that terminal's topology.
-    Barrier,
+    /// Terminal-lane ordering fence. It appends no record, but its durable
+    /// completion proves every earlier terminal output or resize committed
+    /// before an exit transaction can remove that terminal's topology.
+    TerminalBarrier,
     TerminalOutput {
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
@@ -119,6 +122,36 @@ pub(crate) enum JournalIngressEvent {
 }
 
 impl JournalIngressEvent {
+    fn estimated_bytes(&self) -> usize {
+        match self {
+            Self::TerminalBarrier => 0,
+            Self::TerminalOutput { bytes, .. } => bytes.len(),
+            Self::TerminalResize { .. } => 64,
+            Self::Frontend { event, .. } => match event {
+                FrontendJournalEvent::Focus { .. } => 512,
+                FrontendJournalEvent::Resize { .. } => 256,
+                FrontendJournalEvent::Viewport { .. } => 384,
+            },
+            Self::Producer { ingress, origin, idempotency_key, .. } => {
+                let subjects = ingress.subjects.iter().fold(0_usize, |bytes, subject| {
+                    bytes
+                        .saturating_add(subject.kind.len())
+                        .saturating_add(subject.id.len())
+                        .saturating_add(2)
+                });
+                json_value_resident_bytes(&ingress.payload)
+                    .saturating_add(subjects)
+                    .saturating_add(ingress.producer_id.len())
+                    .saturating_add(ingress.kind.len())
+                    .saturating_add(ingress.causation_id.as_ref().map_or(0, String::len))
+                    .saturating_add(ingress.correlation_id.as_ref().map_or(0, String::len))
+                    .saturating_add(origin.len())
+                    .saturating_add(idempotency_key.len())
+                    .saturating_add(512)
+            }
+        }
+    }
+
     fn merge_output(&mut self, next: Self) -> Option<Self> {
         match self {
             Self::TerminalOutput { terminal_id, generation, bytes, .. } => match next {
@@ -144,6 +177,26 @@ impl JournalIngressEvent {
     }
 }
 
+fn json_value_resident_bytes(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Null => 0,
+        serde_json::Value::Bool(_) => 1,
+        serde_json::Value::Number(_) => size_of::<serde_json::Number>(),
+        serde_json::Value::String(value) => value.len(),
+        serde_json::Value::Array(values) => values.iter().fold(0_usize, |bytes, value| {
+            bytes
+                .saturating_add(size_of::<serde_json::Value>())
+                .saturating_add(json_value_resident_bytes(value))
+        }),
+        serde_json::Value::Object(values) => values.iter().fold(0_usize, |bytes, (key, value)| {
+            bytes
+                .saturating_add(key.len())
+                .saturating_add(size_of::<serde_json::Value>())
+                .saturating_add(json_value_resident_bytes(value))
+        }),
+    }
+}
+
 #[derive(Debug)]
 enum JournalIngressCompletion {
     Durable(SyncSender<Result<(), String>>),
@@ -165,20 +218,41 @@ impl QueuedJournalEvent {
 }
 
 pub(crate) struct JournalIngressSender {
-    sender: Option<SyncSender<QueuedJournalEvent>>,
+    terminal_sender: Option<SyncSender<QueuedJournalEvent>>,
+    durable_sender: Option<SyncSender<QueuedJournalEvent>>,
+    wake_sender: Option<SyncSender<()>>,
+}
+
+pub(crate) struct JournalIngressReceivers {
+    terminal: Receiver<QueuedJournalEvent>,
+    durable: Receiver<QueuedJournalEvent>,
+    wake: Receiver<()>,
 }
 
 impl JournalIngressSender {
-    pub(crate) fn new(enabled: bool) -> (Self, Option<Receiver<QueuedJournalEvent>>) {
+    pub(crate) fn new(enabled: bool) -> (Self, Option<JournalIngressReceivers>) {
         if !enabled {
-            return (Self { sender: None }, None);
+            return (Self { terminal_sender: None, durable_sender: None, wake_sender: None }, None);
         }
-        let (sender, receiver) = sync_channel(JOURNAL_QUEUE_CAPACITY);
-        (Self { sender: Some(sender) }, Some(receiver))
+        let (terminal_sender, terminal) = sync_channel(JOURNAL_TERMINAL_QUEUE_CAPACITY);
+        let (durable_sender, durable) = sync_channel(JOURNAL_DURABLE_QUEUE_CAPACITY);
+        let (wake_sender, wake) = sync_channel(1);
+        (
+            Self {
+                terminal_sender: Some(terminal_sender),
+                durable_sender: Some(durable_sender),
+                wake_sender: Some(wake_sender),
+            },
+            Some(JournalIngressReceivers { terminal, durable, wake }),
+        )
     }
 
     pub(crate) fn send(&self, event: JournalIngressEvent) {
-        let Some(sender) = &self.sender else { return };
+        debug_assert!(matches!(
+            &event,
+            JournalIngressEvent::TerminalOutput { .. } | JournalIngressEvent::TerminalResize { .. }
+        ));
+        let Some(sender) = &self.terminal_sender else { return };
         match event {
             JournalIngressEvent::TerminalOutput {
                 terminal_id,
@@ -193,34 +267,42 @@ impl JournalIngressSender {
                         occurred_at_ms,
                         bytes: bytes.to_vec(),
                     };
-                    if sender.send(QueuedJournalEvent { event, completion: None }).is_err() {
+                    if self.enqueue(sender, QueuedJournalEvent { event, completion: None }).is_err()
+                    {
                         return;
                     }
                 }
             }
             event => {
-                let _ = sender.send(QueuedJournalEvent { event, completion: None });
+                let _ = self.enqueue(sender, QueuedJournalEvent { event, completion: None });
             }
         }
     }
 
     pub(crate) fn send_durable(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
-        let Some(sender) = &self.sender else { return Ok(()) };
+        let sender = if matches!(&event, JournalIngressEvent::TerminalBarrier) {
+            &self.terminal_sender
+        } else {
+            &self.durable_sender
+        };
+        let Some(sender) = sender else { return Ok(()) };
         let (completion, result) = sync_channel(1);
-        sender
-            .send(QueuedJournalEvent {
+        self.enqueue(
+            sender,
+            QueuedJournalEvent {
                 event,
                 completion: Some(JournalIngressCompletion::Durable(completion)),
-            })
-            .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?;
+            },
+        )
+        .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?;
         result
             .recv()
             .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?
             .map_err(anyhow::Error::msg)
     }
 
-    pub(crate) fn flush(&self) -> anyhow::Result<()> {
-        self.send_durable(JournalIngressEvent::Barrier)
+    pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
+        self.send_durable(JournalIngressEvent::TerminalBarrier)
     }
 
     pub(crate) fn send_producer(
@@ -230,12 +312,13 @@ impl JournalIngressSender {
         origin: String,
         idempotency_key: String,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
-        let Some(sender) = &self.sender else {
+        let Some(sender) = &self.durable_sender else {
             anyhow::bail!("session journal writer is unavailable")
         };
         let (completion, result) = sync_channel(1);
-        sender
-            .send(QueuedJournalEvent {
+        self.enqueue(
+            sender,
+            QueuedJournalEvent {
                 event: JournalIngressEvent::Producer {
                     ingress,
                     validated,
@@ -243,8 +326,9 @@ impl JournalIngressSender {
                     idempotency_key,
                 },
                 completion: Some(JournalIngressCompletion::Producer(completion)),
-            })
-            .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?;
+            },
+        )
+        .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?;
         result
             .recv()
             .map_err(|_| anyhow::anyhow!("session journal writer stopped"))?
@@ -252,40 +336,40 @@ impl JournalIngressSender {
     }
 
     pub(crate) const fn enabled(&self) -> bool {
-        self.sender.is_some()
+        self.terminal_sender.is_some()
+    }
+
+    fn enqueue(
+        &self,
+        sender: &SyncSender<QueuedJournalEvent>,
+        event: QueuedJournalEvent,
+    ) -> Result<(), std::sync::mpsc::SendError<QueuedJournalEvent>> {
+        sender.send(event)?;
+        if let Some(wake) = &self.wake_sender {
+            match wake.try_send(()) {
+                Ok(()) | Err(TrySendError::Full(())) => {}
+                Err(TrySendError::Disconnected(())) => {}
+            }
+        }
+        Ok(())
     }
 }
 
 pub(crate) fn start(
     mux: &Arc<Mux>,
-    receiver: Option<Receiver<QueuedJournalEvent>>,
+    receivers: Option<JournalIngressReceivers>,
 ) -> anyhow::Result<()> {
-    let Some(receiver) = receiver else { return Ok(()) };
+    let Some(receivers) = receivers else { return Ok(()) };
     let weak = Arc::downgrade(mux);
     std::thread::Builder::new()
         .name("mux-session-journal-writer".into())
-        .spawn(move || run(weak, receiver))?;
+        .spawn(move || run(weak, receivers))?;
     Ok(())
 }
 
-fn run(mux: Weak<Mux>, receiver: Receiver<QueuedJournalEvent>) {
+fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
     loop {
-        let first = match receiver.recv() {
-            Ok(event) => event,
-            Err(_) => return,
-        };
-        let mut batch = Vec::with_capacity(JOURNAL_DRAIN_LIMIT.min(64));
-        batch.push(first);
-        while batch.len() < JOURNAL_DRAIN_LIMIT {
-            let next = match receiver.try_recv() {
-                Ok(event) => event,
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            };
-            let Some(last) = batch.last_mut() else { return };
-            if let Some(next) = last.merge_output(next) {
-                batch.push(next);
-            }
-        }
+        let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
         while let Some(mut batch) = pending.pop_front() {
             let mut delay = Duration::from_millis(10);
@@ -330,6 +414,58 @@ fn run(mux: Weak<Mux>, receiver: Receiver<QueuedJournalEvent>) {
                     }
                 }
             }
+        }
+    }
+}
+
+fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJournalEvent>> {
+    loop {
+        // Producers share one SQLite writer and therefore one commit order, but
+        // terminal bytes and external producers have separate bounded lanes.
+        // Cap each transaction at 4 MiB of unmerged terminal input so a large
+        // output burst does not inflate durable producer receipt latency.
+        // Share an fsync across small producer events, while bounding a single
+        // transaction even when producers submit their maximum payloads.
+        while receivers.wake.try_recv().is_ok() {}
+        let mut batch =
+            Vec::with_capacity(JOURNAL_TERMINAL_BATCH_CHUNKS + JOURNAL_DURABLE_QUEUE_CAPACITY);
+        drain_lane(&receivers.terminal, &mut batch, JOURNAL_TERMINAL_BATCH_CHUNKS, usize::MAX);
+        drain_lane(
+            &receivers.durable,
+            &mut batch,
+            JOURNAL_DURABLE_QUEUE_CAPACITY,
+            JOURNAL_DURABLE_BATCH_BYTES,
+        );
+        if !batch.is_empty() {
+            return Some(batch);
+        }
+        if receivers.wake.recv().is_err() {
+            return None;
+        }
+    }
+}
+
+fn drain_lane(
+    receiver: &Receiver<QueuedJournalEvent>,
+    batch: &mut Vec<QueuedJournalEvent>,
+    limit: usize,
+    byte_limit: usize,
+) {
+    let mut drained = 0;
+    let mut drained_bytes = 0_usize;
+    while drained < limit && drained_bytes < byte_limit {
+        let next = match receiver.try_recv() {
+            Ok(event) => event,
+            Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
+        };
+        drained += 1;
+        drained_bytes = drained_bytes.saturating_add(next.event.estimated_bytes());
+        if let Some(last) = batch.last_mut() {
+            if let Some(next) = last.merge_output(next) {
+                batch.push(next);
+            }
+        } else {
+            batch.push(next);
         }
     }
 }
@@ -523,16 +659,7 @@ mod tests {
         );
         std::thread::sleep(Duration::from_millis(500));
         injector.execute_batch("DROP TRIGGER reject_test_terminal_output;").unwrap();
-        mux.journal_local_frontend_event(FrontendJournalEvent::Resize {
-            event_id: "event_writer_retry_barrier".into(),
-            frontend_projection_id: public_id("projection", 8, FrontendProjectionPublicId::parse),
-            generation: "writer-retry-frontend".into(),
-            cols: 80,
-            rows: 24,
-            cell_width: 8,
-            cell_height: 16,
-        })
-        .unwrap();
+        mux.flush_terminal_journal().unwrap();
 
         let records = mux.session_journal_after(0, 1024).unwrap().records;
         let output = records
@@ -553,8 +680,8 @@ mod tests {
 
     #[test]
     fn terminal_output_is_chunked_before_entering_the_bounded_queue() {
-        let (sender, receiver) = JournalIngressSender::new(true);
-        let receiver = receiver.unwrap();
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.unwrap();
         let terminal_id = Arc::new(public_id("term", 9, TerminalPublicId::parse));
         let bytes = (0..TERMINAL_OUTPUT_INGRESS_BYTES * 2 + 17)
             .map(|index| u8::try_from(index % 251).unwrap())
@@ -568,7 +695,7 @@ mod tests {
 
         let mut rebuilt = Vec::new();
         for expected_len in [TERMINAL_OUTPUT_INGRESS_BYTES, TERMINAL_OUTPUT_INGRESS_BYTES, 17] {
-            let queued = receiver.recv().unwrap();
+            let queued = receivers.terminal.recv().unwrap();
             let JournalIngressEvent::TerminalOutput { bytes, occurred_at_ms, .. } = queued.event
             else {
                 panic!("expected terminal output")
@@ -582,7 +709,134 @@ mod tests {
             rebuilt.extend_from_slice(&bytes);
         }
         assert_eq!(rebuilt, bytes);
-        assert!(receiver.try_recv().is_err());
+        assert!(receivers.terminal.try_recv().is_err());
+    }
+
+    #[test]
+    fn saturated_durable_ingress_does_not_block_terminal_output() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.unwrap();
+        let durable = sender.durable_sender.as_ref().unwrap();
+        for _ in 0..JOURNAL_DURABLE_QUEUE_CAPACITY {
+            durable
+                .try_send(QueuedJournalEvent {
+                    event: JournalIngressEvent::TerminalBarrier,
+                    completion: None,
+                })
+                .unwrap();
+        }
+
+        let terminal_id = Arc::new(public_id("term", 12, TerminalPublicId::parse));
+        let enqueue = std::thread::spawn(move || {
+            sender.send(JournalIngressEvent::TerminalOutput {
+                terminal_id,
+                generation: Arc::from("isolated-terminal-lane"),
+                occurred_at_ms: 43,
+                bytes: b"still-responsive".to_vec(),
+            });
+        });
+        let queued = receivers
+            .terminal
+            .recv_timeout(Duration::from_millis(100))
+            .expect("terminal output must use an ingress lane isolated from durable producers");
+        assert!(matches!(queued.event, JournalIngressEvent::TerminalOutput { .. }));
+        enqueue.join().unwrap();
+    }
+
+    #[test]
+    fn durable_batches_are_bounded_by_resident_payload_bytes() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.unwrap();
+        let ingress = crate::JournalIngress {
+            producer_id: "batch_probe".into(),
+            manifest_version: 1,
+            kind: "batch.probe".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: Vec::new(),
+            sensitivity: None,
+            payload: serde_json::json!({"blob":"x".repeat(1024 * 1024)}),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: crate::JournalClass::Observation,
+            replay: crate::JournalReplayPolicy::Advisory,
+            sensitivity: crate::JournalSensitivity::Metadata,
+        };
+        for index in 0..9 {
+            sender
+                .durable_sender
+                .as_ref()
+                .unwrap()
+                .try_send(QueuedJournalEvent {
+                    event: JournalIngressEvent::Producer {
+                        ingress: ingress.clone(),
+                        validated,
+                        origin: "batch_probe".into(),
+                        idempotency_key: format!("batch_probe_{index}"),
+                    },
+                    completion: None,
+                })
+                .unwrap();
+        }
+
+        let batch = receive_batch(&receivers).unwrap();
+        assert_eq!(batch.len(), 8);
+        assert_eq!(receivers.durable.try_iter().count(), 1);
+    }
+
+    #[test]
+    fn durable_receipt_makes_exact_subject_index_immediately_readable() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-subject-receipt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "journal-subject-receipt",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        for index in 0..32 {
+            let ingress = crate::agent_hook_journal_ingress(
+                "codex",
+                "SubagentStop",
+                None,
+                serde_json::json!({
+                    "session_id":"receipt-root",
+                    "root_session_id":"receipt-root",
+                    "parent_session_id":"receipt-root",
+                    "child_agent_id":format!("receipt-child-{index}"),
+                    "message":format!("receipt-marker-{index}"),
+                }),
+            )
+            .unwrap();
+            let subject = ingress
+                .subjects
+                .iter()
+                .find(|subject| subject.kind == "agent_tree")
+                .cloned()
+                .unwrap();
+            let commit = mux
+                .append_journal_ingress(
+                    &ingress,
+                    "client_subject_receipt",
+                    &format!("subject_receipt_{index}"),
+                )
+                .unwrap();
+            let reader = mux.session_journal_reader().unwrap().unwrap();
+            let page =
+                reader.after_subjects(commit.sequence.saturating_sub(1), 1, &[subject]).unwrap();
+            assert_eq!(
+                page.records.first().map(|record| record.sequence),
+                Some(commit.sequence),
+                "durable receipt {index} returned before its subject index was readable"
+            );
+        }
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -608,16 +862,7 @@ mod tests {
         for _ in 0..CHUNKS {
             mux.journal_terminal_output(terminal_id.clone(), generation.clone(), chunk.clone());
         }
-        mux.journal_local_frontend_event(FrontendJournalEvent::Resize {
-            event_id: "event_ingress_throughput_barrier".into(),
-            frontend_projection_id: public_id("projection", 9, FrontendProjectionPublicId::parse),
-            generation: "ingress-throughput-frontend".into(),
-            cols: 80,
-            rows: 24,
-            cell_width: 8,
-            cell_height: 16,
-        })
-        .unwrap();
+        mux.flush_terminal_journal().unwrap();
         let elapsed = started.elapsed();
         let byte_count = CHUNKS * TERMINAL_OUTPUT_INGRESS_BYTES;
         let mebibytes_per_second = byte_count as f64 / (1024.0 * 1024.0) / elapsed.as_secs_f64();

@@ -6,6 +6,7 @@
 //! `cmux-tui attach` connects the same TUI to an existing (usually
 //! headless) session over that socket, which is how detach/reattach works.
 
+mod agent_hook_install;
 mod app;
 mod browser_input;
 mod cli;

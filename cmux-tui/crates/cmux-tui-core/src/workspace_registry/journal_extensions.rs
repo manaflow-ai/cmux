@@ -674,7 +674,7 @@ impl WorkspaceRegistry {
                 } => Some(terminal_id.as_str().to_string()),
                 crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                 | crate::journal_ingress::JournalIngressEvent::Producer { .. }
-                | crate::journal_ingress::JournalIngressEvent::Barrier => None,
+                | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => None,
             })
             .collect::<HashSet<_>>();
         let mut expanded_by_terminal =
@@ -691,7 +691,7 @@ impl WorkspaceRegistry {
         let mut terminal_offsets = HashMap::<(&str, &str), u64>::new();
         let mut commits = Vec::with_capacity(events.len());
         for event in events {
-            if matches!(*event, crate::journal_ingress::JournalIngressEvent::Barrier) {
+            if matches!(*event, crate::journal_ingress::JournalIngressEvent::TerminalBarrier) {
                 commits.push(None);
                 continue;
             }
@@ -996,7 +996,7 @@ impl WorkspaceRegistry {
                     ),
                     crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                     | crate::journal_ingress::JournalIngressEvent::Producer { .. }
-                    | crate::journal_ingress::JournalIngressEvent::Barrier => {
+                    | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => {
                         unreachable!()
                     }
                 };

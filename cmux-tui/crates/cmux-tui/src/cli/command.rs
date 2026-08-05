@@ -16,6 +16,7 @@ pub(super) enum ParsedCommand {
 }
 
 pub(super) enum CommandPlan {
+    AgentHooks(crate::agent_hook_install::Plan),
     Protocol(RequestPlan),
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
@@ -1237,6 +1238,18 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
+        ["hook", action @ ("install" | "uninstall" | "status"), providers @ ..] => {
+            let action = match *action {
+                "install" => crate::agent_hook_install::Action::Install,
+                "uninstall" => crate::agent_hook_install::Action::Uninstall,
+                "status" => crate::agent_hook_install::Action::Status,
+                _ => unreachable!(),
+            };
+            Ok(CommandPlan::AgentHooks(crate::agent_hook_install::Plan {
+                action,
+                providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
+            }))
+        }
         ["list"] => {
             let mut params = Map::new();
             if let Some(terminal) = flags.take("terminal") {
@@ -2479,6 +2492,21 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
     }
 }
 
+pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
+    let result = crate::agent_hook_install::run(&plan);
+    if result.failed {
+        let error = json!({
+            "code": "local.agent_hooks",
+            "message": "one or more coding-agent hook operations failed",
+            "details": result.value,
+            "retryable": false,
+        });
+        super::wire::print_local_error(&error, global.output, 1)
+    } else {
+        super::wire::print_local_success(&result.value, global.output)
+    }
+}
+
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {
     let output = global.output;
     let Some(socket) = global.socket else {
@@ -2535,6 +2563,17 @@ mod tests {
             CommandPlan::Protocol(plan) => plan,
             _ => panic!("expected protocol plan"),
         }
+    }
+
+    #[test]
+    fn coding_agent_hook_management_stays_local() {
+        let CommandPlan::AgentHooks(plan) =
+            parse(&strings(&["agent", "hook", "install", "codex", "claude-code"])).unwrap()
+        else {
+            panic!("expected local agent hook plan");
+        };
+        assert_eq!(plan.action, crate::agent_hook_install::Action::Install);
+        assert_eq!(plan.providers, ["codex", "claude-code"]);
     }
 
     fn operation(plan: &RequestPlan) -> String {
