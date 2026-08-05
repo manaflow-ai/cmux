@@ -159,7 +159,7 @@ struct BrowserLocalFileReadAccessPolicyTests {
     }
 
     @Test
-    func identityUsesCanonicalFileTarget() throws {
+    func identityUsesSuppliedCanonicalFileTarget() throws {
         let fixture = try BrowserLocalFileTestFixture()
         defer { fixture.remove() }
 
@@ -172,9 +172,12 @@ struct BrowserLocalFileReadAccessPolicyTests {
         )
         try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
 
+        let resolvedSymlink = symlink.standardizedFileURL.resolvingSymlinksInPath()
+        let resolvedTarget = target.standardizedFileURL.resolvingSymlinksInPath()
+
         #expect(
-            BrowserLocalFileIdentity(url: symlink) ==
-                BrowserLocalFileIdentity(url: target)
+            BrowserLocalFileIdentity(resolvedURL: resolvedSymlink) ==
+                BrowserLocalFileIdentity(resolvedURL: resolvedTarget)
         )
     }
 

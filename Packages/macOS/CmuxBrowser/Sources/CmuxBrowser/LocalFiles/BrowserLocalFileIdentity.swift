@@ -4,14 +4,6 @@ public import Foundation
 public struct BrowserLocalFileIdentity: Equatable, Hashable, Sendable {
     private let canonicalPath: String
 
-    /// Creates an identity for a local file URL.
-    ///
-    /// - Parameter url: The local file URL to canonicalize.
-    public init?(url: URL) {
-        guard url.isFileURL else { return nil }
-        canonicalPath = url.standardizedFileURL.resolvingSymlinksInPath().path
-    }
-
     /// Creates an identity from a file URL that was already canonicalized by a
     /// deadline-bounded filesystem operation.
     ///
