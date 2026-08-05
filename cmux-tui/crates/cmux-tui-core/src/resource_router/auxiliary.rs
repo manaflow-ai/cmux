@@ -803,6 +803,64 @@ mod tests {
     }
 
     #[test]
+    fn frontend_projection_cas_is_window_local() {
+        let mux = Mux::new_for_test("aux-projection-window-cas", SurfaceOptions::default());
+        let first_id = FrontendProjectionPublicId::random().unwrap();
+        let second_id = FrontendProjectionPublicId::random().unwrap();
+        let projection = |window: &str, generation: &str, selected: &str| {
+            json!({
+                "frontend_id":"cmux-swift",
+                "window_id":window,
+                "generation":generation,
+                "state":{"selected_workspace":selected},
+            })
+        };
+        let mut first = session_selectors();
+        first.frontend_projection = Some(first_id.to_string());
+        let mut second = session_selectors();
+        second.frontend_projection = Some(second_id.to_string());
+
+        let initial = dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-first"),
+                first.clone(),
+                json!({"projection":projection("window-a", "launch-a", "alpha")}),
+            ),
+        )
+        .unwrap();
+        assert_eq!(initial["value"]["projection_revision"], "1");
+
+        dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-second"),
+                second,
+                json!({"projection":projection("window-b", "launch-b", "beta")}),
+            ),
+        )
+        .unwrap();
+
+        let updated = dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-first-update"),
+                first,
+                json!({
+                    "projection":projection("window-a", "launch-a", "gamma"),
+                    "expected_projection_revision":"1",
+                }),
+            ),
+        )
+        .unwrap();
+        assert_eq!(updated["value"]["projection_revision"], "2");
+        assert_eq!(updated["value"]["projection"]["state"]["selected_workspace"], "gamma");
+    }
+
+    #[test]
     fn sidebar_resource_lifecycle_uses_the_real_plugin_pty_and_exact_receipts() {
         let mux = Mux::new("aux-sidebar-lifecycle", SurfaceOptions::default());
         mux.configure_sidebar_plugin(Some(SidebarPluginOptions {

@@ -15184,6 +15184,10 @@ mod tests {
         assert_eq!(response["id"], "terminal-attach-open");
         assert_eq!(response["ok"], true);
         assert_eq!(response["result"]["stream_id"], stream_id);
+        let attachment_lease = response["result"]["attachment_lease"]
+            .as_str()
+            .expect("resource attachments must expose a per-view lease")
+            .to_string();
         let item = pop_json(&outbound);
         assert_eq!(item["type"], "stream_item");
         assert_eq!(item["stream_id"], stream_id);
@@ -15195,6 +15199,24 @@ mod tests {
             item["item"]["render"]["rows"].as_array().unwrap().len(),
             item["item"]["render"]["size"]["rows"].as_u64().unwrap() as usize
         );
+
+        let resize = resource_request(
+            "terminal-attach-resize",
+            "terminal.viewer.resize",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal_id,
+                "attachment_lease":attachment_lease,
+                "cols":91,
+                "rows":27,
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &resize, &writer, &scheduler));
+        let resized = pop_json(&outbound);
+        assert_eq!(resized["result"]["outcome"], "applied");
+        assert_eq!(resized["result"]["size"], json!({"cols":91,"rows":27}));
 
         let cancel = resource_request(
             "terminal-attach-cancel",
