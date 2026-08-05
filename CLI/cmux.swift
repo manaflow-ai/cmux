@@ -15286,7 +15286,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)
+              \(String(localized: "command.cmuxCLI.hooks.agents", defaultValue: "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"))
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -27344,7 +27344,7 @@ struct CMUXCLI {
         case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
         case "copilot": envKey = "CMUX_COPILOT_PID"
         case "kiro": envKey = "CMUX_KIRO_PID"
-        case "code-puppy": envKey = "CMUX_CODE_PUPPY_PID"
+        case "code-puppy": envKey = CodePuppyAgentRegistration.standard.pidEnvironmentVariable
         default: return nil
         }
         guard let raw = env[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines),

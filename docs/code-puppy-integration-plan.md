@@ -76,10 +76,14 @@ cmux can *mint the session name at launch*, restore is essentially free.
 ## 2. Integration surfaces in cmux (the checklist)
 
 Adding an agent touches a well-defined set of files. Each layer is independent,
-so we can ship incrementally. Discovered surfaces:
+so we can ship incrementally. The stable Code Puppy contract lives in
+`Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/CodePuppyAgentRegistration.swift`
+and is consumed through `CodePuppyAgentRegistration.standard`; app and CLI files
+keep only target-specific adapters. Discovered surfaces:
 
 | # | Surface | File | Purpose |
 |---|---------|------|---------|
+| A0 | Shared agent contract | `Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/CodePuppyAgentRegistration.swift` | Keep detection, hook, Feed, and resume constants in an independently testable value API. |
 | A | Process detection | `Sources/CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift` | Recognize a running `code-puppy` process (task manager, pixel pets, status). |
 | B | Detection struct/tests | `Sources/TaskManagerTypes.swift`, `cmuxTests/TaskManagerResourcesTests.swift` | Matching rules + regression coverage. |
 | C | Launch config kind | `Sources/CmuxConfig.swift` (`CmuxConfigAgentKind`) | `agent` action buttons / plus-menu / command palette. |
@@ -180,6 +184,7 @@ AgentHookDef(
     disableEnvVar: "CMUX_CODE_PUPPY_HOOKS_DISABLED",
     hookMarker: "cmux hooks code-puppy",
     format: .nested(timeoutMs: 5000), // Code Puppy hook_engine timeout is ms
+    nestedGroupMatcher: "*",
     events: [
         .init(agentEvent: "SessionStart",     cmuxSubcommand: "session-start"),
         .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),

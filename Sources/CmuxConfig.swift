@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxFoundation
 import Combine
+import CMUXAgentLaunch
 import CryptoKit
 import Foundation
 import CmuxSettings
@@ -355,7 +356,7 @@ enum CmuxConfigAgentKind: Sendable, Hashable {
         case .opencode:
             return "opencode"
         case .codePuppy:
-            return "code-puppy"
+            return CodePuppyAgentRegistration.standard.commandName
         case .custom(let name):
             return name
         }
@@ -370,7 +371,7 @@ enum CmuxConfigAgentKind: Sendable, Hashable {
         case .opencode:
             return .symbol("chevron.left.forwardslash.chevron.right")
         case .codePuppy:
-            return .symbol("pawprint")
+            return .symbol(CodePuppyAgentRegistration.standard.defaultSymbolName)
         case .custom:
             return .symbol("terminal")
         }
@@ -382,6 +383,10 @@ extension CmuxConfigAgentKind: Codable {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        if CodePuppyAgentRegistration.standard.configAliases.contains(value) {
+            self = .codePuppy
+            return
+        }
         switch value {
         case "codex":
             self = .codex
@@ -389,8 +394,6 @@ extension CmuxConfigAgentKind: Codable {
             self = .claudeCode
         case "opencode", "openCode", "open-code":
             self = .opencode
-        case "code-puppy", "codePuppy", "code_puppy", "pup":
-            self = .codePuppy
         default:
             guard !value.isEmpty,
                   value.unicodeScalars.allSatisfy({ !CharacterSet.whitespacesAndNewlines.contains($0) }) else {

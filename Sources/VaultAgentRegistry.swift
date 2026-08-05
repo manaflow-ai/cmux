@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import OSLog
 
@@ -188,18 +189,19 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     }
 
     static var builtInCodePuppy: CmuxVaultAgentRegistration {
-        CmuxVaultAgentRegistration(
-            id: "code-puppy",
-            name: "Code Puppy",
-            iconAssetName: "AgentIcons/CodePuppy",
+        let contract = CodePuppyAgentRegistration.standard
+        return CmuxVaultAgentRegistration(
+            id: contract.id,
+            name: String(localized: "agent.codePuppy.displayName", defaultValue: "Code Puppy"),
+            iconAssetName: contract.iconAssetName,
             detect: CmuxVaultAgentDetectRule(
-                processNames: ["code-puppy", "code_puppy"],
-                alternateArgvContains: ["code_puppy"]
+                processNames: contract.directBasenames,
+                alternateArgvContains: contract.vaultAlternateArgvContains
             ),
-            sessionIdSource: .argvOption("--resume"),
-            resumeCommand: "{{executable}} --resume {{sessionId}}",
+            sessionIdSource: .argvOption(contract.resumeOption),
+            resumeCommand: contract.resumeCommand,
             cwd: .preserve,
-            sessionDirectory: "~/.code_puppy/autosaves"
+            sessionDirectory: contract.sessionDirectory
         )
     }
 }
