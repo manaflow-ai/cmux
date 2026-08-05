@@ -472,7 +472,7 @@ extension TerminalController {
             //
             // The rule is `panelVisibleInUI`: isWorkspaceVisible && (isSelectedInPane
             // || isFocused). Its first two inputs are view-level — `isWorkspaceVisible`
-            // and `isWorkspaceInputActive` are properties fed into the SwiftUI view, not
+            // and `isWorkspaceInputActive` are properties fed into the native view, not
             // model state — so the full equality is not recomputable here. The
             // implication is: holding the flag REQUIRES the panel be selected in its
             // pane or focused, and both of those are model state. An owner that is

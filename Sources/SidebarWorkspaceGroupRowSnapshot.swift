@@ -6,7 +6,7 @@ import Foundation
 ///
 /// Live group, notification, config, drag, and pointer models are reduced to
 /// this value before the lazy-list boundary. Only action closures are bound
-/// when SwiftUI realizes the row.
+/// when AppKit realizes the row.
 struct SidebarWorkspaceGroupRowSnapshot {
     let groupId: UUID
     let anchorWorkspaceId: UUID

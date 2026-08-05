@@ -49,7 +49,7 @@ final class WorkspaceTodoPanel: Panel, ObservableObject {
     // MARK: - Panel protocol
 
     func focus() {
-        // The pane is chrome + SwiftUI controls; no dedicated first responder.
+        // The pane is chrome plus native controls; no dedicated first responder.
     }
 
     func unfocus() {}

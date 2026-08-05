@@ -14,10 +14,13 @@ extension AppDelegate {
     }
 
     func requestSavedLayoutSave(preferredWindow: NSWindow? = nil) {
-        NotificationCenter.default.post(
-            name: .savedLayoutSaveRequested,
-            object: preferredWindow ?? shortcutRoutingActiveWindow
-        )
+        guard let tabManager = activeTabManagerForCommands(
+            preferredWindow: preferredWindow ?? shortcutRoutingActiveWindow
+        ) else {
+            NSSound.beep()
+            return
+        }
+        presentSavedLayoutSavePrompt(tabManager: tabManager)
     }
 
     func handleSavedLayoutShortcut(_ event: NSEvent) -> Bool {
@@ -69,5 +72,128 @@ extension AppDelegate {
         } catch {
             NSSound.beep()
         }
+    }
+
+    private func presentSavedLayoutSavePrompt(tabManager: TabManager) {
+        guard let workspace = tabManager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "dialog.savedLayout.save.title",
+            defaultValue: "Save Layout as Template"
+        )
+        alert.informativeText = String(
+            localized: "dialog.savedLayout.save.message",
+            defaultValue: "Enter a name for this workspace layout."
+        )
+        alert.addButton(withTitle: String(
+            localized: "dialog.savedLayout.save.confirm",
+            defaultValue: "Save"
+        ))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        input.placeholderString = String(
+            localized: "dialog.savedLayout.save.placeholder",
+            defaultValue: "Layout name"
+        )
+        alert.accessoryView = input
+        alert.window.initialFirstResponder = input
+
+        guard alert.runCmuxModal() == .alertFirstButtonReturn else { return }
+        let name = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            presentSavedLayoutError(message: String(
+                localized: "dialog.savedLayout.error.blankName",
+                defaultValue: "Enter a name before saving the layout."
+            ))
+            return
+        }
+
+        let store = SavedLayoutStore()
+        let existingLayout: CmuxSavedLayout?
+        do {
+            existingLayout = try store.layout(named: name)
+        } catch {
+            presentSavedLayoutError(message: savedLayoutErrorMessage(error))
+            return
+        }
+        let overwrite = existingLayout == nil || confirmSavedLayoutOverwrite(name: name)
+        guard overwrite else { return }
+
+        do {
+            let capture = try workspace.captureLayoutDefinition()
+            try store.save(
+                CmuxSavedLayout(name: name, description: nil, workspace: capture.workspace),
+                overwrite: existingLayout != nil
+            )
+        } catch {
+            presentSavedLayoutError(message: savedLayoutErrorMessage(error))
+        }
+    }
+
+    private func confirmSavedLayoutOverwrite(name: String) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.savedLayout.overwrite.title",
+            defaultValue: "Replace Saved Layout?"
+        )
+        let format = String(
+            localized: "dialog.savedLayout.overwrite.message",
+            defaultValue: "A layout named “%@” already exists. Replace it?"
+        )
+        alert.informativeText = String.localizedStringWithFormat(format, name)
+        alert.addButton(withTitle: String(
+            localized: "dialog.savedLayout.overwrite.confirm",
+            defaultValue: "Replace"
+        ))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        return alert.runCmuxModal() == .alertFirstButtonReturn
+    }
+
+    private func presentSavedLayoutError(message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.savedLayout.error.title",
+            defaultValue: "Layout Not Saved"
+        )
+        alert.informativeText = message
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        _ = alert.runCmuxModal()
+    }
+
+    private func savedLayoutErrorMessage(_ error: Error) -> String {
+        if let storeError = error as? SavedLayoutStoreError {
+            switch storeError {
+            case .blankName:
+                return String(
+                    localized: "dialog.savedLayout.error.blankName",
+                    defaultValue: "Enter a name before saving the layout."
+                )
+            case .duplicateName:
+                return String(
+                    localized: "dialog.savedLayout.error.duplicateName",
+                    defaultValue: "A layout with that name already exists."
+                )
+            case .notFound:
+                return String(
+                    localized: "dialog.savedLayout.error.notFound",
+                    defaultValue: "That saved layout could not be found."
+                )
+            case .corruptFile:
+                return String(
+                    localized: "dialog.savedLayout.error.corruptFile",
+                    defaultValue: "The saved layouts file could not be read. Check it and try again."
+                )
+            }
+        }
+        return String(
+            localized: "dialog.savedLayout.error.unknown",
+            defaultValue: "The saved layout request could not be completed. Try again."
+        )
     }
 }

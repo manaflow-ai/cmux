@@ -30,7 +30,7 @@ extension Workspace {
             snapshot: snapshot,
             isRemoteContext: isRemoteContext
         ) {
-            let selectedSnapshotFingerprint = ContentView.commandPaletteForkSnapshotFingerprint(
+            let selectedSnapshotFingerprint = AgentConversationForkSupport.snapshotFingerprint(
                 snapshot,
                 isRemoteTerminal: isRemoteContext
             )
@@ -55,7 +55,7 @@ extension Workspace {
             )
             guard refreshedSelection.availability.isAvailable,
                   let refreshedSnapshot = refreshedSelection.snapshot,
-                  ContentView.commandPaletteForkSnapshotFingerprint(
+                  AgentConversationForkSupport.snapshotFingerprint(
                     refreshedSnapshot,
                     isRemoteTerminal: isRemoteContext
                   ) == selectedSnapshotFingerprint,

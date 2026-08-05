@@ -1,6 +1,6 @@
 /// A shared evaluation budget that bounds interpreter nesting *and* total
 /// produced view nodes, so pathological or malicious authored source degrades
-/// to a contained failure instead of overflowing the stack or handing SwiftUI
+/// to a contained failure instead of overflowing the stack or handing AppKit
 /// a multi-thousand-node tree that freezes the host.
 ///
 /// One instance is created at the root ``EvalEnvironment`` and shared with every
@@ -24,7 +24,7 @@ final class RecursionBudget {
     ///     produce. The default (3000) is an order of magnitude above a rich
     ///     real sidebar (a few hundred nodes) yet small enough that a
     ///     pathological `ForEach(0..<100_000)` trips in milliseconds instead
-    ///     of building a tree SwiftUI cannot lay out.
+    ///     of building a tree AppKit cannot lay out.
     init(limit: Int = 400, nodeLimit: Int = 3000) {
         self.limit = limit
         self.nodeLimit = nodeLimit

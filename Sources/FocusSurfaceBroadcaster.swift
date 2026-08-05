@@ -19,9 +19,9 @@ nonisolated private let focusSurfaceBroadcasterLogger = Logger(
 /// into `TabManager.focusTab` → `Workspace.focusPanel` → `applyTabSelectionNow`,
 /// which posts the notification again. Because the only re-entrancy guard
 /// (`Workspace.isApplyingTabSelection`) is *per-instance*, a cycle that bounces
-/// through SwiftUI body re-evaluation and across different `Workspace` instances
+/// through view refreshes and across different `Workspace` instances
 /// (command-palette focus restore + cross-workspace handoff) was unbounded. That is
-/// the re-entrant SwiftUI/AppKit layout loop reported in
+/// the re-entrant layout loop reported in
 /// https://github.com/manaflow-ai/cmux/issues/8843.
 ///
 /// ## Contract
@@ -38,7 +38,7 @@ nonisolated private let focusSurfaceBroadcasterLogger = Logger(
 ///   ``maxConsecutiveBoundedFlushes``; after that the pending payload gets one
 ///   delayed recovery delivery and the breaker stays open until a new external
 ///   focus emit arrives, so a non-converging observer cycle cannot monopolize
-///   SwiftUI/AppKit layout work.
+///   AppKit layout work.
 ///
 /// The type is fully testable without AppKit: inject ``deliver`` to capture
 /// broadcasts, and inject ``schedule`` to drive flushes deterministically.

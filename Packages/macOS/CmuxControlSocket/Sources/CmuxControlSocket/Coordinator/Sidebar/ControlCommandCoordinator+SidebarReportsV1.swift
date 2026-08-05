@@ -112,7 +112,7 @@ extension ControlCommandCoordinator {
         let label = String(labelRaw.prefix(16))
 
         // Shell integration provides explicit workspace/panel UUIDs for browser metadata.
-        // Keep this telemetry path off-main so SwiftUI render passes can't deadlock the socket handler.
+        // Keep this telemetry path off-main so AppKit layout passes can't deadlock the socket handler.
         let resolution = sidebarPanelMutationTarget(
             options: parsed.options,
             missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y]"

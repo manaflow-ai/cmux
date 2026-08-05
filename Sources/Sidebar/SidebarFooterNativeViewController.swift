@@ -7,6 +7,158 @@ import CmuxUpdaterUI
 import CmuxWorkspaces
 import Observation
 
+enum SidebarFooterButtonMetrics {
+    static let buttonSize: CGFloat = 22
+    static let profilePictureSize: CGFloat = 14
+    static let profileIconSize: CGFloat = 14
+    static let mobileIconSize: CGFloat = 12
+    static let helpIconSize: CGFloat = 14
+    static let hoverOpacity = 0.08
+}
+
+enum SidebarAccountButtonVisual: Equatable {
+    case profilePicture
+    case profileIcon(systemName: String)
+}
+
+struct SidebarAccountButtonPresentation: Equatable {
+    static let defaultProfileIconSystemName = "person.crop.circle"
+
+    let visual: SidebarAccountButtonVisual
+    let size: CGFloat
+
+    static func resolve(
+        isSignedIn: Bool,
+        prefersProfileIcon: Bool,
+        hasProfilePicture: Bool = false
+    ) -> SidebarAccountButtonPresentation {
+        if isSignedIn, hasProfilePicture, !prefersProfileIcon {
+            return SidebarAccountButtonPresentation(
+                visual: .profilePicture,
+                size: SidebarFooterButtonMetrics.profilePictureSize
+            )
+        }
+        return SidebarAccountButtonPresentation(
+            visual: .profileIcon(systemName: defaultProfileIconSystemName),
+            size: SidebarFooterButtonMetrics.profileIconSize
+        )
+    }
+
+    var showsProfilePicture: Bool { visual == .profilePicture }
+}
+
+enum SidebarFooterControl: CaseIterable, Equatable {
+    case account
+    case mobileConnect
+    case help
+    case shortcutDiscovery
+    case upgrade
+    case extensions
+    case update
+}
+
+enum SidebarFooterPresentationPolicy {
+    static func isVisible(
+        _ control: SidebarFooterControl,
+        presentationMode: WorkspacePresentationModeSettings.Mode
+    ) -> Bool {
+        presentationMode != .minimal || control == .upgrade
+    }
+}
+
+#if DEBUG
+enum SidebarFooterIconButtonDebugSettings {
+    static let hoverOpacityKey = "debug.sidebarFooterIconButton.hoverOpacity"
+    static let defaultHoverOpacity = SidebarFooterButtonMetrics.hoverOpacity
+}
+
+enum SidebarFooterProfileIconDebugChoice: String, CaseIterable, Identifiable {
+    case outline = "person"
+    case filled = "person.fill"
+    case cropCircle = "person.crop.circle"
+    case filledCropCircle = "person.crop.circle.fill"
+
+    var id: String { rawValue }
+}
+
+enum SidebarFooterProfileIconDebugSettings {
+    static let iconKey = "debug.sidebarFooterProfileIcon.symbol.v3"
+    static let sizeKey = "debug.sidebarFooterProfileIcon.size"
+    static let defaultIcon = SidebarFooterProfileIconDebugChoice.cropCircle
+    static let defaultSize = Double(SidebarFooterButtonMetrics.profileIconSize)
+}
+
+enum SidebarFooterProfileDisplayDebugChoice: String, CaseIterable, Identifiable {
+    case picture
+    case icon
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .picture:
+            String(localized: "debug.sidebarFooterIconBalance.profileDisplay.picture", defaultValue: "Picture")
+        case .icon:
+            String(localized: "debug.sidebarFooterIconBalance.profileDisplay.icon", defaultValue: "Icon")
+        }
+    }
+}
+
+enum SidebarFooterProfileDisplayDebugSettings {
+    static let displayKey = "debug.sidebarFooterProfile.display"
+    static let defaultDisplay = SidebarFooterProfileDisplayDebugChoice.picture
+}
+
+enum SidebarFooterMobileIconDebugSettings {
+    static let sizeKey = "debug.sidebarFooterMobileIcon.size"
+    static let defaultSize = Double(SidebarFooterButtonMetrics.mobileIconSize)
+}
+
+enum SidebarFooterHelpIconDebugWeight: String, CaseIterable, Identifiable {
+    case regular
+    case medium
+    case semibold
+
+    var id: String { rawValue }
+
+    var fontWeight: NSFont.Weight {
+        switch self {
+        case .regular: .regular
+        case .medium: .medium
+        case .semibold: .semibold
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .regular:
+            String(localized: "debug.sidebarFooterIconBalance.weight.regular", defaultValue: "Regular")
+        case .medium:
+            String(localized: "debug.sidebarFooterIconBalance.weight.medium", defaultValue: "Medium")
+        case .semibold:
+            String(localized: "debug.sidebarFooterIconBalance.weight.semibold", defaultValue: "Semibold")
+        }
+    }
+}
+
+enum SidebarFooterHelpIconDebugChoice: String, CaseIterable, Identifiable {
+    case bare = "questionmark"
+    case circle = "questionmark.circle"
+    case filledCircle = "questionmark.circle.fill"
+
+    var id: String { rawValue }
+}
+
+enum SidebarFooterHelpIconDebugSettings {
+    static let sizeKey = "debug.sidebarFooterHelpIcon.size"
+    static let weightKey = "debug.sidebarFooterHelpIcon.weight"
+    static let iconKey = "debug.sidebarFooterHelpIcon.symbol"
+    static let defaultSize = Double(SidebarFooterButtonMetrics.helpIconSize)
+    static let defaultWeight = SidebarFooterHelpIconDebugWeight.regular
+    static let defaultIcon = SidebarFooterHelpIconDebugChoice.circle
+}
+#endif
+
 @MainActor
 private final class SidebarFooterActionButton: NSButton {
     var onPress: (() -> Void)?

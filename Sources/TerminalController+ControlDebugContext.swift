@@ -41,7 +41,7 @@ extension TerminalController: ControlDebugContext {
     // MARK: - Session-snapshot benchmarks
 
     func controlDebugSessionSnapshotBenchmark(includeScrollback: Bool, persist: Bool) -> JSONValue? {
-        // Snapshot capture walks AppKit, SwiftUI, and terminal-panel state, so
+        // Snapshot capture walks AppKit and terminal-panel state, so
         // this DEBUG-only benchmark must run synchronously on the main actor.
         guard let payload = AppDelegate.shared?.debugBenchmarkSessionSnapshot(
             includeScrollback: includeScrollback,

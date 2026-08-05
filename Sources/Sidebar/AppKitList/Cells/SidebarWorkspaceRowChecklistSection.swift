@@ -144,7 +144,7 @@ final class SidebarRowChecklistSection: NSView {
             }
             activePopoverDismissContext = nil
             // Fresh scroll position per workspace (legacy rows are distinct
-            // SwiftUI views, so offsets never carry across workspaces).
+            // recycled views, so offsets never carry across workspaces).
             scrollView.contentView.scroll(to: .zero)
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }

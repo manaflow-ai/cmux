@@ -85,7 +85,7 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     var plusFrame: CGFloat { max(Self.basePlusFrame, Self.basePlusFrame * fontScale) }
     /// Leading inset for a group-scoped append indicator rendered by the header.
     var groupScopedBottomDropIndicatorLeadingInset: CGFloat { Self.memberScopedDropIndicatorLeadingInset }
-    /// Stable drop-hit height for the group header, without reading SwiftUI layout.
+    /// Stable drop-hit height for the group header, without reading live layout.
     var dropTargetHeight: CGFloat {
         let contentHeight = max(chevronFrame, iconFrame, plusFrame, nameFontSize + 4)
         return max(24 * fontScale, contentHeight + 10)

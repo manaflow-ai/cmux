@@ -25,7 +25,7 @@ enum RemoteTmuxSizingDiagnostics {
 extension WindowTerminalPortal {
     /// Hosted views whose frame has drifted from their anchor's — the
     /// definitive "terminal drawn over chrome" detector: the portal paints
-    /// hosted content above SwiftUI at the anchor's rect, so any divergence
+    /// hosted content above the native hierarchy at the anchor's rect, so any divergence
     /// means content is covering chrome or a neighboring pane.
     func misplacedHostedViewDescriptions(hostedViewIDs: Set<ObjectIdentifier>? = nil) -> [String] {
         var descriptions: [String] = []
@@ -54,7 +54,7 @@ extension WindowTerminalPortal {
     }
 
     /// Logs the widest anchor's superview chain so the first view wider than
-    /// its window identifies a content-derived ideal on the SwiftUI side.
+    /// its window identifies a content-derived ideal on the layout side.
     func debugLogWidestAnchorChain(hostedViewIDs: Set<ObjectIdentifier>? = nil) {
         let anchors: [NSView] = entriesByHostedId.compactMap { element -> NSView? in
             let (hostedViewID, entry) = element

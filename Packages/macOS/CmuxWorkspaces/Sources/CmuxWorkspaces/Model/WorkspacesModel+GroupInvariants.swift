@@ -80,7 +80,7 @@ extension WorkspacesModel {
         let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIds()
         let desiredIds = topLevelIds.filter { pinnedTopLevelIds.contains($0) }
             + topLevelIds.filter { !pinnedTopLevelIds.contains($0) }
-        // Always reassign so SwiftUI consumers re-evaluate row modifiers that
+        // Always reassign so UI consumers re-evaluate row presentation that
         // depend on `Workspace.groupId` even when the array contents are
         // unchanged.
         normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)

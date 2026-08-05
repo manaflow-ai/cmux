@@ -261,8 +261,8 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func registerTextBoxInputView(_ view: TextBoxInputTextView) {
         textBoxInputView = view
-        // Registration runs from NSViewRepresentable.makeNSView; restoring drafts here must not
-        // write SwiftUI/Combine bindings while SwiftUI is constructing the subtree.
+        // Registration runs while the native view is constructed; restoring drafts here must not
+        // write Combine bindings while AppKit is constructing the subtree.
         if let restoredTextBoxDraft {
             self.restoredTextBoxDraft = nil
             view.installSessionDraft(restoredTextBoxDraft, notifyingTextChange: false)
@@ -385,7 +385,7 @@ final class TerminalPanel: Panel, ObservableObject {
         if isClosingPanel {
             assert(
                 didDiscardTextBoxContentForClose,
-                "close() must discard TextBox content before SwiftUI dismantles the TextBox view"
+                "close() must discard TextBox content before AppKit dismantles the TextBox view"
             )
             recordTextBoxViewUnmounted(textBoxInputView)
             return
@@ -633,7 +633,7 @@ final class TerminalPanel: Panel, ObservableObject {
         // Cancel any pending focus work items so an inactive terminal can't steal first responder
         // back from another surface (notably WKWebView) during rapid focus changes in tests.
         //
-        // Also flip the hosted view's active state immediately: SwiftUI focus propagation can lag
+        // Also flip the hosted view's active state immediately: focus propagation can lag
         // by a runloop tick, and `requestFocus` retries that are already executing can otherwise
         // schedule new work items that fire after we navigate away.
         hostedView.setActive(false)

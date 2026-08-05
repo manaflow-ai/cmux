@@ -65,7 +65,7 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     case composerInputTextChanged = 19
     /// ``TerminalComposerView`` appeared (`.onAppear`). Logged independently of
     /// ``composerPresentedChanged`` so a disappear/appear pair with no flag change
-    /// reveals a view-recreation bug (the flag stayed true but SwiftUI rebuilt the
+    /// reveals a view-recreation bug (the flag stayed true but UIKit rebuilt the
     /// view).
     case composerViewAppear = 20
     /// ``TerminalComposerView`` disappeared (`.onDisappear`). A disappear without a

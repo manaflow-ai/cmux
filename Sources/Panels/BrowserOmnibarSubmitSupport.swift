@@ -1,7 +1,7 @@
 import Foundation
 
 /// Field-editor state captured synchronously at Return time. The published
-/// SwiftUI buffer and the debounced suggestion list can lag behind what the
+/// model buffer and the debounced suggestion list can lag behind what the
 /// field actually displays, so submit decisions must start from this snapshot.
 struct OmnibarLiveFieldSnapshot: Equatable {
     var text: String
@@ -17,7 +17,7 @@ enum OmnibarSubmitDecision: Equatable {
 /// Decides whether Return commits the selected suggestion row or navigates
 /// the omnibar text.
 ///
-/// The decision starts from the live field editor, not the published SwiftUI
+/// The decision starts from the live field editor, not the published model
 /// state: the published buffer and the debounced suggestion list can lag a
 /// fast typist, while the field always holds exactly what the user sees.
 /// Return commits a suggestion only when the user explicitly arrow-selected

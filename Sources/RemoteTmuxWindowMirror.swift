@@ -148,7 +148,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// An NSView planted inside the mirror's own view subtree (not the portal
     /// layer), so `hostProbeView?.window` is the hosting window even while
     /// portal-hosted panels churn, and its superview chain is the real
-    /// ancestor stack that produced the SwiftUI proposal.
+    /// ancestor stack that produced the layout proposal.
     @ObservationIgnored weak var hostProbeView: NSView?
     /// Set when the divider sync sends a resize-pane between a drag session's
     /// begin and end. Bonsplit delivers the final drag geometry notification

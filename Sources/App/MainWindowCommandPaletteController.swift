@@ -2,6 +2,7 @@ import AppKit
 import CmuxCommandPalette
 import CmuxFoundation
 import CmuxSettings
+import CmuxUpdater
 
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier(
     "cmux.commandPalette.overlay.container"
@@ -108,6 +109,7 @@ final class MainWindowCommandPaletteController: NSObject, NSTextFieldDelegate, N
     private let tabManager: TabManager
     private weak var hostView: NSView?
     private let windowProvider: () -> NSWindow?
+    private let supplementalCatalog: MainWindowCommandPaletteSupplementalCatalog
 
     private let overlayView = MainWindowCommandPaletteOverlayView(frame: .zero)
     private let panelView = NSVisualEffectView(frame: .zero)
@@ -136,13 +138,32 @@ final class MainWindowCommandPaletteController: NSObject, NSTextFieldDelegate, N
     init(
         windowId: UUID,
         tabManager: TabManager,
+        updateViewModel: UpdateStateModel,
+        notificationStore: TerminalNotificationStore,
+        sidebarState: SidebarState,
+        sidebarSelectionState: SidebarSelectionState,
+        fileExplorerState: FileExplorerState,
+        cmuxConfigStore: CmuxConfigStore,
         hostView: NSView,
-        windowProvider: @escaping () -> NSWindow?
+        windowProvider: @escaping () -> NSWindow?,
+        openRightSidebarToolPane: @escaping (RightSidebarMode) -> Void
     ) {
         self.windowId = windowId
         self.tabManager = tabManager
         self.hostView = hostView
         self.windowProvider = windowProvider
+        self.supplementalCatalog = MainWindowCommandPaletteSupplementalCatalog(
+            windowId: windowId,
+            tabManager: tabManager,
+            updateViewModel: updateViewModel,
+            notificationStore: notificationStore,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: fileExplorerState,
+            cmuxConfigStore: cmuxConfigStore,
+            windowProvider: windowProvider,
+            openRightSidebarToolPane: openRightSidebarToolPane
+        )
         super.init()
         configureOverlay(in: hostView)
     }
@@ -784,6 +805,38 @@ final class MainWindowCommandPaletteController: NSObject, NSTextFieldDelegate, N
             commands: &commands,
             rank: &rank
         )
+        for descriptor in CommandPaletteSettingsToggleCommands.descriptors
+            where descriptor.isAvailable(.standard) {
+            commands.append(
+                CommandPaletteCommand(
+                    id: descriptor.commandId,
+                    rank: rank,
+                    title: descriptor.commandTitle(),
+                    subtitle: descriptor.commandSubtitle(),
+                    shortcutHint: nil,
+                    kindLabel: String(localized: "commandPalette.kind.settings", defaultValue: "Settings"),
+                    keywords: descriptor.keywords + ["settings", "toggle", descriptor.settingsKey],
+                    dismissOnRun: false,
+                    action: { descriptor.toggle() }
+                )
+            )
+            rank += 1
+        }
+        commands.append(contentsOf: supplementalCatalog.commands(startingAt: &rank))
+        if tabManager.selectedWorkspace?.focusedPanelId != nil {
+            commands.append(CommandPaletteCommand(
+                id: "palette.renameTab",
+                rank: rank,
+                title: String(localized: "command.renameTab.title", defaultValue: "Rename Tab…"),
+                subtitle: String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab"),
+                shortcutHint: KeyboardShortcutSettings.shortcutIfBound(for: .renameTab)?.displayString,
+                kindLabel: nil,
+                keywords: ["rename", "tab", "title"],
+                dismissOnRun: false,
+                action: { [weak self] in self?.openRenameTab() }
+            ))
+            rank += 1
+        }
         return commands
     }
 

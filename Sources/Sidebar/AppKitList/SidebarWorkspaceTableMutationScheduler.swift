@@ -1,9 +1,9 @@
 import Foundation
 
-/// Owns the boundary between SwiftUI/AppKit callbacks and table mutations.
+/// Owns the boundary between AppKit callbacks and table mutations.
 ///
-/// `NSViewRepresentable.updateNSView` and scroll-view bounds notifications can
-/// be delivered while SwiftUI or AppKit is already resolving layout. Mutating
+/// View refreshes and scroll-view bounds notifications can
+/// be delivered while AppKit is already resolving layout. Mutating
 /// `NSTableView` from those callbacks can synchronously re-enter the same
 /// layout transaction. This scheduler keeps the latest table input, coalesced
 /// reload/viewport signals, and ordered post-update actions, then flushes them

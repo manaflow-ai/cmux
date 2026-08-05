@@ -2,7 +2,7 @@ import Foundation
 
 /// An ``AnalyticsEmitting`` that drops every event.
 ///
-/// Use it as the default for SwiftUI previews, unit tests that don't assert on
+/// Use it as the default for UIKit previews, unit tests that don't assert on
 /// analytics, and any call site that has no real emitter to inject. It does no
 /// work, holds no state, and is safe to share across actors.
 ///

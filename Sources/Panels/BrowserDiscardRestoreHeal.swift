@@ -242,7 +242,7 @@ extension BrowserPanel {
 }
 
 extension BrowserPanel {
-    /// Whether browser native/SwiftUI fills should draw over the window root
+    /// Whether browser native fills should draw over the window root
     /// backdrop. Mirrors terminal/markdown panel background decisions.
     static func drawsConfiguredWebViewBackground(
         isBlankPage: Bool,

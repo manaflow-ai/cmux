@@ -5,7 +5,7 @@ import Foundation
 
 /// Serial lane for in-process `cmux(...)` sidebar actions. Worker-lane methods
 /// (browser JS, waits) must run off the main actor: on the main actor they
-/// starve SwiftUI and deadlock on a not-yet-mounted webview, which is exactly
+/// starve the main actor and deadlock on a not-yet-mounted webview, which is exactly
 /// why they were moved off the main-actor dispatch path. Running the whole
 /// action on one serial queue keeps every command in its authored order, so a
 /// later command can't finish before an earlier browser navigate/click/wait.
@@ -13,7 +13,7 @@ private let cmuxSidebarWorkerQueue = DispatchQueue(label: "com.cmux.sidebar-acti
 
 // The custom-sidebar rendering, interpreter, JSON DSL, resizable split, and
 // the file-watching model now live in the `CmuxSwiftRender` (logic) and
-// `CmuxSwiftRenderUI` (SwiftUI) packages. The app target keeps only the
+// `CmuxSwiftRenderUI` (AppKit) packages. The app target keeps only the
 // cmux-coupled action dispatch, the one piece that must reach
 // `TerminalController`, and injects it into the package's view from
 // `ContentView`.
@@ -31,7 +31,7 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
         // sequence on the serial worker queue so the commands keep their authored
         // order. handleSocketLine runs worker-lane methods (browser JS, waits) on
         // this thread and hops main-actor methods back to the main actor itself,
-        // so nothing here blocks SwiftUI and ordering is preserved end to end.
+        // so nothing here blocks AppKit and ordering is preserved end to end.
         let controller = TerminalController.shared
         let commands = action.commands
         cmuxSidebarWorkerQueue.async {

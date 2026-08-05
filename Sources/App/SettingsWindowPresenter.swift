@@ -22,13 +22,13 @@ enum SettingsWindowShowResult: Equatable {
 /// repair, and close-teardown (https://github.com/manaflow-ai/cmux/issues/7777).
 ///
 /// The window is AppKit-owned: `show()` synchronously builds a fresh
-/// `NSWindow` (hosting the SwiftUI settings content via
+/// `NSWindow` (hosting the AppKit settings content via
 /// ``SettingsWindowFactory``) whenever no usable window exists, orders it
 /// front, and verifies visibility before returning. This is the same
 /// ownership model the main window (`AppDelegate.createMainWindow`) and
 /// `TaskManagerWindowController` use.
 ///
-/// History: the previous design delegated creation to a SwiftUI single
+/// History: the previous design delegated creation to a declarative single
 /// `Window` scene via `openWindow(id:)`, which has no failure callback and
 /// could wedge permanently (relaunch-while-open, scene mid-teardown), so the
 /// menu, ⌘, and CLI `settings open` all silently no-oped until the app was
@@ -86,7 +86,7 @@ final class SettingsWindowPresenter: NSObject {
     /// queued fresh-window delivery can detect it was superseded by a newer
     /// targeted show and stay silent instead of navigating backwards.
     var navigationDeliveryGeneration = 0
-    /// Whether the current window's SwiftUI content has signaled (via the
+    /// Whether the current window's content has signaled (via the
     /// host root's `onAppear`) that its navigation consumer is installed;
     /// posting before then would drop the navigation on the floor.
     var isContentReadyForNavigation = false
@@ -394,7 +394,7 @@ final class SettingsWindowPresenter: NSObject {
     private func orderFrontWithoutActivation(_ window: NSWindow) {
         if window.isMiniaturized {
             // Reusing (not replacing) a Dock-miniaturized window preserves
-            // its SwiftUI tree and any unsaved Settings edits; the caller
+            // its view tree and any unsaved Settings edits; the caller
             // waits out the transition via `awaitVisibility(of:timeout:)`.
             window.deminiaturize(nil)
         }
@@ -474,7 +474,7 @@ final class SettingsWindowPresenter: NSObject {
             window === settingsWindow
         else { return }
         // A closed window must never be rediscovered by an open request, and
-        // its SwiftUI tree must be released with it so it cannot linger
+        // its view tree must be released with it so it cannot linger
         // half-alive (the #4964 blank-reopen / #5321 lingering-window
         // classes). The next show() builds a fresh window from scratch.
         strip(window)

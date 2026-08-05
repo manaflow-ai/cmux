@@ -1,7 +1,7 @@
 import CmuxSettings
 import CoreGraphics
 
-/// Resolved session-width values shared by SwiftUI and direct AppKit terminal hosts.
+/// Resolved session-width values shared by all AppKit terminal hosts.
 struct SessionContentWidthPresentation: Equatable, Sendable {
     static let disabled = SessionContentWidthPresentation(
         storedMaximumWidth: SessionContentWidthSettings.noMaximumWidth,

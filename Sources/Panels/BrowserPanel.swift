@@ -1245,7 +1245,7 @@ final class BrowserHistoryStore: ObservableObject {
     // suggestion cache here is the one enforced invalidation point. Setting it
     // to nil both frees the retained Entry/URL strings promptly (so clearing
     // history does not leave browsing history resident in the cache) and forces
-    // a rebuild on next use. It must stay `@Published` for SwiftUI observation.
+    // a rebuild on next use. It stays `@Published` for Combine observation.
     // Do not add a writer that bypasses this setter (e.g. an unsafe-buffer bulk
     // write or an external `Binding<[Entry]>`) without dropping the cache.
     @Published private(set) var entries: [Entry] = [] {
@@ -2760,7 +2760,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var pendingWebContentRecoveryURL: URL?
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
-    /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
+    /// This avoids races where delayed focus state steals first responder back from WebKit.
     private var suppressOmnibarAutofocusUntil: Date?
 
     /// Prevent forcing web-view focus when another UI path requested omnibar focus.
@@ -4111,7 +4111,7 @@ final class BrowserPanel: Panel, ObservableObject {
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
-        // per process, before any setting is read below or by the SwiftUI view.
+        // per process, before any setting is read below or by the native view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)

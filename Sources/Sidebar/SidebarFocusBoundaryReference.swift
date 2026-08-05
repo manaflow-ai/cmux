@@ -1,7 +1,7 @@
 import AppKit
 
 /// Tracks the AppKit rectangle occupied by the complete default sidebar so
-/// focus handoff covers native rows and SwiftUI-hosted controls alike.
+/// focus handoff covers every native row and hosted control.
 @MainActor
 final class SidebarFocusBoundaryReference {
     private weak var boundaryView: NSView?

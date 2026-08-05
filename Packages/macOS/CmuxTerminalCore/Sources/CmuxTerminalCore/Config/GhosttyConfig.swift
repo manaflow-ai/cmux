@@ -249,7 +249,7 @@ public struct GhosttyConfig {
     }
 
     /// Writes the resolved sidebar appearance (tint colors and opacity) into
-    /// `UserDefaults.standard` so the SwiftUI sidebar can read them.
+    /// `UserDefaults.standard` so the AppKit sidebar can read them.
     public func applySidebarAppearanceToUserDefaults() {
         guard rawSidebarBackground != nil else {
             if let opacity = sidebarTintOpacity {

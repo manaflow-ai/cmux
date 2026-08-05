@@ -17,7 +17,7 @@ public enum InputResponderIdentity: Int, Sendable, Codable, CaseIterable {
     case terminalInputProxy = 1
     /// The Metal/IOSurface terminal surface itself (`GhosttySurfaceView`).
     case ghosttySurface = 2
-    /// A `UITextField` (e.g. an unexpected SwiftUI/text field stealing focus).
+    /// A `UITextField` (for example, an unexpected text field stealing focus).
     case uiTextField = 3
     /// A `UITextView`.
     case uiTextView = 4

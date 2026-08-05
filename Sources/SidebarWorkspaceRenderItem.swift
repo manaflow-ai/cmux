@@ -7,7 +7,7 @@ import Foundation
 /// `LazyVStack` copies and diffs its `ForEach` data while placing rows; carrying
 /// the models through that path made scrolling copy the live sidebar graph and
 /// blurred the ownership boundary between layout data and observed state.
-/// Models are resolved from the parent-owned render context only when SwiftUI
+/// Models are resolved from the parent-owned render context only when AppKit
 /// asks to realize a row.
 @MainActor
 enum SidebarWorkspaceRenderItem {

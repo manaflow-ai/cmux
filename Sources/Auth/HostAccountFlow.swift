@@ -12,7 +12,7 @@ import Observation
 ///
 /// A projection over the coordinator, browser flow, and feature flags. The
 /// stored Pro availability value forwards feature-flag notifications so
-/// SwiftUI views that read this adapter in `body` re-render when remote flags
+/// Native views that observe this adapter refresh when remote flags
 /// change after Settings is already open.
 @MainActor
 @Observable

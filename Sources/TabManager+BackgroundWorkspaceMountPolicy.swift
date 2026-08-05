@@ -2,7 +2,7 @@ import Foundation
 
 extension TabManager {
     /// Upper bound on how many background-prime workspaces may be force-mounted
-    /// into the single main-window SwiftUI GraphHost at once.
+    /// into the single main-window view hierarchy at once.
     ///
     /// `reconcileMountedWorkspaceIds` raises the mount cap by
     /// `mountedBackgroundWorkspaceLoadIds.count`, so an unbounded set here would

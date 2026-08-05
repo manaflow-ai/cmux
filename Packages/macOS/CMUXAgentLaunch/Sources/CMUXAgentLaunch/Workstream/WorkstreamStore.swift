@@ -14,8 +14,8 @@ public let WorkstreamDefaultHistoryPageSize = 300
 /// Main-actor `@Observable` store that holds the Feed state.
 ///
 /// One instance per cmux process. All windows observe it through the
-/// SwiftUI environment; mutations happen on the main actor, which matches
-/// the store's observation boundary and keeps SwiftUI view updates
+/// UI environment; mutations happen on the main actor, which matches
+/// the store's observation boundary and keeps native view updates
 /// deterministic.
 ///
 @MainActor

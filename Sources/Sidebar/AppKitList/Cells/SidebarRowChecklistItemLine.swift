@@ -84,7 +84,7 @@ final class SidebarRowChecklistItemLine: NSView {
         textLabel.font = itemFont
         if completed {
             // Legacy completed treatment: secondary color at 0.6 opacity
-            // (multiplied, like SwiftUI `.opacity`) plus strikethrough.
+            // (multiplied like nested view opacity) plus strikethrough.
             textLabel.attributedStringValue = NSAttributedString(
                 string: item.text,
                 attributes: [
@@ -226,7 +226,7 @@ final class SidebarRowChecklistItemLine: NSView {
 
     /// Legacy `firstLineCenterOffset`: accessories center on the item text's
     /// FIRST line. The offset font intentionally approximates the item font
-    /// without global magnification, matching the SwiftUI implementation.
+    /// without global magnification, matching the legacy implementation.
     private func firstLineCenter(model: SidebarWorkspaceRowModel, itemFont: NSFont) -> CGFloat {
         let approximation = NSFont.systemFont(ofSize: 10 * model.fontScale)
         return itemFont.ascender - (approximation.ascender + approximation.descender) / 2
@@ -245,7 +245,7 @@ final class SidebarRowChecklistItemLine: NSView {
         return (checkboxSize, attachSize, removeSlot, textWidth)
     }
 
-    /// SwiftUI's first-baseline HStack grows the row so the accessories
+    /// The legacy first-baseline row grows so the accessories
     /// (whose optical centers sit on the first text line) fit fully — the
     /// text shifts DOWN when an accessory is taller than the space above the
     /// first-line center. `textTop` is that shift.

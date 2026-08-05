@@ -191,7 +191,7 @@ final class RemoteTmuxControlConnection {
     var lastSizingSendAt: ContinuousClock.Instant?
     var pendingPostAttachAction: PostAttachAction?
 
-    /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
+    /// Trailing-edge debounce for `refresh-client -C`. AppKit layout settle makes the
     /// rendered grid oscillate (e.g. cols 154→155→156→161→…, ~15 distinct grids in
     /// ~1.3s), and each previously sent its own `refresh-client -C` → ~15 SIGWINCH /
     /// redraw storms on the remote per attach. We now coalesce them: ``setClientSize``

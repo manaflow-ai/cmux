@@ -29,8 +29,8 @@ final class DockSplitPresentationContext {
 }
 
 /// Native owner for the Dock's Bonsplit tree. Bonsplit retains one controller
-/// per tab, while ``DockSplitPanelContentHostingController`` temporarily owns
-/// the remaining SwiftUI panel leaf until `PanelContentView` is migrated.
+/// per tab, while ``DockSplitPanelContentHostingController`` owns each native
+/// panel leaf.
 @MainActor
 final class DockSplitViewController: NSViewController {
     private let context: DockSplitPresentationContext

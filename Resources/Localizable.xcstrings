@@ -114676,23 +114676,6 @@
         }
       }
     },
-    "feed.textEditorDebug.section.swiftui": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SwiftUI"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SwiftUI"
-          }
-        }
-      }
-    },
     "feed.textEditorDebug.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -114791,40 +114774,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "AppKit ScrollView, sizeThatFits"
-          }
-        }
-      }
-    },
-    "feed.textEditorDebug.variant.swiftUIMirror": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SwiftUI Mirror TextEditor"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SwiftUI Mirror TextEditor"
-          }
-        }
-      }
-    },
-    "feed.textEditorDebug.variant.swiftUITextField": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SwiftUI TextField"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SwiftUI TextField"
           }
         }
       }
@@ -172760,13 +172709,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom sidebars are SwiftUI-style files in ~/.config/cmux/sidebars. Pick one from the sidebar toggle button's right-click menu; edits hot-reload on save. Use the in-app renderer only for sidebars you trust."
+            "value": "Custom sidebars are declarative UI files in ~/.config/cmux/sidebars. Pick one from the sidebar toggle button's right-click menu; edits hot-reload on save. Use the in-app renderer only for sidebars you trust."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カスタムサイドバーは ~/.config/cmux/sidebars にある SwiftUI 形式のファイルです。サイドバー切り替えボタンの右クリックメニューから選択でき、保存すると即時に再読み込みされます。アプリ内レンダラーは信頼できるサイドバーのみに使用してください。"
+            "value": "カスタムサイドバーは ~/.config/cmux/sidebars にある宣言型UI形式のファイルです。サイドバー切り替えボタンの右クリックメニューから選択でき、保存すると即時に再読み込みされます。アプリ内レンダラーは信頼できるサイドバーのみに使用してください。"
           }
         }
       }
@@ -215042,13 +214991,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No supported SwiftUI view found."
+            "value": "No supported declarative view found."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "対応している SwiftUI ビューが見つかりません。"
+            "value": "対応している宣言型ビューが見つかりません。"
           }
         }
       }
@@ -234227,13 +234176,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recording CPU, SwiftUI, memory, and system traces for %d seconds each. Finalizing may take longer."
+            "value": "Recording CPU, memory, and system traces for %d seconds each. Finalizing may take longer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "CPU、SwiftUI、メモリ、システムトレースをそれぞれ%d秒ずつ記録しています。仕上げに時間がかかる場合があります。"
+            "value": "CPU、メモリ、システムトレースをそれぞれ%d秒ずつ記録しています。仕上げに時間がかかる場合があります。"
           }
         }
       }
@@ -234924,13 +234873,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recording CPU, SwiftUI, memory, and system traces in the background."
+            "value": "Recording CPU, memory, and system traces in the background."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "CPU、SwiftUI、メモリ、システムトレースをバックグラウンドで記録しています。"
+            "value": "CPU、メモリ、システムトレースをバックグラウンドで記録しています。"
           }
         }
       }

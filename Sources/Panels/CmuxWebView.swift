@@ -5,7 +5,7 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-/// WKWebView can consume app command equivalents before app menu/SwiftUI Commands.
+/// WKWebView can consume app command equivalents before app-menu dispatch.
 /// Route app/menu shortcuts first, but allow browser content to try browser-local
 /// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
 /// find or right-sidebar file search from the current focus owner.
@@ -845,9 +845,9 @@ final class CmuxWebView: WKWebView {
 
     // MARK: - Focus on click
 
-    // The SwiftUI Color.clear overlay (.onTapGesture) that focuses panes can't receive
+    // The outer click handler that focuses panes can't receive
     // clicks when a WKWebView is underneath — AppKit delivers the click to the deepest
-    // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
+    // NSView (WKWebView), not to sibling overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
     override func mouseDown(with event: NSEvent) {
         if diffViewerDocumentState.documentConfirmed {
@@ -2048,7 +2048,7 @@ final class CmuxWebView: WKWebView {
     // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
     // Bonsplit tab drags use NSString (public.utf8-plain-text) which conforms to public.text,
     // so AppKit's view-hierarchy-based drag routing delivers the session to WKWebView instead
-    // of SwiftUI's sibling .onDrop overlays. Rejecting in draggingEntered doesn't help because
+    // of sibling drop targets. Rejecting in draggingEntered doesn't help because
     // AppKit only bubbles up through superviews, not siblings.
     //
     // Fix: filter out text-based types that conflict with bonsplit tab drags, but keep

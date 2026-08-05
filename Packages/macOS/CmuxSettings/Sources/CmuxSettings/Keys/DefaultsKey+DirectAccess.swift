@@ -5,13 +5,13 @@ import Foundation
 ///
 /// This is the read/write seam for call paths that cannot await — AppKit
 /// event handlers, quit/close policy checks, socket command handlers, and
-/// other synchronous non-SwiftUI code. It uses the exact same
+/// other synchronous non-reactive code. It uses the exact same
 /// ``SettingCodable`` decode/encode as ``UserDefaultsSettingsStore`` (the
 /// store's own accessors forward here), so the catalog stays the single
 /// definition of key string, value type, decode, and default.
 ///
 /// Pick the right access path per driver:
-/// - SwiftUI views: `@LiveSetting` (reactive, host-agnostic).
+/// - Native views: settings-runtime observation (reactive, host-agnostic).
 /// - Async code that also observes changes: ``UserDefaultsSettingsStore``.
 /// - Synchronous code: these accessors.
 ///

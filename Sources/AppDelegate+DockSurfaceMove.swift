@@ -47,7 +47,7 @@ extension AppDelegate {
     /// Whether the right sidebar (Files / Find / Dock) currently owns input
     /// focus in `workspace`'s window. Lets the workspace's imperative terminal
     /// portal active-state reconcile honor the same focus-exclusivity gate the
-    /// SwiftUI render path uses, so a background layout reconcile cannot
+    /// native render path uses, so a background layout reconcile cannot
     /// re-activate a main terminal while the sidebar is focused.
     func rightSidebarOwnsInputFocus(for workspace: Workspace) -> Bool {
         guard let manager = workspace.owningTabManager,

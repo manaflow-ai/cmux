@@ -13,7 +13,7 @@ public enum CustomSidebarRendererMode: String, CaseIterable, Sendable, SettingCo
     case remote
 
     /// The default lane: the file is interpreted and rendered as real
-    /// SwiftUI in the host process, gaining native input (hover, focus,
+    /// AppKit in the host process, gaining native input (hover, focus,
     /// keyboard) and same-frame resize. A renderer fault shares the host
     /// process, so only use this for sidebars you authored yourself.
     case inProcess

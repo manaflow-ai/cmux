@@ -6,7 +6,7 @@ import Foundation
 /// `LazyVStack` boundary.
 ///
 /// The factory is created and consumed by the parent row builder; it is never
-/// stored by a SwiftUI row. This keeps live `Workspace` state on the owning side
+/// stored by a view row. This keeps live `Workspace` state on the owning side
 /// of the lazy-list boundary while preserving the existing presentation rules.
 @MainActor
 struct SidebarWorkspaceSnapshotFactory {

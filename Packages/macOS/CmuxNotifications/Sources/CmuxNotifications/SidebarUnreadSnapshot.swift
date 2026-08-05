@@ -142,7 +142,7 @@ public final class SidebarUnreadObservation {
 
 /// Main-actor unread source of truth for leaf UI projections.
 ///
-/// Mutations publish one equality-guarded snapshot. SwiftUI tracks ``snapshot``
+/// Mutations publish one equality-guarded snapshot. AppKit observes ``snapshot``
 /// through Observation, while imperative consumers register weak-owner callbacks.
 @MainActor
 @Observable

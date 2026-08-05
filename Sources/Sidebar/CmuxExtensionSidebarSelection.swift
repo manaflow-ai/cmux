@@ -13,9 +13,9 @@ enum CmuxExtensionSidebarSelection {
     /// Synchronous read of the experimental Extensions flag for the on-demand
     /// AppKit/static paths (the toggle menu, the command-palette builder, the
     /// extensions-browser opener) that have no `SettingsRuntime` in scope and
-    /// run outside the SwiftUI update cycle.
+    /// run outside the view update cycle.
     ///
-    /// SwiftUI views bind reactively via `@LiveSetting(\.betaFeatures.extensions)`.
+    /// Native views observe the same setting through the settings runtime.
     /// This synchronous read resolves the same catalog key
     /// (`BetaFeaturesCatalogSection.extensions`) against `UserDefaults`, which is
     /// the same suite and key the store persists to, so the catalog stays the
@@ -24,7 +24,7 @@ enum CmuxExtensionSidebarSelection {
         // Read the single beta-features section, not the whole `SettingCatalog`.
         // Constructing the full catalog allocates ~20 sub-sections (including
         // `AutomationCatalogSection`/`SecretFileKey`) just to reach one flag;
-        // doing that on the SwiftUI body's hot path turned the sidebar
+        // doing that on the row update hot path turned the sidebar
         // re-render into a CPU catastrophe (issue #5970).
         let key = BetaFeaturesCatalogSection().extensions
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
@@ -165,7 +165,7 @@ enum CmuxExtensionSidebarSelection {
     /// but WITHOUT building the full ``descriptors`` list — which constructs a
     /// `SettingCatalog` twice (via ``isEnabled``/``customSidebarsEnabled``) and
     /// enumerates the custom-sidebars directory. Those are far too expensive to
-    /// run on every SwiftUI body pass; doing so was the multiplier behind the
+    /// run on every row update; doing so was the multiplier behind the
     /// ~100% CPU re-render loop in issue #5970. Only cheap static lookups and at
     /// most two `fileExists` probes run here, so it is safe for the body.
     ///

@@ -8,7 +8,7 @@ import Foundation
 /// `CmuxMobileShellModel` — can depend on the seam without any upward edge. The
 /// concrete `AnalyticsEmitter` actor lives in `CmuxMobileAnalytics`, is built
 /// once at the app composition root, and is injected here as `any
-/// AnalyticsEmitting`. Tests and SwiftUI previews use ``NoopAnalytics`` or a
+/// AnalyticsEmitting`. Tests and UIKit previews use ``NoopAnalytics`` or a
 /// recording fake.
 ///
 /// ### Non-blocking contract

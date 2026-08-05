@@ -4,7 +4,7 @@ import CmuxFoundation
 import Foundation
 
 /// Accepted reorder plan for the pointer's current position. The AppKit table
-/// keeps this out of the SwiftUI drag state on purpose: writing the indicator
+/// keeps this out of shared drag state on purpose: writing the indicator
 /// there rebuilds every sidebar row per gap change, which is what made the
 /// painted line visibly lag the pointer on large sidebars.
 struct SidebarWorkspaceTableReorderDropUpdate {

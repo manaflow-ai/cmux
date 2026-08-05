@@ -3,7 +3,7 @@ import Foundation
 /// The two kinds of nodes that can appear in a ``ProjectGroup``'s children.
 ///
 /// Modeled as an `indirect enum` so a group can recursively contain other
-/// groups without forcing the model to use reference types. SwiftUI
+/// groups without forcing the model to use reference types. AppKit
 /// `OutlineGroup` consumes this directly via a children key path that
 /// projects ``ProjectGroup/children`` when the case is ``group``.
 public indirect enum ProjectNodeKind: Sendable, Hashable, Identifiable {
@@ -28,7 +28,7 @@ public indirect enum ProjectNodeKind: Sendable, Hashable, Identifiable {
         }
     }
 
-    /// Children of this node, projected for SwiftUI ``OutlineGroup``.
+    /// Children of this node, projected into the outline view.
     ///
     /// Returns `nil` for a file leaf so the outline renders it without a
     /// disclosure chevron. Returns an empty array for an empty group so it

@@ -26,7 +26,7 @@ struct SidebarWorkspaceRowCommands {
     /// Re-runs the row's snapshot pump (pin/notification mutations that don't
     /// flow through the observation publishers).
     let refreshSnapshot: () -> Void
-    /// Sidebar-container selection state writers (captured SwiftUI bindings).
+    /// Sidebar-container selection state writers (captured callbacks).
     let readSelectedTabIds: () -> Set<UUID>
     let writeSelectedTabIds: (Set<UUID>) -> Void
     let readLastSelectionIndex: () -> Int?
@@ -286,7 +286,7 @@ struct SidebarWorkspaceRowCommands {
     }
 }
 
-/// Builds the workspace row context menu with exact SwiftUI parity
+/// Builds the workspace row context menu with exact legacy parity
 /// (section order, labels, pluralization, disable rules, submenus).
 @MainActor
 struct SidebarWorkspaceRowMenuBuilder {
@@ -312,7 +312,7 @@ struct SidebarWorkspaceRowMenuBuilder {
         addGroupSection(to: menu, tabManager: tabManager)
         menu.addItem(.separator())
         // Legacy parity: the todo section renders only while the feature is
-        // enabled (SwiftUI merges the surrounding dividers when it is not).
+        // enabled (the legacy menu merges surrounding dividers when it is not).
         if WorkspaceTodoFeature.isEnabled {
             addTodoSection(to: menu, tabManager: tabManager)
             menu.addItem(.separator())

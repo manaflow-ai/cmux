@@ -33,7 +33,7 @@ extension Workspace {
         //
         // Entering canvas: clear the terminal portal layer now. Otherwise the
         // split-mode terminal surfaces keep floating at their old split frames
-        // (over the canvas) during the async SwiftUI mount, and stay there
+        // (over the canvas) during the asynchronous native mount, and stay there
         // until some later layout event happens to reconcile them — the ghost
         // terminal artifacts Aziz reported on toggle. The canvas mount re-shows
         // each visible pane's selected terminal via its portal-detach path.
@@ -66,7 +66,7 @@ extension Workspace {
     }
 
     /// The bonsplit pane currently containing the panel's tab, used by
-    /// canvas panes that host split-mode SwiftUI panel views.
+    /// canvas panes that host split-mode AppKit panel views.
     func bonsplitPaneId(forPanelId panelId: UUID) -> PaneID? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         for paneId in bonsplitController.allPaneIds {

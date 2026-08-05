@@ -12,7 +12,7 @@ public struct ChatMessage: Identifiable, Sendable, Equatable, Codable {
     ///
     /// For transcript-derived messages this is the transcript entry's own
     /// UUID when available, otherwise a deterministic value derived from
-    /// ``seq``. Stability matters: SwiftUI diffing and read-state tracking
+    /// ``seq``. Stability matters: row diffing and read-state tracking
     /// both key off it.
     public let id: String
 

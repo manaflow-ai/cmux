@@ -1,5 +1,225 @@
 import Bonsplit
+import CmuxPanes
 import Foundation
+
+enum AgentConversationForkSnapshotAvailability {
+    case unsupported
+    case supportedWithoutProbe
+    case requiresProbe
+}
+
+enum AgentConversationForkSupport {
+    static func snapshotAvailability(
+        _ snapshot: SessionRestorableAgentSnapshot,
+        isRemoteTerminal: Bool = false
+    ) -> AgentConversationForkSnapshotAvailability {
+        guard snapshot.forkCommand != nil else { return .unsupported }
+        if isRemoteTerminal,
+           snapshot.forkStartupInput(allowLauncherScript: false) == nil {
+            return .unsupported
+        }
+        switch snapshot.kind {
+        case .claude, .codex:
+            return .supportedWithoutProbe
+        case .pi:
+            return isRemoteTerminal ? .unsupported : .requiresProbe
+        case .opencode:
+            return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal
+                ? .supportedWithoutProbe
+                : .requiresProbe
+        case .custom:
+            if AgentForkSupport.requiresLocalPiFamilyCapabilityProbe(snapshot) {
+                return isRemoteTerminal ? .unsupported : .requiresProbe
+            }
+            return .supportedWithoutProbe
+        default:
+            return .unsupported
+        }
+    }
+
+    static func snapshotFingerprint(
+        _ snapshot: SessionRestorableAgentSnapshot,
+        isRemoteTerminal: Bool = false
+    ) -> String {
+        let launchCommand = snapshot.launchCommand
+        let launchArguments = launchCommand?.arguments.joined(separator: "\u{1f}") ?? ""
+        let launchEnvironment = launchCommand?.environment.map { environment in
+            environment.keys.sorted().map { key in
+                "\(key)=\(environment[key] ?? "")"
+            }.joined(separator: "\u{1f}")
+        } ?? ""
+        let parts = [
+            snapshot.kind.rawValue,
+            snapshot.sessionId,
+            snapshot.workingDirectory ?? "",
+            isRemoteTerminal ? "remote" : "local",
+            launchCommand?.launcher ?? "",
+            launchCommand?.executablePath ?? "",
+            launchArguments,
+            launchCommand?.workingDirectory ?? "",
+            launchEnvironment,
+            launchCommand?.source ?? "",
+            snapshot.forkCommand ?? "",
+        ]
+        return parts.joined(separator: "\u{1e}")
+    }
+
+    static func availabilitySnapshotSource(
+        liveIndexSnapshot: SessionRestorableAgentSnapshot?,
+        fallbackSnapshot: SessionRestorableAgentSnapshot?,
+        isRemoteTerminal: Bool = false
+    ) -> (
+        snapshot: SessionRestorableAgentSnapshot,
+        snapshotFingerprint: String,
+        validationFallbackSnapshot: SessionRestorableAgentSnapshot?,
+        validationFallbackFingerprint: String?,
+        resultHadFallback: Bool
+    )? {
+        guard let snapshot = liveIndexSnapshot ?? fallbackSnapshot else {
+            return nil
+        }
+        let usesFallback = liveIndexSnapshot == nil
+        let snapshotFingerprint = Self.snapshotFingerprint(
+            snapshot,
+            isRemoteTerminal: isRemoteTerminal
+        )
+        return (
+            snapshot: snapshot,
+            snapshotFingerprint: snapshotFingerprint,
+            validationFallbackSnapshot: usesFallback ? fallbackSnapshot : nil,
+            validationFallbackFingerprint: usesFallback ? snapshotFingerprint : nil,
+            resultHadFallback: usesFallback && fallbackSnapshot != nil
+        )
+    }
+}
+
+enum AgentConversationForkDestination: String, CaseIterable, Identifiable, Sendable {
+    case right
+    case left
+    case top
+    case bottom
+    case newTab
+    case newWorkspace
+
+    var id: String { rawValue }
+
+    static let defaultDestination: AgentConversationForkDestination = .right
+
+    init(tabContextAction: TabContextAction) {
+        switch tabContextAction {
+        case .forkConversationLeft:
+            self = .left
+        case .forkConversationTop:
+            self = .top
+        case .forkConversationBottom:
+            self = .bottom
+        case .forkConversationNewTab:
+            self = .newTab
+        case .forkConversationNewWorkspace:
+            self = .newWorkspace
+        case .forkConversationRight:
+            self = .right
+        default:
+            self = .defaultDestination
+        }
+    }
+
+    var tabContextAction: TabContextAction {
+        switch self {
+        case .right: .forkConversationRight
+        case .left: .forkConversationLeft
+        case .top: .forkConversationTop
+        case .bottom: .forkConversationBottom
+        case .newTab: .forkConversationNewTab
+        case .newWorkspace: .forkConversationNewWorkspace
+        }
+    }
+
+    var commandPaletteCommandId: String {
+        switch self {
+        case .right: "palette.forkAgentConversationRight"
+        case .left: "palette.forkAgentConversationLeft"
+        case .top: "palette.forkAgentConversationTop"
+        case .bottom: "palette.forkAgentConversationBottom"
+        case .newTab: "palette.forkAgentConversationNewTab"
+        case .newWorkspace: "palette.forkAgentConversationNewWorkspace"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .right:
+            String(localized: "command.forkAgentConversationRight.title", defaultValue: "Fork Conversation to the Right")
+        case .left:
+            String(localized: "command.forkAgentConversationLeft.title", defaultValue: "Fork Conversation to the Left")
+        case .top:
+            String(localized: "command.forkAgentConversationTop.title", defaultValue: "Fork Conversation to the Top")
+        case .bottom:
+            String(localized: "command.forkAgentConversationBottom.title", defaultValue: "Fork Conversation to the Bottom")
+        case .newTab:
+            String(localized: "command.forkAgentConversationNewTab.title", defaultValue: "Fork Conversation to New Tab")
+        case .newWorkspace:
+            String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")
+        }
+    }
+
+    var settingsTitle: String {
+        switch self {
+        case .right:
+            String(localized: "forkConversation.destination.right", defaultValue: "Right Split")
+        case .left:
+            String(localized: "forkConversation.destination.left", defaultValue: "Left Split")
+        case .top:
+            String(localized: "forkConversation.destination.top", defaultValue: "Top Split")
+        case .bottom:
+            String(localized: "forkConversation.destination.bottom", defaultValue: "Bottom Split")
+        case .newTab:
+            String(localized: "forkConversation.destination.newTab", defaultValue: "New Tab")
+        case .newWorkspace:
+            String(localized: "forkConversation.destination.newWorkspace", defaultValue: "New Workspace")
+        }
+    }
+
+    var settingsDescription: String {
+        switch self {
+        case .right:
+            String(localized: "forkConversation.destination.right.description", defaultValue: "Right-click Fork Conversation creates a split to the right.")
+        case .left:
+            String(localized: "forkConversation.destination.left.description", defaultValue: "Right-click Fork Conversation creates a split to the left.")
+        case .top:
+            String(localized: "forkConversation.destination.top.description", defaultValue: "Right-click Fork Conversation creates a split above the current pane.")
+        case .bottom:
+            String(localized: "forkConversation.destination.bottom.description", defaultValue: "Right-click Fork Conversation creates a split below the current pane.")
+        case .newTab:
+            String(localized: "forkConversation.destination.newTab.description", defaultValue: "Right-click Fork Conversation creates a sibling tab in the current pane.")
+        case .newWorkspace:
+            String(localized: "forkConversation.destination.newWorkspace.description", defaultValue: "Right-click Fork Conversation creates a new workspace.")
+        }
+    }
+
+    var splitDirection: SplitDirection? {
+        switch self {
+        case .right: .right
+        case .left: .left
+        case .top: .up
+        case .bottom: .down
+        case .newTab, .newWorkspace: nil
+        }
+    }
+}
+
+enum AgentConversationForkDefaultSettings {
+    static let key = "agentConversationForkDefaultDestination"
+    static let defaultDestination = AgentConversationForkDestination.defaultDestination
+
+    static func current(defaults: UserDefaults = .standard) -> AgentConversationForkDestination {
+        guard let raw = defaults.string(forKey: key),
+              let destination = AgentConversationForkDestination(rawValue: raw) else {
+            return defaultDestination
+        }
+        return destination
+    }
+}
 
 extension Workspace {
     func configureForkAgentConversationContextMenuAvailability() {
@@ -34,7 +254,7 @@ extension Workspace {
         guard let snapshot = forkAgentConversationContextMenuCandidateSnapshot(forPanelId: panelId) else {
             return .noAgentSnapshot
         }
-        switch ContentView.commandPaletteSnapshotForkAvailability(
+        switch AgentConversationForkSupport.snapshotAvailability(
             snapshot,
             isRemoteTerminal: isRemoteTerminalContext(panelId)
         ) {
@@ -191,12 +411,12 @@ extension Workspace {
             }
             return (.agentIndexRefreshing, nil, nil)
         }
-        if let snapshotSource = ContentView.commandPaletteForkAvailabilitySnapshotSource(
+        if let snapshotSource = AgentConversationForkSupport.availabilitySnapshotSource(
             liveIndexSnapshot: liveAvailabilitySnapshot,
             fallbackSnapshot: restoredSnapshot,
             isRemoteTerminal: isRemoteContext
         ) {
-            switch ContentView.commandPaletteSnapshotForkAvailability(
+            switch AgentConversationForkSupport.snapshotAvailability(
                 snapshotSource.snapshot,
                 isRemoteTerminal: isRemoteContext
             ) {
@@ -273,7 +493,7 @@ extension Workspace {
             return (.noAgentSnapshot, nil, nil)
         }
 
-        switch ContentView.commandPaletteSnapshotForkAvailability(
+        switch AgentConversationForkSupport.snapshotAvailability(
             verifiedSnapshot,
             isRemoteTerminal: isRemoteTerminalContext(panelId)
         ) {

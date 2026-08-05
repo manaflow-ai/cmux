@@ -69,7 +69,7 @@ extension TerminalSurface {
         return true
     }
 
-    /// Re-arms the lease when SwiftUI is about to rebuild the owning host.
+    /// Re-arms the lease when AppKit is about to rebuild the owning host.
     @discardableResult
     public func preparePortalHostReplacementIfOwned(
         hostId: ObjectIdentifier,
@@ -83,7 +83,7 @@ extension TerminalSurface {
         guard let current = activePortalHostLease,
               current.hostId == hostId,
               current.instanceSerial == instanceSerial else { return false }
-        // SwiftUI can tear down and rebuild the host NSView during split churn. Keep the
+        // AppKit can tear down and rebuild the host NSView during split churn. Keep the
         // existing portal binding alive, but make the old lease non-usable so the next
         // distinct host in the same pane can claim immediately instead of waiting for a
         // later layout-follow-up retry.
@@ -239,7 +239,7 @@ extension TerminalSurface {
                 return true
             }
 
-            // During split churn SwiftUI can briefly keep the old host alive while the new
+            // During split churn AppKit can briefly keep the old host alive while the new
             // host for the same pane is already in the window. Prefer the newer live host
             // immediately so the surface moves with the pane instead of waiting for a later
             // update from unrelated focus/layout work.

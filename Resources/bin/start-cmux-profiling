@@ -9,7 +9,7 @@ Usage: start-cmux-profiling [--pid <pid> | --channel <stable|nightly|staging|dev
 
 Capture a short Instruments bundle for a live cmux process. The default capture
 runs the useful general-purpose templates for support diagnostics:
-Time Profiler, SwiftUI, Allocations, and System Trace.
+Time Profiler, Allocations, and System Trace.
 
 Target selection:
   --pid <pid>        Profile exactly this process. Best when more than one cmux is running.
@@ -43,7 +43,6 @@ using_default_templates="true"
 
 default_templates=(
   "Time Profiler"
-  "SwiftUI"
   "Allocations"
   "System Trace"
 )
@@ -632,7 +631,6 @@ System:
 
 Notes:
 - Time Profiler is the primary CPU stack trace.
-- SwiftUI captures body/update churn.
 - Allocations captures memory growth and allocation stacks.
 - System Trace captures scheduler, hangs, and thread-state context.
 - Leaks is intentionally not part of the default support capture because it is heavier and can pause a large busy process.

@@ -3573,7 +3573,7 @@ class TabManager: ObservableObject {
     /// Reduce sidebar multi-selection to a single workspace (or clear if
     /// `except` isn't a known tab). Called from keyboard-nav paths so a
     /// stale Shift-click range doesn't survive after the user moves focus.
-    /// Posts the should-collapse event so the SwiftUI binding
+    /// Posts the should-collapse event so the sidebar owner
     /// in ContentView (a @State Set<UUID> separate from this tab manager)
     /// can collapse to the focused workspace too.
     private func clearSidebarMultiSelection(except workspaceId: UUID) {
@@ -6129,7 +6129,7 @@ extension TabManager {
         selectionSideEffectsGeneration &+= 1
         browserModel.clearRecentlyClosedBrowserPanels()
 
-        // Build locally to avoid intermediate @Published emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
+        // Build locally to avoid intermediate @Published emissions (empty tabs, nil selectedTabId) that can leave observers'
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
         var restoredPanelIdsByWorkspaceIndex: [[UUID: UUID]] = []
@@ -6208,7 +6208,7 @@ extension TabManager {
             newSelectedId = newTabs.first?.id
         }
 
-        // Single atomic assignment of @Published properties so SwiftUI observers
+        // Single atomic assignment of @Published properties so UI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         restoreWorkspaceDockSessionSnapshots(from: snapshot, excludingStableIdentities: excludingStableIdentities)

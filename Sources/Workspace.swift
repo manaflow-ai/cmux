@@ -7709,7 +7709,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
+        // Suppress the old view's becomeFirstResponder side-effects during reparenting.
         // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
         // stealing focus from the new panel and creating model/surface divergence.
         if focus {
@@ -10463,7 +10463,7 @@ final class Workspace: Identifiable, ObservableObject {
         refreshLayoutFollowUpTimeout()
         // Use async scheduling instead of a synchronous call here. beginEventDrivenLayoutFollowUp
         // is often invoked from splitTabBar(_:didChangeGeometry:), which fires from inside
-        // SwiftUI's .onChange(of: geometry) during an active layout pass. Calling
+        // a geometry callback during an active layout pass. Calling
         // attemptEventDrivenLayoutFollowUp() synchronously in that context causes
         // flushWorkspaceWindowLayouts() → displayIfNeeded() to be called re-entrantly,
         // incrementing AppKit's per-window constraint-pass counter on every display cycle
@@ -10857,7 +10857,7 @@ final class Workspace: Identifiable, ObservableObject {
             let isAttached = terminalPanel.surface.isViewInWindow && hostedView.superview != nil
 
             // Split close/reparent churn can transiently detach a surviving terminal view.
-            // Force one SwiftUI representable update so the portal binding reattaches it.
+            // Force one native view update so the portal binding reattaches it.
             if !isAttached || !hasUsableBounds || !hasSurface {
                 terminalPanel.requestViewReattach()
                 needsFollowUpPass = true
@@ -10964,7 +10964,7 @@ final class Workspace: Identifiable, ObservableObject {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
         // Focus-exclusivity: when the right sidebar (Dock) owns input focus in this
         // window, no main terminal should be (re)marked active even if it is still
-        // this workspace's focused panel — mirroring the SwiftUI `isFocused` gate so
+        // this workspace's focused panel, mirroring the UI `isFocused` gate so
         // a layout reconcile cannot steal focus back from the sidebar.
         let rightSidebarOwnsFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
         var didChange = agentHibernationAutoResumePresentationVisible
@@ -11115,7 +11115,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func scheduleMovedTerminalRefresh(panelId: UUID) {
         guard terminalPanel(for: panelId) != nil else { return }
 
-        // Force an NSViewRepresentable update after drag/move reparenting. This keeps
+        // Force an AppKit view update after drag/move reparenting. This keeps
         // portal host binding current when a pane auto-closes during tab moves.
         terminalPanel(for: panelId)?.requestViewReattach()
 
@@ -11990,9 +11990,9 @@ extension Workspace: BonsplitDelegate {
         if activationPanel.id != panel.id { panel.unfocus() }
 
         // Explicitly hide browser portals for deselected tabs in this pane.
-        // Bonsplit's keepAllAlive mode hides non-selected tabs via SwiftUI .opacity(0),
+        // Bonsplit's keepAllAlive mode hides non-selected tabs via view opacity,
         // but portal-hosted WKWebViews render at the window level in AppKit and are not
-        // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
+        // affected by ancestor opacity. Without an explicit hide, the deselected browser's
         // portal layer can remain visible above the newly selected tab.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()

@@ -5,7 +5,7 @@ import CmuxCanvasUI
 ///
 /// Terminals mount their real `GhosttySurfaceScrollView` directly (detached
 /// from the window portal) so they keep full size at the viewport edge and
-/// never reflow during panning. Other panel kinds keep their SwiftUI views
+/// never reflow during panning. Other panel kinds keep their native views
 /// inside a hosting view.
 enum CanvasPaneContent {
     /// A terminal surface hosted directly as an AppKit subview.

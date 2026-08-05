@@ -150,9 +150,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "debug.sidebar.simulate_drag",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
-        // actor they block SwiftUI updates for their full duration, and on a
+        // actor they block UI updates for their full duration, and on a
         // not-yet-mounted webview that is a starvation deadlock (the JS can't
-        // run until SwiftUI mounts the webview, which can't happen while the
+        // run until AppKit mounts the webview, which can't happen while the
         // handler holds the main thread). UI/model access inside the handlers
         // stays on main via v2MainSync.
         "browser.navigate",

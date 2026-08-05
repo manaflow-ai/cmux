@@ -4,7 +4,7 @@ import CmuxSidebar
 import CoreGraphics
 import Foundation
 
-/// Immutable settings projection consumed by both SwiftUI and AppKit sidebar rows.
+/// Immutable settings projection consumed by AppKit sidebar rows.
 struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool

@@ -31,7 +31,7 @@ extension WorkspaceGroupCoordinator {
     /// Resolves delete intent from a rendered group header.
     ///
     /// The sidebar header row can briefly outlive the backing group record
-    /// while SwiftUI drains an old list snapshot. From the user's perspective
+    /// while the UI drains an old list snapshot. From the user's perspective
     /// the folder is still on screen and its Delete Group menu item must delete
     /// that visible header workspace instead of no-oping on the stale group id.
     public func deletionConfirmation(

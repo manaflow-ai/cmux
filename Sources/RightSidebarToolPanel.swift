@@ -448,15 +448,6 @@ final class RightSidebarToolFocusAnchorView: NSView {
     }
 
     private var focusRootView: NSView? {
-        guard let superview else { return nil }
-        var current: NSView? = superview
-        while let view = current {
-            let typeName = String(describing: type(of: view))
-            if typeName.contains("NSHosting") || typeName.contains("ViewHost") {
-                return view
-            }
-            current = view.superview
-        }
-        return superview
+        superview
     }
 }

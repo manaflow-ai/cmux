@@ -13,7 +13,7 @@ public struct TerminalArtifactReference: Sendable, Equatable, Codable, Identifia
     /// Last modification time when supplied by the scanning host.
     public let modifiedAt: Date?
 
-    /// Stable identity for SwiftUI lists.
+    /// Stable identity for diffable lists.
     public var id: String { path }
 
     /// Creates a terminal artifact reference.

@@ -20,7 +20,7 @@ public protocol ControlDebugContext: AnyObject {
     // MARK: - Session-snapshot benchmarks
 
     /// Runs the DEBUG session-snapshot benchmark for
-    /// `debug.session_snapshot_benchmark` (walks AppKit/SwiftUI/terminal-panel
+    /// `debug.session_snapshot_benchmark` (walks AppKit and terminal-panel
     /// state on the main actor) and bridges its Foundation payload.
     ///
     /// - Parameters:

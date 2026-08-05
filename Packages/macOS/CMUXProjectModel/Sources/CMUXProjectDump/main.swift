@@ -9,7 +9,7 @@ import Foundation
 ///
 /// Prints a hierarchical summary of the parsed ``ProjectModel`` so changes to
 /// the adapter can be eyeballed against a real project without standing up the
-/// SwiftUI navigator pane.
+/// AppKit navigator pane.
 
 @main
 struct CMUXProjectDump {

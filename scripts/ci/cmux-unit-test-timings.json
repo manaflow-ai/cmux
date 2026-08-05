@@ -720,7 +720,7 @@
   "AppDelegateShortcutRoutingTests/testTextBoxPrepareForSubmitDropsPendingCleanupForRestoredAttachment": 913,
   "AppDelegateShortcutRoutingTests/testTextBoxPrepareForSubmitFlushesDeletedAttachmentCleanup": 1360,
   "AppDelegateShortcutRoutingTests/testTextBoxRepastedDraftCopyRemainsDisposable": 911,
-  "AppDelegateShortcutRoutingTests/testTextBoxRepresentableDismantleDoesNotWriteSwiftUIBindings": 1045,
+  "AppDelegateShortcutRoutingTests/testTextBoxDismantleDoesNotWriteBindings": 1045,
   "AppDelegateShortcutRoutingTests/testTextBoxReturnDoesNotSubmitEmptyContent": 1053,
   "AppDelegateShortcutRoutingTests/testTextBoxReturnDoesNotSubmitWhileAttachmentUploadPending": 908,
   "AppDelegateShortcutRoutingTests/testTextBoxReturnDoesNotSubmitWhileIMEHasMarkedText": 1346,

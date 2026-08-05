@@ -116,7 +116,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
             try process.run()
             statusLabel.stringValue = String(
                 localized: "statusMenu.profiling.running",
-                defaultValue: "Recording CPU, SwiftUI, memory, and system traces in the background."
+                defaultValue: "Recording CPU, memory, and system traces in the background."
             )
         } catch {
             finishWithLaunchFailure(
@@ -251,7 +251,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         detailLabel.stringValue = String(
             format: String(
                 localized: "statusMenu.profiling.bodyFormat",
-                defaultValue: "Recording CPU, SwiftUI, memory, and system traces for %d seconds each. Finalizing may take longer."
+                defaultValue: "Recording CPU, memory, and system traces for %d seconds each. Finalizing may take longer."
             ),
             MenuBarProfilingLauncher.defaultDurationSeconds
         )

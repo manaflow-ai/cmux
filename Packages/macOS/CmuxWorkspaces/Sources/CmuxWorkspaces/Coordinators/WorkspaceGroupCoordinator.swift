@@ -97,7 +97,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         // immediately reuse the same child ids and create a duplicate group
         // around them. The new anchor is the only sensible "current"
         // selection at this point. Posts the hide notification so the
-        // SwiftUI sidebar binding follows.
+        // The sidebar model follows.
         //
         // Skipped for the non-focus socket/CLI path (caller passes
         // collapseSidebarSelection: false): per the socket focus policy in
@@ -358,7 +358,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             if !hiddenMemberIds.isEmpty,
                !host.sidebarSelectedWorkspaceIds.isDisjoint(with: hiddenMemberIds) {
                 // Use the "did hide" event (not collapse-to-one) so the
-                // SwiftUI sidebar only strips the hidden ids and keeps any
+                // The sidebar only strips the hidden ids and keeps any
                 // visible multi-selection entries that sit outside the group.
                 // focusedWorkspaceId rides along only when focus moved.
                 let focusedWorkspaceId: UUID? = (model.selectedTabId == anchorId) ? anchorId : nil

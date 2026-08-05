@@ -18,7 +18,7 @@ extension NSWindow {
     /// — is what produced the "Settings floats above the main window forever"
     /// bug (https://github.com/manaflow-ai/cmux/issues/5081).
     ///
-    /// - Note: A plain `NSWindow` / SwiftUI `Window` scene already defaults to
+    /// - Note: A plain `NSWindow` already defaults to
     ///   `.normal`; calling this makes the invariant explicit and guards against
     ///   a later change (or a child-window attachment) silently re-floating the
     ///   window.

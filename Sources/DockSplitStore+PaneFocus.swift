@@ -69,7 +69,7 @@ extension DockSplitStore {
 
     /// Resolves both workspace and per-window Docks through their shared live
     /// registry before applying pointer focus. The terminal portal can outlive a
-    /// SwiftUI host callback briefly, so pointer activation cannot depend on that
+    /// host callback briefly, so pointer activation cannot depend on that
     /// callback to update the authoritative Dock selection.
     static func focusPanelFromDockPointer(_ panelId: UUID, window: NSWindow?) {
         liveStore(containingPanel: panelId)?.focusPanelFromDockInteraction(panelId, window: window)

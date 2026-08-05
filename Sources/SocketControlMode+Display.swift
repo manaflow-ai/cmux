@@ -2,7 +2,7 @@ import CmuxSettings
 import Foundation
 
 // `SocketControlMode` lives in CmuxSettings (a value type with no UI concerns).
-// Identifiable is a presentation concern used by SwiftUI ForEach/Picker in this target,
+// Identifiable is a presentation concern used by list and picker controls in this target,
 // so the conformance is added retroactively here rather than in the package.
 extension SocketControlMode: @retroactive Identifiable {
     public var id: String { rawValue }

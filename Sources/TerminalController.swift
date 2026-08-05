@@ -6971,7 +6971,7 @@ class TerminalController {
         }
         // Run the optional --snapshot-after walk on the worker thread (not inside
         // v2MainSync) so a slow accessibility-tree snapshot on a fresh surface
-        // can't block SwiftUI and recreate mount deadlocks. Standalone
+        // can't block AppKit and recreate mount deadlocks. Standalone
         // browser.snapshot already runs here; keep the post-action path identical.
         v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
         return .ok(payload)
@@ -8359,7 +8359,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
         }
         // Run --snapshot-after off the main thread (see v2BrowserNavigate): the
-        // accessibility-tree walk must not block SwiftUI on a fresh surface.
+        // accessibility-tree walk must not block AppKit on a fresh surface.
         v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
         return .ok(payload)
     }
@@ -10715,7 +10715,7 @@ class TerminalController {
         // Allow requestedSteps > pathIndices.count: profiling at high tick
         // rates (e.g. 60Hz over a short row span) is a documented use case.
         // The resampling formula picks the same indicator value multiple
-        // times in that regime, which is exactly the SwiftUI invalidation
+        // times in that regime, which is exactly the view invalidation
         // load the skill measures.
         let steps = max(1, requestedSteps ?? pathIndices.count)
         // Resampler closure: maps step number (0..<steps) -> path index.
@@ -11129,7 +11129,7 @@ class TerminalController {
           drag_hit_chain <x 0-1> <y 0-1> - Return hit-view chain at normalised coords (test-only)
           overlay_hit_gate <event|none> - Return true/false if file-drop overlay would capture hit-testing for event type (test-only)
           overlay_drop_gate [external|local] - Return true/false if file-drop overlay would capture drag destination routing (test-only)
-          portal_hit_gate <event|none> - Return true/false if terminal portal should pass hit-testing to SwiftUI drag targets (test-only)
+          portal_hit_gate <event|none> - Return true/false if terminal portal should pass hit-testing to native drag targets (test-only)
           sidebar_overlay_gate [active|inactive] - Return true/false if sidebar outside-drop overlay would capture (test-only)
           terminal_drop_overlay_probe [deferred|direct] - Trigger focused terminal drop-overlay show path and report animation counts (test-only)
           activate_app                    - Bring app + main window to front (test-only)

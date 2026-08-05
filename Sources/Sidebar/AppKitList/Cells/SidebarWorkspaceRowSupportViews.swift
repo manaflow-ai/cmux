@@ -4,7 +4,7 @@ import CmuxFoundation
 import CmuxSidebar
 import CmuxWorkspaces
 
-/// Resolved color helpers for one row render (parity with the SwiftUI
+/// Resolved color helpers for one row render (parity with the legacy
 /// active/inactive foreground rules in SidebarAppearanceSupport).
 @MainActor
 struct SidebarRowPalette {

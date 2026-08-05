@@ -34,10 +34,9 @@ final class RemoteTmuxController {
     init() {}
 
     /// Synchronous read of the `remoteTmux` beta flag for AppKit/socket paths
-    /// that run outside the SwiftUI update cycle. Resolves the same catalog key
+    /// that run outside the view update cycle. Resolves the same catalog key
     /// the settings store persists to, so the catalog stays the single source
-    /// of the key, decode, and default. SwiftUI binds via
-    /// `@LiveSetting(\.betaFeatures.remoteTmux)`.
+    /// of the key, decode, and default. Native controls observe the settings runtime.
     nonisolated static var isEnabled: Bool {
         let key = SettingCatalog().betaFeatures.remoteTmux
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue

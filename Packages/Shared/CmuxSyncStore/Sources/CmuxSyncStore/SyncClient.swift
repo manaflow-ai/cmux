@@ -18,7 +18,7 @@ public protocol SyncTransport: Sendable {
 /// store already holds, then feeds every inbound frame to a `SyncFrameApplier`
 /// which lands them in the local SQLite store. The UI reads the store and is
 /// invalidated by an optional `onApplied` callback after each committed frame
-/// (the apply-callback, never a view-body mutation, per the repo's SwiftUI
+/// (the apply callback, never an in-layout mutation, per the repo's UI
 /// rules, DESIGN.md §10a).
 ///
 /// This is the shell; the protocol-correct apply state machine lives in

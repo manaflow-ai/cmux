@@ -25,7 +25,7 @@ extension WorkspaceTaskStatus {
 
 /// Pure mapping from a task status to the drawn glyph's shape: how much of
 /// the circle is filled, which color role it takes, and whether the
-/// checkmark renders. Kept free of SwiftUI so the mapping is unit-testable.
+/// checkmark renders. Kept UI-framework-neutral so the mapping is unit-testable.
 /// Manual-override state surfaces only in the tooltip and the status
 /// popover, never as extra glyph decoration.
 struct SidebarWorkspaceTaskStatusGlyphModel: Equatable {

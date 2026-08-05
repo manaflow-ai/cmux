@@ -8,7 +8,7 @@ public import Foundation
 /// `0`/`nil` when absent so histories written before typed-frecency landed keep
 /// loading unchanged.
 public struct BrowserHistoryEntry: Codable, Identifiable, Hashable, Sendable {
-    /// Stable identity for SwiftUI list diffing; persisted so re-decoding a
+    /// Stable identity for diffable-list updates; persisted so re-decoding a
     /// snapshot preserves row identity.
     public let id: UUID
     /// Absolute URL string exactly as recorded at visit time.

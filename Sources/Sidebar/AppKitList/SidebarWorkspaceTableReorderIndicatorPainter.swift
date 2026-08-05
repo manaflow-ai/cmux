@@ -3,7 +3,7 @@ import Foundation
 
 /// Maps the live reorder indicator onto per-row drop-line flags for the
 /// AppKit sidebar table. Wraps the shared `SidebarTabDropIndicatorPredicate`
-/// (identical gap semantics to the SwiftUI sidebar) and additionally
+/// (identical gap semantics to the legacy sidebar) and additionally
 /// suppresses lines on the row being dragged: AppKit snapshots that row as
 /// the drag image lazily, so any line painted there gets baked into the
 /// ghost and travels with the pointer for the rest of the drag.
@@ -12,7 +12,7 @@ struct SidebarWorkspaceTableReorderIndicatorPainter {
     let scope: SidebarWorkspaceReorderDropIndicatorScope
     let draggedWorkspaceId: UUID
     /// Scope-filtered row ids in display order, from the same
-    /// `sidebarDropIndicatorRowIds` computation the SwiftUI sidebar feeds the
+    /// `sidebarDropIndicatorRowIds` computation the sidebar feeds the
     /// predicate, so adjacency and end-of-scope answers cannot diverge.
     let indicatorRowIds: [UUID]
 

@@ -335,7 +335,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var portalHostAuthority: TerminalPortalHostAuthority?
     /// Wake-up retries for the owner-death edge, one per live candidate host.
     ///
-    /// Every claim runs on a candidate's own edge (its SwiftUI update, window
+    /// Every claim runs on a candidate's own edge (its view update, window
     /// entry, geometry change); the lease owner dying fires no edge on any
     /// survivor, so a pane whose owner dismantled can wait a full settle
     /// budget for an unrelated update before it re-anchors. The values are

@@ -232,8 +232,17 @@ final class MainWindowNativeViewController: NSViewController {
     private lazy var commandPaletteController = MainWindowCommandPaletteController(
         windowId: windowId,
         tabManager: tabManager,
+        updateViewModel: updateViewModel,
+        notificationStore: notificationStore,
+        sidebarState: sidebarState,
+        sidebarSelectionState: sidebarSelectionState,
+        fileExplorerState: fileExplorerState,
+        cmuxConfigStore: cmuxConfigStore,
         hostView: rootLayoutView,
-        windowProvider: { [weak self] in self?.view.window }
+        windowProvider: { [weak self] in self?.view.window },
+        openRightSidebarToolPane: { [weak self] mode in
+            self?.openRightSidebarToolPane(mode)
+        }
     )
 
     private lazy var sidebarController = SidebarNativeViewController(

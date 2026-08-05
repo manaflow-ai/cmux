@@ -6,7 +6,7 @@ import SwiftSyntax
 /// Parses a Swift view expression with `swift-syntax` and interprets the
 /// currently supported subset into a ``RenderNode`` tree.
 ///
-/// Phase 1 scope: SwiftUI constructor calls (`Text`, `VStack`, `HStack`,
+/// Phase 1 scope: declarative constructor calls (`Text`, `VStack`, `HStack`,
 /// `ZStack`, `Button`, `Spacer`, `Divider`), trailing-closure bodies, the
 /// `spacing:` argument, string literals with interpolation, modifier chains
 /// (recorded as ``RenderModifier``), and inside a ViewBuilder body the

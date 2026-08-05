@@ -45,7 +45,7 @@ extension RemoteTmuxWindowMirror {
         guard pointSize.width > 1, pointSize.height > 1 else { return }
         // A mirror's container cannot exceed the content area of the window
         // hosting it — that is a physical invariant, not a heuristic.
-        // SwiftUI can hand this callback a content-derived size when some
+        // Layout can hand this callback a content-derived size when some
         // ancestor briefly adopts a layout ideal (seen at fresh connect
         // with a starved pane: the container read the full DISPLAY width
         // while the app window was a third of it, so the claim spiked to
@@ -417,7 +417,7 @@ extension RemoteTmuxWindowMirror {
             updateRenderFrameSize()
             imposeDividerPlan(retryImposedExtents: intent == .constraintRecovery)
             applyAssignedGrids()
-            // A changed render frame applies on the NEXT SwiftUI commit —
+            // A changed render frame applies on the next AppKit layout pass,
             // after the impositions above — and AppKit's rescale then moves
             // every divider off the extents just applied, with nothing left
             // to put them back (inputs unchanged, container changed). Restate

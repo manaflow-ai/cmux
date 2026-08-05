@@ -15,7 +15,7 @@ extension NSAppearance {
 /// appearance mode is `system`.
 ///
 /// With `NSApplication.appearance == nil`, AppKit updates `effectiveAppearance`
-/// when the OS switches Light/Dark, but the SwiftUI hosting layer does not
+/// when the OS switches Light/Dark, but existing hosted content does not
 /// reliably re-resolve the ambient `colorScheme` for already-visible windows
 /// (visible when the switch is triggered by Shortcuts' "Set Appearance" or the
 /// scheduled Auto switch, #6385). This observer is detect-and-notify only: it

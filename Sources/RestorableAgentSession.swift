@@ -1028,7 +1028,7 @@ struct RestorableAgentSessionIndex: Sendable {
     // Claude transcript path lookups share a cross-load existence cache validated by
     // project-directory mtimes, but load() still walks hook records and must stay off-main.
     // NEVER call it synchronously on the main actor or in interactive paths (workspace/
-    // panel/window close, SwiftUI body, didSet, menu evaluation, socket handlers). Read
+    // panel/window close, view refresh, didSet, menu evaluation, socket handlers). Read
     // the off-main, cached `SharedLiveAgentIndex.shared` instead. The only sanctioned
     // synchronous callers are cold-cache fallbacks guarded by a nil cache check.
     static func load(

@@ -7,7 +7,7 @@ import Observation
 /// that animates its title faster than the settle interval must still surface
 /// a fresh title periodically instead of freezing the row until it goes quiet.
 /// The injected scheduler keeps both deadlines deterministic in tests, while
-/// the async stream ties row observation to SwiftUI task cancellation.
+/// the async stream ties row observation to controller task cancellation.
 @MainActor
 @Observable
 final class WorkspaceSidebarProcessTitleObservationModel {
@@ -46,7 +46,7 @@ final class WorkspaceSidebarProcessTitleObservationModel {
             let nanoseconds = min(max(0, delay) * 1_000_000_000.0, 9e18).rounded(.up)
             let timer = DispatchSource.makeTimerSource(queue: .main)
             // Generous leeway lets deadlines of concurrently churning
-            // workspaces land in one main-queue drain, so SwiftUI folds their
+            // workspaces land in one main-queue drain, so AppKit folds their
             // row refreshes into a single layout transaction.
             timer.schedule(deadline: .now() + .nanoseconds(Int(nanoseconds)), leeway: .milliseconds(100))
             timer.setEventHandler {

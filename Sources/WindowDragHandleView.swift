@@ -1265,7 +1265,7 @@ final class WindowDragHandleNSView: NSView {
         required init?(coder: NSCoder) {
             self.doubleClickBehavior = .standardAction
             super.init(coder: coder)
-            identifier = WindowDragHandleView.viewIdentifier
+            identifier = Self.viewIdentifier
         }
 
         override var mouseDownCanMoveWindow: Bool { false }

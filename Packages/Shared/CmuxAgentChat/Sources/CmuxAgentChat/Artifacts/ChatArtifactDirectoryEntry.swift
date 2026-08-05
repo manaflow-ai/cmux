@@ -9,7 +9,7 @@ public struct ChatArtifactDirectoryEntry: Sendable, Equatable, Codable, Identifi
     /// The entry preview category.
     public let kind: ChatArtifactKind
 
-    /// Stable identity for SwiftUI lists.
+    /// Stable identity for diffable lists.
     public var id: String { name }
 
     /// Creates a directory entry.

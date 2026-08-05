@@ -3,7 +3,7 @@ import Foundation
 /// Stable, allocation-free identity for a `SidebarWorkspaceRenderItem`.
 ///
 /// `ForEach` gathers row identifiers on every list diff, so the id must be
-/// cheap to create and hash. Keep the discriminator as a byte so SwiftUI's
+/// cheap to create and hash. Keep the discriminator as a byte so row diffing's
 /// per-scroll list diff avoids enum-payload hash/equality witnesses.
 struct SidebarWorkspaceRenderItemID: Hashable {
     private let kind: UInt8

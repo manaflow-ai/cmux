@@ -5,7 +5,7 @@ import os
 /// The two desktop activity metrics sent to PostHog.
 ///
 /// cmux intentionally owns this tiny transport instead of linking the PostHog
-/// client SDK. The SDK bundled replay, surveys, and SwiftUI implementation that
+/// client SDK. The SDK bundled replay, surveys, and UI implementation that
 /// the desktop app did not use. This actor keeps mutable scheduling and dedupe
 /// state isolated while URLSession performs delivery asynchronously.
 actor PostHogAnalytics {

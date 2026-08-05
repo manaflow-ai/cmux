@@ -1,4 +1,4 @@
-/// Latest immutable input delivered by the SwiftUI Vault table bridge.
+/// Latest immutable input delivered to the native Vault table.
 @MainActor
 struct SessionIndexTableApplyInput {
     let rows: [SessionIndexTableRow]

@@ -920,25 +920,3 @@ enum CommandPaletteSettingsToggleCommands {
         ]
     }()
 }
-
-extension ContentView {
-    nonisolated static func commandPaletteSettingsToggleCommandContributions() -> [CommandPaletteCommandContribution] {
-        CommandPaletteSettingsToggleCommands.descriptors.map { descriptor in
-            CommandPaletteCommandContribution(
-                commandId: descriptor.commandId,
-                title: { _ in descriptor.commandTitle() },
-                subtitle: { _ in descriptor.commandSubtitle() },
-                keywords: descriptor.keywords + ["settings", "toggle", descriptor.settingsKey],
-                when: { _ in descriptor.isAvailable(.standard) }
-            )
-        }
-    }
-
-    func registerSettingsToggleCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        for descriptor in CommandPaletteSettingsToggleCommands.descriptors {
-            registry.register(commandId: descriptor.commandId) {
-                descriptor.toggle()
-            }
-        }
-    }
-}

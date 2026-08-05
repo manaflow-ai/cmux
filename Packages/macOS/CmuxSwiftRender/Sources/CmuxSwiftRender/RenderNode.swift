@@ -1,8 +1,8 @@
 /// The intermediate representation an interpreted Swift `View` expression
-/// lowers to, before a SwiftUI bridge turns it into real views.
+/// lowers to, before an AppKit renderer turns it into real views.
 ///
 /// This IR is the leaf-bridge boundary: the interpreter handles the Swift
-/// *language* (calls, closures, later loops/state), and a thin SwiftUI
+/// *language* (calls, closures, later loops/state), and a thin AppKit
 /// layer maps each ``Kind`` to the real compiled view initializer. The set
 /// of kinds is the framework bridge that grows over time; the language
 /// coverage is what makes the approach general.
@@ -34,7 +34,7 @@ public struct RenderNode: Codable, Sendable, Equatable {
         /// `LazyVGrid` / `LazyHGrid`, rendered with adaptive columns/rows.
         case lazyVGrid
         case lazyHGrid
-        /// `ViewThatFits`: children are candidates; SwiftUI picks the first fit.
+        /// `ViewThatFits`: children are candidates; the renderer picks the first fit.
         case viewThatFits
         /// A horizontally resizable split: children are columns separated by
         /// a draggable divider. The host owns the split fraction.

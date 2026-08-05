@@ -125,7 +125,7 @@ echo "== namespace-types (static-only public types; instantiate or extend the re
 # transforms belong in an extension on the receiver type; dependency-bearing
 # logic belongs on an instantiated value with the dependency injected.
 # Statics that are constants/factories OF a real value type are never flagged
-# because such a type has instance surface. SwiftUI static-requirement key
+# because such a type has instance surface. Declarative static-requirement key
 # conformances (PreferenceKey/EnvironmentKey/...) are exempt automatically.
 # Sanctioned exceptions (C/FFI trampoline holders, GhosttyRuntimeCInterop-style
 # seams) carry a one-line justification on the decl line or up to 3 lines

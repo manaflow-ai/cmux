@@ -17,7 +17,7 @@ public typealias BackgroundLogClock = @Sendable () -> (
 /// which formatted a timestamp and did a synchronous `FileManager.fileExists`
 /// check plus a `FileHandle` open → `seekToEnd` → `write` → `close` *per line*,
 /// on whatever thread emitted the event. Appearance resolution emits these from
-/// SwiftUI view updates, so the disk I/O landed on the main thread inside
+/// UI view updates, so the disk I/O landed on the main thread inside
 /// AttributeGraph updates — see
 /// https://github.com/manaflow-ai/cmux/issues/5833.
 ///

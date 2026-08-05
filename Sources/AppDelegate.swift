@@ -2203,7 +2203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth: MacAuthComposition
     ) {
         self.tabManager = tabManager
-        // SwiftUI constructs the initial TabManager before this delegate is
+        // The composition root constructs the initial TabManager before this delegate is
         // available; adopt its coordinator so every later window shares it.
         pullRequestProbeService = tabManager.pullRequestProbeService
         self.settingsRuntime = settingsRuntime
@@ -5565,7 +5565,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let delegateView = textView.delegate as? NSView {
                 return isInsideCommandPaletteOverlay(delegateView)
             }
-            // SwiftUI can attach a non-view delegate to TextField editors.
+            // AppKit can attach a non-view delegate to text-field editors.
             // When command palette is visible, its search/rename editor is the
             // only expected field editor inside the main window.
             return true
@@ -8157,7 +8157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.
-    /// Called from both the SwiftUI menu and `handleCustomShortcut`.
+    /// Called from both the native menu and `handleCustomShortcut`.
     func showOpenFolderPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -10690,7 +10690,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard let self else { return }
             Task { @MainActor in
-                // In UI tests, the initial SwiftUI `WindowGroup` window can lag behind launch. Wait for a
+                // In UI tests, the initial native window can lag behind launch. Wait for a
                 // registered main terminal window context so notifications can be routed back correctly.
                 let deadline = Date().addingTimeInterval(8.0)
                 @MainActor func waitForContext(_ completion: @escaping (MainWindowContext) -> Void) {
@@ -12920,7 +12920,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Coalesce shortcut-default changes and refresh on the next runloop turn to
-    /// avoid mutating Bonsplit/SwiftUI-observed state during an active update pass.
+    /// avoid mutating Bonsplit-observed state during an active update pass.
     private func scheduleSplitButtonTooltipRefreshAcrossWorkspaces() {
         guard !splitButtonTooltipRefreshScheduled else { return }
         splitButtonTooltipRefreshScheduled = true
@@ -13808,8 +13808,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // New Window: Cmd+Shift+N
-        // Handled here instead of relying on SwiftUI's CommandGroup menu item because
-        // after a browser panel has been shown, SwiftUI's menu dispatch can silently
+        // Handled here instead of relying on indirect menu dispatch because
+        // after a browser panel has been shown, responder-chain dispatch can silently
         // consume the key equivalent without firing the action closure.
         if matchConfiguredShortcut(event: event, action: .newWindow) {
             openNewMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
@@ -13818,7 +13818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Open Folder: Cmd+O
         // Handled here to prevent AppKit's default NSDocumentController from opening
-        // the Documents folder when SwiftUI menu dispatch fails due to focus bugs.
+        // the Documents folder when menu dispatch fails due to focus bugs.
         if matchConfiguredShortcut(event: event, action: .openFolder) {
             showOpenFolderPanel()
             return true
@@ -15335,7 +15335,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return handleCustomShortcut(event: event)
     }
 
-    /// WebKit can consume the configured Find shortcut as a browser find key equivalent before SwiftUI
+    /// WebKit can consume the configured Find shortcut as a browser find key equivalent before the app
     /// command actions run. Keep this pre-menu route narrow so normal menu-backed
     /// browser shortcuts such as New Workspace, Close Tab, and Reload Page still use AppKit.
     @discardableResult
@@ -17485,7 +17485,7 @@ private extension NSWindow {
         cmuxDebugLog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
 #endif
 
-        // When a terminal owns first responder, bypass SwiftUI's hosting view:
+        // When a terminal owns first responder, bypass the outer hosting view:
         // after browser focus churn it can claim key equivalents without firing.
         // Non-Command keys go to Ghostty; Command keys go to the main menu.
         let firstResponderGhosttyView = self.firstResponder
@@ -17901,7 +17901,7 @@ private extension NSWindow {
                 }
             } else {
 #if DEBUG
-                cmuxDebugLog("  → consumed by mainMenu (bypassed SwiftUI)")
+                cmuxDebugLog("  → consumed by mainMenu (bypassed view routing)")
 #endif
                 return true
             }

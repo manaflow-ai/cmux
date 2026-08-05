@@ -1,6 +1,6 @@
 // ── Design Cockpit sidebar ──────────────────────────────────────────────
 // A product designer's pinned design-system + pipeline control panel.
-// Authored as a single SwiftUI-style view expression.
+// Authored as a single declarative view expression.
 
 let palette = [
   ["name": "Brand / Indigo",   "hex": "#4F46E5"],
