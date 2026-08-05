@@ -1017,7 +1017,7 @@ mod tests {
             connect_with_budget(&config, ops::SESSION_LIST, &budget),
             Err(Error::Timeout(_))
         ));
-        assert!(probe.polls() >= 2, "the connect should span several cancellation polls");
+        assert_eq!(probe.polls(), 3, "the connect should span the configured poll slices");
         assert_eq!(
             probe.attempts(),
             1,
