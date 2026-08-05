@@ -88,10 +88,11 @@ enum CommandClickFileOpenRouter {
     ///
     /// Ghostty's `Surface.openUrl` holds an internal `os_unfair_lock` when it
     /// dispatches into Swift; opening a new panel synchronously re-enters
-    /// Ghostty and deadlocks (#3370). This helper defers the split creation
+    /// Ghostty and deadlocks (https://github.com/manaflow-ai/cmux/issues/3370).
+    /// This helper defers the split creation
     /// via `DispatchQueue.main.async` and re-validates the workspace and path
     /// at dispatch time (TOCTOU). When routing fails, `fallback` is called so
-    /// the caller can open the file externally.
+    /// the caller can open the file externally. `completion` fires afterward.
     @MainActor
     static func deferredOpenFileInCmux(
         workspace: Workspace,
@@ -99,7 +100,8 @@ enum CommandClickFileOpenRouter {
         surfaceId: UUID,
         filePath: String,
         defaults: UserDefaults = .standard,
-        fallback: (@MainActor @Sendable () -> Void)? = nil
+        fallback: (@MainActor @Sendable () -> Void)? = nil,
+        completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         DispatchQueue.main.async {
             let resolvedWorkspace = AppDelegate.shared?.workspaceContainingPanel(
@@ -108,10 +110,12 @@ enum CommandClickFileOpenRouter {
             )?.workspace ?? workspace
             guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
                 fallback?()
+                completion?()
                 return
             }
             guard shouldRouteInCmux(path: filePath, defaults: defaults) else {
                 fallback?()
+                completion?()
                 return
             }
             if openInCmux(
@@ -120,9 +124,11 @@ enum CommandClickFileOpenRouter {
                 filePath: filePath,
                 defaults: defaults
             ) {
+                completion?()
                 return
             }
             fallback?()
+            completion?()
         }
     }
 }

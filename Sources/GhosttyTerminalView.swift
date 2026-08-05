@@ -7476,17 +7476,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         #endif
 
-        let openedResolution = openCommandClickResolution(
+        openCommandClickResolution(
             resolution,
-            terminalSurface: terminalSurface
+            terminalSurface: terminalSurface,
+            completion: completion
         )
-        completion?(openedResolution)
     }
 
     private func openCommandClickResolution(
         _ resolution: WordPathResolution,
-        terminalSurface: TerminalSurface
-    ) -> WordPathResolution {
+        terminalSurface: TerminalSurface,
+        completion: (@MainActor @Sendable (WordPathResolution) -> Void)?
+    ) {
         // Resolution already rejected remote terminals before touching the
         // local filesystem. Route supported files through the same container
         // coordinator as structured Ghostty links so Workspace and Dock
@@ -7507,14 +7508,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     sourceWorkspaceId: terminalSurface.tabId,
                     sourcePanelId: terminalSurface.id,
                     workingDirectory: nil
-                )
+                ),
+                completion: { completion?(resolution) }
             ) {
-                return resolution
+                return
             }
         }
 
         PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
-        return resolution
+        completion?(resolution)
     }
 
     private func discardWordPathClickResolution(jobID: UUID) {

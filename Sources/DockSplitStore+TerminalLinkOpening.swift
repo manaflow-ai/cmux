@@ -62,7 +62,8 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     func deferTerminalFileLinkOpen(
         sourcePanelId _: UUID,
         filePath _: String,
-        fallback _: @escaping @MainActor @Sendable () -> Void
+        fallback _: @escaping @MainActor @Sendable () -> Void,
+        completion _: @escaping @MainActor @Sendable () -> Void
     ) -> Bool {
         // The Dock currently hosts terminal and browser panels only. Returning
         // false makes the shared coordinator hand the resolved file to macOS.

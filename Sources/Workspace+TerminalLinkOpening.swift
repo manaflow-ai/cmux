@@ -35,7 +35,8 @@ extension Workspace: TerminalLinkOpenContainer {
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
         filePath: String,
-        fallback: @escaping @MainActor @Sendable () -> Void
+        fallback: @escaping @MainActor @Sendable () -> Void,
+        completion: @escaping @MainActor @Sendable () -> Void
     ) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
         CommandClickFileOpenRouter.deferredOpenFileInCmux(
@@ -43,7 +44,8 @@ extension Workspace: TerminalLinkOpenContainer {
             preferredWorkspaceId: id,
             surfaceId: target.containerPanelID,
             filePath: filePath,
-            fallback: fallback
+            fallback: fallback,
+            completion: completion
         )
         return true
     }

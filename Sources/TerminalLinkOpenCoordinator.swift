@@ -107,12 +107,14 @@ struct TerminalLinkOpenCoordinator {
     ///
     /// Command-click uses this entrypoint to avoid repeating the filesystem
     /// probe while preserving the same container lookup and deferred-open path
-    /// as structured terminal links.
+    /// as structured terminal links. An accepted route invokes `completion`
+    /// only after its deferred panel open or external fallback has settled.
     @discardableResult
     func openResolvedLocalFile(
         _ fileURL: URL,
         resolvedFileURL: URL,
-        request: TerminalLinkOpenRequest
+        request: TerminalLinkOpenRequest,
+        completion: (@MainActor @Sendable () -> Void)? = nil
     ) -> Bool {
         guard fileURL.isFileURL, resolvedFileURL.isFileURL else { return false }
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
@@ -121,7 +123,8 @@ struct TerminalLinkOpenCoordinator {
             request: request,
             container: container,
             unavailableReason: "resolved file container unavailable",
-            resolvedFileURL: resolvedFileURL
+            resolvedFileURL: resolvedFileURL,
+            completion: completion
         )
     }
 
@@ -130,12 +133,17 @@ struct TerminalLinkOpenCoordinator {
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?,
         unavailableReason: String,
-        resolvedFileURL: URL? = nil
+        resolvedFileURL: URL? = nil,
+        completion: (@MainActor @Sendable () -> Void)? = nil
     ) -> Bool {
         guard let sourcePanelId = request.sourcePanelId,
               let container,
               !container.terminalLinkIsRemoteTerminal(sourcePanelId) else {
-            return openExternally(fileURL, reason: unavailableReason)
+            let opened = openExternally(fileURL, reason: unavailableReason)
+            if opened {
+                completion?()
+            }
+            return opened
         }
 
         let browserAction = TerminalHTMLFileBrowserAction(defaults: defaults)
@@ -145,16 +153,22 @@ struct TerminalLinkOpenCoordinator {
                 resolvedFileURL: resolvedFileURL,
                 request: request,
                 sourcePanelId: sourcePanelId,
-                container: container
+                container: container,
+                completion: completion
             )
         }
 
         guard container.deferTerminalFileLinkOpen(
             sourcePanelId: sourcePanelId,
             filePath: fileURL.path,
-            fallback: { [externalOpen] in _ = externalOpen(fileURL) }
+            fallback: { [externalOpen] in _ = externalOpen(fileURL) },
+            completion: { completion?() }
         ) else {
-            return openExternally(fileURL, reason: unavailableReason)
+            let opened = openExternally(fileURL, reason: unavailableReason)
+            if opened {
+                completion?()
+            }
+            return opened
         }
         return true
     }
@@ -164,7 +178,8 @@ struct TerminalLinkOpenCoordinator {
         resolvedFileURL: URL?,
         request: TerminalLinkOpenRequest,
         sourcePanelId: UUID,
-        container: any TerminalLinkOpenContainer
+        container: any TerminalLinkOpenContainer,
+        completion: (@MainActor @Sendable () -> Void)?
     ) -> Bool {
         log(
             "link.openURL target=localHTML url=\(fileURL) " +
@@ -196,6 +211,7 @@ struct TerminalLinkOpenCoordinator {
                       resolvedFileURL: currentResolvedFileURL
                   ) else {
                 externalFallback()
+                completion?()
                 return
             }
 
@@ -203,6 +219,7 @@ struct TerminalLinkOpenCoordinator {
                 resolvedURL: browserURL,
                 sourcePanelId: sourcePanelId
             ) {
+                completion?()
                 return
             }
 
@@ -213,11 +230,13 @@ struct TerminalLinkOpenCoordinator {
             if currentContainer.deferTerminalFileLinkOpen(
                 sourcePanelId: sourcePanelId,
                 filePath: fileURL.path,
-                fallback: externalFallback
+                fallback: externalFallback,
+                completion: { completion?() }
             ) {
                 return
             }
             externalFallback()
+            completion?()
         }
 
         deferOperation {

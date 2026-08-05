@@ -12,11 +12,14 @@ protocol TerminalLinkOpenContainer: AnyObject {
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool
     func terminalLinkSnapshotTerminalPanel(for sourcePanelId: UUID) -> TerminalPanel?
 
+    /// Returns whether the container accepted the deferred route. When it does,
+    /// `completion` fires once after the panel opens or `fallback` finishes.
     @discardableResult
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
         filePath: String,
-        fallback: @escaping @MainActor @Sendable () -> Void
+        fallback: @escaping @MainActor @Sendable () -> Void,
+        completion: @escaping @MainActor @Sendable () -> Void
     ) -> Bool
 
     @discardableResult
