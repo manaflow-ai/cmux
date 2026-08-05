@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# cmux Hermes Agent wrapper - installs native Hermes hooks before session launches.
+#
+# A per-surface `hermes` shim routes here. Interactive launches idempotently
+# install cmux's lifecycle hooks and first-use consent approvals, then exec the
+# real Hermes binary unchanged. Hermes hook subprocesses inherit this process's
+# cmux environment, so one persistent hook definition routes to the correct
+# workspace, surface, socket, and tagged app for every launch.
+#
+# Deliberately no `set -e`/`set -u`: hook setup is best-effort and must never
+# prevent the user's Hermes executable from starting.
+
+cmux_hermes_wrapper_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_HERMES_AGENT_WRAPPER_SHIM:-}" &&
+          -e "$candidate" &&
+          -e "$CMUX_HERMES_AGENT_WRAPPER_SHIM" &&
+          "$candidate" -ef "$CMUX_HERMES_AGENT_WRAPPER_SHIM" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_HERMES_AGENT_WRAPPER_SHIM_ROOT:-}" &&
+          "$candidate" == "${CMUX_HERMES_AGENT_WRAPPER_SHIM_ROOT%/}/hermes" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */cmux-cli-shims/*/hermes|*/cmux-cli-shims/hermes)
+            return 0
+            ;;
+        */Contents/Resources/bin/hermes|*/Resources/bin/hermes)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+find_real_hermes() {
+    local custom="${CMUX_CUSTOM_HERMES_AGENT_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"
+    custom="${custom%"${custom##*[![:space:]]}"}"
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]] &&
+       ! cmux_hermes_wrapper_is_self_or_shim "$custom"; then
+        printf '%s' "$custom"
+        return 0
+    fi
+
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    local directory candidate
+    for directory in ${PATH:-}; do
+        [[ -n "$directory" && "$directory" != "$self_dir" ]] || continue
+        candidate="$directory/hermes"
+        cmux_hermes_wrapper_is_self_or_shim "$candidate" && continue
+        if [[ -f "$candidate" && -x "$candidate" ]]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+resolve_cmux_cli() {
+    local candidate="${CMUX_BUNDLED_CLI_PATH:-}"
+    if [[ -n "$candidate" && -f "$candidate" && -x "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    candidate="$self_dir/cmux"
+    if [[ -f "$candidate" && -x "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+
+    candidate="$(command -v cmux 2>/dev/null || true)"
+    if [[ -n "$candidate" && -f "$candidate" && -x "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return 0
+    fi
+    return 1
+}
+
+hermes_known_subcommand() {
+    case "$1" in
+        chat|model|moa|fallback|secrets|migrate|gateway|proxy|lsp|setup|postinstall|\
+        whatsapp|whatsapp-cloud|slack|send|login|logout|auth|status|cron|webhook|\
+        portal|kanban|project|hooks|doctor|security|dump|debug|backup|checkpoints|\
+        import|config|console|pairing|skills|bundles|plugins|curator|pets|journey|\
+        learning|memory-graph|memory|tools|computer-use|mcp|sessions|insights|claw|\
+        version|update|uninstall|acp|profile|completion|dashboard|serve|desktop|gui|\
+        logs|prompt-size)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+hermes_option_consumes_value() {
+    case "$1" in
+        --usage-file|-m|--model|--provider|-t|--toolsets|--skills|-s)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Returns success for entrypoints that create or resume an agent session. A
+# known administrative subcommand passes through without touching config.
+should_activate_hermes_hooks() {
+    (( $# == 0 )) && return 0
+
+    local argument
+    local skip_next=0
+    for argument in "$@"; do
+        if (( skip_next == 1 )); then
+            skip_next=0
+            continue
+        fi
+        case "$argument" in
+            -h|--help|-V|--version)
+                return 1
+                ;;
+            -z|--oneshot|-r|--resume|-c|--continue|--tui|--cli)
+                return 0
+                ;;
+            -z?*|-r?*|-c?*|--oneshot=*|--resume=*|--continue=*)
+                return 0
+                ;;
+            --)
+                return 0
+                ;;
+            -*=*)
+                continue
+                ;;
+            -*)
+                if hermes_option_consumes_value "$argument"; then
+                    skip_next=1
+                fi
+                continue
+                ;;
+            chat)
+                return 0
+                ;;
+            *)
+                if hermes_known_subcommand "$argument"; then
+                    return 1
+                fi
+                return 0
+                ;;
+        esac
+    done
+    return 0
+}
+
+IN_CMUX=0
+if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
+    IN_CMUX=1
+fi
+
+REAL_HERMES="$(find_real_hermes)" || {
+    echo "Error: hermes not found in PATH" >&2
+    exit 127
+}
+
+exec_real_hermes_passthrough() {
+    unset CMUX_AGENT_RESTORE_LAUNCH
+    unset CMUX_AGENT_RESUME_LAUNCH
+    if [[ "$IN_CMUX" == "1" ]]; then
+        local cmux_key
+        for cmux_key in "${!CMUX_@}"; do
+            unset "$cmux_key"
+        done
+        unset TERMINFO
+    fi
+    exec "$REAL_HERMES" "$@"
+}
+
+if [[ "$IN_CMUX" == "0" || "${CMUX_HERMES_AGENT_HOOKS_DISABLED:-}" == "1" ]]; then
+    exec_real_hermes_passthrough "$@"
+fi
+
+if ! should_activate_hermes_hooks "$@"; then
+    exec_real_hermes_passthrough "$@"
+fi
+
+# Installation is idempotent, merges rather than replaces user configuration,
+# and records approvals in Hermes's own consent allowlist. Suppress all output
+# and ignore every failure so this integration can never break Hermes startup.
+if CMUX_HERMES_INSTALL_CLI="$(resolve_cmux_cli)"; then
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        "$CMUX_HERMES_INSTALL_CLI" --socket "$CMUX_SOCKET_PATH" \
+            hooks hermes-agent install --yes </dev/null >/dev/null 2>&1 || true
+    else
+        "$CMUX_HERMES_INSTALL_CLI" \
+            hooks hermes-agent install --yes </dev/null >/dev/null 2>&1 || true
+    fi
+fi
+unset CMUX_HERMES_INSTALL_CLI
+
+export CMUX_HERMES_AGENT_PID=$$
+export CMUX_AGENT_LAUNCH_KIND="hermes-agent"
+export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_HERMES"
+export CMUX_AGENT_LAUNCH_CWD="$PWD"
+{
+    cmux_hermes_argv_b64="$(
+        {
+            printf '%s\0' "$REAL_HERMES"
+            if (( $# > 0 )); then
+                printf '%s\0' "$@"
+            fi
+        } | base64 | tr -d '\n'
+    )"
+    [[ -n "$cmux_hermes_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_hermes_argv_b64"
+}
+
+# A restore authorization is valid only for this wrapper pass. The actual
+# session identity comes from Hermes's on_session_start payload.
+unset CMUX_AGENT_RESTORE_LAUNCH
+unset CMUX_AGENT_RESUME_LAUNCH
+
+exec "$REAL_HERMES" "$@"

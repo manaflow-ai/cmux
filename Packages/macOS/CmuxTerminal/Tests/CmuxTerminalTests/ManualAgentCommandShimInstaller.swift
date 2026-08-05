@@ -2,18 +2,18 @@ import Foundation
 import CmuxTerminalCore
 @testable import CmuxTerminal
 
-actor ManualClaudeCommandShimInstaller {
-    private var installContinuations: [CheckedContinuation<TerminalSurfaceClaudeCommandShim?, Never>] = []
+actor ManualAgentCommandShimInstaller {
+    private var installContinuations: [CheckedContinuation<TerminalSurfaceAgentCommandShimSet?, Never>] = []
     private var startContinuations: [CheckedContinuation<Void, Never>] = []
-    private var completedResult: TerminalSurfaceClaudeCommandShim?
+    private var completedResult: TerminalSurfaceAgentCommandShimSet?
     private var didComplete = false
 
     func install(
-        wrapperURL: URL,
+        wrapperDirectoryURL: URL,
         surfaceId: UUID,
         temporaryDirectory: URL
-    ) async -> TerminalSurfaceClaudeCommandShim? {
-        _ = wrapperURL
+    ) async -> TerminalSurfaceAgentCommandShimSet? {
+        _ = wrapperDirectoryURL
         _ = surfaceId
         _ = temporaryDirectory
         if didComplete {
@@ -32,7 +32,7 @@ actor ManualClaudeCommandShimInstaller {
         }
     }
 
-    func complete(with result: TerminalSurfaceClaudeCommandShim? = nil) {
+    func complete(with result: TerminalSurfaceAgentCommandShimSet? = nil) {
         didComplete = true
         completedResult = result
         let continuations = installContinuations
@@ -51,3 +51,4 @@ actor ManualClaudeCommandShimInstaller {
         }
     }
 }
+

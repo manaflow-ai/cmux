@@ -30828,6 +30828,9 @@ export default CMUXSessionRestore;
         if let sessionId = normalizedHookValue(input.sessionId) {
             return sessionId
         }
+        if let sessionId = hermesAgentApprovalSessionId(def: def, input: input) {
+            return sessionId
+        }
         if def.name == "rovodev" {
             return RovoDevSessionResolver.inferredRovoDevSessionId(cwd: cwd, env: env) ?? ""
         }
@@ -30981,6 +30984,17 @@ export default CMUXSessionRestore;
             env: env
         )
 #endif
+        if isHermesAgentAutomaticApprovalObservation(def: def, input: input) {
+#if DEBUG
+            agentHookDebugLog(
+                "agentHook.skip agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=automaticApprovalObservation",
+                socketPath: client.socketPath,
+                env: env
+            )
+#endif
+            print("{}")
+            return
+        }
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
         // Destructive session teardown shared by a genuine (non-turn-boundary)
