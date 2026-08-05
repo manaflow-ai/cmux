@@ -16,22 +16,7 @@ struct WorkspaceRemoteDaemonRecoveryTests {
     /// on the workspace's sidebar row.
     @Test
     func recoveredDaemonTransportBounceClearsSidebarDaemonError() {
-        let workspace = Workspace()
-        let config = WorkspaceRemoteConfiguration(
-            destination: "dev@example.com",
-            port: 22,
-            identityFile: nil,
-            sshOptions: [],
-            localProxyPort: nil,
-            relayPort: 64_021,
-            relayID: String(repeating: "c", count: 16),
-            relayToken: String(repeating: "d", count: 64),
-            localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh dev@example.com",
-            preserveAfterTerminalExit: true,
-            skipDaemonBootstrap: true
-        )
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        let workspace = makeRemoteWorkspace()
 
         workspace.applyRemoteDaemonStatusUpdate(
             WorkspaceRemoteDaemonStatus(state: .ready),
@@ -120,7 +105,40 @@ struct WorkspaceRemoteDaemonRecoveryTests {
         )
     }
 
-    private func makeRemoteWorkspace() -> Workspace {
+    /// Retraction must not paper over a workspace whose remote terminal died:
+    /// the daemon can be ready while the surface has fallen back to a local
+    /// shell and the row still reads "Connected". The daemon error is then the
+    /// only visible sign that the workspace is not really remote.
+    @Test
+    func daemonReadyWithoutRemoteTerminalKeepsSidebarDaemonError() {
+        let workspace = makeRemoteWorkspace(withRemoteTerminal: false)
+
+        workspace.applyRemoteDaemonStatusUpdate(
+            WorkspaceRemoteDaemonStatus(
+                state: .error,
+                detail: "Remote SSH relay unavailable; retrying in 2 seconds"
+            ),
+            target: "dev@example.com"
+        )
+        workspace.applyRemoteDaemonStatusUpdate(
+            WorkspaceRemoteDaemonStatus(state: .ready),
+            target: "dev@example.com"
+        )
+
+        #expect(
+            workspace.hasActiveRemoteTerminalSessions == false,
+            "This case is about a workspace with no live remote terminal"
+        )
+        #expect(
+            workspace.logEntries.contains { $0.source == "remote-daemon" && $0.level == .error },
+            "A ready daemon with no remote terminal session must not clear the error"
+        )
+    }
+
+    /// Builds a remote workspace. `withRemoteTerminal` mirrors a workspace whose
+    /// surface is actually attached to the remote host; without it the workspace
+    /// models the fallback case where the terminal is no longer remote.
+    private func makeRemoteWorkspace(withRemoteTerminal: Bool = true) -> Workspace {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "dev@example.com",
@@ -137,6 +155,9 @@ struct WorkspaceRemoteDaemonRecoveryTests {
             skipDaemonBootstrap: true
         )
         workspace.configureRemoteConnection(config, autoConnect: false)
+        if withRemoteTerminal {
+            workspace.trackRemoteTerminalSurface(UUID())
+        }
         return workspace
     }
 }

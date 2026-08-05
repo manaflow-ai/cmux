@@ -2757,6 +2757,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// since healed, so keeping it would leave a red sidebar entry as the last
     /// word on a working workspace.
     func clearResolvedRemoteDaemonSidebarArtifacts() {
+        // A ready daemon only proves the management lane recovered. When the
+        // workspace has no remote terminal session, its terminal has fallen
+        // back to a local shell while the row still reads "Connected", and
+        // retracting here would erase the only sign that anything went wrong.
+        // Keep the errors visible until a remote terminal is actually alive.
+        guard hasActiveRemoteTerminalSessions else { return }
         logEntries.removeAll { entry in
             entry.source == "remote-daemon" && entry.level == .error
         }
