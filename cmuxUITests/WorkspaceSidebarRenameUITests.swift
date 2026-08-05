@@ -106,6 +106,40 @@ final class WorkspaceSidebarRenameUITests: XCTestCase {
         )
     }
 
+    /// Diagnostic: dumps how a secondary-click context menu actually appears in
+    /// the accessibility hierarchy, so the assertions above can be scoped to the
+    /// popup menu instead of matching the View menu's "Rename Workspace…".
+    func testDiagnosticDumpContextMenuHierarchy() {
+        let app = launchedApp(tag: "ui-rename-diag")
+        let row = firstWorkspaceRow(app: app)
+        XCTAssertTrue(pollUntil(timeout: 10.0) { row.exists && row.isHittable }, "row visible")
+
+        print("DIAG-BASELINE-MENUS count=\(app.menus.count) menuBars=\(app.menuBars.count)")
+        let baselineRename = app.descendants(matching: .menuItem)
+            .matching(NSPredicate(format: "title BEGINSWITH %@", "Rename Workspace"))
+        print("DIAG-BASELINE-RENAME-MATCHES count=\(baselineRename.count)")
+        for i in 0..<baselineRename.count {
+            let e = baselineRename.element(boundBy: i)
+            print("DIAG-BASELINE-RENAME[\(i)] hittable=\(e.isHittable) frame=\(e.frame)")
+        }
+
+        row.rightClick()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+
+        print("DIAG-AFTER-RIGHTCLICK menus=\(app.menus.count)")
+        let afterRename = app.descendants(matching: .menuItem)
+            .matching(NSPredicate(format: "title BEGINSWITH %@", "Rename Workspace"))
+        print("DIAG-AFTER-RENAME-MATCHES count=\(afterRename.count)")
+        for i in 0..<afterRename.count {
+            let e = afterRename.element(boundBy: i)
+            print("DIAG-AFTER-RENAME[\(i)] hittable=\(e.isHittable) frame=\(e.frame)")
+        }
+        print("DIAG-WINDOW-MENUS count=\(app.windows.descendants(matching: .menu).count)")
+        print("DIAG-HIERARCHY-BEGIN")
+        print(app.debugDescription)
+        print("DIAG-HIERARCHY-END")
+    }
+
     // MARK: Helpers
 
     private func launchedApp(tag: String) -> XCUIApplication {
