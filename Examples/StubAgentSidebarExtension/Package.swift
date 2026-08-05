@@ -1,5 +1,11 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
+
+let modernConcurrencySettings: [SwiftSetting] = [
+    .swiftLanguageMode(.v6),
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+]
 
 let package = Package(
     name: "StubAgentSidebarExtension",
@@ -23,7 +29,8 @@ let package = Package(
             ],
             resources: [
                 .process("Resources"),
-            ]
+            ],
+            swiftSettings: modernConcurrencySettings
         ),
     ]
 )

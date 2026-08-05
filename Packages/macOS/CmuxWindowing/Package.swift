@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
@@ -18,6 +18,8 @@ let package = Package(
             name: "CmuxWindowing",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
@@ -27,6 +29,8 @@ let package = Package(
             dependencies: ["CmuxWindowing"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]

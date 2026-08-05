@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
@@ -28,6 +28,8 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
         .target(
@@ -40,6 +42,8 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ],
             linkerSettings: [
                 .linkedFramework("IOSurface"),
@@ -51,6 +55,8 @@ let package = Package(
             dependencies: ["CmuxSimulator", "CmuxSimulatorSystem"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ],
             linkerSettings: [
                 .linkedFramework("QuartzCore"),
@@ -61,6 +67,8 @@ let package = Package(
             dependencies: ["CmuxSimulator"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
         .testTarget(
@@ -72,6 +80,8 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
         .testTarget(
@@ -79,6 +89,8 @@ let package = Package(
             dependencies: ["CmuxSimulator", "CmuxSimulatorWorker"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
     ]

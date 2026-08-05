@@ -1,6 +1,13 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
+
+let modernConcurrencySettings: [SwiftSetting] = [
+    .swiftLanguageMode(.v6),
+    .defaultIsolation(MainActor.self),
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+]
 
 let package = Package(
     name: "CmuxSwiftRenderUI",
@@ -29,11 +36,13 @@ let package = Package(
             ],
             resources: [
                 .process("Resources"),
-            ]
+            ],
+            swiftSettings: modernConcurrencySettings
         ),
         .testTarget(
             name: "CmuxSwiftRenderUITests",
-            dependencies: ["CmuxSwiftRenderUI"]
+            dependencies: ["CmuxSwiftRenderUI"],
+            swiftSettings: modernConcurrencySettings
         ),
     ]
 )

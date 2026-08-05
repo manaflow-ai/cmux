@@ -1,5 +1,11 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 import PackageDescription
+
+let modernConcurrencySettings: [SwiftSetting] = [
+    .swiftLanguageMode(.v6),
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+]
 
 let package = Package(
     name: "StackAuth",
@@ -26,12 +32,14 @@ let package = Package(
             dependencies: [
                 .product(name: "Crypto", package: "swift-crypto"),
             ],
-            path: "Sources/StackAuth"
+            path: "Sources/StackAuth",
+            swiftSettings: modernConcurrencySettings
         ),
         .testTarget(
             name: "StackAuthTests",
             dependencies: ["StackAuth"],
-            path: "Tests/StackAuthTests"
+            path: "Tests/StackAuthTests",
+            swiftSettings: modernConcurrencySettings
         ),
     ]
 )

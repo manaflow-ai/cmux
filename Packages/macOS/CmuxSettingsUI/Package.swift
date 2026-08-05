@@ -1,6 +1,13 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
+
+let modernConcurrencySettings: [SwiftSetting] = [
+    .swiftLanguageMode(.v6),
+    .defaultIsolation(MainActor.self),
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+]
 
 let package = Package(
     name: "CmuxSettingsUI",
@@ -25,11 +32,13 @@ let package = Package(
                 "CMUXMobileCore",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
-            ]
+            ],
+            swiftSettings: modernConcurrencySettings
         ),
         .testTarget(
             name: "CmuxSettingsUITests",
-            dependencies: ["CmuxSettingsUI"]
+            dependencies: ["CmuxSettingsUI"],
+            swiftSettings: modernConcurrencySettings
         ),
     ]
 )

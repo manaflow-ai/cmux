@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
@@ -39,6 +39,8 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
         .testTarget(
@@ -46,6 +48,8 @@ let package = Package(
             dependencies: ["CmuxMobileTerminal"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ],
             // GhosttyKit's static lib carries C++ objects (glslang); the
             // standalone xctest bundle must link the C++ runtime itself.

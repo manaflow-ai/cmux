@@ -1,6 +1,12 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 
 import PackageDescription
+
+let modernConcurrencySettings: [SwiftSetting] = [
+    .swiftLanguageMode(.v6),
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+]
 
 let package = Package(
     name: "CMUXDebugLog",
@@ -16,12 +22,14 @@ let package = Package(
     targets: [
         .target(
             name: "CMUXDebugLog",
-            path: "Sources/CMUXDebugLog"
+            path: "Sources/CMUXDebugLog",
+            swiftSettings: modernConcurrencySettings
         ),
         .testTarget(
             name: "CMUXDebugLogTests",
             dependencies: ["CMUXDebugLog"],
-            path: "Tests/CMUXDebugLogTests"
+            path: "Tests/CMUXDebugLogTests",
+            swiftSettings: modernConcurrencySettings
         ),
     ]
 )

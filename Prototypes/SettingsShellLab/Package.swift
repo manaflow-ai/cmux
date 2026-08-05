@@ -14,7 +14,13 @@ let package = Package(
         .executableTarget(
             name: "SettingsShellLab",
             path: "Sources/SettingsShellLab",
-            resources: [.process("Resources")]
+            resources: [.process("Resources")],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .defaultIsolation(MainActor.self),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+            ]
         ),
     ],
     swiftLanguageModes: [.v6]

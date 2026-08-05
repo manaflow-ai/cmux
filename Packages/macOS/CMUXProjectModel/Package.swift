@@ -1,5 +1,11 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
+
+let modernConcurrencySettings: [SwiftSetting] = [
+    .swiftLanguageMode(.v6),
+    .enableUpcomingFeature("InferIsolatedConformances"),
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+]
 
 let package = Package(
     name: "CMUXProjectModel",
@@ -27,15 +33,18 @@ let package = Package(
             name: "CMUXProjectModel",
             dependencies: [
                 .product(name: "XcodeProj", package: "XcodeProj"),
-            ]
+            ],
+            swiftSettings: modernConcurrencySettings
         ),
         .executableTarget(
             name: "CMUXProjectDump",
-            dependencies: ["CMUXProjectModel"]
+            dependencies: ["CMUXProjectModel"],
+            swiftSettings: modernConcurrencySettings
         ),
         .testTarget(
             name: "CMUXProjectModelTests",
-            dependencies: ["CMUXProjectModel"]
+            dependencies: ["CMUXProjectModel"],
+            swiftSettings: modernConcurrencySettings
         ),
     ]
 )

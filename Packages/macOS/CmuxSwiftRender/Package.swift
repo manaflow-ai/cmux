@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
@@ -26,13 +26,20 @@ let package = Package(
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
         .testTarget(
             name: "CmuxSwiftRenderTests",
             dependencies: ["CmuxSwiftRender"],
             // Corpus holds sidebar DSL files (interpreter input, not test code).
-            exclude: ["Corpus"]
+            exclude: ["Corpus"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+            ]
         ),
     ]
 )
