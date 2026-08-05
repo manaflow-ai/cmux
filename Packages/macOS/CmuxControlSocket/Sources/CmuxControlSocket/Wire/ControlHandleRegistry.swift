@@ -11,6 +11,11 @@ public import Foundation
 /// three dictionaries and corrupts their buffers (SIGSEGV/SIGABRT in
 /// `ensureRef`).
 public final class ControlHandleRegistry: @unchecked Sendable {
+    /// Serializes all access to the three dictionaries so concurrent callers
+    /// (a missed main-actor hop from the socket worker) can never corrupt a
+    /// dictionary buffer mid-mutation. This is the enforcement the old
+    /// "owner provides isolation" invariant relied on by convention.
+    private let lock = NSLock()
     private var nextOrdinal: [ControlHandleKind: Int]
     private var refByUUID: [ControlHandleKind: [UUID: String]]
     private var uuidByRef: [ControlHandleKind: [String: UUID]]
@@ -38,15 +43,17 @@ public final class ControlHandleRegistry: @unchecked Sendable {
     ///   - uuid: The object identity.
     /// - Returns: The stable ref string.
     public func ensureRef(kind: ControlHandleKind, uuid: UUID) -> String {
-        if let existing = refByUUID[kind]?[uuid] {
-            return existing
+        lock.withLock {
+            if let existing = refByUUID[kind]?[uuid] {
+                return existing
+            }
+            let next = nextOrdinal[kind] ?? 1
+            let ref = "\(kind.rawValue):\(next)"
+            refByUUID[kind, default: [:]][uuid] = ref
+            uuidByRef[kind, default: [:]][ref] = uuid
+            nextOrdinal[kind] = next + 1
+            return ref
         }
-        let next = nextOrdinal[kind] ?? 1
-        let ref = "\(kind.rawValue):\(next)"
-        refByUUID[kind, default: [:]][uuid] = ref
-        uuidByRef[kind, default: [:]][ref] = uuid
-        nextOrdinal[kind] = next + 1
-        return ref
     }
 
     /// Forgets the ref minted for an object (e.g. when a surface closes).
@@ -58,10 +65,12 @@ public final class ControlHandleRegistry: @unchecked Sendable {
     ///   - kind: The handle kind.
     ///   - uuid: The object identity to forget.
     public func removeRef(kind: ControlHandleKind, uuid: UUID) {
-        if let ref = refByUUID[kind]?[uuid] {
-            uuidByRef[kind]?.removeValue(forKey: ref)
+        lock.withLock {
+            if let ref = refByUUID[kind]?[uuid] {
+                uuidByRef[kind]?.removeValue(forKey: ref)
+            }
+            refByUUID[kind]?.removeValue(forKey: uuid)
         }
-        refByUUID[kind]?.removeValue(forKey: uuid)
     }
 
     /// Resolves a ref back to the object identity it was minted for.
@@ -72,18 +81,20 @@ public final class ControlHandleRegistry: @unchecked Sendable {
     /// - Parameter ref: The handle ref to resolve.
     /// - Returns: The object identity, or `nil` for an unknown ref.
     public func uuid(forRef ref: String) -> UUID? {
-        for kind in ControlHandleKind.allCases {
-            if let id = uuidByRef[kind]?[ref] {
+        lock.withLock {
+            for kind in ControlHandleKind.allCases {
+                if let id = uuidByRef[kind]?[ref] {
+                    return id
+                }
+            }
+            // Tab refs are aliases for surface refs in tab-facing APIs.
+            let trimmed = ref.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if trimmed.hasPrefix("tab:"),
+               let ordinal = Int(trimmed.replacingOccurrences(of: "tab:", with: "")),
+               let id = uuidByRef[.surface]?["surface:\(ordinal)"] {
                 return id
             }
+            return nil
         }
-        // Tab refs are aliases for surface refs in tab-facing APIs.
-        let trimmed = ref.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if trimmed.hasPrefix("tab:"),
-           let ordinal = Int(trimmed.replacingOccurrences(of: "tab:", with: "")),
-           let id = uuidByRef[.surface]?["surface:\(ordinal)"] {
-            return id
-        }
-        return nil
     }
 }
