@@ -12,9 +12,26 @@ public import Foundation
 /// `ensureRef`).
 public final class ControlHandleRegistry: @unchecked Sendable {
     /// Serializes all access to the three dictionaries so concurrent callers
-    /// (a missed main-actor hop from the socket worker) can never corrupt a
-    /// dictionary buffer mid-mutation. This is the enforcement the old
-    /// "owner provides isolation" invariant relied on by convention.
+    /// can never corrupt a dictionary buffer mid-mutation.
+    ///
+    /// A lock, not an actor or `@MainActor`, is deliberate here — two concrete
+    /// reasons, neither of which is "simpler":
+    ///
+    /// 1. `ensureRef` / `removeRef` / `uuid(forRef:)` are **synchronous** and
+    ///    called from synchronous, non-`async` contexts: the coordinator mints
+    ///    refs inline while building socket responses (`ref()` runs on nearly
+    ///    every response), and the legacy path reaches them through
+    ///    `v2MainSync`. An `actor` exposes only `async` members to outside
+    ///    callers, so adopting one would force `await` across the entire
+    ///    synchronous socket-dispatch chain. This is a non-`async` low-level
+    ///    access point, the case the blocking-runtime policy allows a lock for.
+    ///
+    /// 2. `@MainActor` isolation is the design that just failed. This state was
+    ///    already "owned" on the main actor by convention; the crash is a
+    ///    caller reaching it *without* the hop (the socket worker's resolution
+    ///    lane). A lock makes the type safe regardless of a missed hop;
+    ///    re-asserting `@MainActor` only reinstates the same unenforced
+    ///    invariant that corrupted the dictionaries in the first place.
     private let lock = NSLock()
     private var nextOrdinal: [ControlHandleKind: Int]
     private var refByUUID: [ControlHandleKind: [UUID: String]]
