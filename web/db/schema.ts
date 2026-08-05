@@ -379,6 +379,8 @@ export const deviceTokens = pgTable(
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.
     environment: text("environment").notNull().default("production"),
+    deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
+    deliveryLeaseToken: uuid("delivery_lease_token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -394,6 +396,38 @@ export const notificationSendEvents = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
     deviceCount: integer("device_count").notNull(),
+    // Opaque logical event id from the Mac. Retries reuse it so the database
+    // limiter counts one source event and the route can return the completed
+    // aggregate without resending successful devices.
+    correlationId: text("correlation_id"),
+    // SHA-256 of the canonical logical payload. This binds a correlation id to
+    // one event without persisting notification content or routing identifiers.
+    payloadFingerprint: text("payload_fingerprint"),
+    eventKind: text("event_kind").notNull().default("notify"),
+    initialTargets: jsonb("initial_targets").$type<Array<{
+      targetId: string;
+      bundleId: string;
+      environment: string;
+    }>>(),
+    resultSummary: jsonb("result_summary").$type<{
+      sent: number;
+      devices: number;
+      pruned: number;
+      transientFailures: number;
+      permanentFailures: number;
+      retryAfterSeconds?: number;
+    }>(),
+    resultOutcomes: jsonb("result_outcomes").$type<Array<{
+      targetId: string;
+      status: number;
+      reason?: string;
+      retryAfterSeconds?: number;
+      prune: boolean;
+    }>>(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    retryNotBefore: timestamp("retry_not_before", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -422,6 +456,83 @@ export const subrouterTenants = pgTable(
   },
   (table) => [
     uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
+  ],
+);
+
+/**
+ * Non-secret routing metadata for CodeRouter accounts. Provider credentials
+ * live only in the Stack team server-metadata vault; Postgres coordinates
+ * selection and rotating refresh-token leases.
+ */
+export const coderouterAccounts = pgTable(
+  "coderouter_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    label: text("label").notNull(),
+    state: text("state")
+      .$type<"active" | "refreshing" | "expired" | "broken">()
+      .notNull()
+      .default("active"),
+    vaultRevision: bigint("vault_revision", { mode: "number" }).notNull().default(1),
+    credentialExpiresAt: timestamp("credential_expires_at", { withTimezone: true }),
+    refreshLeaseId: uuid("refresh_lease_id"),
+    refreshLeaseExpiresAt: timestamp("refresh_lease_expires_at", { withTimezone: true }),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    lastFailureCode: text("last_failure_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_accounts_team_provider_account_unique").on(
+      table.teamId,
+      table.provider,
+      table.providerAccountId,
+    ),
+    index("coderouter_accounts_team_provider_state_idx").on(
+      table.teamId,
+      table.provider,
+      table.state,
+    ),
+    index("coderouter_accounts_refresh_lease_expiry_idx").on(
+      table.refreshLeaseExpiresAt,
+    ),
+    index("coderouter_accounts_cooldown_idx").on(table.cooldownUntil),
+  ],
+);
+
+export const coderouterRouteTokens = pgTable(
+  "coderouter_route_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    label: text("label").notNull().default("cli"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_route_tokens_hash_unique").on(table.tokenHash),
+    index("coderouter_route_tokens_team_expiry_idx").on(table.teamId, table.expiresAt),
+  ],
+);
+
+export const coderouterVaultLeases = pgTable(
+  "coderouter_vault_leases",
+  {
+    teamId: text("team_id").primaryKey(),
+    leaseId: uuid("lease_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("coderouter_vault_leases_expiry_idx").on(table.expiresAt),
   ],
 );
 

@@ -1407,7 +1407,16 @@
     "changelog": {
       "title": "Değişiklik Günlüğü",
       "metaDescription": "cmux sürüm notları ve sürüm geçmişi. Yerel macOS terminali için yeni özellikler, hata düzeltmeleri ve değişiklikler.",
-      "metaTitle": "Değişiklik günlüğü"
+      "metaTitle": "Değişiklik günlüğü",
+      "versionTitle": "cmux {version} · Değişiklik günlüğü",
+      "releaseNavLabel": "cmux {version} civarındaki sürümler",
+      "sections": {
+        "added": "Eklendi",
+        "changed": "Değiştirildi",
+        "fixed": "Düzeltildi",
+        "removed": "Kaldırıldı",
+        "contributors": "Katkıda bulunanlar"
+      }
     },
     "navItems": {
       "gettingStarted": "Başlarken",
@@ -3560,7 +3569,6 @@
     "title": "{platform} için cmux",
     "tagline": "Birlikte geliştirilen Chromium tarayıcısı ve aracı çalışma alanı.",
     "logoAlt": "cmux uygulama simgesi",
-    "portableCta": "Taşınabilir ZIP",
     "featuresTitle": "Aracılarla çalışma için tasarlandı",
     "features": {
       "chromium": {
@@ -3582,7 +3590,7 @@
     },
     "installTitle": "Kurulum",
     "releaseTitle": "Sürümler ve güncellemeler",
-    "releaseBody": "Bu bağlantılar her zaman <github>GitHub Releases</github> üzerindeki en son kararlı sürümü gösterir. cmux, bir güncellemeyi yüklemeden önce imzalı güncelleme bildirimlerini doğrular.",
+    "releaseBody": "Bu bağlantılar her zaman <github>GitHub Releases</github> üzerindeki en son nightly sürümünü gösterir. cmux, bir güncellemeyi yüklemeden önce imzalı güncelleme bildirimlerini doğrular.",
     "sourceLink": "Kaynak kodunu GitHub'da görüntüleyin",
     "otherPlatform": "{platform} için cmux",
     "macLink": "Mac için cmux terminali",
@@ -3592,6 +3600,7 @@
       "metaDescription": "Windows x64 için cmux'u indirin: görev odaklı sekmelere ve terminal yüzeylerine sahip, ücretsiz ve açık kaynaklı bir Chromium tarayıcısı ve aracı çalışma alanı.",
       "subtitle": "Chromium sekmeleri, cmux çalışma alanları ve tanıdık Windows klavye düzenleri içeren yerel x64 derlemesi.",
       "primaryCta": "Yükleyiciyi indir (.exe)",
+      "secondaryCta": "Taşınabilir ZIP",
       "requirements": "Windows 10 veya üzeri · x64",
       "installBody": "Yükleyiciyi çalıştırın ve Windows yönergelerini izleyin. cmux'u sistem genelinde kurmadan bir klasörde tutmak istiyorsanız taşınabilir ZIP'i seçin."
     },
@@ -3600,9 +3609,10 @@
       "metaTitle": "Linux için cmux'u indirin",
       "metaDescription": "Linux x64 için cmux'u indirin: görev odaklı sekmelere ve terminal yüzeylerine sahip, ücretsiz ve açık kaynaklı bir Chromium tarayıcısı ve aracı çalışma alanı.",
       "subtitle": "Chromium sekmeleri, cmux çalışma alanları ve tümleşik terminal yüzeyleri içeren yerel x64 derlemesi.",
-      "primaryCta": ".deb dosyasını indir",
-      "requirements": "Debian veya Ubuntu · x64",
-      "installBody": "Debian paketini indirin ve paket yöneticinizle kurun. Kullanıcı başına kurulum ve uygulama içi güncellemeler için taşınabilir ZIP'i seçin."
+      "primaryCta": "Otomatik güncellemeli yükleyiciyi indir (.run)",
+      "secondaryCta": "Debian paketi (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Kullanıcıya özel yükleyiciyi bir kez çalıştırın. cmux'u root yetkisi gerektirmeden ~/.local altına kurar ve imzalı uygulama içi güncellemeleri etkinleştirir. Güncellemelerin paket yöneticiniz tarafından yönetilmesini istiyorsanız bunun yerine Debian paketini seçin."
     }
   },
   "emails": {

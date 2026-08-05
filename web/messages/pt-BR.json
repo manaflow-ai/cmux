@@ -1407,7 +1407,16 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Notas de lançamento e histórico de versões do cmux. Novos recursos, correções de bugs e mudanças para o terminal macOS nativo.",
-      "metaTitle": "Registro de alterações"
+      "metaTitle": "Registro de alterações",
+      "versionTitle": "cmux {version} · Registro de alterações",
+      "releaseNavLabel": "Versões próximas do cmux {version}",
+      "sections": {
+        "added": "Adicionado",
+        "changed": "Alterado",
+        "fixed": "Corrigido",
+        "removed": "Removido",
+        "contributors": "Colaboradores"
+      }
     },
     "navItems": {
       "gettingStarted": "Primeiros Passos",
@@ -3562,7 +3571,6 @@
     "title": "cmux para {platform}",
     "tagline": "Um navegador Chromium e um espaço de trabalho para agentes, criados em conjunto.",
     "logoAlt": "Ícone do aplicativo cmux",
-    "portableCta": "ZIP portátil",
     "featuresTitle": "Feito para trabalho com agentes",
     "features": {
       "chromium": {
@@ -3584,7 +3592,7 @@
     },
     "installTitle": "Instalação",
     "releaseTitle": "Versões e atualizações",
-    "releaseBody": "Estes links sempre apontam para a versão estável mais recente no <github>GitHub Releases</github>. O cmux verifica manifestos de atualização assinados antes de instalar uma atualização.",
+    "releaseBody": "Estes links sempre apontam para a versão nightly mais recente no <github>GitHub Releases</github>. O cmux verifica manifestos de atualização assinados antes de instalar uma atualização.",
     "sourceLink": "Ver o código-fonte no GitHub",
     "otherPlatform": "cmux para {platform}",
     "macLink": "Terminal cmux para Mac",
@@ -3594,6 +3602,7 @@
       "metaDescription": "Baixe o cmux para Windows x64: um navegador Chromium e espaço de trabalho para agentes, gratuito e de código aberto, com abas por tarefa e superfícies de terminal.",
       "subtitle": "Uma compilação x64 nativa com abas Chromium, espaços de trabalho cmux e convenções de teclado conhecidas do Windows.",
       "primaryCta": "Baixar instalador (.exe)",
+      "secondaryCta": "ZIP portátil",
       "requirements": "Windows 10 ou mais recente · x64",
       "installBody": "Execute o instalador e siga as instruções do Windows. Escolha o ZIP portátil se preferir manter o cmux em uma pasta sem instalação em todo o sistema."
     },
@@ -3602,9 +3611,10 @@
       "metaTitle": "Baixar o cmux para Linux",
       "metaDescription": "Baixe o cmux para Linux x64: um navegador Chromium e espaço de trabalho para agentes, gratuito e de código aberto, com abas por tarefa e superfícies de terminal.",
       "subtitle": "Uma compilação x64 nativa com abas Chromium, espaços de trabalho cmux e superfícies de terminal integradas.",
-      "primaryCta": "Baixar .deb",
-      "requirements": "Debian ou Ubuntu · x64",
-      "installBody": "Baixe o pacote Debian e instale-o com seu gerenciador de pacotes. Escolha o ZIP portátil para uma instalação por usuário e atualizações dentro do aplicativo."
+      "primaryCta": "Baixar instalador com atualizações automáticas (.run)",
+      "secondaryCta": "Pacote Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Execute uma vez o instalador por usuário. Ele instala o cmux em ~/.local sem privilégios de root e habilita atualizações assinadas dentro do aplicativo. Se quiser que as atualizações sejam gerenciadas pelo seu gerenciador de pacotes, escolha o pacote Debian em vez disso."
     }
   },
   "emails": {
