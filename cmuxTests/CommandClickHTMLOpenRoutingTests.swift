@@ -2,6 +2,7 @@ import AppKit
 import CmuxFoundation
 import Foundation
 import Testing
+import WebKit
 import struct CmuxSettings.AppCatalogSection
 
 #if canImport(cmux_DEV)
@@ -90,14 +91,20 @@ struct CommandClickHTMLOpenRoutingTests {
             await probe.firstExistingPath(in: [fileURL.path])
         )
         #expect(fileResolution.candidatePath == fileURL.path)
-        #expect(fileResolution.resolvedPath == fileURL.resolvingSymlinksInPath().path)
+        #expect(
+            try filesystemIdentity(atPath: fileResolution.resolvedPath)
+                == filesystemIdentity(atPath: fileURL.path)
+        )
         #expect(fileResolution.isReadableRegularFile)
 
         let directoryResolution = try #require(
             await probe.firstExistingPath(in: [fixtureDirectory.path])
         )
         #expect(directoryResolution.candidatePath == fixtureDirectory.path)
-        #expect(directoryResolution.resolvedPath == fixtureDirectory.resolvingSymlinksInPath().path)
+        #expect(
+            try filesystemIdentity(atPath: directoryResolution.resolvedPath)
+                == filesystemIdentity(atPath: fixtureDirectory.path)
+        )
         #expect(!directoryResolution.isReadableRegularFile)
     }
 
@@ -318,6 +325,58 @@ struct CommandClickHTMLOpenRoutingTests {
             guard let preview = panel as? FilePreviewPanel else { return false }
             return URL(fileURLWithPath: preview.filePath).standardizedFileURL == htmlURL.standardizedFileURL
         })
+    }
+
+    @Test
+    func htmlBrowserRoutingDoesNotDependOnSupportedFilesPreference() throws {
+        _ = NSApplication.shared
+
+        let defaults = UserDefaults.standard
+        let supportedFilesKey = AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey
+        let previousSupportedFiles = defaults.object(forKey: supportedFilesKey)
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        defer {
+            restore(previousSupportedFiles, forKey: supportedFilesKey, in: defaults)
+            restore(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey, in: defaults)
+        }
+        defaults.set(false, forKey: supportedFilesKey)
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+
+        let htmlURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-html-route-independent-\(UUID().uuidString).html")
+        try "<html></html>".write(to: htmlURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: htmlURL) }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+
+        #expect(openResolvedHTMLInCmux(
+            workspace: workspace,
+            sourcePanelId: sourcePanelId,
+            filePath: htmlURL.path,
+            defaults: defaults
+        ))
+        #expect(workspace.panels.values.compactMap { $0 as? BrowserPanel }.count == 1)
+        #expect(workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.isEmpty)
+    }
+
+    @Test
+    func fileOnlyBrowserLoadRejectsAnUnvalidatedDirectory() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-only-directory-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let webView = WKWebView()
+        let navigation = browserLoadRequest(
+            URLRequest(url: directoryURL),
+            in: webView,
+            localFileReadAccessPolicy: .fileOnly
+        )
+
+        #expect(navigation == nil)
+        webView.stopLoading()
     }
 
     @Test
@@ -929,7 +988,7 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
-    func htmlSymlinkOpensResolvedTargetInBrowser() throws {
+    func htmlSymlinkOpensResolvedTargetInBrowser() async throws {
         _ = NSApplication.shared
 
         let defaults = UserDefaults.standard
@@ -982,8 +1041,13 @@ struct CommandClickHTMLOpenRoutingTests {
             workingDirectory: nil
         )))
 
+        #expect(await waitForBrowserCount(1, in: workspace))
         let browser = try #require(workspace.panels.values.compactMap { $0 as? BrowserPanel }.first)
-        #expect(browser.currentURL?.standardizedFileURL == targetURL.standardizedFileURL)
+        let browserURL = try #require(browser.currentURL)
+        #expect(
+            try filesystemIdentity(atPath: browserURL.path)
+                == filesystemIdentity(atPath: targetURL.path)
+        )
         #expect(externallyOpened.isEmpty)
     }
 
@@ -993,6 +1057,13 @@ struct CommandClickHTMLOpenRoutingTests {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+
+    private func filesystemIdentity(atPath path: String) throws -> [UInt64] {
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        let device = try #require((attributes[.systemNumber] as? NSNumber)?.uint64Value)
+        let inode = try #require((attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
+        return [device, inode]
     }
 
     private func openResolvedHTMLInCmux(
