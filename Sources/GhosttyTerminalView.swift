@@ -3684,17 +3684,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverResolutionTaskIdentity: WordPathHoverResolutionIdentity?
     private var wordPathHoverResolutionTaskRequest: WordPathHoverResolutionRequest?
     private static let wordPathNegativeHoverCacheMaximumAge: TimeInterval = 1
-    private var wordPathClickResolutionJobID: UUID?
-    private var wordPathClickResolutionCancellation: AtomicBooleanGate?
-    private var wordPathClickResolutionCompletion:
-        (@MainActor @Sendable (WordPathResolution?) -> Void)?
+    private var wordPathClickResolutionJobs: [
+        UUID: (
+            cancellation: AtomicBooleanGate,
+            completion: (@MainActor @Sendable (WordPathResolution?) -> Void)?
+        )
+    ] = [:]
 
     func updateWordPathFilesystemResolutionCoordinator(
         _ coordinator: WordPathFilesystemResolutionCoordinator
     ) {
         guard wordPathFilesystemResolutionCoordinator !== coordinator else { return }
         cancelWordPathHoverResolution()
-        cancelWordPathClickResolution()
+        cancelAllWordPathClickResolutions()
         wordPathFilesystemResolutionCoordinator = coordinator
     }
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
@@ -7122,7 +7124,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cachedWordPathHover = nil
         cancelWordPathHoverResolution()
         if clearContainer {
-            cancelWordPathClickResolution()
+            cancelAllWordPathClickResolutions()
             wordPathHoverRefreshPoint = nil
             stopWordPathHoverRenderedFrameObservation()
             cachedTerminalLinkOpenContainer = nil
@@ -7363,12 +7365,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         modifierFlags: NSEvent.ModifierFlags,
         completion: (@MainActor @Sendable (WordPathResolution?) -> Void)?
     ) {
-        cancelWordPathClickResolution()
         let jobID = UUID()
         let cancellation = AtomicBooleanGate(false)
-        wordPathClickResolutionJobID = jobID
-        wordPathClickResolutionCancellation = cancellation
-        wordPathClickResolutionCompletion = completion
+        wordPathClickResolutionJobs[jobID] = (
+            cancellation: cancellation,
+            completion: completion
+        )
 
         wordPathFilesystemResolutionCoordinator.submit(
             id: jobID,
@@ -7410,11 +7412,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         resolution: WordPathResolution?,
         shouldApply: Bool
     ) {
-        guard jobID == wordPathClickResolutionJobID else { return }
-        let completion = wordPathClickResolutionCompletion
-        wordPathClickResolutionJobID = nil
-        wordPathClickResolutionCancellation = nil
-        wordPathClickResolutionCompletion = nil
+        guard let job = wordPathClickResolutionJobs.removeValue(forKey: jobID) else { return }
+        let completion = job.completion
 
         guard shouldApply,
               let terminalSurface,
@@ -7537,19 +7536,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func discardWordPathClickResolution(jobID: UUID) {
-        guard jobID == wordPathClickResolutionJobID else { return }
-        let completion = wordPathClickResolutionCompletion
-        wordPathClickResolutionJobID = nil
-        wordPathClickResolutionCancellation = nil
-        wordPathClickResolutionCompletion = nil
-        completion?(nil)
+        guard let job = wordPathClickResolutionJobs.removeValue(forKey: jobID) else { return }
+        job.cancellation.storeRelease(true)
+        job.completion?(nil)
     }
 
-    private func cancelWordPathClickResolution() {
-        guard let jobID = wordPathClickResolutionJobID else { return }
-        wordPathClickResolutionCancellation?.storeRelease(true)
-        wordPathFilesystemResolutionCoordinator.cancelPending(id: jobID)
-        discardWordPathClickResolution(jobID: jobID)
+    private func cancelAllWordPathClickResolutions() {
+        let jobs = wordPathClickResolutionJobs
+        wordPathClickResolutionJobs.removeAll(keepingCapacity: true)
+        for (jobID, job) in jobs {
+            job.cancellation.storeRelease(true)
+            wordPathFilesystemResolutionCoordinator.cancelPending(id: jobID)
+            job.completion?(nil)
+        }
     }
 
     private func clampedDebugPoint(_ point: NSPoint) -> NSPoint {
@@ -8113,7 +8112,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     deinit {
         stopWordPathHoverRenderedFrameObservation()
-        cancelWordPathClickResolution()
+        cancelAllWordPathClickResolutions()
         keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {

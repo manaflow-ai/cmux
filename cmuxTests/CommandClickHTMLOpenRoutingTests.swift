@@ -34,14 +34,14 @@ struct CommandClickHTMLOpenRoutingTests {
         #expect(resolution?.isReadableRegularFile == true)
         let invocations = await runner.allInvocations()
         #expect(invocations.map(\.executable) == [
-            "/usr/bin/realpath",
-            "/usr/bin/realpath",
+            "/bin/realpath",
+            "/bin/realpath",
             "/bin/test",
             "/bin/test",
         ])
         #expect(
             invocations
-                .filter { $0.executable == "/usr/bin/realpath" }
+                .filter { $0.executable == "/bin/realpath" }
                 .compactMap(\.arguments.first) == paths
         )
         #expect(invocations.allSatisfy { $0.directory == "/" })
@@ -62,7 +62,7 @@ struct CommandClickHTMLOpenRoutingTests {
         let canonicalization = try #require(invocations.first)
         let regularFileValidation = try #require(invocations.dropFirst().first)
         let readabilityValidation = try #require(invocations.dropFirst(2).first)
-        #expect(canonicalization.executable == "/usr/bin/realpath")
+        #expect(canonicalization.executable == "/bin/realpath")
         #expect(canonicalization.arguments == ["/tmp/index.html"])
         #expect(regularFileValidation.executable == "/bin/test")
         #expect(regularFileValidation.arguments == ["-f", "/private/tmp/index.html"])
@@ -1935,7 +1935,7 @@ private actor RecordingWordPathProbeCommandRunner: CommandRunning {
             return forcedResult
         }
 
-        if executable == "/usr/bin/realpath",
+        if executable == "/bin/realpath",
            let candidate = arguments.first,
            let resolvedPath = resolvedPaths[candidate] {
             return result(stdout: "\(resolvedPath)\n", exitStatus: 0)

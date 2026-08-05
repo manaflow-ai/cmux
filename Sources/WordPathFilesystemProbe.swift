@@ -1,38 +1,16 @@
 import CmuxFoundation
 import Foundation
 
-/// Finds the first existing filesystem candidate in one deadline-bounded subprocess.
+/// Finds the first existing filesystem candidate with directly owned subprocesses.
 ///
-/// A terminal path can point into an unresponsive filesystem. The child keeps
-/// that filesystem call outside cmux, while `CommandRunner` terminates the
-/// process at the deadline. Timeout, cancellation, malformed output, and launch
-/// failure all fail closed.
+/// A terminal path can point into an unresponsive filesystem. Each filesystem
+/// operation runs as the process directly owned by `CommandRunner`, so deadline
+/// teardown cannot leave a shell descendant behind. All operations share one
+/// wall-clock budget. Timeout, cancellation, malformed output, and launch
+/// failure fail closed.
 struct WordPathFilesystemProbe: Sendable {
-    private static let firstExistingPathScript = """
-    realpath_executable=
-    for executable_candidate in /bin/realpath /usr/bin/realpath; do
-        if [ -x "$executable_candidate" ]; then
-            realpath_executable=$executable_candidate
-            break
-        fi
-    done
-    [ -n "$realpath_executable" ] || exit 1
-
-    index=0
-    for candidate do
-        if [ -e "$candidate" ]; then
-            resolved_candidate=$("$realpath_executable" "$candidate") || exit 1
-            kind=other
-            if [ -f "$resolved_candidate" ] && [ -r "$resolved_candidate" ]; then
-                kind=readable-file
-            fi
-            printf '%s\\0%s\\0%s\\n' "$index" "$kind" "$resolved_candidate"
-            exit 0
-        fi
-        index=$((index + 1))
-    done
-    exit 1
-    """
+    private static let realpathExecutable = "/bin/realpath"
+    private static let testExecutable = "/bin/test"
 
     private let commands: any CommandRunning
     private let timeout: TimeInterval
@@ -53,36 +31,104 @@ struct WordPathFilesystemProbe: Sendable {
         resolvedPath: String,
         isReadableRegularFile: Bool
     )? {
-        guard !paths.isEmpty, !Task.isCancelled else { return nil }
+        guard !paths.isEmpty,
+              timeout.isFinite,
+              timeout > 0,
+              !Task.isCancelled else {
+            return nil
+        }
+        let startedAt = ProcessInfo.processInfo.systemUptime
+
+        for (index, candidatePath) in paths.enumerated() {
+            guard let remaining = remainingTimeout(since: startedAt) else { return nil }
+            let canonicalization = await commands.run(
+                directory: "/",
+                executable: Self.realpathExecutable,
+                arguments: [candidatePath],
+                timeout: remaining
+            )
+            guard !Task.isCancelled,
+                  canonicalization.executionError == nil,
+                  !canonicalization.timedOut else {
+                return nil
+            }
+            guard canonicalization.exitStatus == 0 else { continue }
+            guard let resolvedPath = canonicalPath(from: canonicalization.stdout) else {
+                return nil
+            }
+
+            guard let isRegularFile = await evaluateTest(
+                "-f",
+                path: resolvedPath,
+                startedAt: startedAt
+            ) else {
+                return nil
+            }
+            let isReadableRegularFile: Bool
+            if isRegularFile {
+                guard let isReadable = await evaluateTest(
+                    "-r",
+                    path: resolvedPath,
+                    startedAt: startedAt
+                ) else {
+                    return nil
+                }
+                isReadableRegularFile = isReadable
+            } else {
+                isReadableRegularFile = false
+            }
+            return (
+                index,
+                candidatePath,
+                resolvedPath,
+                isReadableRegularFile
+            )
+        }
+        return nil
+    }
+
+    private func evaluateTest(
+        _ predicate: String,
+        path: String,
+        startedAt: TimeInterval
+    ) async -> Bool? {
+        guard let remaining = remainingTimeout(since: startedAt) else { return nil }
         let result = await commands.run(
             directory: "/",
-            executable: "/bin/sh",
-            arguments: ["-c", Self.firstExistingPathScript, "cmux-path-probe"] + paths,
-            timeout: timeout
+            executable: Self.testExecutable,
+            arguments: [predicate, path],
+            timeout: remaining
         )
         guard !Task.isCancelled,
               result.executionError == nil,
               !result.timedOut,
-              result.exitStatus == 0,
-              let output = result.stdout,
-              let indexSeparator = output.firstIndex(of: "\0"),
-              let index = Int(output[..<indexSeparator]),
-              paths.indices.contains(index)
-        else {
+              let exitStatus = result.exitStatus else {
             return nil
         }
-        let kindStart = output.index(after: indexSeparator)
-        guard let kindSeparator = output[kindStart...].firstIndex(of: "\0") else {
+        switch exitStatus {
+        case 0:
+            return true
+        case 1:
+            return false
+        default:
             return nil
         }
-        let kind = output[kindStart..<kindSeparator]
-        guard kind == "readable-file" || kind == "other" else { return nil }
+    }
 
-        var resolvedPath = String(output[output.index(after: kindSeparator)...])
-        if resolvedPath.last == "\n" {
-            resolvedPath.removeLast()
+    private func remainingTimeout(since startedAt: TimeInterval) -> TimeInterval? {
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        let remaining = timeout - elapsed
+        return remaining > 0 ? remaining : nil
+    }
+
+    private func canonicalPath(from output: String?) -> String? {
+        guard var path = output, path.last == "\n" else { return nil }
+        path.removeLast()
+        guard path.hasPrefix("/"),
+              !path.contains("\n"),
+              !path.contains("\0") else {
+            return nil
         }
-        guard resolvedPath.hasPrefix("/") else { return nil }
-        return (index, paths[index], resolvedPath, kind == "readable-file")
+        return path
     }
 }
