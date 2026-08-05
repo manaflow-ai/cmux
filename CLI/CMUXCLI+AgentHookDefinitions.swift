@@ -294,7 +294,11 @@ extension CMUXCLI {
         // exactly that one byte rather than rescanning the payload.
         let plainFormat = "\\033]777;notify;%s;%s\\007"
         let tmuxFormat = "\\033Ptmux;\\033\\033]777;notify;%s;%s\\007\\033\\\\"
-        return "{ if [ -n \"${TMUX:-}\" ]; then cmux_osc_fmt='\(tmuxFormat)'; else cmux_osc_fmt='\(plainFormat)'; fi; cmux_osc_tty=/dev/tty; if [ ! -w \"$cmux_osc_tty\" ]; then cmux_osc_tty=\"/dev/$(ps -o tty= -p $PPID 2>/dev/null | tr -d '[:space:]')\"; fi; if [ -w \"$cmux_osc_tty\" ]; then printf \"$cmux_osc_fmt\" \(safeTitle) \(safeBody) >\"$cmux_osc_tty\" 2>/dev/null || true; fi; unset cmux_osc_fmt cmux_osc_tty; \(noOpCommand == "echo '{}'" ? stdinDrainingHookNoOpShellCommand : noOpCommand); }"
+        // tmux drops escape sequences it does not recognize unless passthrough
+        // is on. Set it here rather than asking the user to edit tmux.conf: it
+        // is a runtime server option, not a config write, so it costs nothing
+        // and disappears with the server.
+        return "{ if [ -n \"${TMUX:-}\" ]; then cmux_osc_fmt='\(tmuxFormat)'; command -v tmux >/dev/null 2>&1 && tmux set -g allow-passthrough on >/dev/null 2>&1; else cmux_osc_fmt='\(plainFormat)'; fi; cmux_osc_tty=/dev/tty; if [ ! -w \"$cmux_osc_tty\" ]; then cmux_osc_tty=\"/dev/$(ps -o tty= -p $PPID 2>/dev/null | tr -d '[:space:]')\"; fi; if [ -w \"$cmux_osc_tty\" ]; then printf \"$cmux_osc_fmt\" \(safeTitle) \(safeBody) >\"$cmux_osc_tty\" 2>/dev/null || true; fi; unset cmux_osc_fmt cmux_osc_tty; \(noOpCommand == "echo '{}'" ? stdinDrainingHookNoOpShellCommand : noOpCommand); }"
     }
 
     /// Strips control characters: an embedded ESC or BEL would close the OSC

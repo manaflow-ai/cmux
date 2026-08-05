@@ -31,6 +31,7 @@ extension CMUXCLI {
         if env["TMUX"] != nil {
             let doubled = payload.replacingOccurrences(of: "\u{1B}", with: "\u{1B}\u{1B}")
             payload = "\u{1B}Ptmux;\(doubled)\u{1B}\\"
+            enableTmuxPassthrough()
         }
 
         // A hook may run without a controlling terminal, so fall back to the
@@ -45,6 +46,21 @@ extension CMUXCLI {
             guard (try? handle.write(contentsOf: Data(payload.utf8))) != nil else { continue }
             return
         }
+    }
+
+    /// tmux drops escape sequences it does not recognize unless passthrough is
+    /// on. Setting it here rather than asking the user to edit tmux.conf: this
+    /// is a runtime server option, not a config write, so it costs nothing and
+    /// disappears with the server. Best effort -- a failure just means the
+    /// notification is dropped, which is the behavior being replaced anyway.
+    private func enableTmuxPassthrough() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux", "set", "-g", "allow-passthrough", "on"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return }
+        process.waitUntilExit()
     }
 
     func runClaudePushNotificationHook(
