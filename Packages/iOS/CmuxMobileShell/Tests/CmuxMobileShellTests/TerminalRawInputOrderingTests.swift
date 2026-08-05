@@ -114,10 +114,12 @@ import Testing
             routeKind: .iroh,
             terminalLaneProvider: { _, _, _ in lane }
         )
-        let outputStream = store.terminalOutputStream(
+        let collector = OutputCollector()
+        collector.mount(
+            store: store,
             surfaceID: RoutingHostRouter.terminalA
         )
-        defer { withExtendedLifetime(outputStream) {} }
+        defer { collector.unmount() }
 
         await store.submitTerminalRawInput(
             Data("a".utf8),
@@ -297,10 +299,12 @@ import Testing
             terminalLaneProvider: { _, _, _ in lane },
             rpcRequestTimeoutNanoseconds: 1_000_000_000
         )
-        let outputStream = store.terminalOutputStream(
+        let collector = OutputCollector()
+        collector.mount(
+            store: store,
             surfaceID: RoutingHostRouter.terminalA
         )
-        defer { withExtendedLifetime(outputStream) {} }
+        defer { collector.unmount() }
 
         await store.submitTerminalRawInput(
             Data("a".utf8),

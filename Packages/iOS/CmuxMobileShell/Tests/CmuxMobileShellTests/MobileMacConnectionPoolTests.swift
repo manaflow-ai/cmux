@@ -4101,11 +4101,17 @@ import Testing
         #expect(try await pollUntil {
             await router.heldRequestCount() == 1
         })
+        let firstWorkspaceEventGeneration =
+            subscription.workspaceRefreshGeneration
         for _ in 0 ..< 8 {
             await transport.deliver(
                 try controlPoolWorkspaceUpdatedEventFrame()
             )
         }
+        #expect(try await pollUntil {
+            subscription.workspaceRefreshGeneration
+                == firstWorkspaceEventGeneration + 8
+        })
         let firstDeferredDeadline = clock.now.advanced(
             by: .milliseconds(500)
         )
@@ -4122,11 +4128,17 @@ import Testing
             let heldRequestCount = await router.heldRequestCount()
             return hasLeadingSnapshot && heldRequestCount == 1
         })
+        let secondWorkspaceEventGeneration =
+            subscription.workspaceRefreshGeneration
         for _ in 0 ..< 8 {
             await transport.deliver(
                 try controlPoolWorkspaceUpdatedEventFrame()
             )
         }
+        #expect(try await pollUntil {
+            subscription.workspaceRefreshGeneration
+                == secondWorkspaceEventGeneration + 8
+        })
         await router.releaseNextHeld()
 
         #expect(try await pollUntil {

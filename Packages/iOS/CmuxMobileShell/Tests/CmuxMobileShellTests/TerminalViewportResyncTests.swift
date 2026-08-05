@@ -1019,9 +1019,6 @@ private func mountOutputAndReportViewport(
     surfaceID: String
 ) async throws {
     let stream = store.terminalOutputStream(surfaceID: surfaceID)
-    let streamToken = try #require(
-        store.terminalOutputStreamTokensBySurfaceID[surfaceID]
-    )
     var iterator = stream.makeAsyncIterator()
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     let coldReplayChunk = try #require(await iterator.next())
@@ -1037,6 +1034,9 @@ private func mountOutputAndReportViewport(
         streamToken: initialViewportChunk.streamToken
     )
     #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 1)
+    let streamToken = try #require(
+        store.terminalOutputStreamTokensBySurfaceID[surfaceID]
+    )
     store.unregisterTerminalOutput(
         surfaceID: surfaceID,
         streamToken: streamToken
