@@ -13,6 +13,9 @@ use crate::cli::Error;
 
 const OPENAI_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_ISSUER: &str = "https://auth.openai.com";
+// OpenAI validates this value against the first-party Codex OAuth client.
+// Keep it synchronized with codex-rs/login/src/auth/default_client.rs.
+const OPENAI_ORIGINATOR: &str = "codex_cli_rs";
 const OPENCODE_CONSOLE: &str = "https://console.opencode.ai";
 const OPENCODE_CLIENT_ID: &str = "opencode-cli";
 
@@ -138,23 +141,7 @@ fn codex_browser_oauth() -> Result<Value, Error> {
     let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .encode(Sha256::digest(verifier.as_bytes()));
     let state = random_base64url(32);
-    let mut authorize = reqwest::Url::parse(&format!("{OPENAI_ISSUER}/oauth/authorize"))
-        .map_err(|error| Error::Backend(error.to_string()))?;
-    authorize.query_pairs_mut().extend_pairs([
-        ("response_type", "code"),
-        ("client_id", OPENAI_CLIENT_ID),
-        ("redirect_uri", redirect_uri.as_str()),
-        (
-            "scope",
-            "openid profile email offline_access api.connectors.read api.connectors.invoke",
-        ),
-        ("code_challenge", challenge.as_str()),
-        ("code_challenge_method", "S256"),
-        ("id_token_add_organizations", "true"),
-        ("codex_cli_simplified_flow", "true"),
-        ("state", state.as_str()),
-        ("originator", "coderouter"),
-    ]);
+    let authorize = codex_authorize_url(&redirect_uri, &challenge, &state)?;
     println!("Opening OpenAI authorization in your browser…");
     println!("  {authorize}");
     let _ = webbrowser::open(authorize.as_str());
@@ -246,6 +233,31 @@ fn codex_browser_oauth() -> Result<Value, Error> {
         "email": email,
         "expiresAt": now_millis() + token.expires_in.unwrap_or(3_600) * 1_000,
     }))
+}
+
+fn codex_authorize_url(
+    redirect_uri: &str,
+    challenge: &str,
+    state: &str,
+) -> Result<reqwest::Url, Error> {
+    let mut authorize = reqwest::Url::parse(&format!("{OPENAI_ISSUER}/oauth/authorize"))
+        .map_err(|error| Error::Backend(error.to_string()))?;
+    authorize.query_pairs_mut().extend_pairs([
+        ("response_type", "code"),
+        ("client_id", OPENAI_CLIENT_ID),
+        ("redirect_uri", redirect_uri),
+        (
+            "scope",
+            "openid profile email offline_access api.connectors.read api.connectors.invoke",
+        ),
+        ("code_challenge", challenge),
+        ("code_challenge_method", "S256"),
+        ("id_token_add_organizations", "true"),
+        ("codex_cli_simplified_flow", "true"),
+        ("state", state),
+        ("originator", OPENAI_ORIGINATOR),
+    ]);
+    Ok(authorize)
 }
 
 fn opencode_device_oauth() -> Result<Value, Error> {
@@ -458,4 +470,28 @@ fn now_millis() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_authorization_matches_the_official_cli_originator() {
+        let url = codex_authorize_url("http://localhost:1455/auth/callback", "challenge", "state")
+            .unwrap();
+        let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(
+            query.get("originator").map(String::as_str),
+            Some("codex_cli_rs")
+        );
+        assert_eq!(
+            query.get("codex_cli_simplified_flow").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            query.get("client_id").map(String::as_str),
+            Some(OPENAI_CLIENT_ID)
+        );
+    }
 }

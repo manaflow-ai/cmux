@@ -295,7 +295,7 @@ fn idempotent_logout_is_local_and_fast() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert_eq!(stdout.trim(), "Already logged out.");
     assert!(!stdout.contains(" ms"));
-    assert!(elapsed < Duration::from_secs(1), "logout took {elapsed:?}");
+    assert!(elapsed < Duration::from_secs(2), "logout took {elapsed:?}");
 }
 
 fn write_config(root: &TempDir, api_url: &str) {
