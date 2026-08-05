@@ -777,6 +777,37 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))
     }
 
+    func testDiffViewerSchemeDeliversTaskCallbacksOnMainThread() throws {
+        let token = UUID().uuidString.lowercased()
+        let rootURL = trustedDiffViewerTestRoot()
+        let indexURL = rootURL.appendingPathComponent("index.html", isDirectory: false)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try "<!doctype html><title>Threading regression</title>"
+            .write(to: indexURL, atomically: true, encoding: .utf8)
+
+        let handler = CmuxDiffViewerURLSchemeHandler()
+        try handler.register(
+            token: token,
+            files: [
+                .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
+            ]
+        )
+
+        let requestURL = try XCTUnwrap(
+            URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://\(token)/index.html")
+        )
+        let finished = expectation(description: "scheme task finished")
+        let task = DiffViewerSchemeTaskMainThreadSpy(
+            request: URLRequest(url: requestURL),
+            finished: finished
+        )
+
+        handler.webView(WKWebView(frame: .zero), start: task)
+
+        wait(for: [finished], timeout: 5)
+    }
+
     func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
         let token = UUID().uuidString.lowercased()
         let rootURL = trustedDiffViewerTestRoot()
@@ -913,6 +944,34 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
                 .init(requestPath: "/diff.patch", fileURL: patchURL, mimeType: "text/html"),
             ]
         ))
+    }
+}
+
+private final class DiffViewerSchemeTaskMainThreadSpy: NSObject, WKURLSchemeTask {
+    let request: URLRequest
+    private let finished: XCTestExpectation
+
+    init(request: URLRequest, finished: XCTestExpectation) {
+        self.request = request
+        self.finished = finished
+    }
+
+    func didReceive(_ response: URLResponse) {
+        XCTAssertTrue(Thread.isMainThread, "WKURLSchemeTask response callbacks must run on the main thread")
+    }
+
+    func didReceive(_ data: Data) {
+        XCTAssertTrue(Thread.isMainThread, "WKURLSchemeTask data callbacks must run on the main thread")
+    }
+
+    func didFinish() {
+        XCTAssertTrue(Thread.isMainThread, "WKURLSchemeTask completion callbacks must run on the main thread")
+        finished.fulfill()
+    }
+
+    func didFailWithError(_ error: Error) {
+        XCTFail("Unexpected scheme task failure: \(error)")
+        finished.fulfill()
     }
 }
 
