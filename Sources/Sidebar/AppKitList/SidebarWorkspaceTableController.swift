@@ -760,7 +760,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard rows.indices.contains(row), let actions else { return nil }
         let workspaceId = rows[row].workspaceId
         actions.beginWorkspaceDrag(workspaceId)
-        workspaceDragSessionDidBegin()
+        workspaceDragSessionDidBegin(payloadWorkspaceId: workspaceId)
         let item = NSPasteboardItem()
         item.setString(
             "\(SidebarTabDragPayload.prefix)\(workspaceId.uuidString)",
@@ -859,7 +859,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         workspaceDragSessionDidEnd()
     }
 
-    func workspaceDragSessionDidBegin() {
+    func workspaceDragSessionDidBegin(payloadWorkspaceId: UUID? = nil) {
         // A drag consumes the press: the click action never fires, so no
         // authoritative selection apply will reconcile the optimistic press
         // highlight painted in previewSelection — without this rollback a
@@ -867,6 +867,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // visible row peeled. Drop the queued selection and restore visible
         // cells from their stored models before drop targets paint.
         cancelSelectionIntent()
+        reorderDragPayloadWorkspaceId = payloadWorkspaceId
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
         restoreAuthoritativeReorderPresentation(animated: false)

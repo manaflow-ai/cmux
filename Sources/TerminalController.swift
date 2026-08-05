@@ -10864,7 +10864,7 @@ class TerminalController {
             dragState.isSimulated = true
             dragState.beginDragging(tabId: fromTabId)
             if let controller = appKitSidebarTable(windowId: windowId)?.workspaceController {
-                controller.workspaceDragSessionDidBegin()
+                controller.workspaceDragSessionDidBegin(payloadWorkspaceId: fromTabId)
                 return (true, "appkit")
             }
             return (true, "legacy")
