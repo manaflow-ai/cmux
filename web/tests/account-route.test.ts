@@ -36,7 +36,13 @@ process.env.SUBROUTER_ALLOWED_TEAM_IDS ??= "*";
 process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS ??= "0";
 process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS ??= "10000";
 
-await import("./helpers/mock-hosted-subrouter-runtime-env");
+const { createRuntimeEnvHostedSubrouterClient } = await import(
+  "./helpers/mock-hosted-subrouter-runtime-env"
+);
+mock.module("../services/subrouter/runtimeClient", () => ({
+  createConfiguredHostedSubrouterClient:
+    createRuntimeEnvHostedSubrouterClient,
+}));
 
 const ACCOUNT_USER_ID = "account-user-1";
 const originalPostHogPersonalApiKey = process.env.POSTHOG_PERSONAL_API_KEY;
