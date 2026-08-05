@@ -457,7 +457,7 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
-    func unreadBadgesUseCircularRegularCountRendering() throws {
+    func unreadBadgesUseCircularMediumCountRendering() throws {
         let workspace = Self.configuredCell(
             model: Self.makeModel(canClose: false, unreadCount: 2)
         )
@@ -485,14 +485,14 @@ struct SidebarAppKitRowCellTests {
                 "workspace",
                 workspaceBadge,
                 cmuxAccentNSColor(),
-                .systemFont(ofSize: 8.5, weight: .regular),
+                .systemFont(ofSize: 8.5, weight: .medium),
                 .systemFont(ofSize: 9, weight: .semibold)
             ),
             (
                 "group",
                 groupBadge,
                 NSColor.controlAccentColor,
-                .systemFont(ofSize: 10, weight: .regular),
+                .systemFont(ofSize: 10, weight: .medium),
                 .systemFont(ofSize: 10, weight: .semibold)
             ),
         ]
@@ -526,7 +526,7 @@ struct SidebarAppKitRowCellTests {
             #expect(
                 abs(actualInk.pixelCount - expectedInk.pixelCount)
                     < abs(actualInk.pixelCount - oversizedInk.pixelCount),
-                "\(label) unread badge count should render closer to regular-size text than semibold oversized text"
+                "\(label) unread badge count should render closer to medium-weight text than semibold oversized text"
             )
             #expect(
                 abs(actualInk.bounds.midY - badge.bounds.midY) <= 0.25,

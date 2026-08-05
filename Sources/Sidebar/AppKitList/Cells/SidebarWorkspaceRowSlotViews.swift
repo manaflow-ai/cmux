@@ -1,6 +1,7 @@
 import AppKit
 import CmuxFoundation
 import CmuxSidebar
+import CoreText
 
 /// Leaf AppKit views for the pure-AppKit workspace row: unread badge,
 /// pull-request status icons, progress bar. Each is configured with values
@@ -22,13 +23,21 @@ extension NSTextField {
     }
 }
 
-/// Circle unread-count badge (parity with SidebarWorkspaceUnreadBadge).
-/// Draws the count directly so the glyph is optically centered — NSTextField
-/// intrinsic sizing carries asymmetric insets that shift small digits.
+/// Adaptive unread-count badge shared by workspace and group rows.
+/// Draws directly so the glyph is optically centered without NSTextField's
+/// asymmetric cell insets.
 @MainActor
 final class SidebarRowUnreadBadgeView: NSView {
-    private var text: NSString = ""
-    private var textAttributes: [NSAttributedString.Key: Any] = [:]
+    private var textOutline: CGPath?
+    private var textInkBounds: CGRect = .zero
+    private var textHorizontalOpticalCenter: CGFloat = 0
+    private var textAdvance: CGFloat = 0
+    private var textLineHeight: CGFloat = 0
+    private var drawsCircularBadge = true
+    private var fillColor: NSColor = .clear
+    private var textColor: NSColor = .clear
+
+    override var isFlipped: Bool { false }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -40,29 +49,166 @@ final class SidebarRowUnreadBadgeView: NSView {
     }
 
     func configure(count: Int, fillColor: NSColor, textColor: NSColor, font: NSFont) {
-        text = NSString(string: "\(count)")
-        textAttributes = [.font: font, .foregroundColor: textColor]
-        layer?.backgroundColor = fillColor.cgColor
+        let text = count > 99 ? "99+" : "\(max(0, count))"
+        drawsCircularBadge = text.count == 1
+        let attributedText = NSAttributedString(
+            string: text,
+            attributes: [.font: font, .foregroundColor: textColor]
+        )
+        let line = CTLineCreateWithAttributedString(attributedText)
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        textAdvance = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+        textLineHeight = ascent + descent + leading
+        textOutline = Self.makeTextOutline(line: line, font: font as CTFont)
+        textInkBounds = textOutline?.boundingBoxOfPath ?? .zero
+        textHorizontalOpticalCenter = textOutline
+            .flatMap { Self.horizontalInkCentroid(of: $0, in: textInkBounds) }
+            ?? textInkBounds.midX
+        self.fillColor = fillColor
+        self.textColor = textColor
         needsDisplay = true
     }
 
-    override func layout() {
-        super.layout()
-        layer?.cornerRadius = min(bounds.width, bounds.height) / 2
+    private static func makeTextOutline(line: CTLine, font: CTFont) -> CGPath? {
+        let outline = CGMutablePath()
+        var appendedGlyph = false
+
+        for case let run as CTRun in CTLineGetGlyphRuns(line) as NSArray {
+            let glyphCount = CTRunGetGlyphCount(run)
+            var glyphs = Array(repeating: CGGlyph(), count: glyphCount)
+            var positions = Array(repeating: CGPoint.zero, count: glyphCount)
+            glyphs.withUnsafeMutableBufferPointer { buffer in
+                CTRunGetGlyphs(run, CFRange(location: 0, length: 0), buffer.baseAddress!)
+            }
+            positions.withUnsafeMutableBufferPointer { buffer in
+                CTRunGetPositions(run, CFRange(location: 0, length: 0), buffer.baseAddress!)
+            }
+
+            for index in 0..<glyphCount {
+                guard let glyphPath = CTFontCreatePathForGlyph(font, glyphs[index], nil) else {
+                    continue
+                }
+                outline.addPath(
+                    glyphPath,
+                    transform: CGAffineTransform(
+                        translationX: positions[index].x,
+                        y: positions[index].y
+                    )
+                )
+                appendedGlyph = true
+            }
+        }
+
+        return appendedGlyph ? outline : nil
+    }
+
+    private static func horizontalInkCentroid(
+        of outline: CGPath,
+        in inkBounds: CGRect,
+        renderingScale: CGFloat = 2
+    ) -> CGFloat? {
+        guard inkBounds.width.isFinite,
+              inkBounds.height.isFinite,
+              inkBounds.width > 0,
+              inkBounds.height > 0,
+              renderingScale > 0 else {
+            return nil
+        }
+
+        let sampleRect = inkBounds.insetBy(dx: -1, dy: -1)
+        let pixelsWide = max(1, Int(ceil(sampleRect.width * renderingScale)))
+        let pixelsHigh = max(1, Int(ceil(sampleRect.height * renderingScale)))
+        let bytesPerRow = pixelsWide
+        var bitmap = [UInt8](repeating: 0, count: pixelsHigh * bytesPerRow)
+
+        let totalWeight = bitmap.withUnsafeMutableBytes { buffer -> (weight: CGFloat, weightedX: CGFloat) in
+            let pixels = buffer.bindMemory(to: UInt8.self)
+            guard let context = CGContext(
+                data: pixels.baseAddress,
+                width: pixelsWide,
+                height: pixelsHigh,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else {
+                return (0, 0)
+            }
+
+            context.setAllowsAntialiasing(true)
+            context.setShouldAntialias(true)
+            context.setFillColor(gray: 1, alpha: 1)
+            context.scaleBy(x: renderingScale, y: renderingScale)
+            context.translateBy(x: -sampleRect.minX, y: -sampleRect.minY)
+            context.addPath(outline)
+            context.fillPath()
+
+            var weight: CGFloat = 0
+            var weightedX: CGFloat = 0
+            for y in 0..<pixelsHigh {
+                let rowOffset = y * bytesPerRow
+                for x in 0..<pixelsWide {
+                    let pixelWeight = CGFloat(pixels[rowOffset + x])
+                    guard pixelWeight > 0 else { continue }
+                    let glyphX = sampleRect.minX + (CGFloat(x) + 0.5) / renderingScale
+                    weight += pixelWeight
+                    weightedX += glyphX * pixelWeight
+                }
+            }
+            return (weight, weightedX)
+        }
+
+        guard totalWeight.weight > 0 else { return nil }
+        return totalWeight.weightedX / totalWeight.weight
+    }
+
+    func fittingSize(horizontalPadding: CGFloat, minimumHeight: CGFloat) -> NSSize {
+        let height = ceil(max(minimumHeight, textLineHeight + 2))
+        if drawsCircularBadge {
+            return NSSize(width: height, height: height)
+        }
+        return NSSize(
+            width: ceil(max(height, textAdvance + horizontalPadding * 2)),
+            height: height
+        )
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard text.length > 0, let font = textAttributes[.font] as? NSFont else { return }
-        let size = text.size(withAttributes: textAttributes)
-        // Center on the digit's cap-height band, not the full line box, so
-        // single digits sit optically centered in the circle.
-        let capCenterOffset = (font.ascender + font.descender) / 2
-        let y = bounds.midY - size.height / 2 + (size.height / 2 - font.ascender + capCenterOffset)
-        text.draw(
-            at: NSPoint(x: bounds.midX - size.width / 2, y: y),
-            withAttributes: textAttributes
+        guard let textOutline, let context = NSGraphicsContext.current?.cgContext else { return }
+
+        // Single digits occupy a square and therefore render as circles.
+        // Wider counts expand horizontally into capsules without changing
+        // their height or optical glyph centering.
+        let badgeRect = bounds
+        fillColor.setFill()
+        NSBezierPath(
+            roundedRect: badgeRect,
+            xRadius: badgeRect.height / 2,
+            yRadius: badgeRect.height / 2
+        ).fill()
+
+        // Measure and fill the same outline. Drawing the separately hinted
+        // CTLine can snap a narrow digit to a different Retina pixel than the
+        // outline used here. Horizontally, center the rendered ink mass rather
+        // than its bounds so digits with asymmetric strokes do not read off
+        // center inside a circular badge.
+        context.saveGState()
+        context.translateBy(
+            x: badgeRect.midX - textHorizontalOpticalCenter,
+            y: badgeRect.midY - textInkBounds.midY
         )
+        textColor.setFill()
+        context.addPath(textOutline)
+        context.fillPath()
+        context.restoreGState()
     }
 }
 
