@@ -579,8 +579,10 @@ struct SidebarAppKitRowCellTests {
             NSColor.linkColor.usingColorSpace(.sRGB),
             "linkColor must resolve in sRGB"
         )
-        #expect(Self.minimumDistance(in: raster, to: expected) < 0.05)
-        #expect(Self.minimumDistance(in: raster, to: systemLink) > 0.15)
+        let toExpected = try Self.minimumDistance(in: raster, to: expected, excluding: selectionBackground)
+        let toSystemLink = try Self.minimumDistance(in: raster, to: systemLink, excluding: selectionBackground)
+        #expect(toExpected < 0.05)
+        #expect(toSystemLink > 0.15)
     }
 
     @Test
@@ -649,7 +651,12 @@ struct SidebarAppKitRowCellTests {
             #expect(renderedSRGB == expected)
             let raster = try Self.raster(of: textView, background: selectionBackground)
             let systemLink = try #require(NSColor.linkColor.usingColorSpace(.sRGB))
-            #expect(Self.minimumDistance(in: raster, to: systemLink) > 0.15)
+            let toSystemLink = try Self.minimumDistance(
+                in: raster,
+                to: systemLink,
+                excluding: selectionBackground
+            )
+            #expect(toSystemLink > 0.15)
         } else {
             #expect(rendered == NSColor.linkColor)
         }
@@ -722,18 +729,36 @@ struct SidebarAppKitRowCellTests {
         return rep
     }
 
-    private static func minimumDistance(in raster: NSBitmapImageRep, to color: NSColor) -> CGFloat {
+    /// Closest glyph pixel to `color`. Pixels still showing `background` are
+    /// skipped: the row's selection fill is itself a blue close to
+    /// `NSColor.linkColor`, so scanning the whole bitmap would measure the
+    /// background instead of the text and prove nothing about the link.
+    private static func minimumDistance(
+        in raster: NSBitmapImageRep,
+        to color: NSColor,
+        excluding background: NSColor
+    ) throws -> CGFloat {
+        let target = try #require(color.usingColorSpace(.sRGB))
+        let ignored = try #require(background.usingColorSpace(.sRGB))
         var best = CGFloat.greatestFiniteMagnitude
+        var glyphPixels = 0
         for y in 0 ..< raster.pixelsHigh {
             for x in 0 ..< raster.pixelsWide {
                 guard let pixel = raster.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                let dr = pixel.redComponent - color.redComponent
-                let dg = pixel.greenComponent - color.greenComponent
-                let db = pixel.blueComponent - color.blueComponent
-                best = min(best, sqrt(dr * dr + dg * dg + db * db))
+                guard distance(pixel, ignored) > 0.02 else { continue }
+                glyphPixels += 1
+                best = min(best, distance(pixel, target))
             }
         }
+        #expect(glyphPixels > 0, "raster contained no text pixels")
         return best
+    }
+
+    private static func distance(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
+        let dr = lhs.redComponent - rhs.redComponent
+        let dg = lhs.greenComponent - rhs.greenComponent
+        let db = lhs.blueComponent - rhs.blueComponent
+        return sqrt(dr * dr + dg * dg + db * db)
     }
 
     @Test
