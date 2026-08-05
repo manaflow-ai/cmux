@@ -124,6 +124,12 @@ The server first sends:
 {"event":"vt-state","surface":4,"cols":120,"rows":40,"data":"<base64-vt-replay>"}
 ```
 
+If this connection negotiated `view-attachment-lease-v1`, the later command
+response contains `data.lease`. The lease addresses this exact attach stream.
+Use it with `resize-attached-view` and `release-attached-view-size`. With
+`view-attachment-detach-v1`, `detach-attached-view` closes only that stream and
+releases its size contribution.
+
 Then it sends ordered stream frames:
 
 ```json
@@ -147,7 +153,7 @@ The remote TUI requires protocol v10. It rejects protocol-v9 servers because v9 
 
 Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v9 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v8 server. Protocol v10 requires `surface` on every `set-client-sizing` request and moves `size_participating` into each `list-clients.sizes` entry.
 
-Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-initial-size`, a client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state. Older servers that omit the capability must receive neither field.
+Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-initial-size`, a client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state. Older servers that omit the capability must receive neither field. Bundled long-lived clients echo `view-attachment-lease-v1` and `view-attachment-detach-v1` through `set-client-info`; against older servers, they close the transport when a raced attach must be abandoned because transport teardown is the only cleanup fence.
 
 When several clients display one terminal, their size reports are passive
 viewport hints until one exact client and terminal view claim geometry

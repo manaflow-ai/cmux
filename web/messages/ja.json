@@ -99,7 +99,6 @@
       "vaultGroup": "vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
-      "vaultCliSetup": "CLI設定",
       "subrouterGroup": "subrouter",
       "subrouterOverview": "概要",
       "accountGroup": "アカウント",
@@ -237,6 +236,8 @@
       "teamSwitcherLabel": "チーム",
       "notConfiguredTitle": "AIアカウント管理はまだ利用できません",
       "notConfiguredBody": "このデプロイではチームAIアカウントが有効になっていません。しばらくしてから再試行するか、サポートにお問い合わせください。",
+      "migrationPendingTitle": "アカウントを移行中です",
+      "migrationPendingBody": "共有アカウントは移行が完了するまで一時的に利用できません。しばらくしてからもう一度お試しください。",
       "loadErrorTitle": "アカウントを読み込めませんでした",
       "loadErrorBody": "アカウントサービスに接続できませんでした。しばらくしてから再試行してください。",
       "accountsTitle": "接続済みアカウント",
@@ -2319,7 +2320,16 @@
     "changelog": {
       "title": "変更履歴",
       "metaDescription": "cmuxのリリースノートとバージョン履歴。ネイティブmacOSターミナルの新機能、バグ修正、変更点。",
-      "metaTitle": "変更履歴"
+      "metaTitle": "変更履歴",
+      "versionTitle": "cmux {version} · 変更履歴",
+      "releaseNavLabel": "cmux {version} 付近のリリース",
+      "sections": {
+        "added": "追加",
+        "changed": "変更",
+        "fixed": "修正",
+        "removed": "削除",
+        "contributors": "コントリビューター"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",

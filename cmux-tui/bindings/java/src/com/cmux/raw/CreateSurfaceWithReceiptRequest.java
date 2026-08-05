@@ -15,7 +15,7 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
     private final Field<List<String>> argv;
     private final Field<Integer> cols;
     private final Field<String> cwd;
-    private final CreateSurfaceWithReceiptRequestOperation operation;
+    private final String operation;
     private final String origin;
     private final Field<UInt64> pane;
     private final String receipt;
@@ -50,7 +50,7 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
     public Field<List<String>> argv() { return argv; }
     public Field<Integer> cols() { return cols; }
     public Field<String> cwd() { return cwd; }
-    public CreateSurfaceWithReceiptRequestOperation operation() { return operation; }
+    public String operation() { return operation; }
     public String origin() { return origin; }
     public Field<UInt64> pane() { return pane; }
     public String receipt() { return receipt; }
@@ -77,7 +77,7 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
             builder.cwd(rawCwd == null ? null : Wire.string(rawCwd, "CreateSurfaceWithReceiptRequest.cwd"));
         }
         Object rawOperation = Wire.required(object, "operation");
-        builder.operation(CreateSurfaceWithReceiptRequestOperation.fromWire(rawOperation));
+        builder.operation(Wire.string(rawOperation, "CreateSurfaceWithReceiptRequest.operation"));
         Object rawOrigin = Wire.required(object, "origin");
         builder.origin(Wire.string(rawOrigin, "CreateSurfaceWithReceiptRequest.origin"));
         Object rawPane = Wire.optional(object, "pane");
@@ -148,7 +148,7 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
         private Field<List<String>> argv = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private Field<String> cwd = Field.omitted();
-        private CreateSurfaceWithReceiptRequestOperation operation;
+        private String operation;
         private boolean operationSet;
         private String origin;
         private boolean originSet;
@@ -174,7 +174,7 @@ public final class CreateSurfaceWithReceiptRequest implements WireValue {
             this.cwd = Field.ofNullable(value);
             return this;
         }
-        public Builder operation(CreateSurfaceWithReceiptRequestOperation value) {
+        public Builder operation(String value) {
             this.operation = value;
             this.operationSet = true;
             return this;

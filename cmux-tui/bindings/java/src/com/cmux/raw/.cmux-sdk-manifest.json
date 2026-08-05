@@ -46,6 +46,16 @@
       "size": 942
     },
     {
+      "path": "AttachedViewOutcomeResult.java",
+      "sha256": "87ebc317264038b895e72b442631b1bebf64ff7ee754823dc71345aa96912ea4",
+      "size": 2069
+    },
+    {
+      "path": "AttachedViewResizeResult.java",
+      "sha256": "f772496cb4c4e1a3a10a6cc963ce0da854ebf6c2eab494116cfc1c58fd8b2131",
+      "size": 3611
+    },
+    {
       "path": "Authority.java",
       "sha256": "fc01e4b9773129763f6ecc065046e2793716f06ad248cf12a12d51a98f29982a",
       "size": 422
@@ -272,8 +282,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "3ab057005210109aef1e52a758d1ceb133590ecdd6d09142093133365b7416ba",
-      "size": 23165
+      "sha256": "133ea461499c64e8679b3a177a0bcf7c413602de8a2b917087b204c33bca86fd",
+      "size": 23359
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -302,13 +312,8 @@
     },
     {
       "path": "CreateSurfaceWithReceiptRequest.java",
-      "sha256": "e5fdb0d1cd1a709d1a7c98cc665ff67afe5043d7366bb39f9b50dae5e9bb9b11",
-      "size": 10461
-    },
-    {
-      "path": "CreateSurfaceWithReceiptRequestOperation.java",
-      "sha256": "b8625fd579d766ca97178c03f3c473e13c73e1a631a0c1e04e1525d2c6fa833d",
-      "size": 1268
+      "sha256": "f36044cd30f7420b8b3ed854389ad34a6d80f8a0c174bc29fbffe459e5f71a4d",
+      "size": 10332
     },
     {
       "path": "CreateTerminalRequest.java",
@@ -354,6 +359,11 @@
       "path": "DeltaStreamEvent.java",
       "sha256": "9d68d517c7ed2b02c67d7af1411089a9587bb52633de04653d514df28518ea9b",
       "size": 145
+    },
+    {
+      "path": "DetachAttachedViewRequest.java",
+      "sha256": "caebc2c0bee7862b2784264305106ceaec9a357ca4c747056450dc80dedd0be7",
+      "size": 2767
     },
     {
       "path": "DetachClientRequest.java",
@@ -457,8 +467,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "f1c9e1599e39e0156aee6a8ff6c143eddd59f6dc2d0e6bd07555f5134219fbe6",
-      "size": 22401
+      "sha256": "807b8b44dc0451f2a085bb65e86fd525a1bd14ec8b1df480f26af4b246503836",
+      "size": 22672
     },
     {
       "path": "GetCellPixelsRequest.java",
@@ -782,7 +792,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "bde724f135a11f2a63ceed01842f675af63d279635a6505848a8a775ddbb1134",
+      "sha256": "4ba5306262acfc9914772b80e199972a92b5f8956cdd1d1d6e8ff628bc9206b2",
       "size": 3967
     },
     {
@@ -826,14 +836,9 @@
       "size": 3892
     },
     {
-      "path": "ReceiptedSurfaceResult.java",
-      "sha256": "9144d94cc4e4993fffb9684cad51f93eefd14bdc70cedc98ac3f7e67096a055b",
-      "size": 2700
-    },
-    {
       "path": "ReleaseAttachedViewSizeRequest.java",
-      "sha256": "4c600b6daa8ec6a74ae9d1325d0eac8ec2d6d7ae551bcbec0ad9dbbdb3b0e1f7",
-      "size": 2822
+      "sha256": "c1702edcb3b799556160255d068b92cb246162947e1920649f2019c217ff210f",
+      "size": 2823
     },
     {
       "path": "ReleaseSurfaceSizeRequest.java",
@@ -947,8 +952,8 @@
     },
     {
       "path": "ResizeAttachedViewRequest.java",
-      "sha256": "359383206255a8fd4c2af9ea9e5860c6fd5f409bb8b579b5453dcab44eedf2af",
-      "size": 3976
+      "sha256": "10aeba6c15c2d959a20cd18a908c5aac57c3c305e49cd259dfba3e57f83bdaa4",
+      "size": 3977
     },
     {
       "path": "ResizeSurfaceRequest.java",
@@ -1306,16 +1311,6 @@
       "size": 963
     },
     {
-      "path": "ViewReleaseResult.java",
-      "sha256": "e9732d84e2baa1bd240b24264e25ae9b8185897b2612bc8ddf2ee5aa9ed378f7",
-      "size": 2005
-    },
-    {
-      "path": "ViewResizeResult.java",
-      "sha256": "39d84defec2f7d6847808b9b8e8bd4dc98f7dbcb3f14c31d14f674fafe058106",
-      "size": 3531
-    },
-    {
       "path": "VtStateEvent.java",
       "sha256": "32984fa6573b5d89371f1c5de476773ad2258c265156b69ecaabf8946bd78d54",
       "size": 6406
@@ -1392,7 +1387,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "ef6b29d07b77be6f7032fd385bf172a17037eb2e59717145d21354a31e11205a",
+  "ir_sha256": "4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298",
   "language": "java",
   "mux_protocol": 10,
   "schema_version": 2

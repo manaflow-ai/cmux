@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable release-attached-view-size request. Protocol v10; authority: control. */
+/** Immutable release-attached-view-size request. Protocol v10; authority: frontend. */
 public final class ReleaseAttachedViewSizeRequest implements WireValue {
     private final String lease;
     private final UInt64 surface;

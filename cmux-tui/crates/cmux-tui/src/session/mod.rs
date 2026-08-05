@@ -340,6 +340,13 @@ pub enum SurfaceHandle {
     RemoteBrowserUnsupported,
 }
 
+pub(crate) enum SurfaceAttach {
+    Attached(SurfaceHandle),
+    Retired,
+    Deferred,
+    Missing,
+}
+
 impl Session {
     pub(crate) fn allocate_layout_resize_owner(&self) -> u64 {
         match self {
@@ -507,6 +514,10 @@ impl Session {
             Session::Remote(remote) => {
                 if remote.refresh_tree()?.workspaces.is_empty() {
                     remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
+                    anyhow::ensure!(
+                        !remote.refresh_tree()?.workspaces.is_empty(),
+                        "remote session did not expose the workspace it created"
+                    );
                 }
                 Ok(())
             }
@@ -587,8 +598,11 @@ impl Session {
                     Some(id) => {
                         match remote.try_ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
                         {
-                            Ok(Some(_)) => Some(id),
-                            Ok(None) => {
+                            Ok(remote::RemoteSurfaceAttach::Attached(_)) => Some(id),
+                            Ok(
+                                remote::RemoteSurfaceAttach::Retired
+                                | remote::RemoteSurfaceAttach::Deferred,
+                            ) => {
                                 error.get_or_insert_with(|| {
                                     format!("sidebar plugin surface {id} is unavailable")
                                 });
@@ -689,7 +703,7 @@ impl Session {
         &self,
         id: SurfaceId,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Option<SurfaceHandle>> {
+    ) -> anyhow::Result<SurfaceAttach> {
         match self {
             Session::Local(mux) => mux
                 .surface(id)
@@ -697,21 +711,33 @@ impl Session {
                     if let Some((cols, rows)) = size {
                         mux.resize_surface_for_client(id, 0, cols, rows)?;
                     }
-                    Ok(SurfaceHandle::Local(surface, mux.clone()))
+                    Ok(SurfaceAttach::Attached(SurfaceHandle::Local(surface, mux.clone())))
                 })
-                .transpose(),
+                .transpose()
+                .map(|surface| surface.unwrap_or(SurfaceAttach::Missing)),
             Session::Remote(remote) => {
                 if remote.surface_kind(id) == SurfaceKind::Browser {
                     if remote.supports_browser_attach() {
-                        remote.try_ensure_surface(id, size).map(|surface| {
-                            surface.map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                        remote.try_ensure_surface(id, size).map(|outcome| match outcome {
+                            remote::RemoteSurfaceAttach::Attached(surface) => {
+                                SurfaceAttach::Attached(SurfaceHandle::Remote(
+                                    surface,
+                                    remote.clone(),
+                                ))
+                            }
+                            remote::RemoteSurfaceAttach::Retired => SurfaceAttach::Retired,
+                            remote::RemoteSurfaceAttach::Deferred => SurfaceAttach::Deferred,
                         })
                     } else {
-                        Ok(Some(SurfaceHandle::RemoteBrowserUnsupported))
+                        Ok(SurfaceAttach::Attached(SurfaceHandle::RemoteBrowserUnsupported))
                     }
                 } else {
-                    remote.try_ensure_surface(id, size).map(|surface| {
-                        surface.map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                    remote.try_ensure_surface(id, size).map(|outcome| match outcome {
+                        remote::RemoteSurfaceAttach::Attached(surface) => {
+                            SurfaceAttach::Attached(SurfaceHandle::Remote(surface, remote.clone()))
+                        }
+                        remote::RemoteSurfaceAttach::Retired => SurfaceAttach::Retired,
+                        remote::RemoteSurfaceAttach::Deferred => SurfaceAttach::Deferred,
                     })
                 }
             }
@@ -739,9 +765,16 @@ impl Session {
                 if remote
                     .supports_capability(cmux_tui_core::server::VIEW_ATTACHMENT_LEASE_CAPABILITY)
                 {
-                    let lease = remote
-                        .attachment_lease(id)
-                        .ok_or_else(|| anyhow::anyhow!("surface {id} has no attachment lease"))?;
+                    let Some(lease) = remote.attachment_lease(id) else {
+                        // The attachment may disappear before a queued release
+                        // reaches the session worker. With lease-aware peers,
+                        // no local lease means this view has nothing left to
+                        // release, so the operation has already converged.
+                        if let Some(surface) = remote.surface(id) {
+                            surface.clear_reported_size();
+                        }
+                        return Ok(());
+                    };
                     request = json!({
                         "cmd": "release-attached-view-size",
                         "surface": id,
@@ -1765,8 +1798,13 @@ impl SurfaceHandle {
                     .supports_capability(cmux_tui_core::server::VIEW_ATTACHMENT_LEASE_CAPABILITY)
                 {
                     let Some(lease) = session.attachment_lease(surface.id) else {
+                        // The surface handle can outlive the attachment that
+                        // authorized this resize. Treat that lifecycle race as
+                        // superseded, exactly like the server does for a
+                        // retired lease token.
+                        surface.clear_reported_size();
                         report(None);
-                        anyhow::bail!("surface {} has no attachment lease", surface.id);
+                        return Ok(false);
                     };
                     request = json!({
                         "cmd": "resize-attached-view",
@@ -2460,6 +2498,17 @@ pub(crate) fn test_remote_session_without_provider_authority() -> Session {
 }
 
 #[cfg(test)]
+fn test_remote_session_with_view_attachment_leases() -> Session {
+    Session::Remote(remote::test_session_with_view_attachment_leases())
+}
+
+#[cfg(test)]
+fn test_remote_surface_with_missing_attachment_lease(surface_id: SurfaceId) -> SurfaceHandle {
+    let (session, surface) = remote::test_unleased_view_surface(surface_id);
+    SurfaceHandle::Remote(surface, session)
+}
+
+#[cfg(test)]
 pub(crate) fn test_remote_session_with_live_browser(
     surface_id: SurfaceId,
     frame_seq: u64,
@@ -2490,6 +2539,11 @@ pub(crate) fn test_remote_session_with_deferred_attach()
 -> (Session, std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
     let (session, started, release) = remote::test_session_with_deferred_attach();
     (Session::Remote(session), started, release)
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_missing_surface_attach(surface: SurfaceId) -> Session {
+    Session::Remote(remote::test_session_with_missing_surface_attach(surface))
 }
 
 #[cfg(test)]
@@ -2536,8 +2590,34 @@ mod tests {
     use super::{
         Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
         test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
-        test_remote_transport_error,
+        test_remote_session_with_view_attachment_leases,
+        test_remote_surface_with_missing_attachment_lease, test_remote_transport_error,
     };
+
+    #[test]
+    fn releasing_a_missing_remote_attachment_lease_is_idempotent() {
+        let session = test_remote_session_with_view_attachment_leases();
+
+        session.release_surface_size(77).expect("a missing lease is already released");
+    }
+
+    #[test]
+    fn resizing_a_surface_after_its_attachment_disappears_is_superseded() {
+        let surface = test_remote_surface_with_missing_attachment_lease(77);
+        let (report_tx, report_rx) = std::sync::mpsc::sync_channel(1);
+
+        let accepted = surface
+            .resize_reporting_acceptance(
+                100,
+                30,
+                false,
+                Box::new(move |reservation| report_tx.send(reservation).unwrap()),
+            )
+            .expect("a resize cannot fail after its attachment has already disappeared");
+
+        assert!(!accepted);
+        assert_eq!(report_rx.recv().unwrap(), None);
+    }
 
     #[test]
     fn remote_surface_unavailable_matches_only_the_requested_surface_rejection() {

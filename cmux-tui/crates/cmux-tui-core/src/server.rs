@@ -93,6 +93,7 @@ pub const FRONTEND_JOURNAL_CAPABILITY: &str = "frontend-journal-v1";
 /// replay a command instead of creating a second event.
 const LOCAL_JOURNAL_PRINCIPAL: &str = "cmux.local-owner";
 pub const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
+pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
@@ -118,6 +119,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SESSION_JOURNAL_CAPABILITY,
         FRONTEND_JOURNAL_CAPABILITY,
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
+        VIEW_ATTACHMENT_DETACH_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
@@ -1105,6 +1107,12 @@ enum Command {
         surface: SurfaceId,
         lease: String,
     },
+    /// Close one negotiated view attachment without affecting the terminal or
+    /// any other placement or client view.
+    DetachAttachedView {
+        surface: SurfaceId,
+        lease: String,
+    },
     FocusPane {
         pane: PaneId,
     },
@@ -1192,6 +1200,7 @@ impl Command {
             | Self::ResizeAttachedView { surface, .. }
             | Self::ReleaseSurfaceSize { surface }
             | Self::ReleaseAttachedViewSize { surface, .. }
+            | Self::DetachAttachedView { surface, .. }
             | Self::AttachSurface { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::Notify { surface, .. }
@@ -3542,6 +3551,7 @@ impl ClientRegistry {
             record.capabilities.extend(capabilities.into_iter().filter(|capability| {
                 capability == GUARDED_BROWSER_POINTER_CAPABILITY
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
+                    || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
             }));
@@ -3819,6 +3829,38 @@ impl ClientRegistry {
             return Ok(ViewLeaseStatus::Superseded);
         }
         anyhow::bail!("invalid or foreign view attachment lease")
+    }
+
+    fn view_stream(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+    ) -> anyhow::Result<Option<(u64, OutboundStream)>> {
+        let state = self.state.lock().unwrap();
+        let record =
+            state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let Some((lease_surface, stream)) = record.view_leases.get(lease).copied() else {
+            if let Some(lease_surface) = record.retired_view_leases.get(lease) {
+                anyhow::ensure!(
+                    *lease_surface == surface,
+                    "retired view attachment lease belongs to surface {lease_surface}, not {surface}"
+                );
+                return Ok(None);
+            }
+            anyhow::bail!("invalid or foreign view attachment lease");
+        };
+        anyhow::ensure!(
+            lease_surface == surface,
+            "view attachment lease belongs to surface {lease_surface}, not {surface}"
+        );
+        let Some(attached) = record.attached.get(&surface) else { return Ok(None) };
+        Ok(attached
+            .streams
+            .get(&stream)
+            .or_else(|| attached.pending_streams.get(&stream))
+            .cloned()
+            .map(|outbound| (stream, outbound)))
     }
 
     fn prepare_view_resize(
@@ -11208,6 +11250,20 @@ fn handle_command_with_cancellation(
                 }
             }
         }
+        Command::DetachAttachedView { surface, lease } => {
+            let Some((stream, outbound)) =
+                mux.control_clients.view_stream(client, surface, &lease)?
+            else {
+                return Ok(json!({"outcome": "superseded"}));
+            };
+            // Closing the stream stops every producer immediately. Removing
+            // its attachment state synchronously makes the command response a
+            // cleanup fence; the attach worker's eventual duplicate detach is
+            // intentionally idempotent.
+            outbound.close();
+            detach_committed_attach(mux, client, surface, stream);
+            Ok(json!({"outcome": "applied"}))
+        }
         Command::FocusPane { pane } => {
             if !mux.focus_pane(pane) {
                 anyhow::bail!("unknown pane {pane}");
@@ -11229,7 +11285,7 @@ fn handle_command_with_cancellation(
         Command::ScrollSurface { surface, delta } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            surface.scroll_delta(delta)?;
+            mux.scroll_surface_viewport(&surface, delta)?;
             Ok(json!({}))
         }
         Command::Subscribe { tree_events, surface } => {
@@ -18743,7 +18799,10 @@ mod tests {
             Command::SetClientInfo {
                 name: Some("lease test".to_string()),
                 kind: Some("tui".to_string()),
-                capabilities: Some(vec![VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string()]),
+                capabilities: Some(vec![
+                    VIEW_ATTACHMENT_LEASE_CAPABILITY.to_string(),
+                    VIEW_ATTACHMENT_DETACH_CAPABILITY.to_string(),
+                ]),
             },
             &writer,
         )
@@ -18845,7 +18904,23 @@ mod tests {
         assert!(foreign_error.to_string().contains("invalid or foreign"));
         assert_eq!(surface.size(), geometry_before_invalid_requests);
 
-        detach_committed_attach(&mux, client, surface.id, first_stream.id);
+        let detached = handle_command(
+            &mux,
+            client,
+            Command::DetachAttachedView { surface: surface.id, lease: first_lease.clone() },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(detached["outcome"], "applied");
+        assert!(!first_stream.is_open());
+        let repeated = handle_command(
+            &mux,
+            client,
+            Command::DetachAttachedView { surface: surface.id, lease: first_lease.clone() },
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(repeated["outcome"], "superseded");
         settle_browser_size(&surface, (70, 20));
         for command in [
             Command::ResizeAttachedView {
@@ -19468,6 +19543,7 @@ mod tests {
             SESSION_JOURNAL_CAPABILITY,
             FRONTEND_JOURNAL_CAPABILITY,
             VIEW_ATTACHMENT_LEASE_CAPABILITY,
+            VIEW_ATTACHMENT_DETACH_CAPABILITY,
             CREATION_RECEIPTS_CAPABILITY,
             CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
@@ -19827,6 +19903,8 @@ mod tests {
                 }
             })
             .unwrap();
+        let shared_scrollbar = surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap();
+        let view_scrollbar = surface.view_scrollbar().unwrap();
         let events = mux.subscribe();
 
         handle_command(
@@ -19844,6 +19922,12 @@ mod tests {
                 if id == surface.id && offset > 0
         ));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+        assert_eq!(
+            surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap(),
+            shared_scrollbar,
+            "a backend view scroll must not mutate the shared terminal runtime"
+        );
+        assert_ne!(surface.view_scrollbar().unwrap(), view_scrollbar);
 
         handle_command(
             &mux,

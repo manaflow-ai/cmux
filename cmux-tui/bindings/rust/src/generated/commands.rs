@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR ef6b29d07b77be6f7032fd385bf172a17037eb2e59717145d21354a31e11205a.
+// cmux-tui mux protocol 10, IR 4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -348,29 +348,6 @@ pub struct CopyRequest {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CreateSurfaceWithReceiptRequestOperation {
-    #[serde(rename = "new-tab")]
-    NewTab,
-    #[serde(rename = "run-command")]
-    RunCommand,
-    #[serde(rename = "new-browser-tab")]
-    NewBrowserTab,
-    #[serde(rename = "new-workspace")]
-    NewWorkspace,
-    #[serde(rename = "new-screen")]
-    NewScreen,
-    #[serde(rename = "new-pane")]
-    NewPane,
-    #[serde(rename = "new-pane-right")]
-    NewPaneRight,
-    #[serde(rename = "split-right")]
-    SplitRight,
-    #[serde(rename = "split-down")]
-    SplitDown,
-}
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateSurfaceWithReceiptRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -379,7 +356,7 @@ pub struct CreateSurfaceWithReceiptRequest {
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
-    pub operation: CreateSurfaceWithReceiptRequestOperation,
+    pub operation: String,
     pub origin: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
@@ -399,7 +376,7 @@ pub struct CreateSurfaceWithReceiptRequest {
 }
 
 #[rustfmt::skip]
-pub type CreateSurfaceWithReceiptResult = T::ReceiptedSurfaceResult;
+pub type CreateSurfaceWithReceiptResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -454,6 +431,16 @@ pub struct CreateWorkspaceRequest {
 
 #[rustfmt::skip]
 pub type CreateWorkspaceResult = T::WorkspaceMutationResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DetachAttachedViewRequest {
+    pub lease: String,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type DetachAttachedViewResult = T::AttachedViewOutcomeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -810,7 +797,7 @@ pub struct ReleaseAttachedViewSizeRequest {
 }
 
 #[rustfmt::skip]
-pub type ReleaseAttachedViewSizeResult = T::ViewReleaseResult;
+pub type ReleaseAttachedViewSizeResult = T::AttachedViewOutcomeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -916,7 +903,7 @@ pub struct ResizeAttachedViewRequest {
 }
 
 #[rustfmt::skip]
-pub type ResizeAttachedViewResult = T::ViewResizeResult;
+pub type ResizeAttachedViewResult = T::AttachedViewResizeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1382,9 +1369,6 @@ impl CmuxClient {
     }
 
     pub fn create_surface_with_receipt(&mut self, request: CreateSurfaceWithReceiptRequest) -> Result<CreateSurfaceWithReceiptResult> {
-        if request.selector_fallbacks.is_some() {
-            self.require_capability_field("create-surface-with-receipt", "creation-selector-fallbacks-v1")?;
-        }
         self.execute(&CREATE_SURFACE_WITH_RECEIPT_METADATA, &request)
     }
 
@@ -1397,6 +1381,10 @@ impl CmuxClient {
 
     pub fn create_workspace(&mut self, request: CreateWorkspaceRequest) -> Result<CreateWorkspaceResult> {
         self.execute(&CREATE_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn detach_attached_view(&mut self, request: DetachAttachedViewRequest) -> Result<DetachAttachedViewResult> {
+        self.execute(&DETACH_ATTACHED_VIEW_METADATA, &request)
     }
 
     pub fn detach_client(&mut self, request: DetachClientRequest) -> Result<DetachClientResult> {

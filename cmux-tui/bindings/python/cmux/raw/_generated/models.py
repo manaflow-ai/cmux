@@ -252,6 +252,20 @@ class ApplyLayoutResult:
 
 
 @dataclass(frozen=True)
+class AttachedViewOutcomeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AttachedViewOutcomeResult'
+    outcome: ViewAttachmentOutcome
+
+
+@dataclass(frozen=True)
+class AttachedViewResizeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AttachedViewResizeResult'
+    accepted: bool
+    outcome: ViewAttachmentOutcome
+    reservation_id: Union[int, None]
+
+
+@dataclass(frozen=True)
 class BrowserFrame:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserFrame'
     data: Base64
@@ -658,13 +672,6 @@ class ReadScrollbackResult:
 
 
 @dataclass(frozen=True)
-class ReceiptedSurfaceResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/ReceiptedSurfaceResult'
-    surface: Id
-    replayed: bool
-
-
-@dataclass(frozen=True)
 class RenderCursor:
     __cmux_schema_path__: ClassVar[str] = 'types/RenderCursor'
     blink: bool
@@ -983,20 +990,6 @@ class Tree:
 
 
 @dataclass(frozen=True)
-class ViewReleaseResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/ViewReleaseResult'
-    outcome: ViewAttachmentOutcome
-
-
-@dataclass(frozen=True)
-class ViewResizeResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/ViewResizeResult'
-    accepted: bool
-    outcome: ViewAttachmentOutcome
-    reservation_id: Union[int, None]
-
-
-@dataclass(frozen=True)
 class VtStateResult:
     __cmux_schema_path__: ClassVar[str] = 'types/VtStateResult'
     cols: int
@@ -1248,7 +1241,7 @@ class CopyRequest:
 @dataclass(frozen=True)
 class CreateSurfaceWithReceiptRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/create-surface-with-receipt/request'
-    operation: Literal['new-tab', 'run-command', 'new-browser-tab', 'new-workspace', 'new-screen', 'new-pane', 'new-pane-right', 'split-right', 'split-down']
+    operation: str
     origin: str
     receipt: str
     pane: Union[Id, None, MissingType] = field(default=MISSING)
@@ -1290,6 +1283,13 @@ class CreateWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class DetachAttachedViewRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/detach-attached-view/request'
+    surface: Id
+    lease: str
 
 
 @dataclass(frozen=True)
@@ -2386,6 +2386,8 @@ __all__ = [
     'AgentRecord',
     'AppliedPane',
     'ApplyLayoutResult',
+    'AttachedViewOutcomeResult',
+    'AttachedViewResizeResult',
     'BrowserFrame',
     'CellPixelFailure',
     'CellPixelResize',
@@ -2430,7 +2432,6 @@ __all__ = [
     'ProviderWorkspaceMutationResult',
     'ReadScreenResult',
     'ReadScrollbackResult',
-    'ReceiptedSurfaceResult',
     'RenderCursor',
     'RenderGraphicImage',
     'RenderGraphicPlacement',
@@ -2458,8 +2459,6 @@ __all__ = [
     'TerminalRecord',
     'TerminalRegistryEvent',
     'Tree',
-    'ViewReleaseResult',
-    'ViewResizeResult',
     'VtStateResult',
     'WaitForResult',
     'Workspace',
@@ -2492,6 +2491,7 @@ __all__ = [
     'CreateSurfaceWithReceiptRequest',
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
+    'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
     'FocusDirectionRequest',

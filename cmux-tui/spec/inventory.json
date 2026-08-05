@@ -200,9 +200,7 @@
       "rename-screen",
       "rename-workspace",
       "resize-surface",
-      "resize-attached-view",
       "release-surface-size",
-      "release-attached-view-size",
       "focus-pane",
       "select-tab",
       "select-screen",
@@ -228,7 +226,10 @@
       "browser-reload",
       "browser-activate",
       "subscribe",
-      "attach-surface"
+      "attach-surface",
+      "resize-attached-view",
+      "release-attached-view-size",
+      "detach-attached-view"
     ],
     "local-admin": [
       "shutdown-daemon",

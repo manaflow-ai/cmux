@@ -867,6 +867,8 @@
       "concepts": "Concetti",
       "anchorTitle": "Workspace di ancoraggio",
       "anchorDesc": "Ogni gruppo è di proprietà di esattamente un workspace chiamato ancoraggio. L'intestazione del gruppo nella barra laterale è la rappresentazione dell'ancoraggio — non c'è una riga separata per esso. Cliccando sull'area del nome dell'intestazione si mettono a fuoco i pannelli dell'ancoraggio; cliccando sul chevron si alterna la compressione.",
+      "anchorNew": "L'ancoraggio di un gruppo è sempre un workspace completamente nuovo al momento della creazione; né il raggruppamento di una selezione né la creazione di un gruppo promuovono mai uno dei workspace esistenti ad ancoraggio. (La chiusura successiva dell'ancoraggio promuove invece il primo membro rimasto del gruppo; vedi sotto.) La directory di lavoro dell'ancoraggio viene ereditata dal primo workspace selezionato quando si raggruppa una selezione, oppure dal workspace attivo quando si crea tramite CLI senza --cwd.",
+      "anchorClose": "La chiusura del workspace di ancoraggio chiude solo quel workspace e promuove il primo membro rimasto del gruppo (quello che compare per primo tra quelli ancora presenti nell'ordine del gruppo) a nuovo ancoraggio, lasciando intatti il gruppo e gli altri membri (il membro promosso mostra quindi il nome del gruppo come intestazione). Quando l'ancoraggio è l'unico workspace del gruppo, il gruppo viene rimosso. Per trasformare un gruppo in workspace non raggruppati usa Separa aree di lavoro; per chiudere tutti i workspace di un gruppo usa Elimina gruppo.",
       "identityTitle": "Identità del gruppo",
       "identityDesc": "Un gruppo ha un nome, un'icona (un SF Symbol, predefinito folder.fill) e un colore personalizzato opzionale. Questi sono indipendenti dalle personalizzazioni proprie del workspace di ancoraggio. Il colore e l'icona dell'ancoraggio vengono inizializzati dal gruppo alla creazione, ma possono divergere in seguito.",
       "pinningTitle": "Fissaggio",
@@ -1405,7 +1407,16 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Note di rilascio e cronologia delle versioni di cmux. Nuove funzionalità, correzioni di bug e modifiche per il terminale macOS nativo.",
-      "metaTitle": "Registro modifiche"
+      "metaTitle": "Registro modifiche",
+      "versionTitle": "cmux {version} · Registro modifiche",
+      "releaseNavLabel": "Versioni vicine a cmux {version}",
+      "sections": {
+        "added": "Aggiunte",
+        "changed": "Modifiche",
+        "fixed": "Correzioni",
+        "removed": "Rimozioni",
+        "contributors": "Collaboratori"
+      }
     },
     "navItems": {
       "gettingStarted": "Per iniziare",

@@ -5834,11 +5834,10 @@ impl Mux {
         };
         #[cfg(test)]
         let surface = if self.test_surface_runtime {
-            Surface::spawn_for_test_with_resource_identity_at_cell_pixels(
+            Surface::spawn_auxiliary_for_test_at_cell_pixels(
                 id,
                 opts,
                 Arc::downgrade(self),
-                None,
                 cell_pixels,
             )?
         } else {
@@ -7274,6 +7273,23 @@ impl Mux {
         self.with_state(Self::active_surface_in_state)
     }
 
+    /// Scroll one backend-owned view without mutating the terminal runtime
+    /// shared by the terminal's other placements.
+    pub fn scroll_surface_viewport(&self, surface: &Surface, delta: isize) -> anyhow::Result<()> {
+        let before = surface.view_scrollbar();
+        let after = surface.view_scroll_delta(delta)?;
+        if after != before
+            && let Some(scrollbar) = after
+        {
+            self.emit(MuxEvent::ScrollChanged {
+                surface: surface.id,
+                offset: scrollbar.offset,
+                at_bottom: !scrollbar.scrolled_back(),
+            });
+        }
+        Ok(())
+    }
+
     fn clear_viewed_notification(&self, surface: Option<SurfaceId>) {
         let Some(surface) = surface else { return };
         let state = self.state.lock().unwrap();
@@ -7345,25 +7361,20 @@ impl Mux {
                 ledger.pop_front();
             }
         }
+        // Shared topology focus is only a default projection. A frontend must
+        // explicitly acknowledge a viewed notification through its selection
+        // action, so local focus in one client cannot hide attention from the
+        // others.
         let mut unread_changed = false;
-        let active_surface = self.active_surface();
-        let active_terminal_id = active_surface.and_then(|active| {
-            let state = self.state.lock().unwrap();
-            state
-                .surfaces
-                .get(&active)
-                .or_else(|| state.terminal_runtime_by_id(active))
-                .and_then(|surface| surface.terminal_public_id().cloned())
-        });
         match terminal_id {
-            Some(terminal_id) if active_terminal_id.as_ref() != Some(&terminal_id) => {
+            Some(terminal_id) => {
                 self.terminal_notifications.lock().unwrap().insert(
                     terminal_id,
                     SurfaceNotification { notification: id, level, unread: true },
                 );
                 unread_changed = true;
             }
-            None if surface.is_some_and(|surface| active_surface != Some(surface)) => {
+            None if surface.is_some() => {
                 let surface = surface.expect("checked notification surface");
                 self.placement_notifications
                     .lock()
@@ -7371,7 +7382,7 @@ impl Mux {
                     .insert(surface, SurfaceNotification { notification: id, level, unread: true });
                 unread_changed = true;
             }
-            Some(_) | None => {}
+            None => {}
         }
         self.emit(MuxEvent::Notification(NotificationEvent {
             notification: id,
@@ -7493,6 +7504,7 @@ impl Mux {
                 let runtime = state
                     .surfaces
                     .get(&surface)
+                    .or_else(|| state.terminal_runtime_by_id(surface))
                     .with_context(|| format!("unknown surface {surface}"))?;
                 let identity = runtime.resource_identity().with_context(|| {
                     format!("surface {surface} has no durable resource identity")
@@ -7681,7 +7693,7 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         let surfaces = unique_surface_runtimes(&self.state.lock().unwrap());
         for surface in surfaces {
-            surface.disconnect_for_daemon_shutdown();
+            surface.shutdown_for_daemon();
         }
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
@@ -14377,7 +14389,7 @@ impl Drop for Mux {
     fn drop(&mut self) {
         if let Ok(state) = self.state.get_mut() {
             for surface in unique_surface_runtimes(state) {
-                surface.disconnect_for_daemon_shutdown();
+                surface.shutdown_for_daemon();
             }
         }
         if let Ok(runtime) = self.browser_runtime.get_mut()
@@ -19683,6 +19695,17 @@ mod tests {
         assert!(mux.surface(first.id).is_some());
         assert!(mux.with_state(|state| state.surfaces.contains_key(&second.id)));
 
+        let detached_report = mux
+            .report_agent(
+                first.id,
+                AgentState::Blocked,
+                AgentSource::Hook,
+                Some("detached-hook".to_string()),
+            )
+            .expect("the terminal host identity remains valid without a view");
+        assert_eq!(detached_report.state, AgentState::Blocked);
+        assert_eq!(detached_report.session.as_deref(), Some("detached-hook"));
+
         mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
         assert!(mux.list_agents(None, None).is_empty());
         assert!(mux.surface_notification(first.id).is_none());
@@ -19768,7 +19791,7 @@ mod tests {
     }
 
     #[test]
-    fn notification_to_active_surface_does_not_set_unread() {
+    fn notification_to_shared_default_surface_waits_for_explicit_view_acknowledgement() {
         let mux = test_mux();
         let events = mux.subscribe();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -19783,7 +19806,9 @@ mod tests {
             )
             .unwrap();
 
-        assert!(mux.surface_notification(surface.id).is_none());
+        let unread = mux.surface_notification(surface.id).unwrap();
+        assert_eq!(unread.notification, notification);
+        assert!(unread.unread);
         assert!(events.try_iter().any(|event| {
             matches!(
                 event,
@@ -19791,6 +19816,9 @@ mod tests {
                     if note.notification == notification && note.surface == Some(surface.id)
             )
         }));
+
+        mux.select_tab(None, Some(0), None);
+        assert!(mux.surface_notification(surface.id).is_none());
     }
 
     #[test]

@@ -345,30 +345,33 @@ extension RemoteTmuxControlConnection {
         return seedID
     }
 
-    func reseedAfterReconnect() {
-        // The fresh ssh client has been sent nothing: the dedup baseline
-        // must reset with it, or requests matching pre-drop sends would be
-        // suppressed against a server that no longer has them.
+    /// Replays this control client's recorded sizing authority after an event
+    /// that may have changed tmux's effective minimum. Reconnect needs this
+    /// because a fresh client has no claims; peer detach needs it because tmux
+    /// does not otherwise ask surviving clients to resend their desired sizes.
+    func replayRecordedSizeClaims() {
+        // Reset the dedup baseline before replay, or claims matching prior sends
+        // would be suppressed even though tmux may need to recompute them.
         sentWindowSizes.removeAll()
-        // Parity episodes are per connection too: a re-arm budget spent
-        // against the old transport must not suppress re-arms when this
-        // reseed's own resends get lost or raced the same way.
+        // Open a fresh parity episode for every replayed claim. A budget spent
+        // while a smaller peer legitimately clamped the window must not suppress
+        // recovery after that peer leaves.
         windowClaimParityRearmsSpent.removeAll()
-        // The border-status watches were dropped at `beginReconnecting()` — before
-        // this reseed's own list-windows restage, which is what re-issues them.
-        // Clearing them here would be too late: the restage has already run.
         if let size = lastClientSize {
             send("refresh-client -C \(size.columns)x\(size.rows)")
         }
-        // Re-pin every per-window size: pins are per-client state, and the
-        // fresh ssh client starts with none (windows would sit at 80×24 or
-        // the session-wide size). Feed-forward by nature — replays recorded
-        // requests, reads nothing back.
         if supportsPerWindowSize {
             for (windowId, size) in lastWindowSizes.sorted(by: { $0.key < $1.key }) {
                 sendPerWindowSize(windowId: windowId, columns: size.0, rows: size.1)
             }
         }
+    }
+
+    func reseedAfterReconnect() {
+        replayRecordedSizeClaims()
+        // The border-status watches were dropped at `beginReconnecting()` — before
+        // this reseed's own list-windows restage, which is what re-issues them.
+        // Clearing them here would be too late: the restage has already run.
         pendingReconnectSeedIDs.removeAll(keepingCapacity: true)
         var seenPaneIDs: Set<Int> = []
         pendingReconnectPaneIDs = windowsByID.keys.sorted().flatMap { windowId in

@@ -20,6 +20,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::FrontendJournalEvent": "FrontendJournalEvent",
     "crate::ResourceSelectors": "ResourceSelectors",
     "ProtocolKeyInput": "TerminalKeyInput",
+    "crate::ResourceSelectors": "ResourceSelectors",
 }
 
 sys.path.insert(0, str(BINDINGS))
@@ -166,6 +167,15 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
         unit = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*),", line)
         if unit:
             commands[camel_to_kebab(unit.group(1))] = {}
+            index += 1
+            continue
+        boxed = re.fullmatch(
+            r"    ([A-Z][A-Za-z0-9]*)\(Box<([A-Z][A-Za-z0-9]*)>\),",
+            line,
+        )
+        if boxed:
+            variant, request_type = boxed.groups()
+            commands[camel_to_kebab(variant)] = _rust_struct_fields(source, request_type)
             index += 1
             continue
         structured = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*) \{", line)

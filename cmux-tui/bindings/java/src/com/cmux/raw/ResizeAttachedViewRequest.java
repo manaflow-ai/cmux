@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable resize-attached-view request. Protocol v10; authority: control. */
+/** Immutable resize-attached-view request. Protocol v10; authority: frontend. */
 public final class ResizeAttachedViewRequest implements WireValue {
     private final int cols;
     private final String lease;

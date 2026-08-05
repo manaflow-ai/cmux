@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = 'ef6b29d07b77be6f7032fd385bf172a17037eb2e59717145d21354a31e11205a'
+IR_SHA256 = '4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298'
 
 
 @dataclass(frozen=True)
@@ -372,7 +372,7 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
             'receipt': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
-            'selector_fallbacks': CommandFieldMetadata(None, 'creation-selector-fallbacks-v1'),
+            'selector_fallbacks': CommandFieldMetadata(None, None),
             'selectors': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
             'width': CommandFieldMetadata(None, None),
@@ -416,6 +416,18 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'detach-attached-view': CommandMetadata(
+        'detach-attached-view',
+        'frontend',
+        10,
+        'view-attachment-detach-v1',
+        ('frontend',),
+        None,
+        {
+            'lease': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'detach-client': CommandMetadata(
@@ -816,10 +828,10 @@ COMMANDS = {
     ),
     'release-attached-view-size': CommandMetadata(
         'release-attached-view-size',
-        'control',
+        'frontend',
         10,
         'view-attachment-lease-v1',
-        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        ('frontend',),
         None,
         {
             'lease': CommandFieldMetadata(None, None),
@@ -930,10 +942,10 @@ COMMANDS = {
     ),
     'resize-attached-view': CommandMetadata(
         'resize-attached-view',
-        'control',
+        'frontend',
         10,
         'view-attachment-lease-v1',
-        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        ('frontend',),
         None,
         {
             'cols': CommandFieldMetadata(None, None),

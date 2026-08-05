@@ -72,7 +72,7 @@ use crate::pty_input::{
 use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
     AmbiguousCreation, CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, CreationReceipt, Session,
-    SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_surface_unavailable,
+    SidebarPluginSurface, SurfaceAttach, SurfaceHandle, TreeView, is_remote_surface_unavailable,
     is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
@@ -172,6 +172,18 @@ impl TerminalInput {
     }
 }
 
+fn host_event_retained_bytes(event: &Event) -> usize {
+    match event {
+        Event::EnhancedKey(key) => DEFERRED_INPUT_FIXED_BYTES.saturating_add(key.text.len()),
+        Event::Paste(text) => deferred_paste_bytes(text),
+        Event::Key(_)
+        | Event::Mouse(_)
+        | Event::FocusGained
+        | Event::FocusLost
+        | Event::Resize(..) => DEFERRED_INPUT_FIXED_BYTES,
+    }
+}
+
 enum AppEvent {
     SessionScoped {
         generation: u64,
@@ -187,6 +199,7 @@ enum AppEvent {
     MuxRecoveryComplete {
         recovery_generation: u64,
     },
+    HostInputReady,
     HostInputFailed(String),
     Input(Event),
     NormalizedInput(TerminalInput),
@@ -205,7 +218,7 @@ enum AppEvent {
         impact: MutationImpact,
     },
     SurfaceAttachSettled {
-        outcome: SessionMutationOutcome,
+        outcome: SurfaceAttachOutcome,
     },
     RemoteTreeUpdated {
         refresh_sequence: u64,
@@ -761,6 +774,163 @@ impl PtyFailureIngress {
     }
 }
 
+#[derive(Default)]
+struct HostInputIngressState {
+    events: VecDeque<HostInputMessage>,
+    retained_bytes: usize,
+    wake_queued: bool,
+    closed: bool,
+}
+
+enum HostInputMessage {
+    Event(Event),
+    Failed(String),
+}
+
+impl HostInputMessage {
+    fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Event(event) => host_event_retained_bytes(event),
+            Self::Failed(error) => DEFERRED_INPUT_FIXED_BYTES.saturating_add(error.len()),
+        }
+    }
+
+    fn is_passive_motion(&self) -> bool {
+        matches!(self, Self::Event(Event::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })))
+    }
+}
+
+#[derive(Default)]
+struct HostInputIngress {
+    state: Mutex<HostInputIngressState>,
+    space_available: Condvar,
+}
+
+impl HostInputIngress {
+    fn send(&self, event: Event) -> Result<bool, ()> {
+        self.enqueue(HostInputMessage::Event(event))
+    }
+
+    fn fail(&self, error: String) -> Result<bool, ()> {
+        self.enqueue(HostInputMessage::Failed(error))
+    }
+
+    fn enqueue(&self, event: HostInputMessage) -> Result<bool, ()> {
+        let retained_bytes = event.retained_bytes();
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(());
+        }
+        if event.is_passive_motion()
+            && state.events.back().is_some_and(HostInputMessage::is_passive_motion)
+        {
+            let previous_bytes =
+                state.events.back().map(HostInputMessage::retained_bytes).unwrap_or(0);
+            state.retained_bytes =
+                state.retained_bytes.saturating_sub(previous_bytes).saturating_add(retained_bytes);
+            *state.events.back_mut().unwrap() = event;
+            return Ok(false);
+        }
+        while !state.closed
+            && (state.events.len() >= DEFERRED_INPUT_CAPACITY
+                || (!state.events.is_empty()
+                    && state.retained_bytes.saturating_add(retained_bytes)
+                        > MAX_DEFERRED_INPUT_BYTES))
+        {
+            state = self.space_available.wait(state).unwrap();
+        }
+        if state.closed {
+            return Err(());
+        }
+        let wake = !state.wake_queued;
+        state.wake_queued = true;
+        state.retained_bytes = state.retained_bytes.saturating_add(retained_bytes);
+        state.events.push_back(event);
+        Ok(wake)
+    }
+
+    fn pop_if(&self, accept: impl FnOnce(&HostInputMessage) -> bool) -> Option<HostInputMessage> {
+        let mut state = self.state.lock().unwrap();
+        if !accept(state.events.front()?) {
+            return None;
+        }
+        let event = state.events.pop_front().unwrap();
+        state.retained_bytes = state.retained_bytes.saturating_sub(event.retained_bytes());
+        if state.events.is_empty() {
+            state.wake_queued = false;
+        }
+        drop(state);
+        self.space_available.notify_one();
+        Some(event)
+    }
+
+    fn close(&self) {
+        self.state.lock().unwrap().closed = true;
+        self.space_available.notify_all();
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.state.lock().unwrap().events.len()
+    }
+}
+
+struct HostInputRuntime {
+    ingress: Arc<HostInputIngress>,
+}
+
+impl HostInputRuntime {
+    fn new() -> Self {
+        Self { ingress: Arc::new(HostInputIngress::default()) }
+    }
+
+    fn producer(&self, events: SyncSender<AppEvent>) -> HostInputProducer {
+        HostInputProducer { ingress: self.ingress.clone(), events }
+    }
+
+    fn pop_if(&self, accept: impl FnOnce(&HostInputMessage) -> bool) -> Option<HostInputMessage> {
+        self.ingress.pop_if(accept)
+    }
+}
+
+impl Drop for HostInputRuntime {
+    fn drop(&mut self) {
+        self.ingress.close();
+    }
+}
+
+struct HostInputProducer {
+    ingress: Arc<HostInputIngress>,
+    events: SyncSender<AppEvent>,
+}
+
+impl HostInputProducer {
+    fn send(&self, event: Event) -> bool {
+        self.publish(self.ingress.send(event))
+    }
+
+    fn fail(&self, error: String) {
+        let _ = self.publish(self.ingress.fail(error));
+    }
+
+    fn publish(&self, result: Result<bool, ()>) -> bool {
+        let Ok(wake) = result else { return false };
+        if !wake {
+            return true;
+        }
+        match self.events.try_send(AppEvent::HostInputReady) {
+            Ok(()) | Err(TrySendError::Full(AppEvent::HostInputReady)) => true,
+            Err(TrySendError::Disconnected(AppEvent::HostInputReady)) => {
+                self.ingress.close();
+                false
+            }
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                unreachable!("host-input wake returned a different event")
+            }
+        }
+    }
+}
+
 pub enum SessionMutationOutcome {
     SemanticIntent {
         intent: u64,
@@ -1059,9 +1229,39 @@ fn surface_sync_failure_blocks(state: SurfaceSyncFailureState) -> bool {
 }
 
 struct SurfaceAttachResult {
-    outcome: SessionMutationOutcome,
+    outcome: SurfaceAttachOutcome,
     surface: Option<SurfaceHandle>,
     requested_size: Option<(u16, u16)>,
+}
+
+enum SurfaceAttachOutcome {
+    Attached,
+    Retired { surface: SurfaceId },
+    Deferred,
+    Failed { surface: SurfaceId, operation: &'static str, error: String, reconnect_required: bool },
+}
+
+/// An attach request starts from an authoritative tree snapshot. If the
+/// server no longer recognizes that exact surface, its lifecycle advanced
+/// past the snapshot while the request was in flight. Retire both mirror
+/// layers and refresh topology instead of turning normal teardown into a
+/// retryable synchronization failure.
+fn retire_missing_surface_attach(
+    session: &Session,
+    retired_surfaces: &Mutex<HashSet<SurfaceId>>,
+    attach_claims: &Mutex<HashMap<SurfaceId, SurfaceAttachClaimState>>,
+    attach_failures: &Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>,
+    id: SurfaceId,
+) {
+    {
+        retired_surfaces.lock().unwrap().insert(id);
+        if let Some(claim) = attach_claims.lock().unwrap().get_mut(&id) {
+            claim.retired = true;
+        }
+    }
+    attach_failures.lock().unwrap().remove(&id);
+    session.forget_surface(id);
+    session.invalidate_remote_tree();
 }
 
 fn perform_surface_attach(
@@ -1080,38 +1280,67 @@ fn perform_surface_attach(
     };
     if retired_before_attach {
         return SurfaceAttachResult {
-            outcome: SessionMutationOutcome::Success { tree: None },
+            outcome: SurfaceAttachOutcome::Retired { surface: id },
             surface: None,
             requested_size: size,
         };
     }
     after_obsolete_check();
     let result = session.try_surface_sized(id, size);
-    let attach_claims = attach_claims.lock().unwrap();
-    let retired = attach_claims.get(&id).is_some_and(|claim| claim.retired);
+    let retired = attach_claims.lock().unwrap().get(&id).is_some_and(|claim| claim.retired);
     match result {
-        Ok(Some(surface)) => {
+        Ok(SurfaceAttach::Attached(_)) if retired => {
             attach_failures.lock().unwrap().remove(&id);
             SurfaceAttachResult {
-                outcome: SessionMutationOutcome::Success { tree: None },
-                surface: Some(surface),
-                requested_size: size,
-            }
-        }
-        Ok(None) if retired => {
-            attach_failures.lock().unwrap().remove(&id);
-            SurfaceAttachResult {
-                outcome: SessionMutationOutcome::Success { tree: None },
+                outcome: SurfaceAttachOutcome::Retired { surface: id },
                 surface: None,
                 requested_size: size,
             }
         }
-        Ok(None) => {
+        Ok(SurfaceAttach::Attached(surface)) => {
+            attach_failures.lock().unwrap().remove(&id);
+            SurfaceAttachResult {
+                outcome: SurfaceAttachOutcome::Attached,
+                surface: Some(surface),
+                requested_size: size,
+            }
+        }
+        Ok(SurfaceAttach::Retired) => {
+            retire_missing_surface_attach(
+                session,
+                retired_surfaces,
+                attach_claims,
+                attach_failures,
+                id,
+            );
+            SurfaceAttachResult {
+                outcome: SurfaceAttachOutcome::Retired { surface: id },
+                surface: None,
+                requested_size: size,
+            }
+        }
+        Ok(SurfaceAttach::Deferred) => {
+            attach_failures.lock().unwrap().remove(&id);
+            SurfaceAttachResult {
+                outcome: SurfaceAttachOutcome::Deferred,
+                surface: None,
+                requested_size: size,
+            }
+        }
+        Ok(SurfaceAttach::Missing) if retired => {
+            attach_failures.lock().unwrap().remove(&id);
+            SurfaceAttachResult {
+                outcome: SurfaceAttachOutcome::Retired { surface: id },
+                surface: None,
+                requested_size: size,
+            }
+        }
+        Ok(SurfaceAttach::Missing) => {
             let mut failures = attach_failures.lock().unwrap();
             let state = next_surface_sync_failure(failures.get(&id).copied(), false, false);
             failures.insert(id, state);
             SurfaceAttachResult {
-                outcome: SessionMutationOutcome::SurfaceSyncFailed {
+                outcome: SurfaceAttachOutcome::Failed {
                     surface: id,
                     operation: "attach",
                     error: format!("surface {id} is unavailable"),
@@ -1121,10 +1350,16 @@ fn perform_surface_attach(
                 requested_size: size,
             }
         }
-        Err(error) if retired && is_remote_surface_unavailable(&error, id) => {
-            attach_failures.lock().unwrap().remove(&id);
+        Err(error) if is_remote_surface_unavailable(&error, id) => {
+            retire_missing_surface_attach(
+                session,
+                retired_surfaces,
+                attach_claims,
+                attach_failures,
+                id,
+            );
             SurfaceAttachResult {
-                outcome: SessionMutationOutcome::Success { tree: None },
+                outcome: SurfaceAttachOutcome::Retired { surface: id },
                 surface: None,
                 requested_size: size,
             }
@@ -1138,7 +1373,7 @@ fn perform_surface_attach(
                 next_surface_sync_failure(failures.get(&id).copied(), transport_failed, timed_out);
             failures.insert(id, state);
             SurfaceAttachResult {
-                outcome: SessionMutationOutcome::SurfaceSyncFailed {
+                outcome: SurfaceAttachOutcome::Failed {
                     surface: id,
                     operation: "attach",
                     error: message,
@@ -1207,7 +1442,7 @@ impl RemoteSurfaceAttachJob {
                     match surface.resize(cols, rows) {
                         Ok(_) => {
                             resize_failures.lock().unwrap().remove(&id);
-                            result.outcome = SessionMutationOutcome::Success { tree: None };
+                            result.outcome = SurfaceAttachOutcome::Attached;
                             result.requested_size = latest.requested_size;
                         }
                         Err(error) => {
@@ -1221,7 +1456,7 @@ impl RemoteSurfaceAttachJob {
                             let state = next_surface_sync_failure(previous, transient, false);
                             failures
                                 .insert(id, SurfaceResizeFailure { desired: (cols, rows), state });
-                            result.outcome = SessionMutationOutcome::SurfaceSyncFailed {
+                            result.outcome = SurfaceAttachOutcome::Failed {
                                 surface: id,
                                 operation: "resize",
                                 error: error.to_string(),
@@ -1245,7 +1480,7 @@ impl RemoteSurfaceAttachJob {
         failures.insert(self.id, state);
         drop(failures);
         let _ = self.events.send(AppEvent::SurfaceAttachSettled {
-            outcome: SessionMutationOutcome::SurfaceSyncFailed {
+            outcome: SurfaceAttachOutcome::Failed {
                 surface: self.id,
                 operation: "attach",
                 error,
@@ -1939,19 +2174,25 @@ impl OrderedSession {
                 let attach_claims = attach_claims.lock().unwrap();
                 let retired = attach_claims.get(&id).is_some_and(|claim| claim.retired);
                 match result {
-                    Ok(Some(_)) => {
+                    Ok(SurfaceAttach::Attached(_)) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
                         Ok(())
                     }
-                    Ok(None) if retired => {
+                    Ok(SurfaceAttach::Retired | SurfaceAttach::Deferred) => {
                         attach_failures.lock().unwrap().remove(&id);
                         pending.defer(SessionMutationOutcome::Success { tree: None });
                         drop(attach_claims);
                         Ok(())
                     }
-                    Ok(None) => {
+                    Ok(SurfaceAttach::Missing) if retired => {
+                        attach_failures.lock().unwrap().remove(&id);
+                        pending.defer(SessionMutationOutcome::Success { tree: None });
+                        drop(attach_claims);
+                        Ok(())
+                    }
+                    Ok(SurfaceAttach::Missing) => {
                         let mut failures = attach_failures.lock().unwrap();
                         let state =
                             next_surface_sync_failure(failures.get(&id).copied(), false, false);
@@ -4978,6 +5219,83 @@ struct DeferredInput {
     sequence: u64,
 }
 
+#[derive(Default)]
+struct DeferredInputQueue {
+    inputs: VecDeque<DeferredInput>,
+    retained_bytes: usize,
+}
+
+impl DeferredInputQueue {
+    fn is_empty(&self) -> bool {
+        self.inputs.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.inputs.len()
+    }
+
+    fn retained_bytes(&self) -> usize {
+        self.retained_bytes
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &DeferredInput> {
+        self.inputs.iter()
+    }
+
+    fn front(&self) -> Option<&DeferredInput> {
+        self.inputs.front()
+    }
+
+    fn back(&self) -> Option<&DeferredInput> {
+        self.inputs.back()
+    }
+
+    #[cfg(test)]
+    fn get(&self, index: usize) -> Option<&DeferredInput> {
+        self.inputs.get(index)
+    }
+
+    fn push_back(&mut self, input: DeferredInput) {
+        self.retained_bytes = self.retained_bytes.saturating_add(input.event.retained_bytes());
+        self.inputs.push_back(input);
+    }
+
+    fn pop_front(&mut self) -> Option<DeferredInput> {
+        let input = self.inputs.pop_front()?;
+        self.retained_bytes = self.retained_bytes.saturating_sub(input.event.retained_bytes());
+        Some(input)
+    }
+
+    fn insert(&mut self, index: usize, input: DeferredInput) {
+        self.retained_bytes = self.retained_bytes.saturating_add(input.event.retained_bytes());
+        self.inputs.insert(index, input);
+    }
+
+    fn replace_back(&mut self, input: DeferredInput) {
+        let previous_bytes = self
+            .inputs
+            .back()
+            .expect("replace_back requires an existing input")
+            .event
+            .retained_bytes();
+        self.retained_bytes = self
+            .retained_bytes
+            .saturating_sub(previous_bytes)
+            .saturating_add(input.event.retained_bytes());
+        *self.inputs.back_mut().unwrap() = input;
+    }
+
+    fn clear(&mut self) {
+        self.inputs.clear();
+        self.retained_bytes = 0;
+    }
+
+    fn retain(&mut self, mut keep: impl FnMut(&DeferredInput) -> bool) {
+        self.inputs.retain(|input| keep(input));
+        self.retained_bytes = self.inputs.iter().map(|input| input.event.retained_bytes()).sum();
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct DeferredInputAdmission {
     destination: Option<SurfaceId>,
@@ -5688,6 +6006,7 @@ pub struct App {
     frontend_instance: String,
     last_frontend_presentation: Option<FrontendPresentationSnapshot>,
     outer_size: (u16, u16),
+    host_input: HostInputRuntime,
     machine_action_worker: Option<MachineActionWorker>,
     machine_action_in_flight: bool,
     machine_action_request: Option<MachineRequest>,
@@ -5824,7 +6143,7 @@ pub struct App {
     /// never run on the event-loop thread (see `browser_input`).
     browser_input: BrowserInputDispatcher,
     pty_input: PtyInputDispatcher,
-    deferred_input: VecDeque<DeferredInput>,
+    deferred_input: DeferredInputQueue,
     /// Latest passive pointer position retained while the rendered hit map is stale.
     pending_pointer_motion: Option<PendingPointerMotion>,
     deferred_input_sequence: u64,
@@ -6783,6 +7102,7 @@ fn run_with_machine_updates_inner(
     ensure_initial_for_machine_ui(&session, initial_size, machine_ui.as_ref())?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
+    let host_input = HostInputRuntime::new();
     let browser_failure_tx = tx.clone();
     let browser_control_tx = tx.clone();
     let browser_input = BrowserInputDispatcher::spawn(
@@ -6861,12 +7181,13 @@ fn run_with_machine_updates_inner(
         return Err(terminal_restore.restore_after_error(e));
     }
 
-    // Crossterm input → app channel. Start this after startup terminal
-    // probes so their replies cannot be consumed as key input.
-    let input_tx = tx.clone();
+    // Crossterm input has a separate retained ingress. Start this after
+    // startup terminal probes so their replies cannot be consumed as key
+    // input. Backpressure here must never block mutation completions.
+    let input = host_input.producer(tx.clone());
     if let Err(error) = std::thread::Builder::new().name("input".into()).spawn(move || {
         for event in crate::ui::graphics::finish_startup_input(pending_input) {
-            if input_tx.send(AppEvent::Input(event)).is_err() {
+            if !input.send(event) {
                 return;
             }
         }
@@ -6877,13 +7198,13 @@ fn run_with_machine_updates_inner(
                     Ok(true) => match crossterm::event::read() {
                         Ok(event) => graphics_responses.filter(event),
                         Err(error) => {
-                            let _ = input_tx.send(AppEvent::HostInputFailed(error.to_string()));
+                            input.fail(error.to_string());
                             break 'input;
                         }
                     },
                     Ok(false) => graphics_responses.take_expired(),
                     Err(error) => {
-                        let _ = input_tx.send(AppEvent::HostInputFailed(error.to_string()));
+                        input.fail(error.to_string());
                         break 'input;
                     }
                 }
@@ -6891,13 +7212,13 @@ fn run_with_machine_updates_inner(
                 match crossterm::event::read() {
                     Ok(event) => graphics_responses.filter(event),
                     Err(error) => {
-                        let _ = input_tx.send(AppEvent::HostInputFailed(error.to_string()));
+                        input.fail(error.to_string());
                         break 'input;
                     }
                 }
             };
             for event in events {
-                if input_tx.send(AppEvent::Input(event)).is_err() {
+                if !input.send(event) {
                     break 'input;
                 }
             }
@@ -6960,6 +7281,7 @@ fn run_with_machine_updates_inner(
         frontend_instance: uuid::Uuid::new_v4().simple().to_string(),
         last_frontend_presentation: None,
         outer_size: (0, 0),
+        host_input,
         machine_action_worker,
         machine_action_in_flight: false,
         machine_action_request: None,
@@ -7065,7 +7387,7 @@ fn run_with_machine_updates_inner(
         last_browser_hover: None,
         browser_input,
         pty_input,
-        deferred_input: VecDeque::new(),
+        deferred_input: DeferredInputQueue::default(),
         pending_pointer_motion: None,
         deferred_input_sequence: 0,
         next_semantic_destination_intent: 0,
@@ -7570,6 +7892,50 @@ impl App {
         }
     }
 
+    fn host_input_is_ready(
+        deferred_len: usize,
+        deferred_bytes: usize,
+        route_settled: bool,
+        input: &HostInputMessage,
+    ) -> bool {
+        match input {
+            HostInputMessage::Event(event) => {
+                let input_bytes = host_event_retained_bytes(event);
+                input_bytes > MAX_DEFERRED_INPUT_BYTES
+                    || deferred_len < DEFERRED_INPUT_CAPACITY
+                        && deferred_bytes.saturating_add(input_bytes) <= MAX_DEFERRED_INPUT_BYTES
+            }
+            HostInputMessage::Failed(_) => route_settled && deferred_len == 0,
+        }
+    }
+
+    fn drain_host_input_batch(&mut self, maximum: usize) -> anyhow::Result<(RenderAction, usize)> {
+        let mut action = RenderAction::None;
+        let mut drained = 0;
+        while drained < maximum && !self.quit {
+            let deferred_len = self.deferred_input.len();
+            let deferred_bytes = self.deferred_input.retained_bytes();
+            let route_settled = !self.session.has_pending_mutations()
+                && !self.session.remote_tree_is_stale()
+                && self.mux_recovery_generation.load(Ordering::Acquire) == 0
+                && self.pending_pointer_motion.is_none();
+            let Some(input) = self.host_input.pop_if(|input| {
+                Self::host_input_is_ready(deferred_len, deferred_bytes, route_settled, input)
+            }) else {
+                break;
+            };
+            let event = match input {
+                HostInputMessage::Event(event) => AppEvent::Input(event),
+                HostInputMessage::Failed(error) => AppEvent::HostInputFailed(error),
+            };
+            action = action.merge(self.handle(event)?);
+            action = action.merge(self.process_machine_requests());
+            self.mark_pointer_route_for_rebuild(action);
+            drained += 1;
+        }
+        Ok((action, drained))
+    }
+
     fn event_loop<B: Backend>(
         &mut self,
         terminal: &mut RatatuiTerminal<B>,
@@ -7606,9 +7972,12 @@ impl App {
                 replay_ready = self.replay_can_continue_immediately(replay.disposition);
                 continue;
             }
+            let (mut action, drained_host_input) = self.drain_host_input_batch(256)?;
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
-            let timeout = if self.viewport_animation_active() {
+            let timeout = if drained_host_input > 0 {
+                Duration::ZERO
+            } else if self.viewport_animation_active() {
                 Duration::from_millis(16)
             } else if self.shake_frames > 0
                 || self.selection_auto_scroll_active()
@@ -7619,7 +7988,6 @@ impl App {
                 Duration::from_millis(250)
             };
             let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
-            let mut action = RenderAction::None;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
                 Err(RecvTimeoutError::Timeout) => {
@@ -11062,6 +11430,7 @@ impl App {
             event => event,
         };
         match event {
+            AppEvent::HostInputReady => Ok(RenderAction::None),
             AppEvent::GraphicsWriterReady => Ok(self.apply_graphics_completion()),
             AppEvent::MuxTitlesReady => {
                 Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
@@ -11284,10 +11653,16 @@ impl App {
             AppEvent::PtyOperationFailed(failure) => Ok(self.apply_pty_operation_failure(failure)),
             AppEvent::SurfaceAttachSettled { outcome } => {
                 match outcome {
-                    SessionMutationOutcome::Success { .. } => {
+                    SurfaceAttachOutcome::Attached => {
                         self.claim_active_terminal_geometry(false);
                     }
-                    SessionMutationOutcome::SurfaceSyncFailed {
+                    SurfaceAttachOutcome::Deferred => {}
+                    SurfaceAttachOutcome::Retired { surface } => {
+                        self.retire_surface_state(surface);
+                        self.remove_surface_from_cached_tree(surface);
+                        self.session.refresh_remote_tree_if_stale();
+                    }
+                    SurfaceAttachOutcome::Failed {
                         surface,
                         operation,
                         error,
@@ -11308,9 +11683,6 @@ impl App {
                                     .surface_sync_failed(surface, operation, &error),
                             );
                         }
-                    }
-                    _ => {
-                        debug_assert!(false, "surface attach worker returned a non-attach outcome");
                     }
                 }
                 if !self.session.has_pending_mutations()
@@ -12017,17 +12389,19 @@ impl App {
                 _ => false,
             };
         if replace_motion {
-            *self.deferred_input.back_mut().unwrap() =
-                DeferredInput { event: input, admission, pointer, sequence };
+            self.deferred_input.replace_back(DeferredInput {
+                event: input,
+                admission,
+                pointer,
+                sequence,
+            });
             return RenderAction::None;
         }
         let input_bytes = input.retained_bytes();
-        let mut queued_bytes =
-            self.deferred_input.iter().map(|input| input.event.retained_bytes()).sum::<usize>();
         let prioritize_release =
             matches!(&input, TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Up(_), .. }));
-        while self.deferred_input.len() >= DEFERRED_INPUT_CAPACITY
-            || queued_bytes.saturating_add(input_bytes) > MAX_DEFERRED_INPUT_BYTES
+        while self.deferred_input.retained_bytes().saturating_add(input_bytes)
+            > MAX_DEFERRED_INPUT_BYTES
         {
             if !prioritize_release {
                 self.status_message =
@@ -12036,7 +12410,6 @@ impl App {
             }
             let Some(removed) = self.deferred_input.pop_front() else { break };
             self.retire_deferred_semantic_result(&removed);
-            queued_bytes = queued_bytes.saturating_sub(removed.event.retained_bytes());
         }
         let input = DeferredInput { event: input, admission, pointer, sequence };
         if replay_sequence.is_some() {
@@ -12112,10 +12485,9 @@ impl App {
     }
 
     fn spill_retained_pointer_motion(&mut self, pending: PendingPointerMotion) -> bool {
-        let queued_bytes =
-            self.deferred_input.iter().map(|input| input.event.retained_bytes()).sum::<usize>();
         if self.deferred_input.len() >= DEFERRED_INPUT_CAPACITY
-            || queued_bytes.saturating_add(DEFERRED_INPUT_FIXED_BYTES) > MAX_DEFERRED_INPUT_BYTES
+            || self.deferred_input.retained_bytes().saturating_add(DEFERRED_INPUT_FIXED_BYTES)
+                > MAX_DEFERRED_INPUT_BYTES
         {
             return false;
         }
@@ -18540,9 +18912,10 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
-        DeferredInput, DeferredInputAdmission, DeferredReplayDisposition, Drag, FocusTarget,
-        ForwardMuxOutcome, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
-        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, MachineActionWorker,
+        DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
+        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, FrontendJournalWorker,
+        GraphicIdentity, GraphicPlacement, GraphicSourceRect, GraphicsSceneCache,
+        GuardedMouseEncode, HostInputIngress, HostInputRuntime, MachineActionWorker,
         MachineConnectRoute, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit,
         OmnibarState, OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection,
         PaneContentGeneration, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
@@ -18617,8 +18990,8 @@ mod tests {
     };
     use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
     use crate::session::{
-        ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceHandle,
-        TreeView, test_remote_session_with_deferred_attach,
+        ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceAttach,
+        SurfaceHandle, TreeView, test_remote_session_with_deferred_attach,
         test_remote_session_with_deferred_attach_and_first_resize_failure,
         test_remote_session_with_deferred_sized_attach,
     };
@@ -18688,6 +19061,34 @@ mod tests {
             _ => panic!("expected host input failure"),
         }
     }
+
+    #[test]
+    fn host_input_ingress_backpressures_instead_of_dropping_discrete_input() {
+        let ingress = Arc::new(HostInputIngress::default());
+        let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        for _ in 0..DEFERRED_INPUT_CAPACITY {
+            ingress.send(key.clone()).unwrap();
+        }
+        assert_eq!(ingress.len(), DEFERRED_INPUT_CAPACITY);
+
+        let blocked_ingress = ingress.clone();
+        let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
+        let producer = std::thread::spawn(move || {
+            blocked_ingress.send(key).unwrap();
+            completed_tx.send(()).unwrap();
+        });
+        assert!(
+            completed_rx.recv_timeout(Duration::from_millis(20)).is_err(),
+            "the producer must wait while retained input owns the full budget"
+        );
+
+        assert!(ingress.pop_if(|_| true).is_some());
+        completed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(ingress.len(), DEFERRED_INPUT_CAPACITY);
+        ingress.close();
+        producer.join().unwrap();
+    }
+
     use crate::sidebar_files::FileBrowser;
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
@@ -19762,6 +20163,45 @@ mod tests {
         for surface in surfaces {
             mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn rapid_split_close_input_is_retained_past_the_old_deferred_queue_limit() {
+        let mux = Mux::new("semantic-split-close-burst-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.session.pending_mutations.store(1, Ordering::Release);
+        let cycles = DEFERRED_INPUT_CAPACITY / 2 + 44;
+
+        for _ in 0..cycles {
+            app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('b'),
+                KeyModifiers::CONTROL,
+            ))))
+            .unwrap();
+            app.handle(AppEvent::Input(Event::EnhancedKey(EnhancedKeyEvent {
+                key_event: KeyEvent::new(KeyCode::Char('5'), KeyModifiers::SHIFT),
+                shifted_key: Some('%'),
+                base_layout_key: Some('5'),
+                text: "%".to_string(),
+            })))
+            .unwrap();
+            app.handle(AppEvent::Input(Event::Key(KeyEvent::new(
+                KeyCode::Char('d'),
+                KeyModifiers::CONTROL,
+            ))))
+            .unwrap();
+        }
+
+        assert!(!app.prefix_armed);
+        assert_eq!(
+            app.deferred_input.len(),
+            cycles * 2,
+            "every split intent and dependent Ctrl-D must remain ordered under burst input"
+        );
+        assert_ne!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().terminal.deferred_input_queue_full)
+        );
     }
 
     #[test]
@@ -22226,7 +22666,11 @@ mod tests {
         let remote = RemoteSession::connect(&socket).unwrap();
         let session = Session::Remote(remote);
         let tree = session.refresh_tree().unwrap();
-        let mirror = session.try_surface_sized(surface.id, Some((20, 8))).unwrap().unwrap();
+        let SurfaceAttach::Attached(mirror) =
+            session.try_surface_sized(surface.id, Some((20, 8))).unwrap()
+        else {
+            panic!("authoritative surface did not attach");
+        };
         assert_eq!(
             mirror.with_terminal(|terminal| terminal.active_screen()),
             Some(Screen::Primary)
@@ -26960,7 +27404,7 @@ mod tests {
             if matches!(
                 &event,
                 AppEvent::SurfaceAttachSettled {
-                    outcome: super::SessionMutationOutcome::Success { tree: None },
+                    outcome: super::SurfaceAttachOutcome::Retired { surface: 77 },
                 }
             ) {
                 break event;
@@ -26970,11 +27414,63 @@ mod tests {
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { tree: None }
+                outcome: super::SurfaceAttachOutcome::Retired { surface: 77 }
             }
         ));
         app.handle(settled).unwrap();
         assert!(app.status_message.is_none());
+        assert!(!app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+    }
+
+    #[test]
+    fn server_confirmed_missing_surface_during_attach_is_a_silent_retirement() {
+        let surface = 77;
+        let session = crate::session::test_remote_session_with_missing_surface_attach(surface);
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        assert!(matches!(
+            &settled,
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SurfaceAttachOutcome::Retired { surface: 77 },
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.is_none());
+        assert!(!app.tab_locations.contains_key(&surface));
+        assert!(app.session.has_pending_mutations(), "retirement must refresh the stale tree");
+        assert!(!app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
+        assert!(!app.session.can_attach_surface(surface));
+    }
+
+    #[test]
+    fn mirror_retirement_before_tree_refresh_is_a_silent_attach_retirement() {
+        let surface = 7;
+        let (session, attach_started, release_attach) = test_remote_session_with_deferred_attach();
+        let (mut app, events) = test_app_with_events(session);
+        app.replace_tree(notify_tree(surface, false));
+
+        app.session.attach_surface(surface, Some((80, 24)));
+        attach_started.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        // The remote mirror can observe detach before the authoritative tree
+        // refresh reaches OrderedSession and retires its outer attach claim.
+        app.session.inner.forget_surface(surface);
+        release_attach.send(()).unwrap();
+
+        let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            &settled,
+            AppEvent::SurfaceAttachSettled {
+                outcome: super::SurfaceAttachOutcome::Retired { surface: 7 },
+            }
+        ));
+        app.handle(settled).unwrap();
+        assert!(app.status_message.is_none());
+        assert!(!app.tab_locations.contains_key(&surface));
         assert!(!app.session.surface_attach_failures.lock().unwrap().contains_key(&surface));
     }
 
@@ -27005,7 +27501,7 @@ mod tests {
             if matches!(
                 &event,
                 AppEvent::SurfaceAttachSettled {
-                    outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    outcome: super::SurfaceAttachOutcome::Failed {
                         surface: 77,
                         operation: "attach",
                         ..
@@ -27019,7 +27515,7 @@ mod tests {
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                outcome: super::SurfaceAttachOutcome::Failed {
                     surface: 77,
                     operation: "attach",
                     error,
@@ -27059,7 +27555,7 @@ mod tests {
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                outcome: super::SurfaceAttachOutcome::Failed {
                     surface: 77,
                     operation: "attach",
                     ..
@@ -27095,7 +27591,7 @@ mod tests {
         assert!(matches!(
             &settled,
             AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                outcome: super::SurfaceAttachOutcome::Failed {
                     surface: 77,
                     operation: "attach",
                     ..
@@ -27177,7 +27673,7 @@ mod tests {
         let mux = Mux::new("surface-attach-failure-locale-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.handle(AppEvent::SurfaceAttachSettled {
-            outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+            outcome: super::SurfaceAttachOutcome::Failed {
                 surface: 77,
                 operation: "attach",
                 error: "offline".to_string(),
@@ -27191,7 +27687,7 @@ mod tests {
         );
 
         app.handle(AppEvent::SurfaceAttachSettled {
-            outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+            outcome: super::SurfaceAttachOutcome::Failed {
                 surface: 77,
                 operation: "attach",
                 error: "timeout".to_string(),
@@ -28025,9 +28521,7 @@ mod tests {
         release_attach.send(()).unwrap();
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { .. }
-            }
+            AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
     }
 
@@ -28052,9 +28546,7 @@ mod tests {
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(
             settled,
-            AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { .. }
-            }
+            AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
         assert!(app.session.surface_is_ready_for_input(surface));
         assert!(app.session.has_surface_size_report(surface));
@@ -28201,9 +28693,7 @@ mod tests {
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { .. }
-            }
+            AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
         let surface = app.session.surface(surface_id).unwrap();
         assert!(
@@ -28228,9 +28718,7 @@ mod tests {
 
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            AppEvent::SurfaceAttachSettled {
-                outcome: super::SessionMutationOutcome::Success { .. }
-            }
+            AppEvent::SurfaceAttachSettled { outcome: super::SurfaceAttachOutcome::Attached }
         ));
         let surface = app.session.surface(surface_id).unwrap();
         assert!(
@@ -34645,6 +35133,7 @@ mod tests {
             frontend_instance: "test".into(),
             last_frontend_presentation: None,
             outer_size: (0, 0),
+            host_input: HostInputRuntime::new(),
             machine_action_worker: None,
             machine_action_in_flight: false,
             machine_action_request: None,
@@ -34750,7 +35239,7 @@ mod tests {
             last_browser_hover: None,
             browser_input: BrowserInputDispatcher::spawn(|_| {}, |_| {}).unwrap(),
             pty_input,
-            deferred_input: VecDeque::new(),
+            deferred_input: DeferredInputQueue::default(),
             pending_pointer_motion: None,
             deferred_input_sequence: 0,
             next_semantic_destination_intent: 0,

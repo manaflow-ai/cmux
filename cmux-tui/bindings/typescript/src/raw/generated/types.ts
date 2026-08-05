@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR ef6b29d07b77be6f7032fd385bf172a17037eb2e59717145d21354a31e11205a. */
+/* cmux-tui mux protocol 10, IR 4999554af6d0c8db6853cddda150ca24bfa6db9334c6eb9011d0468e7d853298. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -28,6 +28,16 @@ export type AppliedPane = {
 export type ApplyLayoutResult = {
   "panes": Array<AppliedPane>;
   "screen": Id;
+};
+
+export type AttachedViewOutcomeResult = {
+  "outcome": ViewAttachmentOutcome;
+};
+
+export type AttachedViewResizeResult = {
+  "accepted": boolean;
+  "outcome": ViewAttachmentOutcome;
+  "reservation_id": (bigint) | null;
 };
 
 export type Base64 = string;
@@ -356,11 +366,6 @@ export type ReadScrollbackResult = {
   "total": number;
 };
 
-export type ReceiptedSurfaceResult = {
-  "replayed": boolean;
-  "surface": Id;
-};
-
 export type RenderCursor = {
   "blink": boolean;
   "color": (ColorHex) | null;
@@ -638,16 +643,6 @@ export type Tree = {
 };
 
 export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
-
-export type ViewReleaseResult = {
-  "outcome": ViewAttachmentOutcome;
-};
-
-export type ViewResizeResult = {
-  "accepted": boolean;
-  "outcome": ViewAttachmentOutcome;
-  "reservation_id": (bigint) | null;
-};
 
 export type VtStateResult = {
   "cols": number;

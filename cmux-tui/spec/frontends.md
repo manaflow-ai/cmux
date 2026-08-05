@@ -28,10 +28,17 @@ Send [`identify`](commands.md#identify) immediately after connecting. Verify `da
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":10,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":10,"capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1"],"session":"main","pid":12345}}
+{"id":2,"cmd":"set-client-info","kind":"frontend","capabilities":["view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1"]}
+{"id":2,"ok":true,"data":{}}
 ```
 
 Require `protocol == 10` for the complete flow in this guide, including per-surface client sizing. Stack layouts and `new-pane` remain available on protocol 9. Stable split ids and `set-split-ratio` remain available on protocol 8. Render mode, `read-scrollback`, bracketed-paste handling, and lifecycle deltas remain available on protocol 7. A frontend may fall back to protocol-v6 byte attach; it must not send newer fields to an older server.
+
+Echo every optional capability the frontend will use through
+`set-client-info`. Capability state belongs to this connection. Lease-capable
+frontends must negotiate both view attachment capabilities before opening
+streams; creation fallbacks require both creation capabilities.
 
 ## 3. Load And Track The Workspace Tree
 
@@ -97,6 +104,11 @@ For a rich web or native frontend, call [`attach-surface`](commands.md#attach-su
 ```json
 {"id":4,"cmd":"attach-surface","surface":1,"mode":"render"}
 ```
+
+Capture `data.lease` from the response and bind it to this local view. Use
+`resize-attached-view` for its grid, `release-attached-view-size` while the
+view is cached but hidden, and `detach-attached-view` when the local view is
+retired. Never reuse the lease for another surface or a replacement attach.
 
 The first attach event is `render-state`. Allocate the grid from `size`, paint each row's maximal styled runs, apply server-resolved RGB/default colors, and draw the cursor only when `cursor.visible` is true. `text` is ordinary UTF-8; do not base64-decode it and do not instantiate xterm.js or another VT parser.
 
