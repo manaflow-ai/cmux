@@ -1,5 +1,8 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxSettings
 import CmuxSidebar
+import CmuxWorkspaces
 import Testing
 @testable import cmux_DEV
 
@@ -274,6 +277,10 @@ struct SidebarAppKitRowCellTests {
 
     fileprivate static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    private static func layerBackgroundColor(of view: NSView) -> NSColor? {
+        view.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))
     }
 
     private struct BrightInkMetrics {
@@ -750,6 +757,71 @@ struct SidebarAppKitRowCellTests {
         let workspacePinX = workspacePin.convert(.zero, to: workspace).x
         let groupPinX = groupPin.convert(.zero, to: group).x
         #expect(abs(groupPinX - workspacePinX) < 0.5)
+    }
+
+    @Test
+    func defaultSidebarAppearanceUsesGrayNativeLiquidGlass() throws {
+        let defaults = Self.makeDefaults()
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: .black,
+                backgroundOpacity: 1,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true
+            )
+        )
+        let snapshot = resolver.currentFromUserDefaults(
+            defaults: defaults,
+            colorScheme: .dark
+        )
+        guard case let .sidebarMaterial(policy) = snapshot.policy(for: .leftSidebar) else {
+            Issue.record("Expected the default left sidebar to render its own material")
+            return
+        }
+
+        #expect(policy.preferLiquidGlass)
+        #expect(!policy.usesWindowLevelGlass)
+        #expect(policy.material == .underWindowBackground)
+        #expect(policy.blendingMode == .withinWindow)
+        #expect(policy.tintColor.hexString(includeAlpha: true) == "#8080802E")
+
+        let catalog = CmuxSettings.SettingCatalog()
+        #expect(catalog.sidebarAppearance.material.defaultValue.rawValue == "liquidGlass")
+        #expect(catalog.sidebarAppearance.tintColorHex.defaultValue == "#808080")
+        #expect(WindowChromeSidebarPresetOption.nativeSidebar.material.rawValue == "liquidGlass")
+        #expect(WindowChromeSidebarPresetOption.nativeSidebar.tintHex == "#808080")
+    }
+
+    @Test
+    func workspaceAndGroupRowsPaintRoundedHoverBackgrounds() throws {
+        let workspace = Self.configuredCell(model: Self.makeModel())
+        let workspaceBackground = try #require(workspace.subviews.first)
+        #expect(workspaceBackground.layer?.cornerRadius == 10)
+        #expect(Self.layerBackgroundColor(of: workspaceBackground)?.alphaComponent == 0)
+
+        workspace.enforcePointerHovering(true)
+        let workspaceHover = try #require(Self.layerBackgroundColor(of: workspaceBackground))
+        #expect(workspaceHover.alphaComponent > 0.04)
+        #expect(workspaceHover.alphaComponent < 0.2)
+
+        workspace.enforcePointerHovering(false)
+        #expect(Self.layerBackgroundColor(of: workspaceBackground)?.alphaComponent == 0)
+
+        let group = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 32)
+        )
+        group.configurePresentation(model: Self.makeGroupModel())
+        let groupBackground = try #require(group.subviews.first)
+        #expect(groupBackground.layer?.cornerRadius == 8)
+        #expect(Self.layerBackgroundColor(of: groupBackground)?.alphaComponent == 0)
+
+        group.enforcePointerHovering(true)
+        let groupHover = try #require(Self.layerBackgroundColor(of: groupBackground))
+        #expect(groupHover.alphaComponent > 0.04)
+        #expect(groupHover.alphaComponent < 0.2)
+
+        group.enforcePointerHovering(false)
+        #expect(Self.layerBackgroundColor(of: groupBackground)?.alphaComponent == 0)
     }
 
     @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))
