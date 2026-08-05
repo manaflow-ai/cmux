@@ -4999,6 +4999,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
+        let previousState = panelShellActivityStates[panelId] ?? .unknown
+        if previousState == state {
+            if let terminalPanel = panels[panelId] as? TerminalPanel {
+                terminalPanel.updateShellActivityState(state)
+            }
+            return
+        }
         let pendingRestoredTitle = restoredPanelTitleAfterShellActivity(
             panelId: panelId,
             state: state
@@ -5007,13 +5014,6 @@ final class Workspace: Identifiable, ObservableObject {
             if let pendingRestoredTitle {
                 _ = updatePanelTitle(panelId: panelId, title: pendingRestoredTitle)
             }
-        }
-        let previousState = panelShellActivityStates[panelId] ?? .unknown
-        if previousState == state {
-            if let terminalPanel = panels[panelId] as? TerminalPanel {
-                terminalPanel.updateShellActivityState(state)
-            }
-            return
         }
         panelShellActivityStates[panelId] = state
         if let terminalPanel = panels[panelId] as? TerminalPanel {
@@ -9781,6 +9781,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         bindSurface(newTabId, toPanelId: detached.panelId)
         panels[detached.panelId] = detached.panel
+        if let restoredPanelTitleBoundary = detached.restoredPanelTitleBoundary {
+            restoredPanelTitleBoundariesByPanelId[detached.panelId] = restoredPanelTitleBoundary
+        } else {
+            restoredPanelTitleBoundariesByPanelId.removeValue(forKey: detached.panelId)
+        }
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
             configureTerminalPanel(terminalPanel)
@@ -12600,6 +12605,7 @@ extension Workspace: BonsplitDelegate {
                 restorableAgentResumeState: restorableAgentResumeState,
                 restoredAgentCompletedGeneration: restoredAgentLifecycle.completedGeneration(panelId: panelId),
                 shellActivityState: panelShellActivityStates[panelId],
+                restoredPanelTitleBoundary: restoredPanelTitleBoundariesByPanelId[panelId],
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
                 managedAgentResumeBinding: resumeBinding.flatMap {

@@ -120,6 +120,8 @@ struct AgentSessionAutoResumeSwiftTests {
         // The title event and asynchronous shell-state report may arrive in
         // either order. A buffered title becomes genuine at the command-running
         // boundary and normal title ownership resumes from there.
+        restored.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
+        #expect(restored.panelTitle(panelId: restoredPanelID) == persistedTitle)
         restored.updatePanelShellActivityState(panelId: restoredPanelID, state: .commandRunning)
         #expect(restored.panelTitle(panelId: restoredPanelID) == commandTitle)
         #expect(restored.title == commandTitle)
@@ -133,6 +135,72 @@ struct AgentSessionAutoResumeSwiftTests {
         #expect(restored.title == directoryTitle)
         #expect(restored.processTitle == directoryTitle)
         #expect(restored.bonsplitController.tab(restoredTabID)?.title == directoryTitle)
+    }
+
+    /// A restored terminal can move through a detached transfer before its
+    /// startup boundary has admitted a genuine title. The destination must
+    /// continue the same boundary instead of treating the next startup event as
+    /// a fresh, user-owned title.
+    @MainActor
+    @Test func restoredTitleBoundarySurvivesDetachedSurfaceTransfer() throws {
+        let persistedTitle = "Pre-transfer restored title"
+        let snapshotSource = Workspace()
+        defer { snapshotSource.teardownAllPanels() }
+        let snapshotPanelID = try #require(snapshotSource.focusedPanelId)
+        #expect(snapshotSource.updatePanelTitle(panelId: snapshotPanelID, title: persistedTitle))
+
+        let restoredSource = Workspace()
+        defer { restoredSource.teardownAllPanels() }
+        let restoredPanelIDs = restoredSource.restoreSessionSnapshot(
+            snapshotSource.sessionSnapshot(includeScrollback: false)
+        )
+        let restoredPanelID = try #require(restoredPanelIDs[snapshotPanelID])
+        restoredSource.updatePanelShellActivityState(
+            panelId: restoredPanelID,
+            state: .promptIdle
+        )
+
+        let commandTitle = "cd /tmp/cmux-issue-9619-transfer"
+        #expect(!restoredSource.updatePanelTitle(panelId: restoredPanelID, title: commandTitle))
+        let detached = try #require(restoredSource.detachSurface(panelId: restoredPanelID))
+        #expect(detached.restoredPanelTitleBoundary != nil)
+
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPaneID = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                detached,
+                inPane: dockPaneID,
+                focus: false
+            ) == restoredPanelID
+        )
+
+        // The Dock already owns the transferred promptIdle state. A duplicate
+        // report must not discard the pending title before commandRunning.
+        dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
+        dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .commandRunning)
+        let detachedFromDock = try #require(dock.detachSurface(panelId: restoredPanelID))
+        #expect(detachedFromDock.restoredPanelTitleBoundary == nil)
+
+        let destination = Workspace()
+        defer { destination.teardownAllPanels() }
+        let destinationPaneID = try #require(destination.bonsplitController.allPaneIds.first)
+        #expect(
+            destination.attachDetachedSurface(
+                detachedFromDock,
+                inPane: destinationPaneID,
+                focus: true
+            ) == restoredPanelID
+        )
+        let destinationTabID = try #require(destination.surfaceIdFromPanelId(restoredPanelID))
+        #expect(destination.panelTitle(panelId: restoredPanelID) == commandTitle)
+        #expect(destination.title == commandTitle)
+        #expect(destination.processTitle == commandTitle)
+        #expect(destination.bonsplitController.tab(destinationTabID)?.title == commandTitle)
     }
 
     /// Regression for #8501: restoring an auto-resumed terminal reapplies the
