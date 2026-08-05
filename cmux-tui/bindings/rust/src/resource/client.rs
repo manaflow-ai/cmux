@@ -996,28 +996,33 @@ mod tests {
 
     #[test]
     fn pending_connect_observes_cancellation_while_reusing_its_socket() {
-        let probe = crate::codec::ForcedPendingConnectProbe::install();
         let cancellation = super::super::options::CancellationToken::new();
         let cancel_from_thread = cancellation.clone();
+        let (pending_tx, pending_rx) = std::sync::mpsc::channel();
+        let (cancelled_tx, cancelled_rx) = std::sync::mpsc::channel();
         let canceler = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(25));
+            pending_rx.recv().unwrap();
             cancel_from_thread.cancel();
+            cancelled_tx.send(()).unwrap();
         });
+        let probe =
+            crate::codec::ForcedPendingConnectProbe::install_with_after_first_poll(move || {
+                pending_tx.send(()).unwrap();
+                cancelled_rx.recv().unwrap();
+            });
         let options = RequestOptions::new()
             .with_timeout(Duration::from_secs(1))
             .unwrap()
             .with_cancellation(cancellation);
         let budget = CallBudget::new(options, Duration::from_secs(1)).unwrap();
         let config = Config::from_socket_path("cancel-pending-connect.sock");
-        let started = Instant::now();
 
         assert!(matches!(
             connect_with_budget(&config, ops::SESSION_LIST, &budget),
             Err(Error::Cancelled(_))
         ));
         canceler.join().unwrap();
-        assert!(started.elapsed() < Duration::from_millis(250));
-        assert!(probe.polls() >= 2, "the cancellation should interrupt a pending connect");
+        assert_eq!(probe.polls(), 1, "the cancellation should interrupt the next poll check");
         assert_eq!(probe.attempts(), 1, "cancellation must close one pending Unix socket");
     }
 
