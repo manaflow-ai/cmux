@@ -35954,17 +35954,6 @@
         }
       }
     },
-    "cli.comments.usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
-          }
-        }
-      }
-    },
     "cli.cloud.managedDisplayTarget": {
       "extractionState": "manual",
       "localizations": {
@@ -36086,6 +36075,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud VM"
+          }
+        }
+      }
+    },
+    "cli.comments.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux comments <subcommand> [options]\n\ndiff ビューアーで保存されたレビューコメントを、git リポジトリごとに一覧します。\n\nサブコマンド:\n  list [--repo <path>] [--all] [--json]\n    リポジトリのレビューコメントを一覧します (既定はカレントディレクトリを含む\n    git リポジトリ)。既定では未対応のコメントのみを表示し、--all を付けると\n    TextBox の送信でエージェントへ引き渡し済みのコメントも含めます。"
           }
         }
       }
@@ -229892,6 +229898,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "クライアントプロセスを確認できません"
+          }
+        }
+      }
+    },
+    "socket.comments.missingRepoRoot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list requires a repo_root string"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "comments.list には repo_root の文字列が必要です"
           }
         }
       }

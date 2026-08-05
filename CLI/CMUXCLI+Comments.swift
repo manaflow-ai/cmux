@@ -35,6 +35,11 @@ extension CMUXCLI {
         switch sub {
         case "list", "ls":
             let (repoOption, remainder) = parseOption(rest, name: "--repo")
+            // Fail closed on unrecognized options: a typo like `--al` must not
+            // read as "list everything the caller asked for".
+            if let unknown = remainder.first(where: { $0.hasPrefix("--") && $0 != "--all" }) {
+                throw CLIError(message: "Unknown option '\(unknown)' for cmux comments list. Supported: --repo <path>, --all, --json")
+            }
             let includeConsumed = remainder.contains("--all")
             let startPath = repoOption ?? FileManager.default.currentDirectoryPath
             var params: [String: Any] = ["repo_root": try commentsGitRepoRoot(startingAt: startPath)]

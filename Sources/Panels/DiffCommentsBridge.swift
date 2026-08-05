@@ -225,7 +225,15 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
     // MARK: - JSON mapping
 
     nonisolated static func commentJSON(_ comment: DiffComment) -> [String: Any] {
-        let formatter = ISO8601DateFormatter()
+        commentJSON(comment, formatter: ISO8601DateFormatter())
+    }
+
+    /// Callers mapping several comments pass one formatter so a reply does not
+    /// allocate an `ISO8601DateFormatter` per comment.
+    nonisolated static func commentJSON(
+        _ comment: DiffComment,
+        formatter: ISO8601DateFormatter
+    ) -> [String: Any] {
         var json: [String: Any] = [
             "id": comment.id.uuidString,
             "filePath": comment.filePath,

@@ -36,15 +36,15 @@ extension TerminalController {
         includeConsumed: Bool
     ) -> [String: Any] {
         let formatter = ISO8601DateFormatter()
-        let listed = comments
-            .filter { includeConsumed || $0.consumedAt == nil }
-            .map { comment -> [String: Any] in
-                var json = DiffCommentsBridge.commentJSON(comment)
-                if let consumedAt = comment.consumedAt {
-                    json["consumedAt"] = formatter.string(from: consumedAt)
-                }
-                return json
+        var listed: [[String: Any]] = []
+        listed.reserveCapacity(comments.count)
+        for comment in comments where includeConsumed || comment.consumedAt == nil {
+            var json = DiffCommentsBridge.commentJSON(comment, formatter: formatter)
+            if let consumedAt = comment.consumedAt {
+                json["consumedAt"] = formatter.string(from: consumedAt)
             }
+            listed.append(json)
+        }
         return [
             "repo_root": repoRoot,
             "count": listed.count,
