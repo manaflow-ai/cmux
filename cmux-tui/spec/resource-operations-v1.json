@@ -2060,7 +2060,8 @@
               "kind": "resource_id",
               "resource": "tab"
             }
-          }
+          },
+          "description": "All current servers emit every view placement. Protocol 1 SDK decoders accept this field being absent from older servers and derive a singleton from tab_id, or an empty array when tab_id is null."
         },
         "title": {
           "required": true,

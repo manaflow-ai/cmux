@@ -722,7 +722,9 @@ impl WorkspaceRegistry {
                 )
                 .optional()?;
             if violation.is_some() {
-                anyhow::bail!("workspace registry migration failed integrity validation");
+                anyhow::bail!(
+                    "saved session data could not be loaded; start a new session or restore this session from a backup"
+                );
             }
         }
         if needs_sensitive_receipt_cleanup {

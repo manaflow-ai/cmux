@@ -50,5 +50,6 @@ url.workspace = true
 async-trait.workspace = true
 
 [dev-dependencies]
+cmux-pty.workspace = true
 tempfile = "3"
 rusqlite.workspace = true

@@ -690,6 +690,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64",
+ "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-tui-core",

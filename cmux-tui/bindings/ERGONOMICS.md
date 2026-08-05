@@ -51,6 +51,10 @@ The standalone consumers found defects that shape-only tests missed:
    after acknowledgement, while open, bounded-poll, control, and cancellation
    deadlines remain explicit. All seven SDKs have delayed-event regressions
    that wait beyond the open deadline before delivering the first item.
+9. Terminal multiview added `tab_ids` within protocol 1, exposing a version-skew
+   failure when a new SDK decoded an older server's `tab_id`-only snapshot. All
+   seven high-level decoders now synthesize the legacy singleton or empty list
+   only when `tab_ids` is absent, while rejecting explicit malformed arrays.
 
 These fixes are structural. They remove duplicate state publication, invalid
 wire states, and public JSON escape hatches instead of hiding them in example

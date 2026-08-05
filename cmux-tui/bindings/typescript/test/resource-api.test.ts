@@ -1936,6 +1936,32 @@ test("terminal snapshots expose lifecycle and durable exit details", async () =>
   client.close();
 });
 
+test("terminal snapshots accept protocol-one tab_id without tab_ids", async () => {
+  let refreshes = 0;
+  const transport = new FakeTransport((request, current) => {
+    current.ok(request, {
+      id: TERMINAL,
+      tab_id: refreshes++ === 0 ? TAB : null,
+      title: "legacy",
+      cols: 80,
+      rows: 24,
+      running: true,
+      lifecycle: "running",
+    });
+  });
+  const client = new Client({ transport });
+  const terminal = client.session(SESSION).terminal(TERMINAL);
+
+  const attached = await terminal.refresh();
+  assert.equal(attached.tabId, TAB);
+  assert.deepEqual(attached.tabIds, [TAB]);
+
+  const detached = await terminal.refresh();
+  assert.equal(detached.tabId, null);
+  assert.deepEqual(detached.tabIds, []);
+  client.close();
+});
+
 test("creation resolution and terminal exit reads expose strict typed variants", async () => {
   const transport = new FakeTransport((request, current) => {
     if (request.operation === "session.creation.resolve") {

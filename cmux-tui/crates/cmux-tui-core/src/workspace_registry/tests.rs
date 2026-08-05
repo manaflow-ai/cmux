@@ -3482,6 +3482,32 @@ fn schema_eleven_receipts_gain_origin_scope_without_losing_replays() {
 }
 
 #[test]
+fn saved_session_integrity_failure_has_actionable_public_copy() {
+    let root = temp_root("saved-session-integrity-public-copy");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "saved-session-integrity-seed");
+    }
+    let connection = Connection::open(database).unwrap();
+    connection.execute_batch("PRAGMA foreign_keys=OFF;").unwrap();
+    connection
+        .execute(
+            "UPDATE resource_tabs SET pane_id = ?1 WHERE public_id = ?2",
+            params![pane_id(99).as_str(), tab_id(1).as_str()],
+        )
+        .unwrap();
+    drop(connection);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "saved session data could not be loaded; start a new session or restore this session from a backup"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn schema_four_backfills_safe_browser_restart_metadata() {
     let root = temp_root("schema-four-browser");
     let browser = browser_id(1);

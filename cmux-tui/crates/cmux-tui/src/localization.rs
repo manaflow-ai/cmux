@@ -298,6 +298,7 @@ pub(crate) struct RuntimeMessages {
     pub unknown_panic: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
+    signal_handlers_failed: &'static str,
     terminal_restore_also_failed: &'static str,
 }
 
@@ -308,6 +309,10 @@ impl RuntimeMessages {
 
     pub(crate) fn host_input_failed(&self, error: &str) -> String {
         self.host_input_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn signal_handlers_failed(&self, error: &str) -> String {
+        self.signal_handlers_failed.replace("{error}", error)
     }
 
     pub(crate) fn terminal_restore_also_failed(&self, error: &str, restore_error: &str) -> String {
@@ -1025,6 +1030,7 @@ edits shell files. Authenticate with the configured host before retrying.
         unknown_panic: "unknown panic",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
+        signal_handlers_failed: "failed to install signal handlers: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
     },
     remote_client: RemoteClientMessages {
@@ -1505,6 +1511,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         unknown_panic: "不明なパニック",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
+        signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
     },
     remote_client: RemoteClientMessages {
@@ -2126,6 +2133,10 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").runtime.host_input_failed("切断"),
             "ホストターミナルの入力に失敗しました: 切断"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").runtime.signal_handlers_failed("権限がありません"),
+            "シグナルハンドラーの設定に失敗しました: 権限がありません"
         );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8")

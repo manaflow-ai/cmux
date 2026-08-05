@@ -724,7 +724,7 @@ fn terminal_project(
         commit.result.get("value").filter(|value| value.is_object()).cloned().ok_or_else(|| {
             ResourceError::operation_failed(
                 "terminal.project",
-                "terminal projection commit omitted its tab snapshot",
+                "terminal could not be added to the destination; refresh the session and try again",
                 json!({}),
             )
         })?;
