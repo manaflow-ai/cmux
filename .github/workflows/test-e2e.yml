@@ -36,6 +36,7 @@ on:
           - blacksmith-6vcpu-macos-latest
           - warp-macos-15-arm64-6x
           - depot-macos-latest
+          - depot-macos-26
           - depot-macos-14
           - tart-canary
           - tart-dual
@@ -174,6 +175,10 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
+
+      - name: Install Metal toolchain on Blacksmith macOS 26
+        if: ${{ inputs.runner == 'blacksmith-6vcpu-macos-26' }}
+        run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Download pre-built GhosttyKit.xcframework
         env:
