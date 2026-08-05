@@ -6,6 +6,7 @@ import {
 import { freshCredential } from "./refresh";
 
 const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
+const CODEX_MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models";
 const ALLOWED_REQUEST_HEADERS = [
   "accept",
   "content-type",
@@ -91,6 +92,60 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
   return new Response(upstream.body, {
     status: upstream.status,
     headers: responseHeaders,
+  });
+}
+
+export async function proxyCodexModels(request: Request): Promise<Response> {
+  const token = bearerToken(request);
+  if (!token) return jsonError("unauthorized", 401);
+  const identity = await authenticateRouteToken(token);
+  if (!identity) return jsonError("unauthorized", 401);
+
+  const attempted: string[] = [];
+  let upstream: Response | null = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const account = await selectAccountForRequest(
+      identity.teamId,
+      "codex",
+      attempted,
+    );
+    if (!account) break;
+    attempted.push(account.id);
+    let credential;
+    try {
+      credential = await freshCredential({
+        teamId: identity.teamId,
+        accountId: account.id,
+        expectedRevision: account.vaultRevision,
+      });
+    } catch {
+      continue;
+    }
+    if (credential.provider !== "codex") continue;
+    const upstreamUrl = new URL(CODEX_MODELS_UPSTREAM);
+    upstreamUrl.search = new URL(request.url).search;
+    upstream = await fetch(upstreamUrl, {
+      headers: {
+        authorization: `Bearer ${credential.accessToken}`,
+        "chatgpt-account-id": credential.accountId,
+        originator: "codex_cli_rs",
+        "user-agent": request.headers.get("user-agent") ?? "coderouter",
+      },
+      cache: "no-store",
+    });
+    if (upstream.status === 429) {
+      await markAccountCooldown(account.id, rateLimitDelay(upstream.headers));
+      continue;
+    }
+    break;
+  }
+  if (!upstream) return jsonError("no_usable_account", 503);
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": upstream.headers.get("content-type") ?? "application/json",
+    },
   });
 }
 
