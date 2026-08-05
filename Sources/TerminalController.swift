@@ -139,6 +139,12 @@ class TerminalController {
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
+
+    /// Owns the pid → caller-identity cache for socket event attribution
+    /// (https://github.com/manaflow-ai/cmux/issues/9611). Held here, at the
+    /// socket-service seam, rather than as process-wide static state, so the
+    /// cache's lifetime matches the socket server's and tests use their own.
+    private nonisolated let socketCallerResolver = CmuxSocketCallerResolver()
     /// Bounds worker threads and completion contexts parked for synchronous
     /// `reload_config` acknowledgements. Excess callers receive backpressure.
     private nonisolated let reloadConfigurationWaiterAdmission =
@@ -1584,12 +1590,21 @@ class TerminalController {
         }
         var passwordAuthorization = SocketPasswordAuthorization()
         // Attribution for every event this connection publishes. The peer pid is
-        // fixed for the connection's lifetime, so resolve it at most once and
-        // only when a command actually maps to an event.
+        // fixed for the connection's lifetime, so resolve it at most once.
+        //
+        // Resolution has to happen while the peer is still alive. A short-lived
+        // `cmux send` frequently exits between the response being written and
+        // the event being published, and a dead pid resolves to no name and no
+        // surface. So this is primed below, before the command runs, while the
+        // client is still blocked waiting for its response, and only for
+        // commands that can actually publish.
         var resolvedCallerIdentity: CmuxSocketCallerIdentity?
         func socketCallerIdentityForConnection() -> CmuxSocketCallerIdentity {
             if let resolvedCallerIdentity { return resolvedCallerIdentity }
-            let identity = socketCallerIdentity(peerProcessID: pid)
+            let identity = socketCallerIdentity(
+                peerProcessID: pid,
+                resolver: socketCallerResolver
+            )
             resolvedCallerIdentity = identity
             return identity
         }
@@ -1649,6 +1664,13 @@ class TerminalController {
                     )
                     shouldCloseSocket = true
                     return
+                }
+
+                // Prime attribution while the peer is provably alive: it is
+                // blocked on this command's response. Skipped entirely for
+                // commands that publish no event, so they pay nothing.
+                if CmuxSocketEventMapper.mapsToEvent(command: trimmed) {
+                    _ = socketCallerIdentityForConnection()
                 }
 
                 let result = processSocketLine(

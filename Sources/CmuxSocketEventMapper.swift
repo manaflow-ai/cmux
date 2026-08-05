@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 enum CmuxSocketEventMapper {
@@ -16,6 +17,43 @@ enum CmuxSocketEventMapper {
             }
             publishV1(command: command, response: response, caller: caller)
         }
+    }
+
+    /// v1 command names that publish an event. Kept as data so the eager
+    /// caller-identity resolution in `TerminalController` can ask "will this
+    /// command publish?" without running the command first.
+    /// `v1PublishingCommandsMatchPublishV1` guards this against drift.
+    static let v1PublishingCommands: Set<String> = [
+        "send", "send_surface",
+        "send_key", "send_key_surface",
+        "notify_surface", "notify", "notify_target", "notify_target_async",
+        "clear_notifications",
+        "set_status", "report_meta", "report_meta_block",
+        "clear_status", "clear_meta", "clear_meta_block",
+        "set_progress", "clear_progress",
+        "log", "clear_log", "reset_sidebar",
+        "reload_config", "set_app_focus", "simulate_app_active",
+    ]
+
+    /// Whether this command can produce an event, judged from the request alone.
+    ///
+    /// The caller identity must be resolved while the peer is still alive, and a
+    /// short-lived `cmux send` often exits between the response and the publish.
+    /// Resolving eagerly for every command would put a main hop on commands that
+    /// publish nothing, so the socket loop uses this to resolve only when it
+    /// matters. A false positive (the command fails, so no event) costs one
+    /// wasted lookup; a false negative would only lose optional attribution.
+    static func mapsToEvent(command: String) -> Bool {
+        if command.hasPrefix("{") {
+            guard let data = command.data(using: .utf8),
+                  let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = request["method"] as? String else {
+                return false
+            }
+            return method != "events.stream" && domainEventMapping(forV2Method: method) != nil
+        }
+        guard let rawName = command.split(separator: " ", maxSplits: 1).first else { return false }
+        return v1PublishingCommands.contains(rawName.lowercased())
     }
 
     private static func publishV2(
@@ -207,9 +245,19 @@ enum CmuxSocketEventMapper {
         case "close_surface":
             break
         case "send", "send_surface":
-            CmuxEventBus.shared.publish(caller: caller(), name: "surface.input_sent", category: "surface", source: "socket.v1", payload: payload)
+            // `redactedV1Args` already replaced the args with `<redacted>`;
+            // name the redacted field so v1 and v2 readers see the same marker.
+            var textPayload = payload
+            textPayload["redacted_fields"] = ["args"]
+            CmuxEventBus.shared.publish(caller: caller(), name: "surface.input_sent", category: "surface", source: "socket.v1", payload: textPayload)
         case "send_key", "send_key_surface":
-            CmuxEventBus.shared.publish(caller: caller(), name: "surface.key_sent", category: "surface", source: "socket.v1", payload: payload)
+            // Same policy as v2 `surface.send_key`: the key is bounded control
+            // vocabulary and is recorded, and the empty marker says redaction
+            // was considered. `docs/events.md` documents the field as present
+            // on every `surface.key_sent`, v1 included.
+            var keyPayload = payload
+            keyPayload["redacted_fields"] = [String]()
+            CmuxEventBus.shared.publish(caller: caller(), name: "surface.key_sent", category: "surface", source: "socket.v1", payload: keyPayload)
         case "notify_surface":
             var payloadWithSurface = payload
             let surfaceId = firstUUID(in: args)

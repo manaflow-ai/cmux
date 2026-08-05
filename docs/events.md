@@ -309,7 +309,7 @@ Surface and pane:
 | `surface.reordered` | Surface order changed inside a pane. |
 | `surface.action` | Surface or tab action command completed. |
 | `surface.input_sent` | Text was sent through the socket API. The text is redacted to `text_length`, since it is free-form user content. |
-| `surface.key_sent` | Key was sent through the socket API. The `key` is recorded in full: it is drawn from a fixed named-key table the server validates before the command succeeds, so it cannot carry a secret. `redacted_fields` is present and empty to say so. |
+| `surface.key_sent` | Key was sent through the socket API. The `key` is recorded in full: it is drawn from a fixed named-key table the server validates before the command succeeds, so it cannot carry a secret. `redacted_fields` is present and empty to say so, on both `socket.v1` and `socket.v2`. |
 | `pane.created` | Pane created. |
 | `pane.closed` | Pane closed. |
 | `pane.focused` | Focused pane changed for a workspace. Fires for pane clicks, split focus, `focus-pane`, `last-pane`, and selection convergence after close/move. |

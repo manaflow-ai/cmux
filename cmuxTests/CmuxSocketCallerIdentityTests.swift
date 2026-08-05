@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Darwin
 import Foundation
 import Testing
@@ -106,32 +107,48 @@ struct CmuxSocketCallerIdentityTests {
 
     /// A pid that is not a live process must yield nil, never a guess.
     @Test
-    func processNameLookupForADeadPidReturnsNil() {
-        CmuxSocketCallerResolver.resetCacheForTesting()
-        defer { CmuxSocketCallerResolver.resetCacheForTesting() }
+    func processSnapshotForADeadPidReturnsNil() {
+        let resolver = CmuxSocketCallerResolver()
 
         // Above the default `kern.maxproc` pid ceiling, so no live process owns it.
-        #expect(CmuxSocketCallerResolver.processName(pid: 9_999_999) == nil)
-        #expect(CmuxSocketCallerResolver.processName(pid: 0) == nil)
-        #expect(CmuxSocketCallerResolver.processName(pid: -1) == nil)
+        #expect(resolver.processSnapshot(pid: 9_999_999) == nil)
+        #expect(resolver.processSnapshot(pid: 0) == nil)
+        #expect(resolver.processSnapshot(pid: -1) == nil)
         // A failed lookup must not be cached as a fabricated entry.
-        #expect(CmuxSocketCallerResolver.cachedProcessNameCountForTesting == 0)
+        #expect(resolver.cachedProcessNameCount == 0)
+    }
+
+    /// A name cached for one process must never be served for a recycled pid
+    /// that reuses the same number.
+    @Test
+    func processNameCacheIsKeyedByGenerationNotPid() throws {
+        let resolver = CmuxSocketCallerResolver()
+        let live = try #require(resolver.processSnapshot(pid: getpid()))
+        #expect(resolver.processName(for: live.generation) != nil)
+        #expect(resolver.generationIsCurrent(live.generation))
+
+        // Same pid, different start time: a recycled pid. It must miss the
+        // cache, and because that generation is not live, resolve to nothing.
+        let recycled = CmuxSocketCallerGeneration(
+            pid: live.generation.pid,
+            startSeconds: live.generation.startSeconds &+ 1,
+            startMicroseconds: live.generation.startMicroseconds
+        )
+        #expect(!resolver.generationIsCurrent(recycled))
     }
 
     /// End to end through the real resolver: this test process is a live pid, so
     /// the name comes from `proc_pidpath` and is stable across repeat lookups.
     @Test
     func processNameResolvesLivePidAndCachesIt() throws {
-        CmuxSocketCallerResolver.resetCacheForTesting()
-        defer { CmuxSocketCallerResolver.resetCacheForTesting() }
-
-        let selfPid = getpid()
-        let name = try #require(CmuxSocketCallerResolver.processName(pid: selfPid))
+        let resolver = CmuxSocketCallerResolver()
+        let snapshot = try #require(resolver.processSnapshot(pid: getpid()))
+        let name = try #require(resolver.processName(for: snapshot.generation))
         #expect(!name.isEmpty)
         #expect(!name.contains("/"))
-        #expect(CmuxSocketCallerResolver.cachedProcessNameCountForTesting == 1)
-        #expect(CmuxSocketCallerResolver.processName(pid: selfPid) == name)
-        #expect(CmuxSocketCallerResolver.cachedProcessNameCountForTesting == 1)
+        #expect(resolver.cachedProcessNameCount == 1)
+        #expect(resolver.processName(for: snapshot.generation) == name)
+        #expect(resolver.cachedProcessNameCount == 1)
     }
 
     /// A dead pid mixed into an otherwise resolvable identity must null exactly
@@ -141,9 +158,11 @@ struct CmuxSocketCallerIdentityTests {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
 
+        let resolver = CmuxSocketCallerResolver()
         let identity = CmuxSocketCallerIdentity(
             pid: 9_999_999,
-            processName: CmuxSocketCallerResolver.processName(pid: 9_999_999),
+            processName: resolver.processSnapshot(pid: 9_999_999)
+                .flatMap { resolver.processName(for: $0.generation) },
             surfaceId: nil
         )
         CmuxSocketEventMapper.publish(
@@ -240,7 +259,9 @@ struct CmuxSocketCallerIdentityTests {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
 
-        final class Counter: @unchecked Sendable {
+        // `publish` takes a non-escaping provider and invokes it synchronously
+        // on this thread, so a plain box needs no Sendable conformance.
+        final class Counter {
             var count = 0
         }
         let counter = Counter()
@@ -310,6 +331,68 @@ struct CmuxSocketCallerIdentityTests {
         #expect(keyParams["redacted_fields"] as? [String] == [])
     }
 
+    /// The redaction marker documented in `docs/events.md` must be present on
+    /// v1 input events too, not only v2.
+    @Test
+    func v1InputEventsCarryRedactionMarkers() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        CmuxSocketEventMapper.publish(command: "send secret text", response: "OK", caller: { .unknown })
+        CmuxSocketEventMapper.publish(command: "send_key ctrl-c", response: "OK", caller: { .unknown })
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        let textPayload = try #require(events[0]["payload"] as? [String: Any])
+        #expect(textPayload["args"] as? String == "<redacted>")
+        #expect(textPayload["redacted_fields"] as? [String] == ["args"])
+
+        let keyPayload = try #require(events[1]["payload"] as? [String: Any])
+        #expect(keyPayload["args"] as? String == "ctrl-c")
+        #expect(keyPayload["redacted_fields"] as? [String] == [])
+    }
+
+    /// `mapsToEvent` decides whether the socket loop resolves attribution before
+    /// running a command. If it disagreed with what `publishV1` actually
+    /// publishes, those events would silently lose their caller.
+    @Test
+    func v1PublishingCommandsMatchPublishV1() {
+        let allV1Commands: Set<String> = CmuxSocketEventMapper.v1PublishingCommands.union([
+            "new_window", "focus_window", "close_window",
+            "new_workspace", "select_workspace", "close_workspace",
+            "new_split", "new_pane", "new_surface", "open_browser",
+            "focus_surface", "focus_surface_by_panel", "focus_pane",
+            "close_surface", "list_workspaces", "read_screen",
+        ])
+
+        for command in allV1Commands.sorted() {
+            CmuxEventBus.shared.resetForTesting()
+            CmuxSocketEventMapper.publish(command: "\(command) arg", response: "OK", caller: { .unknown })
+            let didPublish = !CmuxEventBus.shared.retainedSnapshot().isEmpty
+            #expect(
+                didPublish == CmuxSocketEventMapper.mapsToEvent(command: "\(command) arg"),
+                "mapsToEvent disagrees with publishV1 for \(command)"
+            )
+        }
+        CmuxEventBus.shared.resetForTesting()
+    }
+
+    /// The v2 side of the same predicate.
+    @Test
+    func mapsToEventMatchesV2Mapping() {
+        #expect(CmuxSocketEventMapper.mapsToEvent(command: Self.sendTextCommand))
+        #expect(CmuxSocketEventMapper.mapsToEvent(
+            command: #"{"id":1,"method":"surface.send_key","params":{}}"#
+        ))
+        // Read-only methods and the stream itself publish nothing.
+        #expect(!CmuxSocketEventMapper.mapsToEvent(
+            command: #"{"id":1,"method":"surface.list","params":{}}"#
+        ))
+        #expect(!CmuxSocketEventMapper.mapsToEvent(
+            command: #"{"id":1,"method":"events.stream","params":{}}"#
+        ))
+        #expect(!CmuxSocketEventMapper.mapsToEvent(command: "not json at all"))
+    }
+
     /// Events with no caller concept must not grow a fake one.
     @Test
     func nonSocketEventsOmitTheCallerKey() throws {
@@ -325,10 +408,18 @@ struct CmuxSocketCallerIdentityTests {
     /// The pid → name cache is bounded, so a machine with churning callers
     /// cannot grow the socket path's memory without limit.
     @Test
-    func processNameCacheIsBounded() {
-        CmuxSocketCallerResolver.resetCacheForTesting()
-        defer { CmuxSocketCallerResolver.resetCacheForTesting() }
-        #expect(CmuxSocketCallerResolver.maxCachedProcessNames > 0)
-        #expect(CmuxSocketCallerResolver.cachedProcessNameCountForTesting == 0)
+    func processNameCacheIsBounded() throws {
+        let resolver = CmuxSocketCallerResolver(maxCachedProcessNames: 2)
+        let snapshot = try #require(resolver.processSnapshot(pid: getpid()))
+        // Three distinct generations through a cache bounded at two.
+        for offset in 0..<3 {
+            let generation = CmuxSocketCallerGeneration(
+                pid: snapshot.generation.pid,
+                startSeconds: snapshot.generation.startSeconds &+ UInt64(offset),
+                startMicroseconds: snapshot.generation.startMicroseconds
+            )
+            _ = resolver.processName(for: generation)
+        }
+        #expect(resolver.cachedProcessNameCount <= 2)
     }
 }
