@@ -24820,6 +24820,16 @@ struct CMUXCLI {
                 ) else {
                     didSendFeedTelemetry = true
                     telemetry.breadcrumb("claude-hook.stop.unresolved")
+                    emitOSCNotificationFallback(
+                        title: String(
+                            localized: "cli.claude-hook.notification.title",
+                            defaultValue: "Claude Code"
+                        ),
+                        body: String(
+                            localized: "cli.agent-hook.osc-fallback.completed",
+                            defaultValue: "Task complete"
+                        )
+                    )
                     printClaudeHookAck()
                     return
                 }
@@ -25111,6 +25121,16 @@ struct CMUXCLI {
             ) else {
                 didSendFeedTelemetry = true
                 telemetry.breadcrumb("claude-hook.notification.unresolved")
+                emitOSCNotificationFallback(
+                    title: String(
+                        localized: "cli.claude-hook.notification.title",
+                        defaultValue: "Claude Code"
+                    ),
+                    body: String(
+                        localized: "cli.agent-hook.osc-fallback.needsInput",
+                        defaultValue: "Needs your input"
+                    )
+                )
                 printClaudeHookAck()
                 return
             }
