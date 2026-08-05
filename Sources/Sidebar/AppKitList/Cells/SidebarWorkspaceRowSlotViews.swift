@@ -333,7 +333,9 @@ final class SidebarRowTextView: NSTextField {
 
         let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         guard characterIndex < attributedStringValue.length else { return nil }
-        return Self.linkURL(from: attributedStringValue.attribute(.link, at: characterIndex, effectiveRange: nil))
+        return Self.linkURL(
+            from: attributedStringValue.attribute(.sidebarRowLink, at: characterIndex, effectiveRange: nil)
+        )
     }
 
     private func linkHitLayout(textRectSize: NSSize) -> LinkHitLayout {
@@ -368,20 +370,6 @@ final class SidebarRowTextView: NSTextField {
     }
 
     private static func linkURL(from value: Any?) -> URL? {
-        let resolvedURL: URL?
-        switch value {
-        case let candidate as URL:
-            resolvedURL = candidate
-        case let candidate as NSURL:
-            resolvedURL = candidate as URL
-        case let string as String:
-            resolvedURL = URL(string: string)
-        default:
-            resolvedURL = nil
-        }
-        guard let resolvedURL, let scheme = resolvedURL.scheme?.lowercased() else {
-            return nil
-        }
-        return scheme == "http" || scheme == "https" ? resolvedURL : nil
+        SidebarRowWebLink.url(from: value)
     }
 }

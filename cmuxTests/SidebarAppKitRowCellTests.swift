@@ -254,7 +254,7 @@ struct SidebarAppKitRowCellTests {
         var location = 0
         while location < attributedString.length {
             var range = NSRange(location: 0, length: 0)
-            let value = attributedString.attribute(.link, at: location, effectiveRange: &range)
+            let value = attributedString.attribute(.sidebarRowLink, at: location, effectiveRange: &range)
             if linkURL(from: value) == url {
                 return true
             }
@@ -518,7 +518,11 @@ struct SidebarAppKitRowCellTests {
             onOpenWorkspaceDescriptionURL: { openedURL = $0 }
         )
         let window = Self.layoutCell(cell, model: model)
-        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+        let textView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { $0.stringValue == "launch" }
+        )
 
         let hitView = try Self.click(
             textView,
@@ -528,6 +532,8 @@ struct SidebarAppKitRowCellTests {
 
         #expect(hitView !== textView)
         #expect(openedURL == nil)
+        #expect(textView.attributedStringValue.attribute(.link, at: 0, effectiveRange: nil) == nil)
+        #expect(textView.attributedStringValue.attribute(.sidebarRowLink, at: 0, effectiveRange: nil) == nil)
     }
 
     /// Rasterizes the link over the row's own selection background. AppKit used

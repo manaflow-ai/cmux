@@ -481,7 +481,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 descriptionView.attributedStringValue = SidebarRowPalette.attributed(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
-                    color: model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                    color: model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95),
+                    linkColor: palette.linkText
                 )
             } else {
                 descriptionView.stringValue = display
@@ -765,7 +766,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 view.attributedStringValue = SidebarRowPalette.attributed(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10)),
-                    color: model.isActive ? palette.secondary(0.8) : .secondaryLabelColor
+                    color: model.isActive ? palette.secondary(0.8) : .secondaryLabelColor,
+                    linkColor: palette.linkText
                 )
             } else {
                 view.stringValue = display
