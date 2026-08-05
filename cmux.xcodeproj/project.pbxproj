@@ -11648,7 +11648,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		};
 		CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A500D012A1B2C3D4E5F60718 /* XCLocalSwiftPackageReference "CmuxDiffComments" */;
+			package = CC0033E15A1B2C3D4E5F0010 /* XCLocalSwiftPackageReference "CmuxDiffComments" */;
 			productName = CmuxDiffComments;
 		};
 		CA52A005CA52A005CA52A005 /* CmuxCanvas */ = {
