@@ -59,7 +59,7 @@ import Testing
     )
     #expect(!collector.lines.contains { $0.contains("partial-after-empty-baseline-budget") })
 
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -157,7 +157,7 @@ import Testing
     }
     #expect(rawDelivered)
 
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -234,7 +234,7 @@ import Testing
         "primary raw bytes must not reset the alternate missing-baseline replay budget"
     )
 
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -278,5 +278,5 @@ import Testing
         "a full alternate replay is a baseline for later alternate deltas"
     )
 
-    await collector.unmount()
+    collector.unmount()
 }

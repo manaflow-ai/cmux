@@ -57,7 +57,7 @@ import Testing
         replayed,
         "a retry that reinstalls a lost registration must request catch-up replay for the missed render-grid frame"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -112,7 +112,7 @@ import Testing
         recordIssueOnTimeout: false
     )
     #expect(!extraSubscribe, "a cancelled retry must not issue an extra subscription")
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -188,7 +188,7 @@ import Testing
         !replayRequested,
         "back-to-back input ACKs can legitimately run ahead of render-grid delivery; they must not force a full replay while waiting for the target frame"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -232,7 +232,7 @@ import Testing
         collector.lines.contains { $0.contains("at-ack") }
     }
     #expect(targetFrameDelivered, "the first frame at the pending input sequence must render immediately")
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -296,7 +296,7 @@ import Testing
         recordIssueOnTimeout: false
     )
     #expect(!replayRequested, "accepted target deltas must not force a replay after a stale frame")
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -352,7 +352,7 @@ import Testing
         collector.lines.contains { $0.contains("replayed-target") }
     }
     #expect(replayDelivered)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -410,7 +410,7 @@ import Testing
         collector.lines.contains { $0.contains("replayed-after-repeat") }
     }
     #expect(replayDelivered)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -451,7 +451,7 @@ import Testing
         collector.lines.contains { $0.contains("fresh-replay") }
     }
     #expect(freshReplayDelivered)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -511,7 +511,7 @@ import Testing
         collector.lines.contains { $0.contains("fresh-nonbarrier-replay") }
     }
     #expect(freshReplayDelivered)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -560,7 +560,7 @@ import Testing
         collector.lines.contains { $0.contains("target-after-exhaustion") }
     }
     #expect(targetFrameDelivered, "retry exhaustion must not leave the replay barrier blocking the target frame")
-    await collector.unmount()
+    collector.unmount()
 }
 
 private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throws -> MobileTerminalRenderGridFrame {
@@ -650,7 +650,7 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
         collector.lines.contains { $0.contains("full-after-empty-exhaustion") }
     }
     #expect(fullFrameDelivered, "exhausted retry budget must fail open for the next full live frame")
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -726,7 +726,7 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
         collector.lines.contains { $0.contains("episode-repair") }
     }
     #expect(repaired)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -789,5 +789,5 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
         replayRequested,
         "a dropped alternate-exit frame must arm a bounded replay so hybrid byte suppression cannot wedge the surface"
     )
-    await collector.unmount()
+    collector.unmount()
 }

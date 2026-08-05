@@ -40,7 +40,7 @@ import Testing
         recordIssueOnTimeout: false
     )
     #expect(!resubscribed)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -65,7 +65,7 @@ import Testing
     store.resumeForegroundRefresh()
 
     await router.waitForCount(of: "mobile.events.subscribe", atLeast: subscribeCount + 1)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -91,7 +91,7 @@ import Testing
     store.resumeForegroundRefresh()
 
     await router.waitForCount(of: "mobile.events.subscribe", atLeast: subscribeCount + 1)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @Suite(.serialized)

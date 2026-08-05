@@ -70,7 +70,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
         !replayRequested,
         "a linked live delta must not request another replay"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -138,7 +138,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
         !collector.lines.contains { $0.contains("stale-linked-delta") },
         "a delta linked to stale history must not be delivered"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -203,7 +203,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
         staleDelivered == false,
         "a replay captured at an older grid width must not overwrite an already-delivered live frame at the same state sequence"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -271,7 +271,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
         replayDelivered,
         "an advisory primary full grid does not paint terminal content, so the same-sequence replay must seed the local terminal until raw bytes catch up"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -339,7 +339,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
         staleDelivered == false,
         "same-sequence raw bytes must not clear the advisory full-grid freshness marker before a held replay resolves"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -407,7 +407,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
         staleDelivered == false,
         "a newer hybrid primary full-grid observation plus raw byte coverage must stale an older held replay"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -481,7 +481,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
         !collector.lines.contains { $0.contains("partial-live-delta") },
         "the gated partial must never paint before the authoritative snapshot"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -518,7 +518,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
         "primary render-grid events are advisory in hybrid mode; raw bytes own full-height primary rendering"
     )
     #expect(collector.viewportPolicies.last == .natural)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -554,7 +554,7 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
         replayRequested,
         "hybrid primary output is advanced by terminal.bytes, so input recovery must request replay instead of waiting on advisory render-grid frames"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -610,5 +610,5 @@ func screenAnchoredReplayBaselinesNextLiveDelta(historyRows: UInt64) async throw
         freshGridDelivered,
         "a same-sequence recovery replay requested after an existing full grid must still repaint"
     )
-    await collector.unmount()
+    collector.unmount()
 }

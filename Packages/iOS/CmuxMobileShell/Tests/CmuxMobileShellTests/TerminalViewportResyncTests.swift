@@ -1030,5 +1030,5 @@ private func mountOutputAndReportViewport(
         collector.lines.contains("initial-viewport-replay")
     })
     #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 1)
-    await collector.unmount()
+    collector.unmount()
 }

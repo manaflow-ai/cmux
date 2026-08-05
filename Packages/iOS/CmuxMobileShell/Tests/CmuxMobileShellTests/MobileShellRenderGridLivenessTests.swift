@@ -101,7 +101,7 @@ import Testing
     #expect(collector.lines.first?.contains("live") == true)
 
     await router.releaseAllHeld()
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -261,7 +261,7 @@ import Testing
     await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 3, text: "grid-only"))
     let gridDelivered = try await pollUntil { collector.lines.contains { $0.contains("grid-only") } }
     #expect(gridDelivered, "render-grid-only hosts must keep painting primary render-grid frames")
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -303,7 +303,7 @@ import Testing
         collector.lines.contains { $0.contains("dup") } == false,
         "raw bytes are suppressed while the authoritative screen is alternate"
     )
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -339,7 +339,7 @@ import Testing
     let secondRawDelivered = try await pollUntil { collector.lines.contains { $0.contains("raw-b") } }
     #expect(secondRawDelivered, "a stale alternate render-grid frame must not flip active-screen state and suppress later primary bytes")
     #expect(collector.lines.contains { $0.contains("stale-alt") } == false)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -374,7 +374,7 @@ import Testing
     let primaryDelivered = try await pollUntil { collector.lines.contains { $0.contains("shell") } }
     #expect(primaryDelivered, "the first primary frame after alternate must restore the primary screen")
     #expect(collector.viewportPolicies.last == .natural)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -437,7 +437,7 @@ import Testing
         "raw bytes must stay suppressed until a full primary restore switches the local surface out of alternate-screen mode"
     )
     #expect(collector.viewportPolicies.last == .natural)
-    await collector.unmount()
+    collector.unmount()
 }
 
 @MainActor
@@ -514,7 +514,7 @@ import Testing
     let fullPrimaryDelivered = try await pollUntil { collector.lines.contains { $0.contains("primary-full") } }
     #expect(fullPrimaryDelivered)
     #expect(collector.viewportPolicies.last == .natural)
-    await collector.unmount()
+    collector.unmount()
 }
 
 /// A healthy idle stream produces zero events (the Mac dedupes unchanged
@@ -587,7 +587,7 @@ import Testing
     await transport.deliver(event)
     let delivered = try await pollUntil { collector.lines.isEmpty == false }
     #expect(delivered, "the original stream must still be consumed after the probe")
-    await collector.unmount()
+    collector.unmount()
 }
 
 /// One timed-out liveness probe is ambiguous during Iroh path migration or a
@@ -704,7 +704,7 @@ import Testing
     await transport.deliver(event)
     let delivered = try await pollUntil { collector.lines.contains { $0.contains("repaired") } }
     #expect(delivered, "the original stream must still be consumed after the repair")
-    await collector.unmount()
+    collector.unmount()
 }
 
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep

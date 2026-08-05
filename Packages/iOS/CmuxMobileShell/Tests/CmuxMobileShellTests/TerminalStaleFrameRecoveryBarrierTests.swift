@@ -420,5 +420,5 @@ import Testing
     }
     #expect(altDeltaDeliveredAfterFull)
 
-    await collector.unmount()
+    collector.unmount()
 }

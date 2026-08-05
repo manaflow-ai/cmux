@@ -78,5 +78,5 @@ import Testing
         collector.lines.contains { $0.contains("raw-after-primary") }
     }
     #expect(rawAfterPrimaryDelivered)
-    await collector.unmount()
+    collector.unmount()
 }

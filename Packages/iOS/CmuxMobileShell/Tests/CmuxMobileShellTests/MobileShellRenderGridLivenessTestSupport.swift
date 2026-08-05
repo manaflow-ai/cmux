@@ -892,7 +892,7 @@ final class OutputCollector {
         }
     }
 
-    func unmount() async {
+    func unmount() {
         let mountedTask = task
         task = nil
         mountedContinuation?.finish()
@@ -905,7 +905,6 @@ final class OutputCollector {
             )
         }
         mountedTask?.cancel()
-        _ = await mountedTask?.value
         mountedStore = nil
         mountedSurfaceID = nil
         mountedStreamToken = nil
