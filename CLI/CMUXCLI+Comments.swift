@@ -100,8 +100,13 @@ extension CMUXCLI {
         return root
     }
 
-    /// Builds the count line, picking the singular or plural catalog key so no
-    /// locale has to carry a "comment(s)" form.
+    /// Builds the count line.
+    ///
+    /// The CLI resolves localized strings against its own bundle, which does not
+    /// contain the app's string catalog, so what ships is each key's
+    /// `defaultValue`. Selecting the form here keeps the singular correct; the
+    /// catalog's plural entries avoid numeral-governed nouns, so one form stays
+    /// grammatical for every count above one in Slavic and Arabic locales.
     private func commentsListHeaderText(count: Int, repoRoot: String) -> String {
         if count == 1 {
             return String.localizedStringWithFormat(
@@ -117,7 +122,7 @@ extension CMUXCLI {
                 localized: "cli.comments.list.header.other",
                 defaultValue: "%1$lld review comments (repo: %2$@)"
             ),
-            count,
+            Int64(count),
             repoRoot
         )
     }

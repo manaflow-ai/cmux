@@ -36192,7 +36192,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld تعليق مراجعة (المستودع: %2$@)"
+            "value": "تعليقات المراجعة: %1$lld (المستودع: %2$@)"
           }
         },
         "bs": {
@@ -36264,7 +36264,7 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld komentarzy przeglądu (repozytorium: %2$@)"
+            "value": "Komentarze przeglądu: %1$lld (repozytorium: %2$@)"
           }
         },
         "pt-BR": {
@@ -36276,7 +36276,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld комментариев ревью (репозиторий: %2$@)"
+            "value": "Комментарии ревью: %1$lld (репозиторий: %2$@)"
           }
         },
         "th": {
@@ -36294,7 +36294,7 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld коментарів рецензування (репозиторій: %2$@)"
+            "value": "Коментарі рецензування: %1$lld (репозиторій: %2$@)"
           }
         },
         "zh-Hans": {
