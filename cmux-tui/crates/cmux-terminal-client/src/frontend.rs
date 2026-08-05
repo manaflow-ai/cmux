@@ -21,6 +21,7 @@ use super::{
 
 const FRONTEND_CONNECTION_TIMEOUT_ERROR: &str = "frontend connection timed out";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const FRONTEND_CLIENT_ABI_VERSION: u32 = 1;
 
 type PendingResponse = oneshot::Sender<Result<Value, String>>;
 
@@ -391,6 +392,12 @@ unsafe fn frontend_connect(
         path,
         generation: AtomicU64::new(generation),
     }))
+}
+
+/// Returns the native frontend C ABI version.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_frontend_client_abi_version() -> u32 {
+    FRONTEND_CLIENT_ABI_VERSION
 }
 
 /// Enrolls one native frontend transport and opens its public resource stream.
@@ -858,6 +865,11 @@ pub unsafe extern "C" fn cmux_frontend_client_disconnect(client: *mut CmuxFronte
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_frontend_exports_versioned_abi() {
+        assert_eq!(cmux_frontend_client_abi_version(), 1);
+    }
 
     #[test]
     fn resource_lanes_keep_mutations_ordered_with_terminal_input() {

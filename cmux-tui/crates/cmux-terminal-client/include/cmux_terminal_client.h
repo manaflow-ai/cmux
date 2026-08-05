@@ -32,6 +32,7 @@ typedef struct {
 // Native frontend API. One enrolled client owns resource control plus any
 // number of terminal renderer attachments. Disconnect every terminal before
 // disconnecting its client.
+uint32_t cmux_frontend_client_abi_version(void);
 CmuxFrontendClient *cmux_frontend_client_connect_with_timeout(
     const char *invitation_uri,
     char *error_buffer,

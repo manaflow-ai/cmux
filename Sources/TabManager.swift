@@ -194,6 +194,9 @@ class TabManager: ObservableObject {
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
     private(set) var workspacesById: [UUID: Workspace] = [:]
+    /// One multiplexed cmux-tui broker connection per attached machine/session
+    /// in this window. Individual terminal panels borrow streams from it.
+    var cmuxTUIFrontendSessions: [UUID: CmuxTUIFrontendSession] = [:]
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -647,6 +650,14 @@ class TabManager: ObservableObject {
     }
 
     deinit {
+        let cmuxTUISessions = Array(cmuxTUIFrontendSessions.values)
+        if !cmuxTUISessions.isEmpty {
+            Task { @MainActor in
+                for session in cmuxTUISessions {
+                    session.shutdown()
+                }
+            }
+        }
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -1173,7 +1184,7 @@ class TabManager: ObservableObject {
             Self.nextPortOrdinal += 1
             let defaultTitle: String
             switch initialSurface {
-            case .terminal:
+            case .terminal, .deferred:
                 defaultTitle = "Terminal \(nextTabCount)"
             case .browser:
                 // Match the browser surface's blank new-tab title; the

@@ -842,6 +842,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */; };
 		C7A5090000000000000005A2 /* CmuxTopSnapshotScopeCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */; };
 		C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */; };
+		C7A1F2000000000000000003 /* CmuxTUIClient in Frameworks */ = {isa = PBXBuildFile; productRef = C7A1F2000000000000000002 /* CmuxTUIClient */; };
+		C7A1F1000000000000000002 /* CmuxTUIFrontendSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A1F1000000000000000001 /* CmuxTUIFrontendSession.swift */; };
 		CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0200000000CDFEED02 /* CmuxUpdater */; };
 		CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */; };
 		858200000000000000000006 /* CmuxVaultAgentRegistration+RegisteredResumeKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000005 /* CmuxVaultAgentRegistration+RegisteredResumeKind.swift */; };
@@ -2165,6 +2167,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D35A00000000000000000011 /* TerminalController+BrowserDesignMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */; };
 		805600000000000000000005 /* TerminalController+BrowserViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805600000000000000000006 /* TerminalController+BrowserViewport.swift */; };
 		D35A00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift */; };
+		C7A1F1000000000000000004 /* TerminalController+CmuxTUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A1F1000000000000000003 /* TerminalController+CmuxTUI.swift */; };
 		C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */; };
 		C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */; };
 		CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52F0020000000000000000 /* TerminalController+ControlCanvasContext.swift */; };
@@ -3458,6 +3461,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCache.swift; sourceTree = "<group>"; };
 		C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCacheTests.swift; sourceTree = "<group>"; };
 		C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeTests.swift; sourceTree = "<group>"; };
+		C7A1F1000000000000000001 /* CmuxTUIFrontendSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTUIFrontendSession.swift; sourceTree = "<group>"; };
 		7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		858200000000000000000005 /* CmuxVaultAgentRegistration+RegisteredResumeKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxVaultAgentRegistration+RegisteredResumeKind.swift"; sourceTree = "<group>"; };
 		D7C0DE00000000000000A102 /* CmuxWebView+ContextMenuLinkCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/CmuxWebView+ContextMenuLinkCapture.swift"; sourceTree = "<group>"; };
@@ -4758,6 +4762,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserDesignMode.swift"; sourceTree = "<group>"; };
 		805600000000000000000006 /* TerminalController+BrowserViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserViewport.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserWorkerSupport.swift"; sourceTree = "<group>"; };
+		C7A1F1000000000000000003 /* TerminalController+CmuxTUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CmuxTUI.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlAppFocusContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlBrowserPanelContext.swift"; sourceTree = "<group>"; };
 		CA52F0020000000000000000 /* TerminalController+ControlCanvasContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlCanvasContext.swift"; sourceTree = "<group>"; };
@@ -5262,6 +5267,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C750500000000000000000A3 /* CmuxTerminal in Frameworks */,
 				C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */,
 				CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */,
+				C7A1F2000000000000000003 /* CmuxTUIClient in Frameworks */,
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
 				5E55200000000000000000B3 /* CmuxWindowing in Frameworks */,
@@ -6266,6 +6272,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */,
 				E7E000000000000000000008 /* CmuxEventPublishing.swift */,
 				A5001019 /* TerminalController.swift */,
+				C7A1F1000000000000000001 /* CmuxTUIFrontendSession.swift */,
+				C7A1F1000000000000000003 /* TerminalController+CmuxTUI.swift */,
 				A79840030000000000000001 /* TerminalController+SocketConfiguration.swift */,
 				A28B087F000000000000000A /* DiffViewerSessionTrustRegistry.swift */,
 				A28B087F0000000000000018 /* DiffViewerLiveHTTPSession.swift */,
@@ -7977,6 +7985,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildPhases = (
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
+				C7A1F3000000000000000001 /* Build cmux-tui Client */,
 				A5001102 /* Resources */,
 				D3664003D3664003D3664003 /* Compress Markdown Viewer Assets */,
 				C0DE47000000000000000003 /* Write Extension Point */,
@@ -8029,6 +8038,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E3B7A30000000000000000D2 /* CmuxNotifications */,
 				E3B7A30000000000000000F2 /* CmuxPanes */,
 				E3B7A3000000000000000102 /* CmuxWorkspaces */,
+				C7A1F2000000000000000002 /* CmuxTUIClient */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CFF12E0000000000000000A2 /* CmuxTestSupport */,
@@ -8227,6 +8237,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9A2C00000000000000000C1 /* XCLocalSwiftPackageReference "CmuxFeedback" */,
 				C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */,
 				C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */,
+				C7A1F2000000000000000001 /* XCLocalSwiftPackageReference "CmuxTUIClient" */,
 				CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */,
 				CFF12E0000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTestSupport" */,
 				CD0CFE5400000000CD0CFE54 /* XCLocalSwiftPackageReference "CmuxSettingsUI" */,
@@ -8301,6 +8312,31 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C7A1F3000000000000000001 /* Build cmux-tui Client */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/build-cmux-tui-client.sh",
+				"$(SRCROOT)/cmux-tui/Cargo.lock",
+				"$(SRCROOT)/cmux-tui/Cargo.toml",
+				"$(SRCROOT)/cmux-tui/crates/cmux-terminal-client/Cargo.toml",
+				"$(SRCROOT)/cmux-tui/crates/cmux-terminal-client/src",
+			);
+			name = "Build cmux-tui Client";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libcmux_terminal_client.dylib",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/build-cmux-tui-client.sh\"\n";
+		};
 		C0DE47000000000000000003 /* Write Extension Point */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -8877,6 +8913,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7A512000000000000000002 /* CmuxTopProcessSnapshotCache.swift in Sources */,
 				C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */,
 				C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */,
+				C7A1F1000000000000000002 /* CmuxTUIFrontendSession.swift in Sources */,
 				858200000000000000000006 /* CmuxVaultAgentRegistration+RegisteredResumeKind.swift in Sources */,
 				D7C0DE00000000000000A101 /* CmuxWebView+ContextMenuLinkCapture.swift in Sources */,
 				D7AB00000000000000000009 /* CmuxWebView+MoveTabToNewWorkspace.swift in Sources */,
@@ -9756,6 +9793,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D35A00000000000000000011 /* TerminalController+BrowserDesignMode.swift in Sources */,
 				805600000000000000000005 /* TerminalController+BrowserViewport.swift in Sources */,
 				D35A00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift in Sources */,
+				C7A1F1000000000000000004 /* TerminalController+CmuxTUI.swift in Sources */,
 				C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */,
 				C0DE00000000000000000C82 /* TerminalController+ControlBrowserPanelContext.swift in Sources */,
 				CA52E0020000000000000000 /* TerminalController+ControlCanvasContext.swift in Sources */,
@@ -11525,6 +11563,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxTerminal;
 		};
+		C7A1F2000000000000000001 /* XCLocalSwiftPackageReference "CmuxTUIClient" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxTUIClient;
+		};
 		CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxSettings;
@@ -11775,6 +11817,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCSwiftPackageProductDependency;
 			package = C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */;
 			productName = CmuxTerminal;
+		};
+		C7A1F2000000000000000002 /* CmuxTUIClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C7A1F2000000000000000001 /* XCLocalSwiftPackageReference "CmuxTUIClient" */;
+			productName = CmuxTUIClient;
 		};
 		CD0CFE5200000000CD0CFE52 /* CmuxSettings */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -142978,6 +142978,56 @@
         }
       }
     },
+    "cmuxTUI.terminal.defaultTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "da": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "de": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "en": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "es": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "it": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "km": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "th": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux-tui" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux-tui" } }
+      }
+    },
+    "cmuxTUI.terminal.transportRejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "رفضت محطة cmux-tui تحديثًا." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Terminal cmux-tui je odbio ažuriranje." } },
+        "da": { "stringUnit": { "state": "translated", "value": "cmux-tui-terminalen afviste en opdatering." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Das cmux-tui-Terminal hat eine Aktualisierung abgelehnt." } },
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux-tui terminal rejected an update." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El terminal de cmux-tui rechazó una actualización." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le terminal cmux-tui a refusé une mise à jour." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Il terminale cmux-tui ha rifiutato un aggiornamento." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux-tui ターミナルが更新を拒否しました。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ស្ថានីយ cmux-tui បានបដិសេធការធ្វើបច្ចុប្បន្នភាព។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux-tui 터미널이 업데이트를 거부했습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "cmux-tui-terminalen avviste en oppdatering." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Terminal cmux-tui odrzucił aktualizację." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O terminal cmux-tui rejeitou uma atualização." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Терминал cmux-tui отклонил обновление." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เทอร์มินัล cmux-tui ปฏิเสธการอัปเดต" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux-tui terminali bir güncellemeyi reddetti." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Термінал cmux-tui відхилив оновлення." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux-tui 终端拒绝了更新。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux-tui 終端拒絕了更新。" } }
+      }
+    },
     "remoteTmux.error.commandFailed": {
       "extractionState": "manual",
       "localizations": {
