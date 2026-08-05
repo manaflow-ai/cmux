@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 @Suite struct MobileSimulatorStreamStoreTests {
-    @Test func restartKeepsLastFrameVisibleUntilReplacementArrives() {
+    @Test func restartKeepsLastFrameVisibleUntilReplacementArrives() throws {
         let store = MobileSimulatorStreamStore()
         let descriptor = simulatorDescriptor()
         store.replaceSimulatorPanels(in: "workspace-1", with: [descriptor])
@@ -19,7 +19,7 @@ import Testing
             displayScale: 3,
             dataBase64: "ZmFrZQ=="
         )
-        let payload = try! JSONEncoder().encode(frame)
+        let payload = try JSONEncoder().encode(frame)
 
         store.receiveSimulatorFramePayload(payload)
         store.simulatorStreamWillStart(panelID: "sim-1")
@@ -27,6 +27,52 @@ import Testing
         let state = store.activeState(in: "workspace-1")
         #expect(state?.latestFrame == frame)
         #expect(state?.streamStatus == .starting)
+    }
+
+    /// A `simulator.state` event can describe a panel this phone never
+    /// activated; it must not promote that panel to `.starting`.
+    @Test func passiveStateUpdateDoesNotPromoteIdlePanelToStarting() throws {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [simulatorDescriptor()])
+
+        let payload = try JSONEncoder().encode(
+            simulatorDescriptor(ownerConnectionID: nil, isOwnedByCurrentConnection: nil)
+        )
+        store.receiveSimulatorStatePayload(payload)
+
+        #expect(store.state(for: "sim-1")?.streamStatus == .idle)
+    }
+
+    /// Broadcast rows (state sync, workspace lists) carry nil ownership; they
+    /// must not flip the owning phone to view-only or locked mid-stream.
+    @Test func unknownOwnershipKeepsLastPersonalizedAnswer() {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [simulatorDescriptor()])
+        store.activate(panelID: "sim-1", in: "workspace-1")
+        store.simulatorStreamDidStart(
+            simulatorDescriptor(ownerConnectionID: "phone", isOwnedByCurrentConnection: true)
+        )
+        let state = store.state(for: "sim-1")
+        #expect(state?.isOwnedByCurrentConnection == true)
+
+        store.applySimulatorDescriptor(
+            simulatorDescriptor(ownerConnectionID: "phone", isOwnedByCurrentConnection: nil)
+        )
+
+        #expect(state?.isOwnedByCurrentConnection == true)
+        #expect(state?.streamStatus != .locked)
+    }
+
+    /// States for panels that left every workspace (and are not active) are
+    /// pruned so their retained frames do not accumulate for the app lifetime.
+    @Test func replacingPanelsPrunesVanishedPanelState() {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [simulatorDescriptor()])
+        #expect(store.state(for: "sim-1") != nil)
+
+        store.replaceSimulatorPanels(in: "workspace-1", with: [])
+
+        #expect(store.state(for: "sim-1") == nil)
     }
 
     @Test func descriptorOwnedByAnotherConnectionMarksSurfaceLocked() {
@@ -61,7 +107,7 @@ import Testing
 
     private func simulatorDescriptor(
         ownerConnectionID: String? = nil,
-        isOwnedByCurrentConnection: Bool = true
+        isOwnedByCurrentConnection: Bool? = true
     ) -> MobileSimulatorPanelDescriptor {
         MobileSimulatorPanelDescriptor(
             panelID: "sim-1",

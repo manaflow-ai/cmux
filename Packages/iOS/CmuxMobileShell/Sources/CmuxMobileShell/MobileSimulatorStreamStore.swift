@@ -63,9 +63,9 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
         supportsHardwareButtons = descriptor.supportsHardwareButtons
         supportsRotation = descriptor.supportsRotation
         ownerConnectionID = descriptor.ownerConnectionID
-        isOwnedByCurrentConnection = descriptor.isOwnedByCurrentConnection
+        isOwnedByCurrentConnection = descriptor.isOwnedByCurrentConnection ?? false
         connectionStatus = .connected
-        streamStatus = descriptor.ownerConnectionID != nil && !descriptor.isOwnedByCurrentConnection
+        streamStatus = descriptor.ownerConnectionID != nil && descriptor.isOwnedByCurrentConnection != true
             ? .locked
             : .idle
         latestFrame = nil
@@ -83,8 +83,16 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
         supportsHardwareButtons = descriptor.supportsHardwareButtons
         supportsRotation = descriptor.supportsRotation
         ownerConnectionID = descriptor.ownerConnectionID
-        isOwnedByCurrentConnection = descriptor.isOwnedByCurrentConnection
-        if descriptor.ownerConnectionID != nil, !descriptor.isOwnedByCurrentConnection {
+        // Shared payloads (state-sync rows, workspace lists) carry nil
+        // ownership because they fan out to every phone. Keep the last
+        // per-connection answer then, so a broadcast tick cannot flip the
+        // owning phone to view-only mid-drag.
+        if let owned = descriptor.isOwnedByCurrentConnection {
+            isOwnedByCurrentConnection = owned
+        } else if descriptor.ownerConnectionID == nil {
+            isOwnedByCurrentConnection = false
+        }
+        if descriptor.ownerConnectionID != nil, !isOwnedByCurrentConnection {
             streamStatus = .locked
         } else if streamStatus == .locked {
             streamStatus = .idle
@@ -135,6 +143,7 @@ public final class MobileSimulatorStreamStore {
         if let active = activePanelByWorkspace[workspaceID], !currentIDs.contains(active) {
             activePanelByWorkspace[workspaceID] = nil
         }
+        pruneUnreferencedPanelStates()
     }
 
     public func state(for panelID: String) -> MobileSimulatorStreamSurfaceState? {
@@ -163,18 +172,24 @@ public final class MobileSimulatorStreamStore {
         }
     }
 
+    /// Deactivates only when `panelID` is still the workspace's active panel.
+    /// A pane's `onDisappear` fires *after* a replacement panel was already
+    /// activated (SwiftUI unmounts the old identity last), so the
+    /// unconditional form would tear down the replacement's selection.
+    public func deactivate(panelID: String, in workspaceID: String) {
+        guard activePanelByWorkspace[workspaceID] == panelID else { return }
+        activePanelByWorkspace[workspaceID] = nil
+        statesByPanel[panelID]?.streamStatus = .idle
+    }
+
     public func simulatorStreamWillStart(panelID: String) {
         statesByPanel[panelID]?.prepareForStreamStart()
     }
 
+    /// Start acknowledgment: the Mac accepted THIS phone's stream start, so
+    /// promoting to `.starting` (until the first frame arrives) is truthful.
     public func simulatorStreamDidStart(_ descriptor: MobileSimulatorPanelDescriptor) {
-        var descriptors = panels(in: descriptor.workspaceID)
-        if let index = descriptors.firstIndex(where: { $0.panelID == descriptor.panelID }) {
-            descriptors[index] = descriptor
-        } else {
-            descriptors.append(descriptor)
-        }
-        replaceSimulatorPanels(in: descriptor.workspaceID, with: descriptors)
+        upsert(descriptor)
         guard let state = statesByPanel[descriptor.panelID] else { return }
         state.connectionStatus = .connected
         if state.latestFrame == nil,
@@ -182,6 +197,24 @@ public final class MobileSimulatorStreamStore {
            state.streamStatus != .locked {
             state.streamStatus = .starting
         }
+    }
+
+    /// Passive descriptor update (`simulator.state` events, list refreshes):
+    /// merges the descriptor without promoting the panel's stream status. A
+    /// state event can describe a panel this phone never activated; promoting
+    /// it to `.starting` would park that surface on a spinner forever.
+    public func applySimulatorDescriptor(_ descriptor: MobileSimulatorPanelDescriptor) {
+        upsert(descriptor)
+    }
+
+    private func upsert(_ descriptor: MobileSimulatorPanelDescriptor) {
+        var descriptors = panels(in: descriptor.workspaceID)
+        if let index = descriptors.firstIndex(where: { $0.panelID == descriptor.panelID }) {
+            descriptors[index] = descriptor
+        } else {
+            descriptors.append(descriptor)
+        }
+        replaceSimulatorPanels(in: descriptor.workspaceID, with: descriptors)
     }
 
     public func receiveSimulatorFramePayload(_ payload: Data) {
@@ -196,7 +229,7 @@ public final class MobileSimulatorStreamStore {
             MobileSimulatorPanelDescriptor.self,
             from: payload
         ) else { return }
-        simulatorStreamDidStart(descriptor)
+        applySimulatorDescriptor(descriptor)
     }
 
     public func receiveSimulatorClosedPayload(_ payload: Data) -> String? {
@@ -210,7 +243,24 @@ public final class MobileSimulatorStreamStore {
         for (workspaceID, descriptors) in descriptorsByWorkspace {
             descriptorsByWorkspace[workspaceID] = descriptors.filter { $0.panelID != event.panelID }
         }
+        pruneUnreferencedPanelStates()
         return event.panelID
+    }
+
+    /// Drops state objects for panels no longer present in any workspace's
+    /// descriptor list and not the active panel anywhere. Each retained state
+    /// holds `latestFrame` (a full base64 frame payload), so states for
+    /// closed or vanished panels would otherwise accumulate frame data for
+    /// the app's lifetime. A visible pane keeps its (reference-type) state
+    /// alive on its own; dropping the store's entry only ends store updates.
+    private func pruneUnreferencedPanelStates() {
+        var referenced = Set(activePanelByWorkspace.values)
+        for descriptors in descriptorsByWorkspace.values {
+            for descriptor in descriptors {
+                referenced.insert(descriptor.panelID)
+            }
+        }
+        statesByPanel = statesByPanel.filter { referenced.contains($0.key) }
     }
 
     public func activeSimulatorStreamSelections() -> [MobileSimulatorStreamSelection] {

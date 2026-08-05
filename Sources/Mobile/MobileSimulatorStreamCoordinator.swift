@@ -56,6 +56,7 @@ final class MobileSimulatorStreamCoordinator {
         )
         sessions[key] = session
         session.start()
+        pruneCachesForClosedPanels()
         guard let descriptor = descriptor(panel: panel, currentConnectionID: connectionID) else {
             return .unavailable
         }
@@ -90,6 +91,7 @@ final class MobileSimulatorStreamCoordinator {
         if ownersByPanelID[panelID] == connectionID {
             ownersByPanelID[panelID] = nil
         }
+        pruneCachesForClosedPanels()
         return true
     }
 
@@ -102,6 +104,7 @@ final class MobileSimulatorStreamCoordinator {
                 ownersByPanelID[key.panelID] = nil
             }
         }
+        pruneCachesForClosedPanels()
     }
 
     private func sessionEnded(key: SessionKey, sessionID: UUID) {
@@ -109,6 +112,28 @@ final class MobileSimulatorStreamCoordinator {
         sessions[key] = nil
         if ownersByPanelID[key.panelID] == key.connectionID {
             ownersByPanelID[key.panelID] = nil
+        }
+        pruneCachesForClosedPanels()
+    }
+
+    /// `lastFramesByPanelID` intentionally survives session stop so a
+    /// reconnecting phone gets an instant warm frame, but a panel the user
+    /// closed never streams again, so its cached full-size frame (and
+    /// workspace mapping) would otherwise live for the app's lifetime. There
+    /// is no panel-close hook into this coordinator; every mutation entry
+    /// point sweeps instead, and the sweep resolves panels through the same
+    /// surface locator the input RPCs use.
+    private func pruneCachesForClosedPanels() {
+        // A panel with a live session is never pruned: its session holds the
+        // panel strongly, so a transient locator miss (workspace mid-move)
+        // must not drop the mapping the session's descriptors rely on.
+        let activePanelIDs = Set(sessions.keys.map(\.panelID))
+        let cachedPanelIDs = Set(workspaceIDsByPanelID.keys).union(lastFramesByPanelID.keys)
+        for panelID in cachedPanelIDs
+        where !activePanelIDs.contains(panelID)
+            && AppDelegate.shared?.locateSurface(surfaceId: panelID) == nil {
+            workspaceIDsByPanelID.removeValue(forKey: panelID)
+            lastFramesByPanelID.removeValue(forKey: panelID)
         }
     }
 }

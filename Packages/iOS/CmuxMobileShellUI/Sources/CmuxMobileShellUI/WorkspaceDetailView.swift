@@ -888,19 +888,30 @@ struct WorkspaceDetailView: View {
         dismissTerminalKeyboardForChrome()
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
-        if let previous = activeSimulatorStream, previous.id != panelID {
-            Task {
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        let previousPanelID: String? = activeSimulatorStream.flatMap {
+            $0.id == panelID ? nil : $0.id
+        }
+        // Settle the previous panel's local state before activating the new
+        // one, so switching A -> B leaves A idle instead of frozen on a stale
+        // `.streaming`/`.starting` status.
+        if let previousPanelID {
+            simulatorStreamStore.deactivate(panelID: previousPanelID, in: workspaceID)
+        }
+        _ = simulatorStreamStore.activate(panelID: panelID, in: workspaceID)
+        // One task, stop awaited before start: two independent tasks have no
+        // ordering guarantee, and the reversed order would tear down the new
+        // stream (or churn host sessions) right after it started.
+        Task {
+            if let previousPanelID {
                 await store.stopMobileSimulatorStream(
-                    panelID: previous.id,
-                    workspaceID: workspace.rpcWorkspaceID.rawValue
+                    panelID: previousPanelID,
+                    workspaceID: workspaceID
                 )
             }
-        }
-        _ = simulatorStreamStore.activate(panelID: panelID, in: workspace.rpcWorkspaceID.rawValue)
-        Task {
             await store.startMobileSimulatorStream(
                 panelID: panelID,
-                workspaceID: workspace.rpcWorkspaceID.rawValue
+                workspaceID: workspaceID
             )
         }
     }

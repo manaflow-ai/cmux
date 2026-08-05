@@ -4,7 +4,22 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    /// Serializes start/stop transitions per panel through the composite-owned
+    /// operation chain, so a foreground restart cannot overlap a still-running
+    /// background stop against the Mac's single-controller ownership.
     public func startMobileSimulatorStream(panelID: String, workspaceID: String) async {
+        await enqueueMobileSimulatorStreamOperation(panelID: panelID) { [weak self] in
+            await self?.performMobileSimulatorStreamStart(panelID: panelID, workspaceID: workspaceID)
+        }.value
+    }
+
+    public func stopMobileSimulatorStream(panelID: String, workspaceID: String) async {
+        await enqueueMobileSimulatorStreamOperation(panelID: panelID) { [weak self] in
+            await self?.performMobileSimulatorStreamStop(panelID: panelID, workspaceID: workspaceID)
+        }.value
+    }
+
+    private func performMobileSimulatorStreamStart(panelID: String, workspaceID: String) async {
         guard !startedMobileSimulatorPanelIDs.contains(panelID),
               connectionState == .connected,
               supportsSimulatorStream,
@@ -16,18 +31,65 @@ extension MobileShellComposite {
                 workspaceID: workspaceID
             )
             guard connectionState == .connected,
-                  remoteClient === client else { return }
+                  remoteClient === client else {
+                settleFailedMobileSimulatorStreamStart(panelID: panelID)
+                return
+            }
             startedMobileSimulatorPanelIDs.insert(panelID)
             simulatorStreamStore?.simulatorStreamDidStart(descriptor)
         } catch MobileShellConnectionError.rpcError(let code, _) where code == "locked" {
             simulatorStreamStore?.state(for: panelID)?.streamStatus = .locked
-        } catch {}
+        } catch {
+            settleFailedMobileSimulatorStreamStart(panelID: panelID)
+        }
     }
 
-    public func stopMobileSimulatorStream(panelID: String, workspaceID: String) async {
+    /// Rolls the optimistic `.starting` from `simulatorStreamWillStart` back
+    /// to `.idle` when no descriptor was accepted, so a failed start cannot
+    /// park the pane on a spinner forever. Per-panel serialization guarantees
+    /// at most one start attempt is in flight, so a stale response can never
+    /// settle a newer attempt.
+    private func settleFailedMobileSimulatorStreamStart(panelID: String) {
+        guard let state = simulatorStreamStore?.state(for: panelID),
+              state.streamStatus == .starting else { return }
+        state.streamStatus = .idle
+    }
+
+    private func performMobileSimulatorStreamStop(panelID: String, workspaceID: String) async {
         startedMobileSimulatorPanelIDs.remove(panelID)
         guard let client = remoteClient else { return }
         _ = try? await client.stopMobileSimulatorStream(panelID: panelID, workspaceID: workspaceID)
+    }
+
+    /// Appends one operation to the panel's chain. Each operation awaits its
+    /// predecessor, cancellation skips the body without breaking the chain,
+    /// and the map entry self-removes once its tail drains.
+    private func enqueueMobileSimulatorStreamOperation(
+        panelID: String,
+        _ operation: @escaping @MainActor () async -> Void
+    ) -> Task<Void, Never> {
+        let previous = mobileSimulatorStreamOperationsByPanel[panelID]
+        let task = Task { @MainActor in
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            await operation()
+        }
+        mobileSimulatorStreamOperationsByPanel[panelID] = task
+        Task { @MainActor [weak self] in
+            await task.value
+            guard let self, self.mobileSimulatorStreamOperationsByPanel[panelID] == task else { return }
+            self.mobileSimulatorStreamOperationsByPanel.removeValue(forKey: panelID)
+        }
+        return task
+    }
+
+    /// Cancels queued (not yet started) operations on disconnect; each chain
+    /// entry re-checks connection state before touching the wire anyway.
+    func cancelMobileSimulatorStreamOperations() {
+        for task in mobileSimulatorStreamOperationsByPanel.values {
+            task.cancel()
+        }
+        mobileSimulatorStreamOperationsByPanel.removeAll()
     }
 
     public func sendMobileSimulatorPointer(_ input: MobileSimulatorPointerInput) async {
@@ -63,9 +125,12 @@ extension MobileShellComposite {
         guard connectionState == .connected, supportsSimulatorStream else { return }
         let selections = simulatorStreamStore?.activeSimulatorStreamSelections() ?? []
         for selection in selections {
-            startedMobileSimulatorPanelIDs.remove(selection.panelID)
-            Task {
-                await startMobileSimulatorStream(
+            _ = enqueueMobileSimulatorStreamOperation(panelID: selection.panelID) { [weak self] in
+                guard let self else { return }
+                // Cleared inside the serialized operation so it cannot race a
+                // still-draining stop for the same panel.
+                self.startedMobileSimulatorPanelIDs.remove(selection.panelID)
+                await self.performMobileSimulatorStreamStart(
                     panelID: selection.panelID,
                     workspaceID: selection.workspaceID
                 )
@@ -77,8 +142,8 @@ extension MobileShellComposite {
         let selections = simulatorStreamStore?.activeSimulatorStreamSelections() ?? []
         simulatorStreamStore?.pauseSimulatorStreams()
         for selection in selections {
-            Task {
-                await stopMobileSimulatorStream(
+            _ = enqueueMobileSimulatorStreamOperation(panelID: selection.panelID) { [weak self] in
+                await self?.performMobileSimulatorStreamStop(
                     panelID: selection.panelID,
                     workspaceID: selection.workspaceID
                 )

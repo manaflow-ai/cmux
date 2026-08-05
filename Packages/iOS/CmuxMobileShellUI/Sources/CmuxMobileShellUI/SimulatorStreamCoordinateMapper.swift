@@ -20,10 +20,13 @@ struct SimulatorStreamCoordinateMapper: Equatable {
         )
     }
 
-    func normalizedPoint(from point: CGPoint, clamped: Bool = true) -> CGPoint? {
+    /// The result is always clamped to `0...1`; `allowsOutsideImage` only
+    /// controls whether a point outside the letterboxed image is rejected
+    /// (`nil`) instead of clamped to the nearest edge.
+    func normalizedPoint(from point: CGPoint, allowsOutsideImage: Bool = true) -> CGPoint? {
         let rect = fittedImageRect
         guard !rect.isEmpty else { return nil }
-        if !clamped, !rect.contains(point) { return nil }
+        if !allowsOutsideImage, !rect.contains(point) { return nil }
         let x = (point.x - rect.minX) / rect.width
         let y = (point.y - rect.minY) / rect.height
         return CGPoint(

@@ -42,7 +42,11 @@ public struct SimulatorMobileFrame: Equatable, Sendable {
     }
 }
 
-public final class SimulatorMobileFrameReader: @unchecked Sendable {
+/// Checked `Sendable`: both stored properties are immutable, and
+/// `SimulatorFrameSurfaceReading` requires `Sendable` of its conformers
+/// (`SimulatorFrameSurfaceSource` documents its own seqlock/immutable-mapping
+/// safety), so the compiler can verify this type without `@unchecked`.
+public final class SimulatorMobileFrameReader: Sendable {
     private let source: any SimulatorFrameSurfaceReading
     private let displayScale: Double
 

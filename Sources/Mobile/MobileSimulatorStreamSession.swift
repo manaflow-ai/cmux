@@ -128,11 +128,26 @@ final class MobileSimulatorStreamSession {
             guard let event = await nextFrameEvent() else { return }
             guard let payload = wireEncoder.object(event) else { continue }
             let delivered = await connection.sendEvent(topic: "simulator.frame", payload: payload)
-            guard delivered else { return }
+            guard delivered else {
+                // A refused frame means the connection is closed or its
+                // bounded event queue overflowed into a close; no later send
+                // will succeed. End the session so the coordinator releases
+                // the panel's control lock now, instead of another phone
+                // seeing `.locked` until the registry's connection-closed
+                // sweep runs.
+                await endAfterDeliveryFailure()
+                return
+            }
             lastSentSequence = event.sequence
             cachedFrame = event
             onFrame(panelID, event)
         }
+    }
+
+    private func endAfterDeliveryFailure() async {
+        guard !isStopped else { return }
+        await stop(sendClosed: false)
+        onEnded(id)
     }
 
     private func nextFrameEvent() async -> MobileSimulatorFrameEvent? {

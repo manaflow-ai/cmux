@@ -13,7 +13,13 @@ public struct MobileSimulatorPanelDescriptor: Codable, Equatable, Identifiable, 
     public let supportsHardwareButtons: Bool
     public let supportsRotation: Bool
     public let ownerConnectionID: String?
-    public let isOwnedByCurrentConnection: Bool
+    /// Whether the receiving connection owns the pane's control lock.
+    /// `nil` means "not personalized": the descriptor was built for a shared
+    /// payload (state-sync rows, workspace lists) that fans out to every
+    /// phone, so it cannot say anything about *this* connection. Receivers
+    /// keep their last per-connection answer (stream start response,
+    /// `simulator.state` events, `mobile.simulator.list`) when this is `nil`.
+    public let isOwnedByCurrentConnection: Bool?
 
     public init(
         panelID: String,
@@ -28,7 +34,7 @@ public struct MobileSimulatorPanelDescriptor: Codable, Equatable, Identifiable, 
         supportsHardwareButtons: Bool,
         supportsRotation: Bool,
         ownerConnectionID: String? = nil,
-        isOwnedByCurrentConnection: Bool = false
+        isOwnedByCurrentConnection: Bool? = nil
     ) {
         self.panelID = panelID
         self.workspaceID = workspaceID

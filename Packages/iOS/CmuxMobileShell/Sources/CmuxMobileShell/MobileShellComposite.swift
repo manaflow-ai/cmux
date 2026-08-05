@@ -199,6 +199,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 deactivateAllTerminalLanes()
                 startedMobileBrowserPanelIDs.removeAll()
                 startedMobileSimulatorPanelIDs.removeAll()
+                cancelMobileSimulatorStreamOperations()
                 browserStreamEvents?.setBrowserStreamConnectionStatus(
                     macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
                 )
@@ -498,6 +499,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored let mobileBrowserStreamLifecycle = MobileBrowserStreamLifecycleCoordinator()
     @ObservationIgnored var startedMobileBrowserPanelIDs: Set<String> = []
     @ObservationIgnored var startedMobileSimulatorPanelIDs: Set<String> = []
+    /// Per-panel simulator stream operation chains. Each start/stop awaits the
+    /// panel's previous operation, so a background stop and a foreground
+    /// restart can never interleave against the Mac's single-controller
+    /// ownership. Entries self-remove when their chain drains.
+    @ObservationIgnored var mobileSimulatorStreamOperationsByPanel: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var terminalThemeState = MobileTerminalThemeState()
     /// The selected surface's effective theme and iOS chrome source of truth.
     public internal(set) var activeTerminalTheme: TerminalTheme = .monokai

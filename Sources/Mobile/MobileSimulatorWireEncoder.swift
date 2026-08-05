@@ -23,7 +23,13 @@ struct MobileSimulatorWireEncoder {
             supportsHardwareButtons: panel.coordinator.supports(.hardwareButtons),
             supportsRotation: panel.coordinator.supports(.rotation),
             ownerConnectionID: ownerConnectionID?.uuidString,
-            isOwnedByCurrentConnection: ownerConnectionID != nil && ownerConnectionID == currentConnectionID
+            // Ownership is personal to one connection. Shared payloads
+            // (state-sync rows, workspace lists) pass no connection, so they
+            // must say "unknown" (nil) rather than telling the owning phone
+            // it lost control on every broadcast tick.
+            isOwnedByCurrentConnection: currentConnectionID.map {
+                ownerConnectionID != nil && ownerConnectionID == $0
+            }
         )
     }
 

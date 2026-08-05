@@ -25,8 +25,6 @@ public struct MobileSimulatorCommandResponse: Decodable, Sendable {
 }
 
 struct MobileSimulatorRPCRequestEncoder: Sendable {
-    init() {}
-
     func requestData<Parameters: Encodable>(method: String, parameters: Parameters) throws -> Data {
         let encoded = try JSONEncoder().encode(parameters)
         guard let params = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {

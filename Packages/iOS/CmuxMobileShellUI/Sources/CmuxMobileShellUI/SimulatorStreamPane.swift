@@ -5,12 +5,42 @@ import CmuxMobileSupport
 import SwiftUI
 @preconcurrency import UIKit
 
+/// Serializes pointer delivery: gesture callbacks yield into one buffered
+/// stream that a single lifecycle-owned task drains in order, because
+/// independent per-event `Task`s have no ordering guarantee and could land a
+/// `.moved` on the Mac before its `.began`. Yields while no consumer is
+/// attached (pane unmounted) are dropped.
+@MainActor
+private final class SimulatorPointerPipe {
+    private var continuation: AsyncStream<MobileSimulatorPointerInput>.Continuation?
+
+    nonisolated init() {}
+
+    func send(_ input: MobileSimulatorPointerInput) {
+        continuation?.yield(input)
+    }
+
+    /// Vends a fresh stream per consuming `.task` run so a remount after
+    /// cancellation gets a live pipe instead of a terminated stream.
+    func makeStream() -> AsyncStream<MobileSimulatorPointerInput> {
+        continuation?.finish()
+        let (stream, continuation) = AsyncStream.makeStream(of: MobileSimulatorPointerInput.self)
+        self.continuation = continuation
+        return stream
+    }
+}
+
 struct SimulatorStreamPane: View {
-    @State private var state: MobileSimulatorStreamSurfaceState
+    // Owned by `MobileSimulatorStreamStore`; held as a plain reference (not
+    // `@State`) so a parent that reuses this view identity with a different
+    // panel's state observes the new object instead of the first render's.
+    private let state: MobileSimulatorStreamSurfaceState
     @State private var image: UIImage?
     @State private var imageSequence: UInt64?
     @State private var pendingText = ""
     @State private var dragStarted = false
+    @State private var paneSize = CGSize.zero
+    @State private var pointerPipe = SimulatorPointerPipe()
     @FocusState private var textFocused: Bool
 
     private let workspaceID: String
@@ -24,7 +54,7 @@ struct SimulatorStreamPane: View {
         actions: SimulatorStreamSurfaceActions,
         reconnect: @escaping () -> Void
     ) {
-        _state = State(initialValue: state)
+        self.state = state
         self.workspaceID = workspaceID
         self.actions = actions
         self.reconnect = reconnect
@@ -32,26 +62,34 @@ struct SimulatorStreamPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            GeometryReader { proxy in
-                ZStack {
-                    Color(red: 0.055, green: 0.063, blue: 0.075)
-                    if let image {
-                        Image(uiImage: image)
-                            .resizable()
-                            .interpolation(.medium)
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .gesture(touchGesture(viewSize: proxy.size))
-                            .accessibilityIdentifier("SimulatorStreamImage")
-                    }
-                    paneOverlay
+            ZStack {
+                Color(red: 0.055, green: 0.063, blue: 0.075)
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .interpolation(.medium)
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .gesture(touchGesture(viewSize: paneSize))
+                        .accessibilityIdentifier("SimulatorStreamImage")
                 }
+                paneOverlay
+            }
+            .onGeometryChange(for: CGSize.self) { proxy in
+                proxy.size
+            } action: { size in
+                paneSize = size
             }
             bottomBar
         }
         .background(Color(red: 0.055, green: 0.063, blue: 0.075).ignoresSafeArea())
         .task(id: state.latestFrame?.sequence) {
-            decodeLatestFrame()
+            await decodeLatestFrame()
+        }
+        .task {
+            for await input in pointerPipe.makeStream() {
+                await actions.pointer(input)
+            }
         }
         .accessibilityIdentifier("SimulatorStreamPane")
     }
@@ -100,7 +138,7 @@ struct SimulatorStreamPane: View {
             x: Double(normalized.x),
             y: Double(normalized.y)
         )
-        Task { await actions.pointer(input) }
+        pointerPipe.send(input)
     }
 
     @ViewBuilder
@@ -332,10 +370,21 @@ struct SimulatorStreamPane: View {
         Task { await actions.button(input) }
     }
 
-    private func decodeLatestFrame() {
+    private func decodeLatestFrame() async {
         guard let frame = state.latestFrame, imageSequence != frame.sequence else { return }
-        guard let data = Data(base64Encoded: frame.dataBase64),
-              let decoded = UIImage(data: data) else { return }
+        // Base64 + image decode run off the main actor: at stream frame rate
+        // an inline decode in this MainActor-isolated view would block
+        // scrolling and gesture recognition on every received frame.
+        let base64 = frame.dataBase64
+        let decoded = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            guard let data = Data(base64Encoded: base64),
+                  let image = UIImage(data: data) else { return nil }
+            // Force decompression here rather than lazily at first render.
+            return image.preparingForDisplay() ?? image
+        }.value
+        guard let decoded else { return }
+        // A newer frame may have superseded this decode while it ran.
+        guard state.latestFrame?.sequence == frame.sequence else { return }
         image = decoded
         imageSequence = frame.sequence
     }
