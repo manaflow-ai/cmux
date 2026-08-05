@@ -15,10 +15,10 @@ import UIKit
 /// missed a live transition around window (re)attachment. Docking correctly
 /// here therefore proves the dock does not depend on the guide having seen the
 /// keyboard event. Each test injects a notification-center-isolated
-/// `MobileKeyboardFrameTracker` (the floor's single data source) and drives the
-/// view's notification handler through the test seam for animation-curve
-/// application, mirroring the production wiring where the shared tracker
-/// observes the same notifications the view does.
+/// `MobileKeyboardFrameTracker` (the floor's single data source) through the
+/// surface initializer and calls the view's notification handler directly for
+/// animation-curve application, mirroring the production wiring where the
+/// shared tracker observes the same notifications the view does.
 @MainActor
 @Suite("Keyboard dock floor", .serialized)
 struct GhosttySurfaceKeyboardDockFloorTests {
@@ -54,11 +54,11 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         let view = GhosttySurfaceView(
             runtime: try GhosttyRuntime.shared(),
             delegate: delegate,
-            fontSize: 10
+            fontSize: 10,
+            keyboardFrameTracker: tracker
         )
         view.autoFocusOnWindowAttach = false
         view.isRenderDispatchSuppressed = true
-        view.setKeyboardFrameTrackerForTesting(tracker)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: Self.windowHeight))
         if attached {
             attach(view, to: window)
@@ -106,7 +106,7 @@ struct GhosttySurfaceKeyboardDockFloorTests {
     ) {
         let notification = keyboardNotification(coveringBottom: overlap)
         harness.center.post(notification)
-        harness.view.handleKeyboardWillChangeFrameForTesting(notification)
+        harness.view.handleKeyboardWillChangeFrame(notification)
         harness.view.setNeedsLayout()
         harness.view.layoutIfNeeded()
     }

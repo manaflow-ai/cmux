@@ -524,17 +524,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// and the floor is inert.
     private var composerBottomKeyboardFloorConstraint: NSLayoutConstraint?
     /// Process-wide keyboard-frame source for floor catch-up on attach/layout.
-    /// Only the DEBUG seam below can replace it: tests inject a
-    /// notification-center-isolated instance without touching the shared
-    /// tracker other suites read.
-    private(set) var keyboardFrameTracker: MobileKeyboardFrameTracker = .shared
-
-    #if DEBUG
-    /// Test seam: swaps the floor's keyboard-frame source for an isolated one.
-    func setKeyboardFrameTrackerForTesting(_ tracker: MobileKeyboardFrameTracker) {
-        keyboardFrameTracker = tracker
-    }
-    #endif
+    /// Injected at construction (production callers take the shared tracker
+    /// default) so tests pass a notification-center-isolated instance without
+    /// touching the shared tracker other suites read.
+    private let keyboardFrameTracker: MobileKeyboardFrameTracker
     /// The keyboard overlap the floor constraint currently enforces, mirrored
     /// into the viewport model so the terminal grid reserves the same space the
     /// bars occupy. Zero while the keyboard is down or unknown.
@@ -757,11 +750,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   - terminalTheme: Renderer-effective colors used by surrounding UIKit chrome.
     ///   - terminalConfigTheme: Raw Ghostty configuration defaults. Defaults to
     ///     `terminalTheme` for callers that do not mirror a remote surface.
+    ///   - keyboardFrameTracker: Keyboard-frame source for the bottom-dock
+    ///     floor. Production callers keep the shared process-wide tracker;
+    ///     tests inject a notification-center-isolated instance.
     public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate,
                 fontSize: Float32 = 10, terminalTheme: TerminalTheme = .monokai,
-                terminalConfigTheme: TerminalTheme? = nil) {
+                terminalConfigTheme: TerminalTheme? = nil,
+                keyboardFrameTracker: MobileKeyboardFrameTracker = .shared) {
         self.runtime = runtime
         self.delegate = delegate
+        self.keyboardFrameTracker = keyboardFrameTracker
         self.fontSize = fontSize
         self.liveFontSize = fontSize
         self.userBaseFontSize = fontSize
@@ -974,7 +972,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// whichever registered surface happens to sort first.
     public var hostSurfaceID: String?
 
-    @objc private func handleKeyboardWillChangeFrame(_ notification: Notification) {
+    // Internal so tests can route a fixture notification through the
+    // production path for THIS view only (posting to the process-wide center
+    // would leak keyboard state into concurrently running suites).
+    @objc func handleKeyboardWillChangeFrame(_ notification: Notification) {
         guard let transition = MobileKeyboardTransition(notification: notification) else { return }
         let willBeVisible = transition.isVisible(in: self)
         let wasVisible = keyboardVisible
@@ -1227,13 +1228,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         zoomOverlayLastInteraction = CACurrentMediaTime() + 3600
     }
 
-    /// Test seam: routes a keyboard notification through the production
-    /// `keyboardWillChangeFrame` path for THIS view only, without posting to the
-    /// process-wide notification center (which would leak keyboard state into
-    /// concurrently running suites).
-    func handleKeyboardWillChangeFrameForTesting(_ notification: Notification) {
-        handleKeyboardWillChangeFrame(notification)
-    }
     #endif
 
     /// Dock the accessory bar as a persistent bottom toolbar. Auto Layout pins it

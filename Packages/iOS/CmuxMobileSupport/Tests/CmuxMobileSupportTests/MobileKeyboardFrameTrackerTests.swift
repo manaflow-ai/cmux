@@ -109,7 +109,7 @@ import UIKit
         #expect(tracker.latestTransition == nil)
     }
 
-    @Test func notificationWithoutAnEndFrameIsIgnored() {
+    @Test func notificationWithoutAnEndFrameClearsTheTrackedTransition() {
         let center = NotificationCenter()
         let tracker = MobileKeyboardFrameTracker(notificationCenter: center)
 
@@ -120,7 +120,8 @@ import UIKit
         )
         post(UIResponder.keyboardWillChangeFrameNotification, to: center)
 
-        // A malformed follow-up must not erase the last good transition.
-        #expect(tracker.latestTransition != nil)
+        // An unreadable follow-up means the keyboard state is unknown; fail
+        // closed so a stale floor cannot keep the dock raised.
+        #expect(tracker.latestTransition == nil)
     }
 }

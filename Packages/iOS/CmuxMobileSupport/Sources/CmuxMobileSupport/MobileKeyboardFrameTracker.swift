@@ -25,9 +25,10 @@ public final class MobileKeyboardFrameTracker {
     public static let shared = MobileKeyboardFrameTracker()
 
     /// The most recent keyboard transition, or `nil` while the keyboard state
-    /// is unknown (nothing observed yet, keyboard fully hidden, or state
-    /// discarded on backgrounding because iOS can tear the keyboard down
-    /// without a paired notification).
+    /// is unknown (nothing observed yet, keyboard fully hidden, a transition
+    /// posted without a readable end frame, or state discarded on
+    /// backgrounding because iOS can tear the keyboard down without a paired
+    /// notification).
     public private(set) var latestTransition: MobileKeyboardTransition?
 
     private nonisolated(unsafe) var tokens: [NSObjectProtocol] = []
@@ -47,7 +48,10 @@ public final class MobileKeyboardFrameTracker {
             ) { [weak self] notification in
                 let transition = MobileKeyboardTransition(notification: notification)
                 MainActor.assumeIsolated {
-                    guard let transition else { return }
+                    // A transition without a readable end frame leaves the
+                    // keyboard state unknown; fail closed (clear) so a stale
+                    // floor can never keep the dock and viewport raised after
+                    // the keyboard actually changed.
                     self?.latestTransition = transition
                 }
             },
