@@ -526,6 +526,45 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func negativeHoverCacheExpiresWithoutReprobingEveryRenderedFrame() {
+        let request = WordPathHoverResolutionRequest(
+            identity: WordPathHoverResolutionIdentity(
+                key: WordPathHoverCacheKey(
+                    surfaceID: UUID(),
+                    surfaceGeneration: 1,
+                    row: 2,
+                    column: 3,
+                    rows: 24,
+                    columns: 80,
+                    boundsSize: CGSize(width: 800, height: 480),
+                    cellSize: CGSize(width: 10, height: 20),
+                    workingDirectory: "/tmp"
+                ),
+                quicklook: nil
+            ),
+            snapshot: WordPathResolutionSnapshot(
+                workingDirectory: "/tmp",
+                point: nil,
+                quicklook: nil,
+                viewport: nil
+            ),
+            renderedFrameGeneration: 1
+        )
+        let entry = WordPathHoverCacheEntry(
+            request: request,
+            resolution: nil,
+            storedAt: 10
+        )
+
+        #expect(entry.hasFreshNegativeResult(at: 10.999, maximumAge: 1))
+        #expect(!entry.hasFreshNegativeResult(at: 11, maximumAge: 1))
+        #expect(!entry.hasFreshNegativeResult(at: 9, maximumAge: 1))
+        #expect(entry.updatingRequest(
+            request.updatingRenderedFrameGeneration(2)
+        ).storedAt == 10)
+    }
+
+    @Test
     func htmlPathOpensInBrowserInsteadOfFilePreview() throws {
         _ = NSApplication.shared
 

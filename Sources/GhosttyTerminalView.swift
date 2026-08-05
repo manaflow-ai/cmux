@@ -3680,6 +3680,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverResolutionCancellation: AtomicBooleanGate?
     private var wordPathHoverResolutionTaskIdentity: WordPathHoverResolutionIdentity?
     private var wordPathHoverResolutionTaskRequest: WordPathHoverResolutionRequest?
+    private static let wordPathNegativeHoverCacheMaximumAge: TimeInterval = 1
     private var wordPathClickResolutionJobID: UUID?
     private var wordPathClickResolutionCancellation: AtomicBooleanGate?
     private var wordPathClickResolutionCompletion:
@@ -6820,7 +6821,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let resolution = cachedWordPathHoverResolution(at: point)
-        if resolution != nil || wordPathHoverResolutionJobID != nil {
+        if wordPathHoverRefreshPoint != nil {
             startWordPathHoverRenderedFrameObservationIfNeeded()
         } else {
             stopWordPathHoverRenderedFrameObservation()
@@ -6872,10 +6873,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cancelWordPathHoverResolution()
             return nil
         }
+        let now = ProcessInfo.processInfo.systemUptime
         if let cachedWordPathHover,
            cachedWordPathHover.request.key == key,
            cachedWordPathHover.request.renderedFrameGeneration
-               == wordPathHoverRenderedFrameGeneration {
+               == wordPathHoverRenderedFrameGeneration,
+           cachedWordPathHover.resolution != nil || cachedWordPathHover.hasFreshNegativeResult(
+               at: now,
+               maximumAge: Self.wordPathNegativeHoverCacheMaximumAge
+           ) {
             return cachedWordPathHover.resolution
         }
         guard let identity = wordPathHoverResolutionIdentity(key: key) else {
@@ -6885,13 +6891,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if let cachedWordPathHover,
            cachedWordPathHover.request.identity == identity,
-           cachedWordPathHover.resolution?.source == .quicklook {
+           cachedWordPathHover.resolution?.source == .quicklook
+               || cachedWordPathHover.hasFreshNegativeResult(
+                   at: now,
+                   maximumAge: Self.wordPathNegativeHoverCacheMaximumAge
+               ) {
             let request = cachedWordPathHover.request
                 .updatingRenderedFrameGeneration(wordPathHoverRenderedFrameGeneration)
-            self.cachedWordPathHover = WordPathHoverCacheEntry(
-                request: request,
-                resolution: cachedWordPathHover.resolution
-            )
+            self.cachedWordPathHover = cachedWordPathHover.updatingRequest(request)
             return cachedWordPathHover.resolution
         }
         if wordPathHoverResolutionTaskIdentity == identity,
@@ -7026,13 +7033,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             resolution: resolution
         )
         setWordPathHoverActive(resolution != nil)
-        if resolution == nil {
-            // Retain the negative result for this exact cell, surface, and CWD.
-            // Command-click always resolves afresh, while stopping frame demand
-            // prevents cursor-blink renders from repeating transcript capture
-            // and filesystem work for a stationary pointer.
-            stopWordPathHoverRenderedFrameObservation()
-        }
     }
 
     private func discardWordPathHoverResolution(jobID: UUID) {
@@ -7159,7 +7159,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // hovered line. Fail closed while output is moving, then resolve once
         // after the render stream settles. Quicklook results carry a cheap
         // word-and-offset identity and can remain active across unrelated output.
-        if cachedWordPathHover?.resolution?.source != .quicklook {
+        if let resolution = cachedWordPathHover?.resolution,
+           resolution.source != .quicklook {
             cachedWordPathHover = nil
             setWordPathHoverActive(false)
         }

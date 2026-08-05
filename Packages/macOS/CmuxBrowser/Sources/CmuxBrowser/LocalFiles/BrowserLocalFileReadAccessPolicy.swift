@@ -17,21 +17,6 @@ public enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Hashab
     /// Grants access only to the displayed file after resolving its canonical target.
     case fileOnly
 
-    /// Resolves the document URL required by this policy.
-    ///
-    /// - Parameter url: The navigation URL to resolve.
-    /// - Returns: The canonical file target for ``fileOnly``, or the original URL otherwise.
-    public func resolvedNavigationURL(for url: URL) -> URL {
-        guard self == .fileOnly, url.browserIsLocalFileURL else { return url }
-        let resolvedFileURL = URL(fileURLWithPath: url.path)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-        return navigationURL(
-            for: url,
-            resolvedFileURL: resolvedFileURL
-        ) ?? resolvedFileURL
-    }
-
     /// Builds a navigation URL from a filesystem target that was resolved off
     /// the main actor, while preserving the original query and fragment.
     ///
@@ -76,7 +61,11 @@ public enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Hashab
         return components.url
     }
 
-    /// Returns the narrowest WebKit read-access URL permitted by this policy.
+    /// Returns containing-directory read access for an unvalidated local URL.
+    ///
+    /// ``fileOnly`` deliberately returns `nil`; those callers must resolve and
+    /// validate through the bounded filesystem probe, then call
+    /// ``readAccessURL(forResolvedNavigationURL:)``.
     ///
     /// - Parameters:
     ///   - fileURL: The local document or directory URL being loaded.
@@ -86,23 +75,24 @@ public enum BrowserLocalFileReadAccessPolicy: String, Codable, Equatable, Hashab
         for fileURL: URL,
         fileManager: FileManager = .default
     ) -> URL? {
-        guard fileURL.browserIsLocalFileURL, fileURL.path.hasPrefix("/") else { return nil }
-        let resolvedURL = resolvedNavigationURL(for: fileURL)
+        // File-only callers must use the deadline-bounded regular-file probe,
+        // then pass its canonical result to the resolved-URL overload. Keeping
+        // this synchronous path exclusive to the legacy directory policy
+        // prevents a main-actor caller from resolving a stalled symlink mount.
+        guard self == .containingDirectory,
+              fileURL.browserIsLocalFileURL,
+              fileURL.path.hasPrefix("/") else {
+            return nil
+        }
         var isDirectory: ObjCBool = false
         if fileManager.fileExists(
-            atPath: resolvedURL.path,
+            atPath: fileURL.path,
             isDirectory: &isDirectory
         ), isDirectory.boolValue {
-            return self == .fileOnly ? nil : resolvedURL
+            return fileURL
         }
-
-        switch self {
-        case .fileOnly:
-            return resolvedURL
-        case .containingDirectory:
-            let parent = resolvedURL.deletingLastPathComponent()
-            guard !parent.path.isEmpty, parent.path.hasPrefix("/") else { return nil }
-            return parent
-        }
+        let parent = fileURL.deletingLastPathComponent()
+        guard !parent.path.isEmpty, parent.path.hasPrefix("/") else { return nil }
+        return parent
     }
 }
