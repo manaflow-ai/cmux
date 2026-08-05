@@ -76,7 +76,7 @@ export function createHostedSubrouterClient(options: {
   const fetchImpl = options.fetch ?? fetch;
   const tenantDeleteToken = (
     options.tenantDeleteToken ??
-    process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??
+    env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??
     ""
   ).trim();
   const assertTenantControlConfigured = (): void => {

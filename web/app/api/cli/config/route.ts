@@ -50,7 +50,7 @@ export function GET(request: Request): Response {
     },
     {
       headers: {
-        "cache-control": "public, max-age=300",
+        "cache-control": "no-store",
       },
     },
   );

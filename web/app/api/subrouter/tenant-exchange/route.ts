@@ -1,5 +1,6 @@
 import { resolveSubrouterRequestContext } from "../../../../services/subrouter/requestContext";
 import { subrouterErrorResponse } from "../../../../services/subrouter/routeHelpers";
+import { env } from "../../../env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,9 +13,8 @@ export async function POST(request: Request): Promise<Response> {
   if (!resolved.ok) return resolved.response;
 
   try {
-    const controlToken =
-      process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN?.trim();
-    const hostedUrl = process.env.SUBROUTER_HOSTED_URL?.trim().replace(
+    const controlToken = env.SUBROUTER_STACK_TENANT_DELETE_TOKEN?.trim();
+    const hostedUrl = env.SUBROUTER_HOSTED_URL?.trim().replace(
       /\/+$/,
       "",
     );
@@ -33,7 +33,7 @@ export async function POST(request: Request): Promise<Response> {
       headers: {
         authorization: `Bearer ${resolved.value.accessToken}`,
         "content-type": "application/json",
-        "x-coderouter-control": controlToken,
+        "x-subrouter-stack-control-token": controlToken,
       },
       body: JSON.stringify({
         capabilities,
