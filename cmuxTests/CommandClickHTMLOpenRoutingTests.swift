@@ -661,7 +661,7 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func fileOnlyBrowserReroutesInPageFileNavigationThroughValidator() async throws {
+    func fileOnlyBrowserRejectsScriptInitiatedInPageFileNavigation() async throws {
         _ = NSApplication.shared
 
         let fixtureDirectory = FileManager.default.temporaryDirectory
@@ -691,12 +691,13 @@ struct CommandClickHTMLOpenRoutingTests {
         #expect(await waitForDocumentTitle("first file", in: browser))
         _ = try await browser.webView.evaluateJavaScript("document.getElementById('next').click()")
 
-        #expect(await waitForDocumentTitle("validated in-page file", in: browser))
-        #expect(browser.webView.url?.standardizedFileURL == secondURL.standardizedFileURL)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(await waitForDocumentTitle("first file", in: browser))
+        #expect(browser.webView.url?.standardizedFileURL == firstURL.standardizedFileURL)
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func fileOnlyPopupReroutesFileNavigationThroughValidator() async throws {
+    func fileOnlyPopupRejectsUnvalidatedFileNavigation() async throws {
         _ = NSApplication.shared
 
         let fixtureDirectory = FileManager.default.temporaryDirectory
@@ -732,8 +733,10 @@ struct CommandClickHTMLOpenRoutingTests {
             allowingReadAccessTo: unrelatedAccessURL
         )
 
-        #expect(await waitForDocumentTitle("validated popup file", in: controller.webView))
-        #expect(controller.webView.url?.standardizedFileURL == popupURL.standardizedFileURL)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(controller.webView.url?.standardizedFileURL != popupURL.standardizedFileURL)
+        let title = try? await controller.webView.evaluateJavaScript("document.title")
+        #expect(title as? String != "validated popup file")
     }
 
     @Test(.timeLimit(.minutes(1)))
