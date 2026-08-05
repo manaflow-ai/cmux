@@ -161,6 +161,7 @@ extension CMUXCLI {
         AgentHookDef(
             name: "hermes-agent", displayName: "Hermes Agent", statusKey: "hermes-agent",
             configDir: ".hermes", configFile: "config.yaml", configDirEnvOverride: "HERMES_HOME",
+            createConfigDirIfMissing: true,
             binaryName: "hermes",
             sessionStoreSuffix: "hermes-agent", disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
             hookMarker: "cmux hooks hermes-agent", format: .hermesAgentYAML,
@@ -174,7 +175,6 @@ extension CMUXCLI {
                 .init(agentEvent: "on_session_finalize", cmuxSubcommand: "session-finalize"),
                 .init(agentEvent: "on_session_reset", cmuxSubcommand: "session-start"),
             ],
-            dispatch: .pinned(marker: "cmux-hermes-agent-hook-v2"),
             sessionEndIsTurnBoundary: true,
             feedHookEvents: ["pre_tool_call", "post_tool_call", "pre_approval_request", "post_approval_response"]
         ),
