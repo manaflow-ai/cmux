@@ -1,0 +1,35 @@
+[package]
+name = "cmux-tui-iroh"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Broker-registered iroh transport sidecar for cmux-tui sessions"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "cmux-tui-iroh"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+cmux-tui-machine-protocol.workspace = true
+ed25519-dalek = "2"
+fs4.workspace = true
+getrandom.workspace = true
+iroh.workspace = true
+libc.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

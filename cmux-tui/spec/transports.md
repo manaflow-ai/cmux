@@ -141,6 +141,19 @@ Relay grants the remote SSH principal the authority of the selected local Unix s
 
 The server classifies relay traffic as Unix because relay terminates at the Unix socket. The remote SSH principal therefore receives local-admin operations, including `shutdown-daemon` and `pairing-response`. Deployments that need less authority must use a future distinct relay profile.
 
+## Iroh Sidecar Relay
+
+| Field | Value |
+| --- | --- |
+| status | experimental sidecar (`cmux-tui-iroh`) |
+| since | protocol 10 |
+
+`cmux-tui-iroh listen` is a relay-stdio-class bridge over an iroh QUIC endpoint instead of an SSH child process. The sidecar registers its Ed25519 EndpointID with the cmux account device registry, accepts connections under ALPN `cmux/tui/1`, and requires the first bidirectional stream on every connection to carry one bounded JSON line `{"v":1,"grant":"<compact JWS>"}` within 5 seconds. The grant is a broker-signed pair grant (scope `cmux.tui.attach`) that must verify against the broker-distributed verification keys, name this exact acceptor device and endpoint, and name the TLS-authenticated remote endpoint as initiator. Any failure closes the connection before a byte reaches the session.
+
+After admission, each additional bidirectional stream is bridged byte-for-byte to the local session Unix socket and carries the unchanged protocol v10 JSON-lines contract of this document. Authority is identical to relay stdio: the admitted remote principal terminates at the Unix socket and receives local-admin operations. Admission limits access to same-account paired devices; a reduced-authority profile remains future work, as above.
+
+The client side is a machine-provider v1 provider (`cmux-tui --machine-provider-command cmux-tui-iroh provider --`) that resolves account devices from the registry, obtains a pair grant per `open_machine`, and returns protocol v10 JSON-lines reader/writer halves per `machine-provider.md`. Relay reachability, endpoint identity, admission rules, and enrollment follow `docs/iroh-tui-transport-stage1.md` and the binding constraints of `docs/iroh-app-transport-architecture.md` in the repository root; this transport never uses n0 default relays or public DNS discovery. It is distinct from the `cmux-remote` daemon's iroh carrier (`dev.cmux.remote/1`), which uses Noise device enrollment rather than account pair grants.
+
 ## WebSocket
 
 | Field | Value |
