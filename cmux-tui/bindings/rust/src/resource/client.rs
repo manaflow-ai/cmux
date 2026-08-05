@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 use std::time::{Duration, Instant};
 
-const PROTOCOL: &str = "cmux.protocol/2";
+const PROTOCOL: &str = "cmux.protocol/1";
 const DEFAULT_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_STREAM_ITEMS: usize = 256;
@@ -868,7 +868,7 @@ pub(crate) fn decode_response(response: Value, expected_id: &str) -> Result<Valu
         || object.get("type").and_then(Value::as_str) != Some("response")
     {
         return Err(Error::UnexpectedEnvelope(
-            "expected cmux.protocol/2 response envelope".to_string(),
+            "expected cmux.protocol/1 response envelope".to_string(),
         ));
     }
     if object.get("id").and_then(Value::as_str) != Some(expected_id) {

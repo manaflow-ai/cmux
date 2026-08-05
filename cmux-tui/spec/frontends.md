@@ -1,7 +1,7 @@
 # Build a cmux-tui Frontend
 
 This guide covers the private protocol-v10 frontend interface. Applications
-and extensions should use [`cmux.protocol/2`](resource-api-v2.md) and its typed
+and extensions should use [`cmux.protocol/1`](resource-api-v1.md) and its typed
 terminal, browser, sidebar, and session streams.
 
 Rich frontends consume the server's authoritative render state: draw runs, place the cursor, and send keys. Byte attach remains the terminal-piping path for clients that intentionally run a terminal emulator or forward raw PTY state elsewhere.

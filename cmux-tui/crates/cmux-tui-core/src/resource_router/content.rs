@@ -1599,7 +1599,7 @@ mod tests {
         let mut params = serde_json::to_value(selectors).unwrap().as_object().unwrap().clone();
         params.extend(fields.as_object().unwrap().clone());
         let mut envelope = json!({
-            "protocol":"cmux.protocol/2",
+            "protocol":"cmux.protocol/1",
             "type":"request",
             "id":format!("test-{operation}"),
             "operation":operation,

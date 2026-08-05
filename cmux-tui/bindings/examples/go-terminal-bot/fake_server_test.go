@@ -89,7 +89,7 @@ func (server *fakeServer) serve() {
 		server.mu.Unlock()
 		result := server.result(request)
 		response := map[string]any{
-			"protocol": "cmux.protocol/2",
+			"protocol": "cmux.protocol/1",
 			"type":     "response",
 			"id":       request["id"],
 			"ok":       true,

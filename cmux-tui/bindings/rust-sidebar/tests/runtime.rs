@@ -26,7 +26,7 @@ fn request(reader: &mut BufReader<UnixStream>) -> Value {
     let mut line = String::new();
     assert_ne!(reader.read_line(&mut line).unwrap(), 0);
     let value: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(value["protocol"], "cmux.protocol/2");
+    assert_eq!(value["protocol"], "cmux.protocol/1");
     assert_eq!(value["type"], "request");
     value
 }
@@ -36,7 +36,7 @@ fn success(stream: &mut UnixStream, request: &Value, result: Value) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/2",
+            "protocol": "cmux.protocol/1",
             "type": "response",
             "id": request["id"],
             "ok": true,
@@ -82,7 +82,7 @@ fn snapshot(stream: &mut UnixStream, stream_id: &str, sequence: u64) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/2",
+            "protocol": "cmux.protocol/1",
             "type": "stream_item",
             "stream_id": stream_id,
             "sequence": sequence.to_string(),
@@ -127,7 +127,7 @@ fn patch(stream: &mut UnixStream, stream_id: &str, sequence: u64, text: &str) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/2",
+            "protocol": "cmux.protocol/1",
             "type": "stream_item",
             "stream_id": stream_id,
             "sequence": sequence.to_string(),
@@ -158,7 +158,7 @@ fn end_canceled(stream: &mut UnixStream, stream_id: &str) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/2",
+            "protocol": "cmux.protocol/1",
             "type": "stream_end",
             "stream_id": stream_id,
             "reason": "canceled"
@@ -172,7 +172,7 @@ fn end_gap(stream: &mut UnixStream, stream_id: &str) {
         stream,
         "{}",
         json!({
-            "protocol": "cmux.protocol/2",
+            "protocol": "cmux.protocol/1",
             "type": "stream_end",
             "stream_id": stream_id,
             "reason": "gap",

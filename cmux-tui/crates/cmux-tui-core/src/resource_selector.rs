@@ -48,7 +48,7 @@ impl ResourceTarget {
     }
 }
 
-/// Flat selectors from one `cmux.protocol/2` request. Machine and session are
+/// Flat selectors from one `cmux.protocol/1` request. Machine and session are
 /// optional here because machine-list and machine-scoped operations have
 /// shallower routing requirements. Structural session resources require both.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

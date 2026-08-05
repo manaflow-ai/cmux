@@ -2,7 +2,7 @@
 
 This is the private implementation interface for cmux frontends and
 compatibility adapters. New applications should use
-[`cmux.protocol/2`](../spec/resource-api-v2.md), the
+[`cmux.protocol/1`](../spec/resource-api-v1.md), the
 [noun-first CLI](../spec/cli.md), or a [handwritten SDK](../spec/bindings.md).
 High-level packages expose protocol v10 only through their `raw` namespace.
 

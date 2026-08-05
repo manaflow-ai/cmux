@@ -3,13 +3,13 @@ use serde_json::Value;
 #[test]
 fn capability_manifest_exactly_matches_the_canonical_catalog() {
     let catalog: Value =
-        serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json")).unwrap();
+        serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json")).unwrap();
     let manifest: Value = serde_json::from_str(include_str!("../.cmux-resource-api.json")).unwrap();
 
     assert_eq!(manifest["protocol"], catalog["protocol"]);
     assert_eq!(
         manifest["catalog_sha256"],
-        "f33e62c7ff51554b791ccb4fecbe696862df5823ac77685b47b441265b4f13ff"
+        "c0016e5b96b93569c82f263cc100c8714702e8a8ce6c649127b036166fa737ae"
     );
     let expected = catalog["operations"]
         .as_object()

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cmux.dev/schemas/resource-api-v2.json",
-  "title": "cmux.protocol/2 envelope",
+  "$id": "https://cmux.dev/schemas/resource-api-v1.json",
+  "title": "cmux.protocol/1 envelope",
   "description": "This endpoint describes exactly one local mux session. Cross-machine aggregation requires a later broker protocol.",
   "oneOf": [
     {"$ref": "#/$defs/request"},
@@ -281,7 +281,7 @@
       "additionalProperties": false,
       "required": ["protocol", "type", "id", "operation", "params"],
       "properties": {
-        "protocol": {"const": "cmux.protocol/2"},
+        "protocol": {"const": "cmux.protocol/1"},
         "type": {"const": "request"},
         "id": {"$ref": "#/$defs/requestId"},
         "operation": {"$ref": "#/$defs/operation"},
@@ -370,7 +370,7 @@
       "additionalProperties": false,
       "required": ["protocol", "type", "id", "ok"],
       "properties": {
-        "protocol": {"const": "cmux.protocol/2"},
+        "protocol": {"const": "cmux.protocol/1"},
         "type": {"const": "response"},
         "id": {"$ref": "#/$defs/requestId"},
         "ok": {"type": "boolean"},
@@ -404,7 +404,7 @@
       "additionalProperties": false,
       "required": ["protocol", "type", "stream_id", "sequence", "item"],
       "properties": {
-        "protocol": {"const": "cmux.protocol/2"},
+        "protocol": {"const": "cmux.protocol/1"},
         "type": {"const": "stream_item"},
         "stream_id": {"$ref": "#/$defs/streamId"},
         "sequence": {"$ref": "#/$defs/decimal"},
@@ -417,7 +417,7 @@
       "additionalProperties": false,
       "required": ["protocol", "type", "stream_id", "reason"],
       "properties": {
-        "protocol": {"const": "cmux.protocol/2"},
+        "protocol": {"const": "cmux.protocol/1"},
         "type": {"const": "stream_end"},
         "stream_id": {"$ref": "#/$defs/streamId"},
         "reason": {

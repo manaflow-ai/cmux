@@ -1,4 +1,4 @@
-//! Shared `cmux.protocol/2` request parsing and dispatch.
+//! Shared `cmux.protocol/1` request parsing and dispatch.
 //!
 //! Unix sockets and WebSockets both call this module. The operation catalog is
 //! embedded as the one validation source so transport handlers cannot drift.
@@ -24,7 +24,7 @@ use crate::resource_api::{ResourceMachineRequest, operation_failed, public_sessi
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 
-const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
+const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v1.json");
 
 /// Resolve a live terminal path or an unscoped durable terminal receipt.
 /// Nested selectors keep normal topology containment, so a detached receipt
@@ -1690,7 +1690,7 @@ mod tests {
 
     fn request(id: &str, operation: &str, params: Value, idempotency_key: Option<&str>) -> String {
         let mut envelope = json!({
-            "protocol": "cmux.protocol/2",
+            "protocol": "cmux.protocol/1",
             "type": "request",
             "id": id,
             "operation": operation,

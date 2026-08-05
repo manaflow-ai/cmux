@@ -1,7 +1,7 @@
 # Public resource SDK conformance
 
 This suite drives the handwritten Python, TypeScript, Rust, Go, Java, C++,
-and Zig SDK roots through one `cmux.protocol/2` contract. The fake server
+and Zig SDK roots through one `cmux.protocol/1` contract. The fake server
 checks exact Unix JSONL requests and exercises reads, mutation replay,
 revision and ambiguity errors, indeterminate external effects, typed unknown
 stream items, cancellation ordering, decimal strings, redaction, and

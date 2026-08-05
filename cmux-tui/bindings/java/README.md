@@ -1,6 +1,6 @@
 # cmux Java SDK
 
-This dependency-free Java 17 SDK exposes the `cmux.protocol/2` resource API.
+This dependency-free Java 17 SDK exposes the `cmux.protocol/1` resource API.
 Typed handles cover machines, sessions, workspaces, screens, panes, tabs,
 terminals, browsers, connected clients, pairing requests, projections,
 notifications, agents, and sidebar views.

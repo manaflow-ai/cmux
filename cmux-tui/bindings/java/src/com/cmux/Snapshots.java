@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Immutable protocol-v2 resource snapshots. */
+/** Immutable protocol-v1 resource snapshots. */
 public final class Snapshots {
     public record MachineSnapshot(
         Ids.MachineId id,

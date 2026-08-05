@@ -25,7 +25,7 @@ pub enum CmuxError {
         message: String,
         id: Option<Value>,
     },
-    /// Structured `cmux.protocol/2` operation failure.
+    /// Structured `cmux.protocol/1` operation failure.
     Protocol {
         code: String,
         message: String,

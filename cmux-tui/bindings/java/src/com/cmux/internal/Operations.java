@@ -1,6 +1,6 @@
 package com.cmux.internal;
 
-/** Exact protocol-v2 operation spellings and classes. */
+/** Exact protocol-v1 operation spellings and classes. */
 public enum Operations {
     MACHINE_LIST("machine.list", Class.READ),
     MACHINE_GET("machine.get", Class.READ),

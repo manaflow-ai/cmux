@@ -184,7 +184,7 @@ void respond(
     const cmux::Json& request,
     std::string result = "{}") {
     endpoint.incoming.push_back(
-        "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\","
+        "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\","
         "\"id\":\"" +
         request_id(request) +
         "\",\"ok\":true,\"result\":" + std::move(result) + "}");
@@ -207,7 +207,7 @@ std::string stream_item(
     const std::string& stream_id,
     std::uint64_t sequence,
     std::string item) {
-    return "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
+    return "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
            "\"stream_id\":\"" +
            stream_id + "\",\"sequence\":\"" +
            std::to_string(sequence) + "\",\"item\":" +
@@ -397,7 +397,7 @@ std::shared_ptr<FakeScenario> make_scenario() {
         if (op == "stream.cancel") {
             const std::string id = string_field(input, "stream");
             endpoint.incoming.push_back(
-                "{\"protocol\":\"cmux.protocol/2\","
+                "{\"protocol\":\"cmux.protocol/1\","
                 "\"type\":\"stream_end\",\"stream_id\":\"" + id +
                 "\",\"reason\":\"canceled\"}");
             respond(endpoint, request);
