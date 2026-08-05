@@ -377,14 +377,15 @@ fn assert_theme_portable_replay_boundaries(
         let mirror_text = mirror.viewport_text().unwrap();
         let source_cells = snapshot_cells(&mut source);
         let mirror_cells = snapshot_cells(&mut mirror);
-        if mirror_text.contains('\u{fffd}')
-            || source_text != mirror_text
-            || source_cells != mirror_cells
-            || source.cursor_position() != mirror.cursor_position()
-        {
+        let has_replacement = mirror_text.contains('\u{fffd}');
+        let text_equal = source_text == mirror_text;
+        let cells_equal = source_cells == mirror_cells;
+        let cursor_equal = source.cursor_position() == mirror.cursor_position();
+        if has_replacement || !text_equal || !cells_equal || !cursor_equal {
             failures.push(format!(
                 "{label} split {split}, admitted {admitted}: source={source_text:?} mirror={mirror_text:?} \
-                 source_cursor={:?} mirror_cursor={:?}",
+                 source_cursor={:?} mirror_cursor={:?} replacement={has_replacement} \
+                 text_equal={text_equal} cells_equal={cells_equal} cursor_equal={cursor_equal}",
                 source.cursor_position(),
                 mirror.cursor_position()
             ));
@@ -446,9 +447,13 @@ const ZSH_STARTUP_CAPTURE: &[u8] = &[
 fn theme_portable_replay_preserves_zsh_startup_at_every_byte_boundary() {
     let delayed_boundaries =
         assert_theme_portable_replay_boundaries("zsh-startup", ZSH_STARTUP_CAPTURE, 97, 69);
+    let osc7 = b"\x1b]7;file://";
+    let osc7_start =
+        ZSH_STARTUP_CAPTURE.windows(osc7.len()).position(|window| window == osc7).unwrap();
+    let unsafe_boundary = osc7_start + 1;
     assert!(
-        delayed_boundaries.contains(&263),
-        "known unsafe zsh startup split was admitted without waiting"
+        delayed_boundaries.contains(&unsafe_boundary),
+        "unsafe OSC 7 split {unsafe_boundary} was admitted without waiting"
     );
 }
 
@@ -465,10 +470,18 @@ fn theme_portable_replay_preserves_stream_state_at_every_byte_boundary() {
     )
     .as_bytes();
     let delayed_boundaries = assert_theme_portable_replay_boundaries("mixed", transcript, 80, 4);
-    for boundary in [8, 11, 20, 42] {
+    for (label, sequence, unsafe_prefix) in [
+        ("lambda", "λ".as_bytes(), 1),
+        ("emoji", "🙂".as_bytes(), 1),
+        ("SGR", b"\x1b[1;31m".as_slice(), 1),
+        ("OSC title", b"\x1b]0;title".as_slice(), 1),
+    ] {
+        let start =
+            transcript.windows(sequence.len()).position(|window| window == sequence).unwrap();
+        let boundary = start + unsafe_prefix;
         assert!(
             delayed_boundaries.contains(&boundary),
-            "known unsafe split {boundary} was admitted without waiting"
+            "unsafe {label} split {boundary} was admitted without waiting"
         );
     }
     for (sequence, unsafe_prefix) in
@@ -508,6 +521,23 @@ fn theme_portable_replay_preserves_pending_wrap() {
         assert_eq!(source.cursor_position(), mirror.cursor_position(), "{label}");
         assert_eq!(source.viewport_text().unwrap(), mirror.viewport_text().unwrap(), "{label}");
     }
+}
+
+#[test]
+fn pending_wrap_replay_preserves_cursor_with_origin_mode() {
+    let mut source = Terminal::new(5, 5, 0, Callbacks::default()).unwrap();
+    source.vt_write(b"\x1b[2;4r\x1b[?6h\x1b[2;1Habcde");
+    assert!(source.mode(6, false));
+
+    let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+    let mut mirror = Terminal::new(5, 5, 0, Callbacks::default()).unwrap();
+    mirror.vt_write(&replay);
+
+    source.vt_write(b"X");
+    mirror.vt_write(b"X");
+    assert_eq!(snapshot_cells(&mut source), snapshot_cells(&mut mirror));
+    assert_eq!(source.cursor_position(), mirror.cursor_position());
+    assert_eq!(source.viewport_text().unwrap(), mirror.viewport_text().unwrap());
 }
 
 #[test]

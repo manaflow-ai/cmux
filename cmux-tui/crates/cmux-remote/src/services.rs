@@ -19,7 +19,7 @@ use cmux_tui_core::terminal_host::{
 #[cfg(unix)]
 use cmux_tui_core::terminal_host_protocol::{
     FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, Frame, FrameDecoder, HEADER_LEN, MAX_FRAME_PAYLOAD,
-    MessageKind, PROTOCOL_VERSION, encode_frame,
+    MessageKind, PROTOCOL_VERSION, encode_frame, frame_payload_len,
 };
 #[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -52,6 +52,11 @@ const MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES: usize = 56 * 1024 * 1024;
 const MAX_BUFFERED_MUX_BULK_BYTES: usize = 48 * 1024 * 1024;
 const MAX_BUFFERED_MUX_MESSAGES_PER_LANE: usize = 4096;
 const MIN_BUFFERED_MUX_MESSAGE_BYTES: usize = 1024;
+#[cfg(unix)]
+const TERMINAL_BYTES_HANDSHAKE_TTL_MS: u64 = 10_000;
+#[cfg(unix)]
+const TERMINAL_BYTES_HANDSHAKE_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(TERMINAL_BYTES_HANDSHAKE_TTL_MS);
 const _: () = assert!(MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES < MAX_BUFFERED_MUX_UPLOAD_BYTES);
 const _: () = assert!(MAX_BUFFERED_MUX_BULK_BYTES < MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES);
 
@@ -609,19 +614,37 @@ impl DaemonServices {
         stream: ServiceStream,
         metadata: BTreeMap<String, String>,
     ) -> Result<(), ServicesError> {
-        let terminal = terminal_bytes_metadata(&metadata)?;
+        let terminal_id = terminal_bytes_metadata(&metadata)?;
         let mux_path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
 
+        let terminal = tokio::time::timeout(
+            TERMINAL_BYTES_HANDSHAKE_TIMEOUT,
+            Self::negotiate_terminal_bytes(mux_path, terminal_id),
+        )
+        .await
+        .map_err(|_| ServicesError::Remote("terminal renderer handshake timed out".into()))??;
+
+        let stream = Arc::new(stream);
+        send_opened(&stream, Lane::Interactive).await?;
+        let (reader, writer) = terminal.into_split();
+        pump_stream(stream, reader, writer).await
+    }
+
+    #[cfg(unix)]
+    async fn negotiate_terminal_bytes(
+        mux_path: &std::path::Path,
+        terminal_public_id: TerminalPublicId,
+    ) -> Result<tokio::net::UnixStream, ServicesError> {
         // The control socket only brokers a one-use renderer grant. The
         // durable terminal-host owner token never crosses the remote session.
         let mut mux = tokio::net::UnixStream::connect(mux_path).await?;
         let request = serde_json::to_vec(&serde_json::json!({
             "id": 1,
             "cmd": "mint-terminal-renderer-by-terminal",
-            "terminal": terminal,
-            "ttl_ms": 10_000,
+            "terminal": terminal_public_id,
+            "ttl_ms": TERMINAL_BYTES_HANDSHAKE_TTL_MS,
         }))?;
         mux.write_all(&request).await?;
         mux.write_all(b"\n").await?;
@@ -641,7 +664,9 @@ impl DaemonServices {
                     .to_string(),
             ));
         }
-        let grant = response.get("data").unwrap_or(&response);
+        let grant = response
+            .get("data")
+            .ok_or_else(|| ServicesError::Remote("renderer grant omitted data".into()))?;
         let endpoint = required_json_string(grant, "endpoint")?;
         let terminal_id = TerminalId::from_hex(required_json_string(grant, "terminal_id")?)
             .ok_or_else(|| {
@@ -700,10 +725,7 @@ impl DaemonServices {
             ));
         }
 
-        let stream = Arc::new(stream);
-        send_opened(&stream, Lane::Interactive).await?;
-        let (reader, writer) = terminal.into_split();
-        pump_stream(stream, reader, writer).await
+        Ok(terminal)
     }
 
     #[cfg(not(unix))]
@@ -809,6 +831,7 @@ fn decode_hex_32(value: &str) -> Result<[u8; 32], ServicesError> {
         let nibble = |byte: u8| match byte {
             b'0'..=b'9' => Some(byte - b'0'),
             b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
             _ => None,
         };
         output[index] = (nibble(pair[0])
@@ -824,14 +847,8 @@ fn decode_hex_32(value: &str) -> Result<[u8; 32], ServicesError> {
 async fn read_terminal_frame(stream: &mut tokio::net::UnixStream) -> Result<Frame, ServicesError> {
     let mut encoded = vec![0u8; HEADER_LEN];
     stream.read_exact(&mut encoded).await?;
-    let payload_len =
-        u32::from_le_bytes(encoded[12..16].try_into().expect("fixed CMTH payload-length slice"))
-            as usize;
-    if payload_len > MAX_FRAME_PAYLOAD {
-        return Err(ServicesError::Remote(format!(
-            "terminal host frame payload exceeds {MAX_FRAME_PAYLOAD} bytes"
-        )));
-    }
+    let payload_len = frame_payload_len(&encoded, MAX_FRAME_PAYLOAD)
+        .map_err(|error| ServicesError::Remote(format!("invalid terminal host frame: {error}")))?;
     encoded.resize(HEADER_LEN + payload_len, 0);
     stream.read_exact(&mut encoded[HEADER_LEN..]).await?;
     let mut frames = FrameDecoder::new(MAX_FRAME_PAYLOAD)
@@ -1965,8 +1982,12 @@ mod tests {
             serde_json::from_slice::<ServiceControl>(&opened.payload).unwrap(),
             ServiceControl::Opened { service: Service::TerminalBytes }
         );
-        let bytes = client_stream.receive().await.unwrap().unwrap();
-        assert_eq!(bytes.payload.as_ref(), proxied.as_slice());
+        let mut received = Vec::with_capacity(proxied.len());
+        while received.len() < proxied.len() {
+            let chunk = client_stream.receive().await.unwrap().unwrap();
+            received.extend_from_slice(&chunk.payload);
+        }
+        assert_eq!(received, proxied);
         client_stream.send(Bytes::from(upload)).await.unwrap();
         upload_received.await.unwrap();
         client_stream.close().await.unwrap();

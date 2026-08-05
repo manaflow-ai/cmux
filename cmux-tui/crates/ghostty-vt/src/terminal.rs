@@ -3339,7 +3339,14 @@ impl Terminal {
 
     fn cursor_position_escape(&mut self) -> Result<Option<Vec<u8>>> {
         let Some((x, y)) = self.cursor_position() else { return Ok(None) };
+        let origin_mode = self.mode(6, false);
         if !self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(false) {
+            // The formatter already emits the cursor. An appended CUP would
+            // reinterpret active-area coordinates relative to the scrolling
+            // region while DECOM is enabled.
+            if origin_mode {
+                return Ok(None);
+            }
             return Ok(Some(
                 format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes(),
             ));
@@ -3393,8 +3400,19 @@ impl Terminal {
             },
             selection: &selection,
         };
-        let mut suffix =
-            format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(start_x) + 1).into_bytes();
+        let mut suffix = if origin_mode {
+            // The main formatter leaves the cursor at the authoritative cell.
+            // Move only to a wide glyph's lead cell, using a relative motion
+            // whose meaning is independent of the scrolling-region origin.
+            let columns_left = x.saturating_sub(start_x);
+            if columns_left == 0 {
+                Vec::new()
+            } else {
+                format!("\x1b[{}D", u32::from(columns_left)).into_bytes()
+            }
+        } else {
+            format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(start_x) + 1).into_bytes()
+        };
         suffix.extend_from_slice(&self.format(opts)?);
         Ok(Some(suffix))
     }

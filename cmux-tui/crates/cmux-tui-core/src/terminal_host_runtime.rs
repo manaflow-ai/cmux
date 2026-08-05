@@ -36,6 +36,7 @@ use crate::terminal_host_protocol::{
 
 const HOST_RECORD_VERSION: u32 = 2;
 const LEGACY_PROTOCOL_VERSION: u16 = 1;
+const SMART_RENDERER_PROTOCOL_VERSION: u16 = 3;
 const HOST_EXIT_RECORD_VERSION: u32 = 1;
 const MAX_LAUNCH_PAYLOAD: usize = 1024 * 1024;
 const MAX_STRING: usize = 256 * 1024;
@@ -81,6 +82,7 @@ const _: () = assert!(
         + KITTY_REPLAY_STATE_ENCODED_LEN
         <= MAX_FRAME_PAYLOAD
 );
+const _: () = assert!(SMART_RENDERER_PROTOCOL_VERSION <= PROTOCOL_VERSION);
 
 pub(crate) fn normalize_terminal_geometry(cols: u16, rows: u16) -> anyhow::Result<(u16, u16)> {
     let cols = cols.clamp(1, TERMINAL_DIMENSION_MAX);
@@ -410,7 +412,7 @@ mod unix {
         Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, channel as mpsc_channel,
         sync_channel,
     };
-    use std::sync::{Arc, Condvar, Mutex, Weak};
+    use std::sync::{Arc, Condvar, Mutex, TryLockError, Weak};
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -2494,10 +2496,7 @@ mod unix {
             let backlog = self.retained.lock().unwrap().after(boundary)?;
             for frame in backlog {
                 if !tap.try_send(frame) {
-                    return Err(SmartReplayGap {
-                        requested_after: boundary,
-                        retained_after: boundary,
-                    });
+                    return Err(SmartReplayGap::SubscriberQueueOverflow { boundary });
                 }
             }
             self.taps.lock().unwrap().insert(client, tap);
@@ -2536,7 +2535,7 @@ mod unix {
 
         fn after(&self, cursor: u64) -> Result<Vec<Frame>, SmartReplayGap> {
             if cursor < self.dropped_through {
-                return Err(SmartReplayGap {
+                return Err(SmartReplayGap::Retention {
                     requested_after: cursor,
                     retained_after: self.dropped_through,
                 });
@@ -2546,9 +2545,25 @@ mod unix {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct SmartReplayGap {
-        requested_after: u64,
-        retained_after: u64,
+    enum SmartReplayGap {
+        Retention { requested_after: u64, retained_after: u64 },
+        SubscriberQueueOverflow { boundary: u64 },
+    }
+
+    impl SmartReplayGap {
+        fn encode(self) -> Vec<u8> {
+            let (requested_after, retained_after, reason) = match self {
+                Self::Retention { requested_after, retained_after } => {
+                    (requested_after, retained_after, 0)
+                }
+                Self::SubscriberQueueOverflow { boundary } => (boundary, boundary, 1),
+            };
+            let mut payload = Vec::with_capacity(17);
+            payload.extend_from_slice(&requested_after.to_le_bytes());
+            payload.extend_from_slice(&retained_after.to_le_bytes());
+            payload.push(reason);
+            payload
+        }
     }
 
     fn retained_frame_bytes(frame: &Frame) -> usize {
@@ -2963,6 +2978,33 @@ mod unix {
             }
         }
 
+        fn apply_parser_defaults(
+            &self,
+            colors: DefaultColors,
+            source_cursor: u64,
+        ) -> TerminalColorOverrides {
+            let resolved = {
+                let mut term = self.term.lock().unwrap();
+                term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
+                term.set_default_palette(&colors.palette);
+                replace_ghostty_cursor_defaults(&mut term, colors);
+                let resolved = term.color_overrides();
+                // An empty coupled Output is an ordered state transition
+                // already understood by every legacy v2 consumer. Smart
+                // clients reopen from the ResyncRequired snapshot boundary
+                // published by the command submitter.
+                self.broadcast_with_colors(
+                    MessageKind::Output,
+                    Vec::new(),
+                    encode_terminal_color_overrides(&resolved),
+                );
+                self.smart.mark_applied(source_cursor);
+                resolved
+            };
+            self.note_parser_progress();
+            resolved
+        }
+
         fn clear_history_or_encode_key(
             &self,
             fallback_key: Option<&KeyInput>,
@@ -3264,12 +3306,19 @@ mod unix {
             let limits = limits
                 .validate()
                 .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
+            let _source_order = self.source_order_lock.lock().unwrap();
             let size = *self.size.lock().unwrap();
             let cell_pixels = *self.cell_pixels.lock().unwrap();
             let mut term = self.term.lock().unwrap();
             term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
                 .context("could not preflight terminal-host Kitty limit replay")?;
+            // Kitty quota changes can evict scene state and have no raw PTY
+            // representation. Smart renderers must reopen from the committed
+            // authoritative state instead of retaining their old scene.
+            let source_cursor =
+                self.smart.publish(Frame::new(MessageKind::ResyncRequired, Vec::new()));
             if let Err(error) = term.set_kitty_graphics_limits(limits) {
+                self.smart.mark_applied(source_cursor);
                 let mut taps = self.taps.lock().unwrap();
                 for tap in taps.values() {
                     tap.close();
@@ -3286,6 +3335,7 @@ mod unix {
                     // The authoritative limit change may already have evicted
                     // state. Disconnect every mirror so none can continue from
                     // the pre-eviction scene.
+                    self.smart.mark_applied(source_cursor);
                     let mut taps = self.taps.lock().unwrap();
                     for tap in taps.values() {
                         tap.close();
@@ -3295,25 +3345,39 @@ mod unix {
                     return Err(error.into());
                 }
             };
-            let mut resized = Frame::new(
-                MessageKind::Resized,
-                encode_resize(
-                    size.0,
-                    size.1,
-                    &replay.bytes,
-                    &replay.kitty_image_aliases,
-                    cell_pixels,
-                    replay.kitty_state,
-                )?,
-            );
+            let resize_payload = match encode_resize(
+                size.0,
+                size.1,
+                &replay.bytes,
+                &replay.kitty_image_aliases,
+                cell_pixels,
+                replay.kitty_state,
+            ) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    self.smart.mark_applied(source_cursor);
+                    let mut taps = self.taps.lock().unwrap();
+                    for tap in taps.values() {
+                        tap.close();
+                    }
+                    taps.clear();
+                    target.close();
+                    return Err(error);
+                }
+            };
+            let mut resized = Frame::new(MessageKind::Resized, resize_payload);
             resized.flags = FLAG_COLORS_FOLLOW;
             let mut ack_payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
-            encode_kitty_graphics_limits(&mut ack_payload, limits)?;
+            if let Err(error) = encode_kitty_graphics_limits(&mut ack_payload, limits) {
+                self.smart.mark_applied(source_cursor);
+                target.close();
+                return Err(error);
+            }
             let mut ack = Frame::new(MessageKind::KittyGraphicsLimitsAck, ack_payload);
             ack.request_id = request_id;
             // The parser stays locked until all mirrors receive one complete
             // replacement and the requester receives its acknowledgement.
-            Ok(publish_host_frames_and_targeted(
+            let acknowledgement_queued = publish_host_frames_and_targeted(
                 &self.broadcast_lock,
                 &self.sequence,
                 &self.taps,
@@ -3325,7 +3389,9 @@ mod unix {
                     ),
                 ],
                 Some((target, ack)),
-            ))
+            );
+            self.smart.mark_applied(source_cursor);
+            Ok(acknowledgement_queued)
         }
 
         fn apply_viewer_minimum(
@@ -4290,26 +4356,7 @@ mod unix {
                     }
                     ParserCommand::SetDefaults { colors, source_cursor, response } => {
                         let colors = *colors;
-                        {
-                            let mut term = parser_host.term.lock().unwrap();
-                            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
-                            term.set_default_palette(&colors.palette);
-                            replace_ghostty_cursor_defaults(&mut term, colors);
-                            let resolved = term.color_overrides();
-                            last_colors = resolved.clone();
-                            // An empty coupled Output is an ordered state
-                            // transition already understood by every legacy
-                            // v2 consumer. Smart clients reopen from the
-                            // ResyncRequired snapshot boundary published by
-                            // the command submitter.
-                            parser_host.broadcast_with_colors(
-                                MessageKind::Output,
-                                Vec::new(),
-                                encode_terminal_color_overrides(&resolved),
-                            );
-                            parser_host.smart.mark_applied(source_cursor);
-                        }
-                        parser_host.note_parser_progress();
+                        last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
                         let _ = response.send(());
                     }
                     ParserCommand::ClearHistory { fallback_key, response } => {
@@ -4460,7 +4507,8 @@ mod unix {
         let launch_owner = LaunchOwnerConnection::claim(host.clone(), granted_rights);
         let viewer_size_acks = hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0
             && granted_rights.contains(CapabilityRights::RESIZE);
-        let smart_renderer = hello_frame.flags & FLAG_SMART_RENDERER != 0
+        let smart_renderer = selected_version >= SMART_RENDERER_PROTOCOL_VERSION
+            && hello_frame.flags & FLAG_SMART_RENDERER != 0
             && matches!(hello.role, ClientRole::Renderer | ClientRole::Admin);
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
         if viewer_size_acks {
@@ -4478,17 +4526,14 @@ mod unix {
         let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
         let command_sender = tap.clone();
         let (snapshot, colors, snapshot_sequence, replay_gap) = {
-            // Match resize's viewer -> size -> cell metrics -> parser ->
-            // broadcast lock order so a snapshot contains one atomic
-            // logical and pixel geometry.
-            let mut viewer_sizes = host.viewer_sizes.lock().unwrap();
-            let size = host.size.lock().unwrap();
-            let cell_pixels = *host.cell_pixels.lock().unwrap();
-            let mut term = match host.terminal_at_snapshot_boundary(snapshot_timeout) {
-                Ok(term) => term,
-                Err(error) => {
-                    drop(size);
-                    drop(viewer_sizes);
+            // Wait for a parser boundary without blocking resize or cell-metric
+            // writers. Try-locking geometry while the safe parser guard is held
+            // gives the snapshot one atomic state without reversing the normal
+            // blocking lock order.
+            let snapshot_deadline = Instant::now() + snapshot_timeout;
+            let (mut viewer_sizes, size, cell_pixels, mut term) = loop {
+                let remaining = snapshot_deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
                     let mut resync = Frame::new(MessageKind::ResyncRequired, Vec::new());
                     resync.sequence = if smart_renderer {
                         host.smart.applied_cursor.load(Ordering::Acquire)
@@ -4496,14 +4541,59 @@ mod unix {
                         host.sequence.load(Ordering::Acquire)
                     };
                     let _ = write_frame(&mut stream, &resync);
-                    return Err(error);
+                    anyhow::bail!("terminal snapshot geometry did not stabilize before timeout");
                 }
+                let term = match host.terminal_at_snapshot_boundary(remaining) {
+                    Ok(term) => term,
+                    Err(error) => {
+                        let mut resync = Frame::new(MessageKind::ResyncRequired, Vec::new());
+                        resync.sequence = if smart_renderer {
+                            host.smart.applied_cursor.load(Ordering::Acquire)
+                        } else {
+                            host.sequence.load(Ordering::Acquire)
+                        };
+                        let _ = write_frame(&mut stream, &resync);
+                        return Err(error);
+                    }
+                };
+                let viewer_sizes = match host.viewer_sizes.try_lock() {
+                    Ok(guard) => guard,
+                    Err(TryLockError::WouldBlock) => {
+                        drop(term);
+                        thread::yield_now();
+                        continue;
+                    }
+                    Err(TryLockError::Poisoned(error)) => error.into_inner(),
+                };
+                let size = match host.size.try_lock() {
+                    Ok(guard) => guard,
+                    Err(TryLockError::WouldBlock) => {
+                        drop(viewer_sizes);
+                        drop(term);
+                        thread::yield_now();
+                        continue;
+                    }
+                    Err(TryLockError::Poisoned(error)) => error.into_inner(),
+                };
+                let cell_pixels = match host.cell_pixels.try_lock() {
+                    Ok(guard) => guard,
+                    Err(TryLockError::WouldBlock) => {
+                        drop(size);
+                        drop(viewer_sizes);
+                        drop(term);
+                        thread::yield_now();
+                        continue;
+                    }
+                    Err(TryLockError::Poisoned(error)) => error.into_inner(),
+                };
+                break (viewer_sizes, size, cell_pixels, term);
             };
             let replay = term.vt_replay_bounded_theme_portable_with_aliases(
                 crate::surface::VT_REPLAY_MAX_BYTES,
             )?;
             let colors = term.color_overrides();
             let (cols, rows) = *size;
+            let cell_pixels = *cell_pixels;
             debug_assert_eq!((term.cols(), term.rows()), (cols, rows));
             if host.dead.load(Ordering::Acquire) {
                 anyhow::bail!("terminal host exited before snapshot");
@@ -4547,10 +4637,7 @@ mod unix {
             )
         };
         if let Some(gap) = replay_gap {
-            let mut payload = Vec::with_capacity(16);
-            payload.extend_from_slice(&gap.requested_after.to_le_bytes());
-            payload.extend_from_slice(&gap.retained_after.to_le_bytes());
-            let mut frame = Frame::new(MessageKind::ResyncRequired, payload);
+            let mut frame = Frame::new(MessageKind::ResyncRequired, gap.encode());
             frame.sequence = snapshot_sequence;
             let _ = write_frame(&mut stream, &frame);
             host.remove_client(client);
@@ -5369,13 +5456,15 @@ mod unix {
             }
         }
 
-        fn exited_host_fixture_at(exit_record_parent: PathBuf) -> Arc<HostShared> {
+        fn exited_host_fixture_with_parser_at(
+            exit_record_parent: PathBuf,
+        ) -> (Arc<HostShared>, Receiver<ParserCommand>) {
             let mut term = Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap();
             term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
                 .unwrap();
             let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
             let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
-            let (parser_commands, _parser_receiver) = sync_channel(1);
+            let (parser_commands, parser_receiver) = sync_channel(1);
             let terminal_id = TerminalId::random().unwrap();
             let exit_record_path =
                 exit_record_parent.join(format!("{}.exit", terminal_id.to_hex()));
@@ -5433,7 +5522,11 @@ mod unix {
                 group_escalation_complete: AtomicBool::new(false),
             });
             HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
-            host
+            (host, parser_receiver)
+        }
+
+        fn exited_host_fixture_at(exit_record_parent: PathBuf) -> Arc<HostShared> {
+            exited_host_fixture_with_parser_at(exit_record_parent).0
         }
 
         fn exited_host_fixture() -> Arc<HostShared> {
@@ -5444,6 +5537,16 @@ mod unix {
             ));
             prepare_private_dir(&root).unwrap();
             exited_host_fixture_at(root)
+        }
+
+        fn exited_host_fixture_with_parser() -> (Arc<HostShared>, Receiver<ParserCommand>) {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-terminal-exit-tests-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&root).unwrap();
+            exited_host_fixture_with_parser_at(root)
         }
 
         fn test_host_shared() -> Arc<HostShared> {
@@ -6365,6 +6468,13 @@ mod unix {
             let (target_tx, target_rx) = sync_channel(3);
             let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
             host.taps.lock().unwrap().insert(1, target.clone());
+            let (smart_socket, _smart_peer) = UnixStream::pair().unwrap();
+            let (smart_tx, smart_rx) = sync_channel(1);
+            host.smart
+                .taps
+                .lock()
+                .unwrap()
+                .insert(2, HostTap::new(smart_tx, Arc::new(smart_socket), usize::MAX));
             let limits = KittyGraphicsLimits::disabled();
 
             assert!(host.set_kitty_graphics_limits(limits, 43, &target).unwrap());
@@ -6383,6 +6493,10 @@ mod unix {
             let mut decoder = PayloadDecoder::new(&ack.payload);
             assert_eq!(decode_kitty_graphics_limits(&mut decoder).unwrap(), limits);
             decoder.finish().unwrap();
+
+            let smart_resync = smart_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(smart_resync.kind, MessageKind::ResyncRequired);
+            assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), smart_resync.sequence);
 
             let mut mirror =
                 Terminal::new(decoded.cols, decoded.rows, 0, Callbacks::default()).unwrap();
@@ -6721,8 +6835,8 @@ mod unix {
             let deadline = Instant::now() + Duration::from_secs(1);
             loop {
                 match host.parser_progress.0.try_lock() {
-                    Err(std::sync::TryLockError::WouldBlock) => break,
-                    Err(std::sync::TryLockError::Poisoned(error)) => panic!("{error}"),
+                    Err(TryLockError::WouldBlock) => break,
+                    Err(TryLockError::Poisoned(error)) => panic!("{error}"),
                     Ok(guard) => drop(guard),
                 }
                 assert!(Instant::now() < deadline, "snapshot waiter never inspected the parser");
@@ -6736,8 +6850,8 @@ mod unix {
                         drop(guard);
                         break;
                     }
-                    Err(std::sync::TryLockError::WouldBlock) => {}
-                    Err(std::sync::TryLockError::Poisoned(error)) => panic!("{error}"),
+                    Err(TryLockError::WouldBlock) => {}
+                    Err(TryLockError::Poisoned(error)) => panic!("{error}"),
                 }
                 assert!(Instant::now() < deadline, "snapshot waiter never entered its wait");
                 thread::yield_now();
@@ -6967,8 +7081,33 @@ mod unix {
         }
 
         #[test]
-        fn changing_defaults_forces_smart_renderers_to_a_fresh_snapshot() {
+        fn protocol_one_smart_renderer_handshake_is_rejected() {
             let host = exited_host_fixture();
+            let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+            client_stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+            let server_host = host.clone();
+            let server = thread::spawn(move || serve_client(server_host, server_stream));
+
+            let hello = ClientHello {
+                min_version: LEGACY_PROTOCOL_VERSION,
+                max_version: LEGACY_PROTOCOL_VERSION,
+                role: ClientRole::Admin,
+                requested_rights: CapabilityRights::ADMIN,
+                terminal_id: host.terminal_id,
+                token: host.owner_token,
+            };
+            let mut hello = hello.into_frame(1);
+            hello.version = LEGACY_PROTOCOL_VERSION;
+            hello.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+            write_frame(&mut client_stream, &hello).unwrap();
+
+            assert!(read_required_frame(&mut client_stream, "host hello").is_err());
+            assert!(server.join().unwrap().is_err());
+        }
+
+        #[test]
+        fn changing_defaults_forces_smart_renderers_to_a_fresh_snapshot() {
+            let (host, parser_receiver) = exited_host_fixture_with_parser();
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
             let (sender, receiver) = sync_channel(4);
             host.smart
@@ -6984,14 +7123,28 @@ mod unix {
                 )
                 .unwrap();
 
-            host.set_default_colors(DefaultColors {
-                fg: Some(Rgb { r: 1, g: 2, b: 3 }),
-                ..Default::default()
-            });
+            let defaults =
+                DefaultColors { fg: Some(Rgb { r: 1, g: 2, b: 3 }), ..Default::default() };
+            let update_host = host.clone();
+            let update = thread::spawn(move || update_host.set_default_colors(defaults));
 
             let resync = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(resync.kind, MessageKind::ResyncRequired);
+            assert!(
+                host.smart.applied_cursor.load(Ordering::Acquire) < resync.sequence,
+                "the snapshot boundary must not advance before the parser applies defaults"
+            );
+            let command = parser_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            let ParserCommand::SetDefaults { colors, source_cursor, response } = command else {
+                panic!("defaults update queued a different parser command");
+            };
+            assert_eq!(source_cursor, resync.sequence);
+            host.apply_parser_defaults(*colors, source_cursor);
+            response.send(()).unwrap();
+            update.join().unwrap();
+
             assert_eq!(host.smart.applied_cursor.load(Ordering::Acquire), resync.sequence);
+            assert_eq!(*host.default_colors.lock().unwrap(), defaults);
         }
 
         #[test]
@@ -7114,8 +7267,8 @@ mod unix {
                         assert!(Instant::now() < deadline, "Exit did not reach publication");
                         thread::yield_now();
                     }
-                    Err(std::sync::TryLockError::WouldBlock) => break,
-                    Err(std::sync::TryLockError::Poisoned(error)) => panic!("{error}"),
+                    Err(TryLockError::WouldBlock) => break,
+                    Err(TryLockError::Poisoned(error)) => panic!("{error}"),
                 }
             }
             // Once Exit owns source ordering, the old implementation is
@@ -7171,9 +7324,31 @@ mod unix {
                 max_queued_bytes: usize::MAX,
             };
             let gap = state.subscribe(9, tap).unwrap_err();
-            assert_eq!(gap.requested_after, 0);
-            assert_eq!(gap.retained_after, 1);
+            assert_eq!(gap, SmartReplayGap::Retention { requested_after: 0, retained_after: 1 });
             assert!(state.is_empty(), "a gapped renderer must not join the live tap set");
+        }
+
+        #[test]
+        fn smart_attach_distinguishes_subscriber_queue_overflow() {
+            let state = SmartStreamState::new();
+            let cursor = state.publish(Frame::new(MessageKind::Output, vec![1]));
+            state.mark_applied(0);
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, _receiver) = sync_channel(0);
+            let tap = HostTap {
+                sender,
+                queued_bytes: Arc::new(AtomicUsize::new(0)),
+                queued_output_bytes: Arc::new(AtomicUsize::new(0)),
+                shutdown: Arc::new(host_socket),
+                max_queued_bytes: usize::MAX,
+            };
+
+            let gap = state.subscribe(10, tap).unwrap_err();
+
+            assert_eq!(cursor, 1);
+            assert_eq!(gap, SmartReplayGap::SubscriberQueueOverflow { boundary: 0 });
+            assert_eq!(gap.encode()[16], 1);
+            assert!(state.is_empty(), "an overflowing renderer must not join the live tap set");
         }
 
         #[test]

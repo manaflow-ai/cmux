@@ -1,4 +1,4 @@
 module CCmuxTerminal [system] {
-    header "cmux_terminal_client.h"
+    header "../../../../../crates/cmux-terminal-client/include/cmux_terminal_client.h"
     export *
 }

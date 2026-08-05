@@ -178,13 +178,12 @@ enum StoredCursorStyle {
 
 impl WorkspaceRegistry {
     /// Reconstruct public auxiliary state while the registry is the sole
-    /// writer. Missing or tombstoned terminals remove live relationships:
-    /// historical notifications remain but lose `terminal_id`, while agents
-    /// disappear because an agent snapshot requires a live terminal.
+    /// writer. Missing or tombstoned terminals remove notification links, while
+    /// agent reports remain durable historical projections keyed by terminal.
     pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
         let live_terminals = self.live_terminal_public_ids()?;
         let notifications = self.durable_notifications(&live_terminals)?;
-        let agents = self.durable_agents(&live_terminals)?;
+        let agents = self.durable_agents()?;
         let terminal_defaults = self.durable_terminal_defaults()?;
         let frontend_projections = self.public_frontend_projections()?;
         Ok(RegistryPublicProjections {
@@ -196,8 +195,7 @@ impl WorkspaceRegistry {
     }
 
     pub(crate) fn public_agent_projections(&self) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        let live_terminals = self.live_terminal_public_ids()?;
-        self.durable_agents(&live_terminals)
+        self.durable_agents()
     }
 
     fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
@@ -273,10 +271,7 @@ impl WorkspaceRegistry {
         Ok(notifications)
     }
 
-    fn durable_agents(
-        &self,
-        live_terminals: &HashSet<TerminalPublicId>,
-    ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
+    fn durable_agents(&self) -> anyhow::Result<Vec<RegistryAgentProjection>> {
         let mut statement = self.connection.prepare(
             "SELECT terminal_id, result_json, committed_revision
              FROM resource_agent_projections
@@ -315,9 +310,6 @@ impl WorkspaceRegistry {
                 stored.terminal_id
             );
             let _ = stored.extra;
-            if !live_terminals.contains(&stored.terminal_id) {
-                continue;
-            }
             agents.push(RegistryAgentProjection {
                 id: stored.id,
                 terminal_id: stored.terminal_id,
@@ -761,7 +753,8 @@ mod tests {
             )
             .unwrap();
 
-        // Neither auxiliary terminal relationship is live in this fixture.
+        // This fixture has no terminal row, so notification links are cleared
+        // and the historical agent mutations never form a valid projection.
         let restored = registry.public_projections().unwrap();
         assert_eq!(restored.notifications.len(), 256);
         assert_eq!(restored.notifications.first().unwrap().title, "title-5");
@@ -820,7 +813,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_relationships_restore_only_while_the_terminal_is_live() {
+    fn agent_projections_survive_terminal_tombstones() {
         let mut registry = WorkspaceRegistry::in_memory("terminal-relationships").unwrap();
         let session = registry.session_id().clone();
         let (terminal, pane, tab) = seed_live_terminal(&mut registry);
@@ -884,7 +877,7 @@ mod tests {
                         }),
                         ResourceChange::TombstoneTab { tab_id: tab, close_content: true },
                         ResourceChange::TombstoneTerminal {
-                            public_id: terminal,
+                            public_id: terminal.clone(),
                             expected_incarnation: None,
                         },
                         ResourceChange::SetTabOrder { pane_id: pane, tab_ids: Vec::new() },
@@ -896,8 +889,9 @@ mod tests {
             .unwrap();
 
         let tombstoned = registry.public_projections().unwrap();
-        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 0);
-        assert!(tombstoned.agents.is_empty());
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
+        assert_eq!(tombstoned.agents.len(), 1);
+        assert_eq!(tombstoned.agents[0].terminal_id, terminal);
         assert_eq!(tombstoned.notifications.len(), 1);
         assert_eq!(tombstoned.notifications[0].terminal_id, None);
     }

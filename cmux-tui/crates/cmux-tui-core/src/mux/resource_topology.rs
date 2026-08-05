@@ -3631,7 +3631,18 @@ impl Mux {
                     self.created_resource_path_in_state(&state, surface.id)
                         .map(|path| (delta, CreatedTerminalEffect { path }))
                 })
-                .transpose()?
+                .transpose()
+        };
+        let attached = match attached {
+            Ok(attached) => attached,
+            Err(error) => {
+                self.fail_hosted_terminal_attachment(
+                    &surface,
+                    "resource-terminal-tab-attach-failed",
+                    "resource-path-generation-failed",
+                )?;
+                return Err(error);
+            }
         };
         let Some((delta, created)) = attached else {
             self.fail_hosted_terminal_attachment(
@@ -3690,7 +3701,7 @@ impl Mux {
                 return Err(anyhow::Error::new(error));
             }
         };
-        let created = {
+        let created_path = {
             let mut state = self.state.lock().unwrap();
             let Some(workspace_index) = state.workspace_index(workspace) else {
                 drop(state);
@@ -3719,11 +3730,21 @@ impl Mux {
                 layout_undo: Default::default(),
             });
             workspace.active_screen = workspace.screens.len() - 1;
-            let path = self.created_resource_path_in_state(&state, surface.id)?;
-            CreatedTerminalEffect { path }
+            self.created_resource_path_in_state(&state, surface.id)
+        };
+        let path = match created_path {
+            Ok(path) => path,
+            Err(error) => {
+                self.fail_hosted_terminal_attachment(
+                    &surface,
+                    "resource-terminal-screen-attach-failed",
+                    "resource-path-generation-failed",
+                )?;
+                return Err(error);
+            }
         };
         self.reap_if_dead(&surface);
-        Ok(created)
+        Ok(CreatedTerminalEffect { path })
     }
 
     fn effect_rename_created_screen(&self, surface: SurfaceId, name: String) -> anyhow::Result<()> {

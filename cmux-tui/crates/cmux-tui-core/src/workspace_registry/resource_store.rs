@@ -144,13 +144,7 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              )
            )
          );
-         CREATE TRIGGER IF NOT EXISTS resource_agent_projection_terminal_tombstone
-           AFTER UPDATE OF deleted_revision ON resource_terminals
-           WHEN NEW.deleted_revision IS NOT NULL
-         BEGIN
-           DELETE FROM resource_agent_projections
-           WHERE terminal_id = NEW.public_id;
-         END;
+         DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE TABLE IF NOT EXISTS resource_events (
            revision INTEGER PRIMARY KEY NOT NULL,
            previous_revision INTEGER NOT NULL,
@@ -185,7 +179,6 @@ pub(super) fn migrate_resource_agent_projections(
          FROM ranked
          JOIN resource_terminals AS terminal
            ON terminal.public_id = ranked.terminal_id
-          AND terminal.deleted_revision IS NULL
          WHERE ranked.terminal_rank = 1
          ON CONFLICT(terminal_id) DO UPDATE SET
            result_json = excluded.result_json,

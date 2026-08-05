@@ -17,6 +17,12 @@ for command in cargo codesign jq openssl swift; do
   fi
 done
 
+RUST_REQUIRED=1.97.1
+if ! cargo "+$RUST_REQUIRED" --version >/dev/null 2>&1; then
+  echo "TerminalBytes demo needs Rust $RUST_REQUIRED; run: rustup toolchain install $RUST_REQUIRED" >&2
+  exit 1
+fi
+
 if [[ -z "${ZIG:-}" ]]; then
   ZIG="$(command -v zig || true)"
 fi
@@ -60,7 +66,13 @@ cleanup() {
   if [[ "$WORKSPACE" == ws_* && -S "$MUX_SOCKET" ]]; then
     "$CMUX_TUI" --socket "$MUX_SOCKET" workspace "$WORKSPACE" close --json \
       >/dev/null 2>&1
-    sleep 0.2
+    for _ in $(seq 1 50); do
+      if ! "$CMUX_TUI" --socket "$MUX_SOCKET" workspace "$WORKSPACE" show --json \
+        >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.02
+    done
   fi
   if [[ -n "$DAEMON_PID" ]] && kill -0 "$DAEMON_PID" 2>/dev/null; then
     kill "$DAEMON_PID" 2>/dev/null
@@ -75,7 +87,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 echo "Building the exact cmux-tui daemon and Rust terminal-client static library..."
-(cd "$TUI_ROOT" && cargo +1.97.1 build -p cmux-tui -p cmux-terminal-client)
+(cd "$TUI_ROOT" && cargo "+$RUST_REQUIRED" build -p cmux-tui -p cmux-terminal-client)
 
 echo "Building the standalone macOS app in an invocation-owned SwiftPM directory..."
 swift build \

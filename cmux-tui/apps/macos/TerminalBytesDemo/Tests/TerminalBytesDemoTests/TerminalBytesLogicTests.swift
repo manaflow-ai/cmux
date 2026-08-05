@@ -394,8 +394,9 @@ struct TerminalBytesLogicTests {
         for _ in 0..<100 {
             model.resize(to: TerminalGeometry(cols: 120, rows: 40))
         }
-        try await Task.sleep(for: .milliseconds(25))
-        #expect(attempts.value == 1)
+        #expect(await waitUntil { attempts.value >= 4 })
+        await Task.yield()
+        #expect(attempts.value == 4)
         model.shutdown()
     }
 
@@ -493,8 +494,7 @@ struct TerminalBytesLogicTests {
         #expect(!model.errorMessage.isEmpty)
 
         releaseFirst.signal()
-        #expect(await waitUntil { inputs.values.count >= 257 })
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(await waitUntil { inputs.values.count == 257 })
         #expect(inputs.values == (0...256).map(String.init))
         model.shutdown()
     }

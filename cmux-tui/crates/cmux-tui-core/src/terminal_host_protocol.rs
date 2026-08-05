@@ -35,7 +35,8 @@ pub const FLAG_VIEWER_SIZE_ACKS: u32 = 1 << 1;
 /// stream. Smart clients receive an explicit Snapshot/Colors/Ready barrier,
 /// followed by retained and live raw PTY Output frames from a source cursor
 /// that is independent of the authoritative host parser's cursor. Their
-/// Resized payload is exactly cols:u16 + rows:u16 and carries no Colors pair.
+/// Resized payload is cols:u16 + rows:u16, optionally followed by cell pixel
+/// width:u16 + height:u16, and carries no Colors pair.
 ///
 /// Legacy renderers do not set this bit and retain the existing normalized,
 /// parser-ordered stream and coupled color semantics.
@@ -466,6 +467,23 @@ fn parse_header(bytes: &[u8], max_payload: usize) -> Result<Header, ProtocolErro
     Ok(Header { version, kind, flags, payload_len, request_id, sequence })
 }
 
+/// Validate an encoded CMTH header and return its declared payload length.
+///
+/// Async readers can use this after reading exactly [`HEADER_LEN`] bytes so
+/// the wire layout remains owned by this module.
+pub fn frame_payload_len(
+    encoded_header: &[u8],
+    max_payload: usize,
+) -> Result<usize, ProtocolError> {
+    if encoded_header.len() != HEADER_LEN {
+        return Err(ProtocolError::Truncated {
+            expected: HEADER_LEN,
+            actual: encoded_header.len(),
+        });
+    }
+    Ok(parse_header(encoded_header, max_payload.min(MAX_FRAME_PAYLOAD))?.payload_len)
+}
+
 fn encode_header(frame: &Frame, max_payload: usize) -> Result<[u8; HEADER_LEN], ProtocolError> {
     if frame.version == 0 {
         return Err(ProtocolError::InvalidVersion(frame.version));
@@ -856,6 +874,24 @@ mod tests {
             Err(ProtocolError::PayloadTooLarge { len: 65, max: 64 })
         ));
         assert_eq!(decoder.buffered_len(), HEADER_LEN);
+    }
+
+    #[test]
+    fn async_header_helper_owns_payload_length_validation() {
+        let encoded = encode_frame(&sample_frame()).unwrap();
+        assert_eq!(frame_payload_len(&encoded[..HEADER_LEN], 64).unwrap(), 3);
+        assert!(matches!(
+            frame_payload_len(&encoded[..HEADER_LEN - 1], 64),
+            Err(ProtocolError::Truncated { expected: HEADER_LEN, actual })
+                if actual == HEADER_LEN - 1
+        ));
+
+        let mut oversized = encoded[..HEADER_LEN].to_vec();
+        oversized[12..16].copy_from_slice(&65u32.to_le_bytes());
+        assert!(matches!(
+            frame_payload_len(&oversized, 64),
+            Err(ProtocolError::PayloadTooLarge { len: 65, max: 64 })
+        ));
     }
 
     #[test]

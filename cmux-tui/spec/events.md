@@ -92,11 +92,13 @@ Protocol v6 attach streams are ordered as `vt-state -> (resized | output | color
 
 Protocol v7 render attach streams are ordered as `render-state -> (render-delta | scroll-changed)* -> detached`. The initial state snapshot and render tap are registered under one terminal lock, matching the byte stream's no-gap/no-duplication guarantee. `render-delta` frames coalesce damage but preserve authoritative state order. See [`render.md`](render.md#stream-ordering).
 
-When a local PTY, terminal-host PTY, or browser exits, the mux removes it from
-the tree before `surface-exited`. A terminal-host PTY keeps its durable terminal
-record and exact exit outcome after its tab, pane, or screen is removed.
-Consumers must inspect the tree for live placement and the terminal registry
-for process history.
+Protocol 10 removes a local PTY, terminal-host PTY, or browser from the tree
+before `surface-exited`. A terminal-host PTY keeps its durable terminal record
+and exact exit outcome after its tab, pane, or screen is removed. Consumers
+must inspect the tree for live placement and the terminal registry for process
+history. Protocol 5 through 9 use the same event payload, but `surface` is only
+the pre-removal numeric id and those versions provide no durable replacement
+identity or exit details.
 
 ## Subscribe Events
 
@@ -606,9 +608,11 @@ object{event:"surface-exited",surface:Id}
 ```
 
 Meaning: A PTY child exited or a browser surface was closed. The surface is
-already removed from the tree. A terminal-host-backed PTY remains addressable
-by its durable terminal id for exit inspection and explicit tombstoning, but
-its former numeric surface id and tab placement are invalid.
+already removed from the tree on protocol 10. A terminal-host-backed PTY
+remains addressable by its durable terminal id for exit inspection and explicit
+tombstoning, but its former numeric surface id and tab placement are invalid.
+On protocol 5 through 9, `surface` identifies the pre-removal surface and the
+event carries no replacement identity; clients must refresh the tree.
 
 Example:
 

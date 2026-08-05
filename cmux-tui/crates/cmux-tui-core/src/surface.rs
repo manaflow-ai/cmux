@@ -2634,18 +2634,22 @@ impl Surface {
                         return;
                     }
 
-                    let first_loss = pty
-                        .host_connection_state
-                        .swap(TerminalHostConnectionState::Reconnecting as u8, Ordering::AcqRel)
-                        != TerminalHostConnectionState::Reconnecting as u8;
                     // ResyncRequired is an ordered renderer reset from a live
                     // host, not evidence that its admin stream or PTY was
                     // lost. Reconnect from a fresh snapshot without moving
-                    // the durable lifecycle through Adopting. This also keeps
-                    // initial topology binding valid if defaults legitimately
-                    // change while a new hosted surface is being installed.
+                    // either the observable connection state or the durable
+                    // lifecycle through Adopting. This also keeps initial
+                    // topology binding valid if defaults legitimately change
+                    // while a new hosted surface is being installed.
+                    let first_loss = !resync_requested
+                        && pty
+                            .host_connection_state
+                            .swap(
+                                TerminalHostConnectionState::Reconnecting as u8,
+                                Ordering::AcqRel,
+                            )
+                            != TerminalHostConnectionState::Reconnecting as u8;
                     if first_loss
-                        && !resync_requested
                         && let Some(mux) = mux.upgrade()
                         && !mux.terminal_host_connection_lost(surface.id, &identity)
                     {
@@ -3031,16 +3035,6 @@ impl Surface {
             identity,
             TabResourceIdentity::terminal(None)?,
         )
-    }
-
-    #[cfg(all(test, unix))]
-    pub(crate) fn exited_terminal_placeholder_for_test(
-        id: SurfaceId,
-        opts: SurfaceOptions,
-        mux: Weak<Mux>,
-        identity: crate::terminal_host_runtime::TerminalHostIdentity,
-    ) -> anyhow::Result<Arc<Surface>> {
-        Self::exited_terminal_placeholder(id, opts, mux, identity)
     }
 
     #[cfg(all(test, unix))]
@@ -6515,7 +6509,7 @@ mod tests {
             terminal_id: crate::terminal_host::TerminalId::random().unwrap().to_hex(),
             incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
         };
-        let surface = Surface::exited_terminal_placeholder_for_test(
+        let surface = Surface::exited_terminal_placeholder(
             91,
             SurfaceOptions::default(),
             Arc::downgrade(&mux),

@@ -5974,7 +5974,7 @@ impl Mux {
             Some(incarnation),
             None,
         )?;
-        let surface = Surface::exited_terminal_placeholder_for_test(
+        let surface = Surface::exited_terminal_placeholder(
             self.next_id(),
             self.surface_options.lock().unwrap().clone(),
             Arc::downgrade(self),
@@ -16238,7 +16238,7 @@ mod tests {
         incarnation: &str,
         workspace_key: &str,
     ) -> Arc<Surface> {
-        let surface = Surface::exited_terminal_placeholder_for_test(
+        let surface = Surface::exited_terminal_placeholder(
             mux.next_id(),
             mux.surface_options.lock().unwrap().clone(),
             Arc::downgrade(mux),
@@ -18401,6 +18401,14 @@ mod tests {
         // The dead surface must not linger in either side table.
         assert!(mux.list_agents(Some(first.id), None).is_empty());
         assert!(mux.list_agents(None, None).is_empty());
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["agents"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(mux.surface_notification(first.id).is_none());
         assert!(mux.with_state(|state| state.surfaces.contains_key(&second.id)));
     }
@@ -22177,7 +22185,7 @@ mod tests {
         .unwrap();
         assert_eq!(ready_revision, 3);
 
-        let surface = Surface::exited_terminal_placeholder_for_test(
+        let surface = Surface::exited_terminal_placeholder(
             mux.next_id(),
             mux.surface_options.lock().unwrap().clone(),
             Arc::downgrade(&mux),

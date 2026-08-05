@@ -114,6 +114,7 @@ struct ClientState {
     generation: u64,
     terminal_id: TerminalPublicId,
     snapshot_boundary: u64,
+    snapshot_applied: bool,
     snapshot_bytes: u64,
     bootstrap_frames: u64,
     ready: bool,
@@ -176,6 +177,7 @@ impl ClientState {
             generation,
             terminal_id,
             snapshot_boundary: 0,
+            snapshot_applied: false,
             snapshot_bytes: 0,
             bootstrap_frames: 0,
             ready: false,
@@ -198,6 +200,7 @@ impl ClientState {
         self.status = "resyncing".into();
         self.terminal_id = terminal_id;
         self.snapshot_boundary = 0;
+        self.snapshot_applied = false;
         self.snapshot_bytes = 0;
         self.bootstrap_frames = 0;
         self.ready = false;
@@ -257,11 +260,14 @@ impl ClientState {
                 self.source_cursor = frame.sequence;
                 self.expected_sequence = frame.sequence.checked_add(1);
                 self.terminal = Some(terminal);
+                self.snapshot_applied = true;
                 self.status = "snapshot".into();
                 self.render_dirty = true;
                 FrameEffect::Continue
             }
-            MessageKind::Colors if frame.sequence == self.snapshot_boundary => {
+            MessageKind::Colors
+                if self.snapshot_applied && frame.sequence == self.snapshot_boundary =>
+            {
                 let colors = decode_terminal_color_overrides(&frame.payload)
                     .map_err(|error| error.to_string())?;
                 apply_terminal_color_overrides(
@@ -274,7 +280,9 @@ impl ClientState {
                 self.render_dirty = true;
                 FrameEffect::Continue
             }
-            MessageKind::Ready if frame.sequence == self.snapshot_boundary => {
+            MessageKind::Ready
+                if self.snapshot_applied && frame.sequence == self.snapshot_boundary =>
+            {
                 self.ready = true;
                 self.status = "live".into();
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
@@ -1550,6 +1558,17 @@ mod tests {
         assert_eq!((state.cols, state.rows), (100, 30));
         assert_eq!(state.cell_pixels, (9, 18));
         assert_eq!(state.local_parser_cursor, 8);
+    }
+
+    #[test]
+    fn ready_at_boundary_zero_is_rejected_before_snapshot() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        let ready = Frame::new(MessageKind::Ready, Vec::new());
+
+        assert_eq!(state.apply(ready).unwrap_err(), "unexpected smart terminal frame Ready");
+        assert!(!state.ready);
+        assert!(!state.snapshot_applied);
     }
 
     #[test]

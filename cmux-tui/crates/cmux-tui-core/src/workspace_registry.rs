@@ -57,7 +57,7 @@ use resource_store::{
     migrate_resource_mutations_to_session_scope, validate_resource_invariants,
 };
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -497,7 +497,7 @@ impl WorkspaceRegistry {
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(7) => {
+            Some(7 | 8) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;

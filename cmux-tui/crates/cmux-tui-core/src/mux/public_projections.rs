@@ -66,17 +66,17 @@ pub(super) fn restore_public_projections(
 
     let mut agent_records = HashMap::with_capacity(projections.agents.len());
     for agent in projections.agents {
-        let surface = state
+        let Some(surface) = state
             .resource_indexes
             .content
             .get(&ContentPublicId::Terminal(agent.terminal_id.clone()))
             .copied()
-            .with_context(|| {
-                format!(
-                    "durable agent {} references live terminal {} without a runtime slot",
-                    agent.id, agent.terminal_id
-                )
-            })?;
+        else {
+            // Durable public agents outlive terminal placement. The legacy
+            // cache is keyed by numeric live surface and cannot represent an
+            // exited agent; resource API reads use the registry projection.
+            continue;
+        };
         let previous = agent_records.insert(
             surface,
             AgentRecord {
@@ -152,10 +152,37 @@ mod tests {
                 created_at_ms: 1,
                 unread: false,
             }],
+            agents: Vec::new(),
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+        let state = State {
+            workspaces: Vec::new(),
+            workspace_index_by_id: HashMap::new(),
+            workspace_id_by_key: HashMap::new(),
+            workspace_revision: 0,
+            pane_revision: 0,
+            resource_revision: 0,
+            focus_sequence: 0,
+            active_workspace: 0,
+            panes: HashMap::new(),
+            surfaces: HashMap::new(),
+            split_screens: HashMap::new(),
+            resource_indexes: PublicSlotIndexes::default(),
+        };
+        let error = restore_public_projections(&state, projections).unwrap_err().to_string();
+        assert!(error.contains("without a runtime slot"), "{error}");
+    }
+
+    #[test]
+    fn exited_agent_without_runtime_slot_skips_legacy_cache() {
+        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
+        let projections = RegistryPublicProjections {
+            notifications: Vec::new(),
             agents: vec![RegistryAgentProjection {
                 id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
                 terminal_id: terminal,
-                state: "working".into(),
+                state: "done".into(),
                 source: "hook".into(),
                 updated_at_ms: 1,
                 source_session: None,
@@ -177,7 +204,9 @@ mod tests {
             split_screens: HashMap::new(),
             resource_indexes: PublicSlotIndexes::default(),
         };
-        let error = restore_public_projections(&state, projections).unwrap_err().to_string();
-        assert!(error.contains("without a runtime slot"), "{error}");
+
+        let restored = restore_public_projections(&state, projections).unwrap();
+
+        assert!(restored.agent_records.is_empty());
     }
 }

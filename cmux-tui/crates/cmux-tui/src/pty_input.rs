@@ -991,6 +991,10 @@ fn fail_surface_operation_spawn(
     }
 }
 
+fn known_exited_remote_input(remote: bool, kind: PtyInputKind, surface_dead: bool) -> bool {
+    remote && kind != PtyInputKind::Mutation && surface_dead
+}
+
 fn process_event(
     queue: Arc<SharedQueue>,
     on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>,
@@ -1007,7 +1011,12 @@ fn process_event(
         event.remote_release_attempts = event.remote_release_attempts.saturating_add(1);
     }
     let after_operation = event.after_operation.take();
-    let result = if let Some(operation) = event.mutation.take() {
+    let reject_known_exit = known_exited_remote_input(remote, event.kind, event.surface.is_dead());
+    let result = if reject_known_exit {
+        Err(mark_operation_known_not_delivered(anyhow::anyhow!(
+            "terminal exited before input delivery"
+        )))
+    } else if let Some(operation) = event.mutation.take() {
         operation()
     } else {
         event.surface.write_bytes(&event.bytes)
@@ -1357,6 +1366,14 @@ mod tests {
             SmallVec::from_slice(&[bytes]),
             kind,
         )
+    }
+
+    #[test]
+    fn exited_remote_input_is_rejected_before_transport_but_mutations_are_not() {
+        assert!(known_exited_remote_input(true, PtyInputKind::Ordered, true));
+        assert!(!known_exited_remote_input(true, PtyInputKind::Mutation, true));
+        assert!(!known_exited_remote_input(false, PtyInputKind::Ordered, true));
+        assert!(!known_exited_remote_input(true, PtyInputKind::Ordered, false));
     }
 
     #[test]

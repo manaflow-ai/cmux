@@ -49,7 +49,7 @@ use crate::browser::{
     BrowserAttachUpdate, BrowserFrameUpdate, BrowserMouseDispatch, BrowserPointerOwner,
 };
 use crate::model::{Screen, State, Workspace};
-use crate::mux::{DaemonHandoffRequest, ResourceWaitWake, clamp_terminal_size};
+use crate::mux::{DaemonHandoffRequest, ResourceWaitWake, RunCommandResult, clamp_terminal_size};
 use crate::platform::{self, transport};
 use crate::resource::{
     BrowserPublicId, ClientPublicId, ContentPublicId, RequestId as ResourceRequestId,
@@ -8160,6 +8160,39 @@ fn handle_command(
     handle_command_with_cancellation(mux, client, cmd, writer, None)
 }
 
+fn terminal_run_result_json(result: RunCommandResult) -> Value {
+    let placement = result.placement;
+    let already_exited = result.terminal.lifecycle == TerminalLifecycle::Exited;
+    json!({
+        "surface": placement.as_ref().map(|placement| placement.surface),
+        "terminal_id": result.terminal.terminal_id,
+        "terminal_incarnation": result.terminal.incarnation,
+        "pane": placement.as_ref().map(|placement| placement.pane),
+        "screen": placement.as_ref().map(|placement| placement.screen),
+        "workspace": placement.as_ref().map(|placement| placement.workspace),
+        "lifecycle": result.terminal.lifecycle,
+        "exit": result.terminal.exit,
+        "terminal_revision": result.terminal_revision,
+        "already_exited": already_exited,
+    })
+}
+
+fn create_terminal_result_json(
+    result: RunCommandResult,
+    key: &str,
+    replayed: bool,
+    registry_id: &str,
+    generation: &str,
+) -> Value {
+    let mut response = terminal_run_result_json(result);
+    let fields = response.as_object_mut().expect("terminal result is an object");
+    fields.insert("key".into(), json!(key));
+    fields.insert("replayed".into(), json!(replayed));
+    fields.insert("registry_id".into(), json!(registry_id));
+    fields.insert("generation".into(), json!(generation));
+    response
+}
+
 fn handle_command_with_cancellation(
     mux: &Arc<Mux>,
     client: u64,
@@ -8539,20 +8572,7 @@ fn handle_command_with_cancellation(
                     size: optional_surface_size(cols, rows),
                 },
             )?;
-            let placement = result.placement;
-            let already_exited = result.terminal.lifecycle == TerminalLifecycle::Exited;
-            Ok(json!({
-                "surface": placement.as_ref().map(|placement| placement.surface),
-                "terminal_id": result.terminal.terminal_id,
-                "terminal_incarnation": result.terminal.incarnation,
-                "pane": placement.as_ref().map(|placement| placement.pane),
-                "screen": placement.as_ref().map(|placement| placement.screen),
-                "workspace": placement.as_ref().map(|placement| placement.workspace),
-                "lifecycle": result.terminal.lifecycle,
-                "exit": result.terminal.exit,
-                "terminal_revision": result.terminal_revision,
-                "already_exited": already_exited,
-            }))
+            Ok(terminal_run_result_json(result))
         }
         Command::SendKey { surface, keys } => {
             let surface = get_surface(mux, surface)?;
@@ -8654,6 +8674,7 @@ fn handle_command_with_cancellation(
                 "incarnation": grant.incarnation,
                 "token": grant.token,
                 "rights": grant.rights.bits(),
+                "protocol_version": grant.protocol_version,
                 "ttl_ms": ttl_ms,
             }))
         }
@@ -8977,45 +8998,17 @@ fn handle_command_with_cancellation(
                     }),
                 )?;
                 let created = mux.created_terminal_run_result(&result.terminal_id)?;
-                let placement = created.placement;
-                let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
-                Ok(json!({
-                    "surface": placement.as_ref().map(|placement| placement.surface),
-                    "terminal_id": created.terminal.terminal_id,
-                    "terminal_incarnation": created.terminal.incarnation,
-                    "pane": placement.as_ref().map(|placement| placement.pane),
-                    "screen": placement.as_ref().map(|placement| placement.screen),
-                    "workspace": placement.as_ref().map(|placement| placement.workspace),
-                    "key": key,
-                    "lifecycle": created.terminal.lifecycle,
-                    "exit": created.terminal.exit,
-                    "already_exited": already_exited,
-                    "terminal_revision": created.terminal_revision,
-                    "replayed": result.replayed,
-                    "registry_id": registry_id,
-                    "generation": generation,
-                }))
+                Ok(create_terminal_result_json(
+                    created,
+                    &key,
+                    result.replayed,
+                    &registry_id,
+                    &generation,
+                ))
             } else {
                 let created =
                     mux.create_terminal_result_in_workspace(workspace, argv, cwd, name, size)?;
-                let placement = created.placement;
-                let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
-                Ok(json!({
-                    "surface": placement.as_ref().map(|placement| placement.surface),
-                    "terminal_id": created.terminal.terminal_id,
-                    "terminal_incarnation": created.terminal.incarnation,
-                    "pane": placement.as_ref().map(|placement| placement.pane),
-                    "screen": placement.as_ref().map(|placement| placement.screen),
-                    "workspace": placement.as_ref().map(|placement| placement.workspace),
-                    "key": key,
-                    "lifecycle": created.terminal.lifecycle,
-                    "exit": created.terminal.exit,
-                    "already_exited": already_exited,
-                    "terminal_revision": created.terminal_revision,
-                    "replayed": false,
-                    "registry_id": registry_id,
-                    "generation": generation,
-                }))
+                Ok(create_terminal_result_json(created, &key, false, &registry_id, &generation))
             }
         }
         Command::NewScreen { workspace, cols, rows } => {
