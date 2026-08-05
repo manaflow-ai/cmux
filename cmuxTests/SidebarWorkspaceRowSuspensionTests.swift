@@ -369,6 +369,46 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     @Test
+    func inlineChecklistViewportShowsEntireWrappedItemBelowRowCap() throws {
+        let item = WorkspaceChecklistItem(
+            text: "This checklist item wraps across multiple lines at a narrow sidebar width."
+        )
+        let model = Self.makeModel(
+            checklistItems: [item],
+            isChecklistExpanded: true,
+            checklistStyle: .inline
+        )
+        let section = SidebarRowChecklistSection()
+        section.configure(
+            model: model,
+            palette: SidebarRowPalette(model: model),
+            actions: Self.makeActions(model: model)
+        )
+        let width: CGFloat = 150
+        section.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: width,
+            height: section.measuredHeight(width: width)
+        )
+        section.layoutSubtreeIfNeeded()
+
+        let scrollView = try #require(
+            Self.descendants(of: section).compactMap { $0 as? NSScrollView }.first
+        )
+        let documentView = try #require(scrollView.documentView)
+        let itemLine = try #require(
+            Self.descendants(of: documentView)
+                .compactMap { $0 as? SidebarRowChecklistItemLine }
+                .first { !$0.isHidden }
+        )
+        let singleLineEstimate = 11 * model.fontScale + 4
+
+        #expect(itemLine.frame.height > singleLineEstimate)
+        #expect(scrollView.documentVisibleRect.height >= documentView.frame.height)
+    }
+
+    @Test
     func switchingChecklistEditorsCommitsPreviousDraft() throws {
         let firstItem = WorkspaceChecklistItem(text: "First")
         let secondItem = WorkspaceChecklistItem(text: "Second")
