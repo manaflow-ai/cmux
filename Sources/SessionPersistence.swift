@@ -1646,9 +1646,11 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
+    var resolvedFilePath: String? = nil
 }
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
+    var resolvedFilePath: String? = nil
 }
 /// Marker for a workspace todo pane; the pane has no content of its own (the checklist
 /// persists on the workspace), so the panel `type` plus this empty marker is enough to restore it.

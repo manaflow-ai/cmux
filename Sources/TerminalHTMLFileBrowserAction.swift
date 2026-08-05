@@ -56,4 +56,30 @@ struct TerminalHTMLFileBrowserAction {
             sourcePanelId: sourcePanelId
         )
     }
+
+    static func openOrFocusResolvedFile(
+        _ resolvedURL: URL,
+        browserPanels: [BrowserPanel],
+        focusExisting: (BrowserPanel) -> Void,
+        createBrowser: () -> BrowserPanel?
+    ) -> Bool {
+        guard let identity = BrowserLocalFileIdentity(resolvedURL: resolvedURL) else {
+            return false
+        }
+        if let existing = browserPanels.first(where: {
+            $0.canReuseTerminalFile(resolvedURL, identity: identity)
+        }), existing.openValidatedTerminalFile(
+            resolvedURL,
+            identity: identity,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        ) {
+            focusExisting(existing)
+            return true
+        }
+        guard let browser = createBrowser() else { return false }
+        return browser.openValidatedTerminalFile(
+            resolvedURL,
+            identity: identity
+        )
+    }
 }

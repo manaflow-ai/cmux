@@ -338,12 +338,12 @@ import WebKit
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
         let navType = String(describing: navigationAction.navigationType)
         let requestMethod = navigationAction.request.httpMethod ?? "nil"
-        let requestURL = browserNavigationDebugURL(navigationAction.request.url)
+        let debugRequestURL = browserNavigationDebugURL(navigationAction.request.url)
         let targetMainFrame = navigationAction.targetFrame.map { $0.isMainFrame ? "1" : "0" } ?? "nil"
         cmuxDebugLog(
             "browser.nav.decidePolicy navType=\(navType) button=\(navigationAction.buttonNumber) " +
             "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
-            "targetMain=\(targetMainFrame) method=\(requestMethod) url=\(requestURL) " +
+            "targetMain=\(targetMainFrame) method=\(requestMethod) url=\(debugRequestURL) " +
             "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
             "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
             "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
@@ -379,10 +379,15 @@ import WebKit
         if let requestURL,
            owner?.localFileReadAccessPolicy == .fileOnly,
            requestURL.isFileURL {
-            guard validatedFileOnlyNavigationAllowance.consumeIfMatches(
+            let hasValidatedAllowance = validatedFileOnlyNavigationAllowance.consumeIfMatches(
                 requestURL,
                 targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
-            ) else {
+            )
+            let targetsSameDocument = navigationAction.targetFrame?.isMainFrame == true
+                && webView.url.map {
+                    browserFileNavigationTargetsSameDocument(requestURL, as: $0)
+                } == true
+            guard hasValidatedAllowance || targetsSameDocument else {
                 clearAttemptedRequest(discardPendingBypasses: true)
 #if DEBUG
                 cmuxDebugLog(

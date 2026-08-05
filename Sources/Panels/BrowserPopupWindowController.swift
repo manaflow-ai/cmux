@@ -863,10 +863,15 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
 
         if url.isFileURL,
            controller?.usesFileOnlyReadAccess == true {
-            guard validatedFileOnlyNavigationAllowance.consumeIfMatches(
+            let hasValidatedAllowance = validatedFileOnlyNavigationAllowance.consumeIfMatches(
                 url,
                 targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame
-            ) else {
+            )
+            let targetsSameDocument = navigationAction.targetFrame?.isMainFrame == true
+                && webView.url.map {
+                    browserFileNavigationTargetsSameDocument(url, as: $0)
+                } == true
+            guard hasValidatedAllowance || targetsSameDocument else {
                 clearAttemptedRequest(discardPendingBypasses: true)
 #if DEBUG
                 cmuxDebugLog(

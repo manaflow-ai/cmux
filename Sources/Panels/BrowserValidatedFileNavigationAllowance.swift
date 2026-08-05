@@ -1,6 +1,14 @@
 import CmuxBrowser
 import Foundation
 
+func browserFileNavigationTargetsSameDocument(_ candidate: URL, as current: URL) -> Bool {
+    guard candidate.browserIsLocalFileURL, current.browserIsLocalFileURL else {
+        return false
+    }
+    return candidate.standardizedFileURL.path == current.standardizedFileURL.path
+        && candidate.query == current.query
+}
+
 struct BrowserValidatedFileNavigationAllowance {
     private var expectedURLString: String?
 

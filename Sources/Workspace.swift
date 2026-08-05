@@ -641,7 +641,10 @@ extension Workspace {
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
-            markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            markdownSnapshot = SessionMarkdownPanelSnapshot(
+                filePath: markdownPanel.filePath,
+                resolvedFilePath: markdownPanel.resolvedFilePath
+            )
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
@@ -651,7 +654,10 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
-            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreviewPanel.filePath,
+                resolvedFilePath: filePreviewPanel.resolvedFilePath
+            )
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
             projectSnapshot = nil
@@ -1769,10 +1775,13 @@ extension Workspace {
             return browserPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
-                  let markdownPanel = newMarkdownSurface(
+                let markdownPanel = newMarkdownSurface(
                     inPane: paneId,
                     filePath: filePath,
-                    focus: false
+                    focus: false,
+                    resolvedFileURL: snapshot.markdown?.resolvedFilePath.map {
+                        URL(fileURLWithPath: $0)
+                    }
                   ) else {
                 return nil
             }
@@ -1780,10 +1789,13 @@ extension Workspace {
             return markdownPanel.id
         case .filePreview:
             guard let filePath = snapshot.filePreview?.filePath,
-                  let filePreviewPanel = newFilePreviewSurface(
+                let filePreviewPanel = newFilePreviewSurface(
                     inPane: paneId,
                     filePath: filePath,
-                    focus: false
+                    focus: false,
+                    resolvedFileURL: snapshot.filePreview?.resolvedFilePath.map {
+                        URL(fileURLWithPath: $0)
+                    }
                   ) else {
                 return nil
             }
@@ -8739,6 +8751,7 @@ final class Workspace: Identifiable, ObservableObject {
         resolvedFileURL: URL? = nil
     ) -> MarkdownPanel? {
         let routedFilePath = resolvedFileURL?.standardizedFileURL.path ?? filePath
+        let routedAliasPath = URL(fileURLWithPath: filePath).standardizedFileURL.path
         let canonical = resolvedFileURL != nil
             ? routedFilePath
             : (filePath as NSString).resolvingSymlinksInPath
@@ -8748,7 +8761,9 @@ final class Workspace: Identifiable, ObservableObject {
                 ? md.resolvedFilePath
                     ?? URL(fileURLWithPath: md.filePath).standardizedFileURL.path
                 : (md.filePath as NSString).resolvingSymlinksInPath
-            if existingCanonical == canonical {
+            if existingCanonical == canonical
+                || (resolvedFileURL != nil
+                    && URL(fileURLWithPath: md.filePath).standardizedFileURL.path == routedAliasPath) {
                 focusPanel(existingId)
                 return md
             }
@@ -9048,6 +9063,7 @@ final class Workspace: Identifiable, ObservableObject {
         resolvedFileURL: URL? = nil
     ) -> FilePreviewPanel? {
         let routedFilePath = resolvedFileURL?.standardizedFileURL.path ?? filePath
+        let routedAliasPath = URL(fileURLWithPath: filePath).standardizedFileURL.path
         let canonical = resolvedFileURL != nil
             ? routedFilePath
             : (filePath as NSString).resolvingSymlinksInPath
@@ -9057,7 +9073,9 @@ final class Workspace: Identifiable, ObservableObject {
                 ? preview.resolvedFilePath
                     ?? URL(fileURLWithPath: preview.filePath).standardizedFileURL.path
                 : (preview.filePath as NSString).resolvingSymlinksInPath
-            if existingCanonical == canonical {
+            if existingCanonical == canonical
+                || (resolvedFileURL != nil
+                    && URL(fileURLWithPath: preview.filePath).standardizedFileURL.path == routedAliasPath) {
                 focusPanel(existingId)
                 return preview
             }

@@ -100,51 +100,42 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func openOrFocusTerminalBrowserFileLink(resolvedURL: URL, sourcePanelId: UUID) -> Bool {
-        guard let targetIdentity = BrowserLocalFileIdentity(resolvedURL: resolvedURL) else { return false }
-        if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
-            $0.canReuseTerminalFile(resolvedURL, identity: targetIdentity)
-        }), existing.openValidatedTerminalFile(
+        TerminalHTMLFileBrowserAction.openOrFocusResolvedFile(
             resolvedURL,
-            identity: targetIdentity,
-            cachePolicy: .reloadIgnoringLocalCacheData
-        ) {
-            focusPanel(existing.id)
-            return true
-        }
-
-        guard let sourcePane = paneId(forPanelId: sourcePanelId) else { return false }
-        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
-            from: sourcePane,
-            in: bonsplitController
-        ) {
-            guard let browserID = newSurface(
-                kind: .browser,
-                inPane: targetPane,
-                focus: true,
-                bypassRemoteProxy: true,
-                localFileReadAccessPolicy: .fileOnly
-            ), let browser = panels[browserID] as? BrowserPanel else {
-                return false
+            browserPanels: panels.values.compactMap { $0 as? BrowserPanel },
+            focusExisting: { focusPanel($0.id) },
+            createBrowser: {
+                guard let sourcePane = paneId(forPanelId: sourcePanelId) else {
+                    return nil
+                }
+                if let targetPane = BrowserRightSidePaneResolver().preferredPane(
+                    from: sourcePane,
+                    in: bonsplitController
+                ) {
+                    guard let browserID = newSurface(
+                        kind: .browser,
+                        inPane: targetPane,
+                        focus: true,
+                        bypassRemoteProxy: true,
+                        localFileReadAccessPolicy: .fileOnly
+                    ) else {
+                        return nil
+                    }
+                    return panels[browserID] as? BrowserPanel
+                }
+                guard let browserID = newSplit(
+                    kind: .browser,
+                    orientation: .horizontal,
+                    insertFirst: false,
+                    sourcePanelId: sourcePanelId,
+                    bypassRemoteProxy: true,
+                    localFileReadAccessPolicy: .fileOnly,
+                    focus: true
+                ) else {
+                    return nil
+                }
+                return panels[browserID] as? BrowserPanel
             }
-            return browser.openValidatedTerminalFile(
-                resolvedURL,
-                identity: targetIdentity
-            )
-        }
-        guard let browserID = newSplit(
-            kind: .browser,
-            orientation: .horizontal,
-            insertFirst: false,
-            sourcePanelId: sourcePanelId,
-            bypassRemoteProxy: true,
-            localFileReadAccessPolicy: .fileOnly,
-            focus: true
-        ), let browser = panels[browserID] as? BrowserPanel else {
-            return false
-        }
-        return browser.openValidatedTerminalFile(
-            resolvedURL,
-            identity: targetIdentity
         )
     }
 }

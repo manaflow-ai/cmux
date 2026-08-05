@@ -65,43 +65,29 @@ extension Workspace: TerminalLinkOpenContainer {
     }
 
     func openOrFocusTerminalBrowserFileLink(resolvedURL: URL, sourcePanelId: UUID) -> Bool {
-        guard let targetIdentity = BrowserLocalFileIdentity(resolvedURL: resolvedURL) else { return false }
-        if let existing = panels.values.compactMap({ $0 as? BrowserPanel }).first(where: {
-            $0.canReuseTerminalFile(resolvedURL, identity: targetIdentity)
-        }), existing.openValidatedTerminalFile(
+        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
+        return TerminalHTMLFileBrowserAction.openOrFocusResolvedFile(
             resolvedURL,
-            identity: targetIdentity,
-            cachePolicy: .reloadIgnoringLocalCacheData
-        ) {
-            focusPanel(existing.id)
-            return true
-        }
-
-        if let targetPane = preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
-            guard let browser = newBrowserSurface(
-                inPane: targetPane,
-                focus: true,
-                bypassRemoteProxy: true,
-                localFileReadAccessPolicy: .fileOnly
-            ) else {
-                return false
+            browserPanels: panels.values.compactMap { $0 as? BrowserPanel },
+            focusExisting: { focusPanel($0.id) },
+            createBrowser: {
+                if let targetPane = preferredRightSideTargetPane(
+                    fromPanelId: target.containerPanelID
+                ) {
+                    return newBrowserSurface(
+                        inPane: targetPane,
+                        focus: true,
+                        bypassRemoteProxy: true,
+                        localFileReadAccessPolicy: .fileOnly
+                    )
+                }
+                return newBrowserSplit(
+                    from: target.containerPanelID,
+                    orientation: .horizontal,
+                    bypassRemoteProxy: true,
+                    localFileReadAccessPolicy: .fileOnly
+                )
             }
-            return browser.openValidatedTerminalFile(
-                resolvedURL,
-                identity: targetIdentity
-            )
-        }
-        guard let browser = newBrowserSplit(
-            from: sourcePanelId,
-            orientation: .horizontal,
-            bypassRemoteProxy: true,
-            localFileReadAccessPolicy: .fileOnly
-        ) else {
-            return false
-        }
-        return browser.openValidatedTerminalFile(
-            resolvedURL,
-            identity: targetIdentity
         )
     }
 }

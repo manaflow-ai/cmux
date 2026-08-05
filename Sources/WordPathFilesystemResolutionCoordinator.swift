@@ -14,6 +14,13 @@ final class WordPathFilesystemResolutionCoordinator {
     typealias Work = @Sendable () async -> Completion
     typealias Prepare = @MainActor @Sendable () -> Work?
     typealias Discarded = @MainActor @Sendable () -> Void
+    typealias HoverClockNow = @MainActor @Sendable () -> DispatchTime
+    typealias HoverStartAction = @MainActor @Sendable () -> Void
+    typealias HoverStartCancellation = @MainActor @Sendable () -> Void
+    typealias HoverStartScheduler = @MainActor @Sendable (
+        DispatchTime,
+        @escaping HoverStartAction
+    ) -> HoverStartCancellation
     typealias Job = (
         id: UUID,
         isUserInitiated: Bool,
@@ -28,6 +35,8 @@ final class WordPathFilesystemResolutionCoordinator {
     private let minimumHoverInterval: DispatchTimeInterval
     private let maximumConcurrentCoalescedJobs: Int
     private let maximumPendingCoalescedOwners: Int
+    private let hoverClockNow: HoverClockNow
+    private let hoverStartScheduler: HoverStartScheduler
     private var runningID: UUID?
     private var runningTask: Task<Void, Never>?
     private var pendingClicks: [Job] = []
@@ -38,17 +47,34 @@ final class WordPathFilesystemResolutionCoordinator {
     private var pendingCoalescedJobs: [UUID: Job] = [:]
     private var pendingCoalescedKeyByJobID: [UUID: UUID] = [:]
     private var pendingHover: Job?
-    private var nextHoverStartDeadline = DispatchTime.now()
-    private var hoverStartTimer: DispatchSourceTimer?
+    private var nextHoverStartDeadline: DispatchTime
+    private var hoverStartCancellation: HoverStartCancellation?
 
     init(
         minimumHoverInterval: DispatchTimeInterval = .milliseconds(100),
         maximumConcurrentCoalescedJobs: Int = 4,
-        maximumPendingCoalescedOwners: Int = 128
+        maximumPendingCoalescedOwners: Int = 128,
+        hoverClockNow: @escaping HoverClockNow = { .now() },
+        scheduleHoverStart: HoverStartScheduler? = nil
     ) {
         self.minimumHoverInterval = minimumHoverInterval
         self.maximumConcurrentCoalescedJobs = max(1, maximumConcurrentCoalescedJobs)
         self.maximumPendingCoalescedOwners = max(0, maximumPendingCoalescedOwners)
+        self.hoverClockNow = hoverClockNow
+        self.hoverStartScheduler = scheduleHoverStart ?? { deadline, action in
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: deadline)
+            timer.setEventHandler {
+                MainActor.assumeIsolated {
+                    action()
+                }
+            }
+            timer.resume()
+            return {
+                timer.cancel()
+            }
+        }
+        self.nextHoverStartDeadline = hoverClockNow()
     }
 
     func submit(
@@ -178,7 +204,7 @@ final class WordPathFilesystemResolutionCoordinator {
         }
         runningID = job.id
         if !job.isUserInitiated {
-            nextHoverStartDeadline = .now() + minimumHoverInterval
+            nextHoverStartDeadline = hoverClockNow() + minimumHoverInterval
         }
         let id = job.id
         runningTask = Task.detached(priority: .utility) { [weak self, id, work] in
@@ -243,7 +269,7 @@ final class WordPathFilesystemResolutionCoordinator {
             cancelScheduledHoverStart()
             return
         }
-        let now = DispatchTime.now()
+        let now = hoverClockNow()
         guard now >= nextHoverStartDeadline else {
             scheduleHoverStart(at: nextHoverStartDeadline)
             return
@@ -277,19 +303,10 @@ final class WordPathFilesystemResolutionCoordinator {
     }
 
     private func scheduleHoverStart(at deadline: DispatchTime) {
-        if let hoverStartTimer {
-            hoverStartTimer.schedule(deadline: deadline)
-            return
+        hoverStartCancellation?()
+        hoverStartCancellation = hoverStartScheduler(deadline) { [weak self] in
+            self?.hoverStartTimerDidFire()
         }
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: deadline)
-        timer.setEventHandler { [weak self] in
-            MainActor.assumeIsolated {
-                self?.hoverStartTimerDidFire()
-            }
-        }
-        hoverStartTimer = timer
-        timer.resume()
     }
 
     private func hoverStartTimerDidFire() {
@@ -298,7 +315,7 @@ final class WordPathFilesystemResolutionCoordinator {
     }
 
     private func cancelScheduledHoverStart() {
-        hoverStartTimer?.cancel()
-        hoverStartTimer = nil
+        hoverStartCancellation?()
+        hoverStartCancellation = nil
     }
 }

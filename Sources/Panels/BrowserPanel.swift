@@ -3199,6 +3199,12 @@ final class BrowserPanel: Panel, ObservableObject {
         isTargetCurrent: () -> Bool,
         perform: () -> WKNavigation?
     )?
+    private var pendingFileOnlyNewTabNavigation: (
+        id: UUID,
+        request: URLRequest,
+        fileURL: URL,
+        bypassInsecureHTTPHostOnce: String?
+    )?
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
@@ -4851,9 +4857,46 @@ final class BrowserPanel: Panel, ObservableObject {
         _ coordinator: WordPathFilesystemResolutionCoordinator
     ) {
         guard filesystemResolutionCoordinator !== coordinator else { return }
-        cancelPendingFileOnlyNavigation()
+        let navigationToResume = pendingFileOnlyNavigation
+        let nativeNavigationToResume = pendingFileOnlyNativeNavigation
+        let newTabNavigationToResume = pendingFileOnlyNewTabNavigation
+        pendingFileOnlyNavigation = nil
+        pendingFileOnlyNativeNavigation = nil
+        pendingFileOnlyNewTabNavigation = nil
+        if let navigationToResume {
+            filesystemResolutionCoordinator.cancelPending(id: navigationToResume.id)
+        }
+        if let nativeNavigationToResume {
+            filesystemResolutionCoordinator.cancelPending(id: nativeNavigationToResume.id)
+        }
+        if let newTabNavigationToResume {
+            filesystemResolutionCoordinator.cancelPending(id: newTabNavigationToResume.id)
+        }
         closeAllPopupControllers()
         filesystemResolutionCoordinator = coordinator
+        if let navigationToResume {
+            enqueueFileOnlyNavigation(
+                request: navigationToResume.request,
+                recordTypedNavigation: navigationToResume.recordTypedNavigation,
+                preserveRestoredSessionHistory: navigationToResume.preserveRestoredSessionHistory,
+                onNavigationStarted: navigationToResume.onNavigationStarted
+            )
+        }
+        if let nativeNavigationToResume {
+            enqueueFileOnlyNativeNavigation(
+                to: nativeNavigationToResume.targetURL,
+                reportsFailureAsRecovery: nativeNavigationToResume.reportsFailureAsRecovery,
+                isTargetCurrent: nativeNavigationToResume.isTargetCurrent,
+                perform: nativeNavigationToResume.perform
+            )
+        }
+        if let newTabNavigationToResume {
+            resolveFileOnlyNewTabNavigation(
+                request: newTabNavigationToResume.request,
+                fileURL: newTabNavigationToResume.fileURL,
+                bypassInsecureHTTPHostOnce: newTabNavigationToResume.bypassInsecureHTTPHostOnce
+            )
+        }
     }
 
     var explicitEphemeralWebsiteDataStoreForSibling: WKWebsiteDataStore? {
@@ -6321,6 +6364,15 @@ final class BrowserPanel: Panel, ObservableObject {
                 id: pendingFileOnlyNativeNavigation.id
             )
         }
+        cancelPendingFileOnlyNewTabNavigation()
+    }
+
+    private func cancelPendingFileOnlyNewTabNavigation() {
+        guard let pendingFileOnlyNewTabNavigation else { return }
+        self.pendingFileOnlyNewTabNavigation = nil
+        filesystemResolutionCoordinator.cancelPending(
+            id: pendingFileOnlyNewTabNavigation.id
+        )
     }
 
     private func enqueueFileOnlyNativeNavigation(
@@ -6799,7 +6851,8 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             hasPendingRemoteNavigation:
                 pendingRemoteNavigation != nil ||
                 pendingFileOnlyNavigation != nil ||
-                pendingFileOnlyNativeNavigation != nil,
+                pendingFileOnlyNativeNavigation != nil ||
+                pendingFileOnlyNewTabNavigation != nil,
             hasCurrentURL: (currentURL ?? Self.remoteProxyDisplayURL(for: webView.url)) != nil,
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
@@ -6863,6 +6916,7 @@ extension BrowserPanel {
         pendingNavigationRecoveryURL != nil ||
         pendingFileOnlyNavigation != nil ||
         pendingFileOnlyNativeNavigation != nil ||
+        pendingFileOnlyNewTabNavigation != nil ||
         webView.cmuxBrowserViewportAttachmentSuperview != nil
     }
 
@@ -7156,32 +7210,23 @@ extension BrowserPanel {
         fileURL: URL,
         bypassInsecureHTTPHostOnce: String?
     ) {
-        let finishResolution: @MainActor @Sendable (URL?) -> Void = { [weak self] resolvedFileURL in
-            guard let self else { return }
-            guard let resolvedFileURL,
-                  let navigationURL = BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
-                      for: fileURL,
-                      resolvedFileURL: resolvedFileURL
-                  ) else {
-                self.openResolvedLinkInNewTab(
-                    request: request,
-                    bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
-                )
-                return
-            }
-            var resolvedRequest = request
-            resolvedRequest.url = navigationURL
-            self.openResolvedLinkInNewTab(
-                request: resolvedRequest,
+        guard fileURL.browserIsLocalFileURL else {
+            openResolvedLinkInNewTab(
+                request: request,
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
             )
-        }
-        guard fileURL.browserIsLocalFileURL else {
-            finishResolution(nil)
             return
         }
+        cancelPendingFileOnlyNewTabNavigation()
+        let id = UUID()
+        pendingFileOnlyNewTabNavigation = (
+            id,
+            request,
+            fileURL,
+            bypassInsecureHTTPHostOnce
+        )
         filesystemResolutionCoordinator.submit(
-            id: UUID(),
+            id: id,
             isUserInitiated: true,
             work: {
                 let result = await WordPathFilesystemProbe()
@@ -7191,14 +7236,53 @@ extension BrowserPanel {
                         ? URL(fileURLWithPath: $0.resolvedPath)
                         : nil
                 }
-                return { @MainActor in
-                    finishResolution(resolvedFileURL)
+                return { @MainActor [weak self] in
+                    self?.finishFileOnlyNewTabNavigation(
+                        id: id,
+                        request: request,
+                        fileURL: fileURL,
+                        resolvedFileURL: resolvedFileURL,
+                        bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+                    )
                 }
             },
-            discarded: {
-                finishResolution(nil)
+            discarded: { [weak self] in
+                self?.discardFileOnlyNewTabNavigation(id: id)
             }
         )
+    }
+
+    private func finishFileOnlyNewTabNavigation(
+        id: UUID,
+        request: URLRequest,
+        fileURL: URL,
+        resolvedFileURL: URL?,
+        bypassInsecureHTTPHostOnce: String?
+    ) {
+        guard pendingFileOnlyNewTabNavigation?.id == id else { return }
+        pendingFileOnlyNewTabNavigation = nil
+        guard let resolvedFileURL,
+              let navigationURL = BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                  for: fileURL,
+                  resolvedFileURL: resolvedFileURL
+              ) else {
+            openResolvedLinkInNewTab(
+                request: request,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            )
+            return
+        }
+        var resolvedRequest = request
+        resolvedRequest.url = navigationURL
+        openResolvedLinkInNewTab(
+            request: resolvedRequest,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        )
+    }
+
+    private func discardFileOnlyNewTabNavigation(id: UUID) {
+        guard pendingFileOnlyNewTabNavigation?.id == id else { return }
+        pendingFileOnlyNewTabNavigation = nil
     }
 
     private func openResolvedLinkInNewTab(

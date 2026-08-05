@@ -6603,9 +6603,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             container: container,
             sourcePanelId: terminalSurface.id
         ) {
-            let size = ghostty_surface_size(surface)
-            let rows = max(Int(size.rows), 1)
-            let columns = max(Int(size.columns), 1)
+            let geometry = wordPathCellGeometry(at: resolvedPoint, surface: surface)
+            let rows = geometry.rows
+            let columns = geometry.columns
             let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
                 terminalPanel: panel,
                 lineLimit: max(200, rows * 4)
@@ -6613,41 +6613,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let visibleLines = visibleText.visibleLines(rows: rows)
             let rowOffset = max(0, rows - visibleLines.count)
 
-            if let resolvedPoint {
-                let resolvedCellWidth = cellSize.width > 0
-                    ? cellSize.width
-                    : CGFloat(size.cell_width_px)
-                let resolvedCellHeight = cellSize.height > 0
-                    ? cellSize.height
-                    : CGFloat(size.cell_height_px)
-                if resolvedCellWidth > 0, resolvedCellHeight > 0 {
-                    let xInset = max(
-                        0,
-                        (bounds.width - (CGFloat(columns) * resolvedCellWidth)) / 2
+            if let row = geometry.row, let column = geometry.column {
+                let visibleRow = row - rowOffset
+                if visibleRow >= 0, visibleRow < visibleLines.count {
+                    pointSnapshot = WordPathVisibleLineSnapshot(
+                        line: visibleLines[visibleRow],
+                        column: column
                     )
-                    let yInset = max(
-                        0,
-                        (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2
-                    )
-                    let yFromTop = bounds.height - resolvedPoint.y
-                    let rowFromTop = max(
-                        0,
-                        min(rows - 1, Int((yFromTop - yInset) / resolvedCellHeight))
-                    )
-                    let visibleRow = rowFromTop - rowOffset
-                    if visibleRow >= 0, visibleRow < visibleLines.count {
-                        let column = max(
-                            0,
-                            min(
-                                columns - 1,
-                                Int((resolvedPoint.x - xInset) / resolvedCellWidth)
-                            )
-                        )
-                        pointSnapshot = WordPathVisibleLineSnapshot(
-                            line: visibleLines[visibleRow],
-                            column: column
-                        )
-                    }
                 }
             }
 
@@ -6677,6 +6649,54 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    private func wordPathCellGeometry(
+        at point: NSPoint?,
+        surface: ghostty_surface_t
+    ) -> (
+        rows: Int,
+        columns: Int,
+        cellSize: CGSize,
+        row: Int?,
+        column: Int?
+    ) {
+        let size = ghostty_surface_size(surface)
+        let rows = max(Int(size.rows), 1)
+        let columns = max(Int(size.columns), 1)
+        let resolvedCellSize = CGSize(
+            width: cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px),
+            height: cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        )
+        guard let point,
+              resolvedCellSize.width > 0,
+              resolvedCellSize.height > 0 else {
+            return (rows, columns, resolvedCellSize, nil, nil)
+        }
+        let xInset = max(
+            0,
+            (bounds.width - (CGFloat(columns) * resolvedCellSize.width)) / 2
+        )
+        let yInset = max(
+            0,
+            (bounds.height - (CGFloat(rows) * resolvedCellSize.height)) / 2
+        )
+        let row = max(
+            0,
+            min(
+                rows - 1,
+                Int((bounds.height - point.y - yInset) / resolvedCellSize.height)
+            )
+        )
+        let column = max(
+            0,
+            min(
+                columns - 1,
+                Int((point.x - xInset) / resolvedCellSize.width)
+            )
+        )
+        return (rows, columns, resolvedCellSize, row, column)
+    }
+
+    @concurrent
     nonisolated private static func resolveWordPathSnapshot(
         _ snapshot: WordPathResolutionSnapshot,
         isCancelled: @escaping @Sendable () -> Bool
@@ -6863,7 +6883,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
     }
 
-    private func terminalLinkOpenContainer(
+    func terminalLinkOpenContainer(
         for terminalSurface: TerminalSurface
     ) -> (any TerminalLinkOpenContainer)? {
         if cachedTerminalLinkOpenContainerSurfaceID == terminalSurface.id,
@@ -7079,42 +7099,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return nil
         }
 
-        let size = ghostty_surface_size(surface)
-        let rows = max(Int(size.rows), 1)
-        let columns = max(Int(size.columns), 1)
-        let resolvedCellSize = CGSize(
-            width: cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px),
-            height: cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
-        )
-        guard resolvedCellSize.width > 0, resolvedCellSize.height > 0 else {
+        let geometry = wordPathCellGeometry(at: resolvedPoint, surface: surface)
+        guard let row = geometry.row, let column = geometry.column else {
             return nil
         }
-
-        let xInset = max(0, (bounds.width - (CGFloat(columns) * resolvedCellSize.width)) / 2)
-        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellSize.height)) / 2)
-        let row = max(
-            0,
-            min(
-                rows - 1,
-                Int((bounds.height - resolvedPoint.y - yInset) / resolvedCellSize.height)
-            )
-        )
-        let column = max(
-            0,
-            min(
-                columns - 1,
-                Int((resolvedPoint.x - xInset) / resolvedCellSize.width)
-            )
-        )
         return WordPathHoverCacheKey(
             surfaceID: terminalSurface.id,
             surfaceGeneration: terminalSurface.runtimeSurfaceGeneration,
             row: row,
             column: column,
-            rows: rows,
-            columns: columns,
+            rows: geometry.rows,
+            columns: geometry.columns,
             boundsSize: bounds.size,
-            cellSize: resolvedCellSize,
+            cellSize: geometry.cellSize,
             workingDirectory: workingDirectory
         )
     }
@@ -7193,7 +7190,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func refreshWordPathHoverAfterRenderedFrame() {
         guard wordPathHoverRenderedFrameObserver != nil,
               let point = wordPathHoverRefreshPoint else { return }
-        let flags: NSEvent.ModifierFlags = [.command]
+        let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.command) else {
+            updateWordPathHover(at: point, cmdHeld: false)
+            return
+        }
         updateWordPathHover(
             at: point,
             cmdHeld: true,
@@ -7242,26 +7243,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return convert(window.mouseLocationOutsideOfEventStream, from: nil)
     }
 
-    private func wordPathSnapshotTerminalPanel(
+    func wordPathSnapshotTerminalPanel(
         container: any TerminalLinkOpenContainer,
         sourcePanelId: UUID
     ) -> TerminalPanel? {
         guard !container.terminalLinkIsRemoteTerminal(sourcePanelId) else { return nil }
         return container.terminalLinkSnapshotTerminalPanel(for: sourcePanelId)
     }
-
-#if DEBUG
-    func debugWordPathSnapshotTerminalPanelID() -> UUID? {
-        guard let terminalSurface,
-              let container = terminalLinkOpenContainer(for: terminalSurface) else {
-            return nil
-        }
-        return wordPathSnapshotTerminalPanel(
-            container: container,
-            sourcePanelId: terminalSurface.id
-        )?.id
-    }
-#endif
 
     @discardableResult
     private func handleCommandClickRelease(
