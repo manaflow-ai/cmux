@@ -63,6 +63,7 @@ struct WorkspaceCanvasHostView: View {
                             workspace: workspace,
                             pointerInputOwner: container,
                             isFocused: isFocused,
+                            isSplit: isSplit,
                             isWorkspaceVisible: isWorkspaceVisible,
                             allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
                             portalPriority: portalPriority,
@@ -82,6 +83,8 @@ struct WorkspaceCanvasHostView: View {
                     guard let mount = mount as? CanvasPaneContentMount else { return }
                     mount.updatePresentation(
                         isFocused: isFocused,
+                        isSplit: isSplit,
+                        appearance: appearance,
                         allowsPointerInput: isWorkspaceVisible && isWorkspaceInputActive,
                         showsInactiveOverlay: isSplit && !isFocused,
                         inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
@@ -118,6 +121,7 @@ struct WorkspaceCanvasHostView: View {
         workspace: Workspace?,
         pointerInputOwner: NSView,
         isFocused: Bool,
+        isSplit: Bool,
         isWorkspaceVisible: Bool,
         allowsPointerInput: Bool,
         portalPriority: Int,
@@ -133,6 +137,8 @@ struct WorkspaceCanvasHostView: View {
         let paneId = workspace?.bonsplitPaneId(forPanelId: panel.id) ?? PaneID()
         let presentation = CanvasHostedPanelPresentation(
             isFocused: isFocused,
+            isSplit: isSplit,
+            appearance: appearance,
             allowsPointerInput: allowsPointerInput,
             pointerInputOwner: pointerInputOwner
         )
@@ -143,7 +149,6 @@ struct WorkspaceCanvasHostView: View {
             paneId: paneId,
             isVisibleInUI: isWorkspaceVisible,
             portalPriority: portalPriority,
-            appearance: appearance,
             windowAppearance: windowAppearance,
             customSidebarTabManager: workspace?.owningTabManager,
             onRequestPanelFocus: { [weak workspace] in
