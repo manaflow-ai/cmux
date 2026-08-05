@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 let oidcProviderCalls = 0;
 mock.module("@vercel/oidc-aws-credentials-provider", () => ({
@@ -33,8 +33,4 @@ describe("Vercel RDS IAM credentials", () => {
     expect(oidcProviderCalls).toBe(1);
     await pool.end();
   });
-});
-
-afterAll(() => {
-  mock.restore();
 });
