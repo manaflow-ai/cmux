@@ -257,7 +257,11 @@ fn codex_authorize_url(
         ("state", state),
         ("originator", OPENAI_ORIGINATOR),
     ]);
-    Ok(authorize)
+    // Codex builds this query with RFC 3986 percent-encoding rather than
+    // application/x-www-form-urlencoded encoding. Match it exactly: OpenAI's
+    // Hydra authorization endpoint validates this first-party request shape.
+    reqwest::Url::parse(&authorize.as_str().replace('+', "%20"))
+        .map_err(|error| Error::Backend(error.to_string()))
 }
 
 fn opencode_device_oauth() -> Result<Value, Error> {
@@ -493,5 +497,6 @@ mod tests {
             query.get("client_id").map(String::as_str),
             Some(OPENAI_CLIENT_ID)
         );
+        assert!(url.as_str().contains("scope=openid%20profile%20email"));
     }
 }
