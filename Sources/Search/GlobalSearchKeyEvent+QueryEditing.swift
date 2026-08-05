@@ -3,6 +3,7 @@ import Foundation
 
 extension GlobalSearchKeyEvent {
     /// Whether the search query's field editor owns this event as native text input.
+    @MainActor
     var queryOwnsEditingShortcut: Bool {
         let flags = modifierFlags
         let commandControlOption = flags.intersection([.command, .control, .option])

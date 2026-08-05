@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import Foundation
 
 @MainActor
@@ -73,7 +74,7 @@ enum KeyboardLayout {
 
     /// Translate a physical key code exactly as text input would, including
     /// Option/Shift and without ASCII fallback.
-    nonisolated static func textInputCharacter(
+    static func textInputCharacter(
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags
     ) -> String? {
