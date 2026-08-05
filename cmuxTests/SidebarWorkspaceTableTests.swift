@@ -95,7 +95,9 @@ struct SidebarWorkspaceTableTests {
 
         #expect(measurementCount == 2)
         #expect(changed == IndexSet(integer: 0))
-        #expect(cache.height(for: row, columnWidth: 200) == nil)
+        // During live resize, a content-equivalent entry at the newest width
+        // remains the authoritative measurement until the settle pass.
+        #expect(cache.height(for: row, columnWidth: 200) == 60)
         #expect(cache.height(for: row, columnWidth: 240) == 60)
     }
 
@@ -362,7 +364,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func reorderDragPreviewsRowOrderAndRestoresItOnExit() async throws {
+    func reorderDragPreviewsRowOrderAndRestoresItOnExit() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let ids = (0..<4).map { _ in UUID() }
@@ -408,27 +410,12 @@ struct SidebarWorkspaceTableTests {
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
 
-        func displayedWorkspaceIds() throws -> [UUID] {
-            try (0..<controller.numberOfRows(in: container.tableView)).map { row in
-                let item = try #require(
-                    controller.tableView(container.tableView, pasteboardWriterForRow: row)
-                        as? NSPasteboardItem
-                )
-                let type = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
-                return try #require(
-                    SidebarTabDragPayload.workspaceId(
-                        fromPasteboardString: item.string(forType: type)
-                    )
-                )
-            }
-        }
-
-        #expect(try displayedWorkspaceIds() == ids)
+        #expect(controller.displayedWorkspaceIdsForTesting == ids)
         #expect(controller.updateReorderDrag(windowPoint: NSPoint(x: 40, y: 120)))
-        #expect(try displayedWorkspaceIds() == [ids[0], ids[2], ids[1], ids[3]])
+        #expect(controller.displayedWorkspaceIdsForTesting == [ids[0], ids[2], ids[1], ids[3]])
 
         controller.reorderDropDragExited()
-        #expect(try displayedWorkspaceIds() == ids)
+        #expect(controller.displayedWorkspaceIdsForTesting == ids)
     }
 
     @Test
