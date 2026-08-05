@@ -593,6 +593,51 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         #expect(manager.resizeSelectedPane(direction: .right, amountInPixels: 20) == .unsupportedLayout)
     }
 
+    @Test func heightMaximizeRestoresPreviousWorkspaceBeforeMaximizingNewWorkspace() throws {
+        try withTemporaryShortcut(action: .maximizePaneHeight) {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let firstWorkspace = try #require(manager.selectedWorkspace)
+            let firstPaneId = try #require(firstWorkspace.focusedPanelId)
+            _ = try #require(firstWorkspace.newTerminalSplit(from: firstPaneId, orientation: .vertical))
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            let event = try #require(makeKeyDownEvent(
+                key: "0",
+                modifiers: [.command, .option, .shift],
+                keyCode: 29,
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+            #expect(heightSplitNodes(in: firstWorkspace.bonsplitController.treeSnapshot()).allSatisfy {
+                $0.imposedFirstExtent != nil
+            })
+
+            let secondWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+            let secondPaneId = try #require(secondWorkspace.focusedPanelId)
+            _ = try #require(secondWorkspace.newTerminalSplit(from: secondPaneId, orientation: .vertical))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#endif
+            #expect(heightSplitNodes(in: firstWorkspace.bonsplitController.treeSnapshot()).allSatisfy {
+                $0.imposedFirstExtent == nil
+            })
+            #expect(heightSplitNodes(in: secondWorkspace.bonsplitController.treeSnapshot()).allSatisfy {
+                $0.imposedFirstExtent != nil
+            })
+        }
+    }
+
     private func makeKeyDownEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags = [.control],
@@ -679,5 +724,15 @@ struct AppDelegateSurfaceShortcutRoutingTests {
     private func closeWindow(withId windowId: UUID) {
         guard let window = mainWindow(for: windowId) else { return }
         window.close()
+    }
+}
+
+private func heightSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+    switch node {
+    case .pane:
+        return []
+    case .split(let split):
+        let descendants = heightSplitNodes(in: split.first) + heightSplitNodes(in: split.second)
+        return split.orientation == "vertical" ? [split] + descendants : descendants
     }
 }

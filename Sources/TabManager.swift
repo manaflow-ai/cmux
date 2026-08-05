@@ -373,8 +373,9 @@ class TabManager: ObservableObject {
     }
     private var observers: [NSObjectProtocol] = []
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
-    /// One reversible height-maximize state per workspace.
-    private var paneHeightMaximizeSnapshots: [UUID: PaneHeightMaximizeSnapshot] = [:]
+    /// Height-only maximize is global to the window: activating it in another
+    /// workspace first restores the prior workspace's layout.
+    private var paneHeightMaximizeSnapshot: PaneHeightMaximizeSnapshot?
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
         let panelId: UUID
@@ -6484,6 +6485,7 @@ enum BrowserFirstResponderNotificationUserInfoKey {
 }
 
 private struct PaneHeightMaximizeSnapshot {
+    let workspaceId: UUID
     let paneId: UUID
     let dividerPositions: [UUID: CGFloat]
     let minimumPaneHeight: CGFloat
@@ -6503,13 +6505,18 @@ extension TabManager {
             return .rejected(reason: "No pane is focused.")
         }
 
-        if let snapshot = paneHeightMaximizeSnapshots[workspace.id], snapshot.paneId == paneId.id {
+        if let snapshot = paneHeightMaximizeSnapshot,
+           snapshot.workspaceId == workspace.id,
+           snapshot.paneId == paneId.id {
             restoreHeightMaximize(snapshot, in: workspace)
-            paneHeightMaximizeSnapshots.removeValue(forKey: workspace.id)
+            paneHeightMaximizeSnapshot = nil
             return .applied(actualShare: 0)
         }
-        if let snapshot = paneHeightMaximizeSnapshots.removeValue(forKey: workspace.id) {
-            restoreHeightMaximize(snapshot, in: workspace)
+        if let snapshot = paneHeightMaximizeSnapshot {
+            if let previousWorkspace = tabs.first(where: { $0.id == snapshot.workspaceId }) {
+                restoreHeightMaximize(snapshot, in: previousWorkspace)
+            }
+            paneHeightMaximizeSnapshot = nil
         }
 
         let controller = workspace.bonsplitController
@@ -6525,6 +6532,7 @@ extension TabManager {
         }
 
         let snapshot = PaneHeightMaximizeSnapshot(
+            workspaceId: workspace.id,
             paneId: paneId.id,
             dividerPositions: tree.dividerPositions(),
             minimumPaneHeight: configuration.appearance.minimumPaneHeight,
@@ -6538,7 +6546,7 @@ extension TabManager {
             restoreHeightMaximize(snapshot, in: workspace)
             return .rejected(reason: "Unable to apply pane height maximize.")
         }
-        paneHeightMaximizeSnapshots[workspace.id] = snapshot
+        paneHeightMaximizeSnapshot = snapshot
         workspace.didProgrammaticallyChangeSplitGeometry()
         return .applied(actualShare: 1)
     }
