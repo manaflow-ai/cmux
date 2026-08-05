@@ -639,13 +639,13 @@ fn validate_operation_constraints(
                 ],
             )?;
         }
-        ResourceOperation::SessionJournalSubscribe => {
-            if supplied.contains_key("cursor") && supplied.contains_key("start") {
-                return Err(validation_error(
-                    "journal cursor and start are mutually exclusive",
-                    json!({"operation":operation_name(operation),"parameters":["cursor","start"]}),
-                ));
-            }
+        ResourceOperation::SessionJournalSubscribe
+            if supplied.contains_key("cursor") && supplied.contains_key("start") =>
+        {
+            return Err(validation_error(
+                "journal cursor and start are mutually exclusive",
+                json!({"operation":operation_name(operation),"parameters":["cursor","start"]}),
+            ));
         }
         ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneSplit => {
             if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64)
