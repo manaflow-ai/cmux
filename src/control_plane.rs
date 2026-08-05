@@ -182,13 +182,9 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
 }
 
 pub fn logout() -> Result<(), Error> {
-    let started = Instant::now();
     let mut current = config::load()?;
     if !current.logged_in() {
-        println!(
-            "Already logged out in {} ms.",
-            started.elapsed().as_millis()
-        );
+        println!("Already logged out.");
         return Ok(());
     }
     let previous = current.clone();
@@ -201,7 +197,7 @@ pub fn logout() -> Result<(), Error> {
     if let Err(error) = remote {
         eprintln!("warning: local logout completed; remote revocation was unavailable: {error}");
     }
-    println!("Logged out in {} ms.", started.elapsed().as_millis());
+    println!("Logged out.");
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 use std::fs;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -134,7 +135,7 @@ fn opencode_uses_the_vercel_rewritten_provider_catalog() {
 }
 
 #[test]
-fn bare_command_lists_vercel_accounts_and_reports_timing() {
+fn bare_command_lists_vercel_accounts_without_debug_timing() {
     let server = MockServer::start(2, |path| match path {
         "/stack/auth/oauth/token" => json!({
             "access_token": "fresh-access",
@@ -169,7 +170,7 @@ fn bare_command_lists_vercel_accounts_and_reports_timing() {
                 .and(predicate::str::contains("80% left"))
                 .and(predicate::str::contains("50% weekly")),
         )
-        .stderr(predicate::str::contains("cr timing: status"));
+        .stderr(predicate::str::contains("cr timing:").not());
 }
 
 #[test]
@@ -234,22 +235,19 @@ fn login_uses_native_stack_and_vercel_session_exchange() {
 #[test]
 fn idempotent_logout_is_local_and_fast() {
     let root = TempDir::new().unwrap();
+    let started = Instant::now();
     let output = Command::cargo_bin("cr")
         .unwrap()
         .arg("logout")
         .env("CODEROUTER_DATA_DIR", root.path())
         .output()
         .unwrap();
+    let elapsed = started.elapsed();
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    let millis: u128 = stdout
-        .split("in ")
-        .nth(1)
-        .and_then(|value| value.split(" ms").next())
-        .unwrap()
-        .parse()
-        .unwrap();
-    assert!(millis < 100, "reported logout time was {millis} ms");
+    assert_eq!(stdout.trim(), "Already logged out.");
+    assert!(!stdout.contains(" ms"));
+    assert!(elapsed < Duration::from_secs(1), "logout took {elapsed:?}");
 }
 
 fn write_config(root: &TempDir, api_url: &str) {
