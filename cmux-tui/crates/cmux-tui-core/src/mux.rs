@@ -742,6 +742,9 @@ pub struct Mux {
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
+    /// Canonical terminal identities for platforms that run PTYs in-process
+    /// instead of through the Unix terminal-host runtime.
+    reserved_in_process_terminals: Mutex<HashMap<SurfaceId, TerminalHostIdentity>>,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Fences the interval between accepting a browser daemon-handoff request
     /// and queueing its acknowledgement. ClientRegistry consults this under
@@ -967,6 +970,7 @@ impl Mux {
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
+            reserved_in_process_terminals: Mutex::new(HashMap::new()),
             terminal_adoptions: Mutex::new(HashSet::new()),
             daemon_handoff_pending: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
@@ -2364,8 +2368,102 @@ impl Mux {
             let _ = surface.persist_host_workspace(workspace_key);
             return Ok(surface);
         }
-        if reservation.is_some() {
-            anyhow::bail!("canonical terminal reservation requires terminal host runtime");
+        if let (Some(workspace_key), Some(reservation)) = (workspace_key, reservation.as_ref()) {
+            let terminal_hex = reservation.terminal_id.to_hex();
+            let launch_spec = terminal_launch_spec(&opts);
+            let terminal = RegistryTerminal {
+                terminal_id: terminal_hex.clone(),
+                workspace_key: workspace_key.to_string(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec,
+                exit: None,
+            };
+            {
+                let mut registry = self.workspace_registry.lock().unwrap();
+                let commit = registry.commit_terminal(
+                    &reservation.mutation,
+                    &reservation.fingerprint,
+                    reservation.expected_generation.as_deref(),
+                    reservation.expected_revision,
+                    "terminal-reserved",
+                    &terminal,
+                    &serde_json::json!({
+                        "terminal_id":terminal_hex,
+                        "workspace_key":workspace_key,
+                        "state":"launching",
+                    }),
+                )?;
+                if commit.replayed {
+                    anyhow::bail!("terminal_create_replayed");
+                }
+                self.emit_terminal_registry_changed(&registry, commit.revision);
+            }
+            #[cfg(test)]
+            let surface_result = if self.test_surface_runtime {
+                Surface::spawn_for_test(id, opts, Arc::downgrade(self))
+            } else {
+                Surface::spawn(id, opts, Arc::downgrade(self))
+            };
+            #[cfg(not(test))]
+            let surface_result = Surface::spawn(id, opts, Arc::downgrade(self));
+            let surface = match surface_result {
+                Ok(surface) => surface,
+                Err(error) => {
+                    let _ = self.transition_terminal_lifecycle(
+                        "terminal-exited",
+                        "terminal-launch-failed",
+                        &terminal_hex,
+                        TerminalLifecycle::Exited,
+                        None,
+                        Some(serde_json::json!({
+                            "reason":"launch-failed",
+                            "error":error.to_string(),
+                        })),
+                    );
+                    return Err(error);
+                }
+            };
+            let incarnation = TerminalId::random()?.to_hex();
+            let identity = TerminalHostIdentity {
+                terminal_id: terminal_hex.clone(),
+                incarnation: incarnation.clone(),
+            };
+            {
+                let mut registry = self.workspace_registry.lock().unwrap();
+                let (_, revision) = match commit_terminal_lifecycle(
+                    &mut registry,
+                    "terminal-ready",
+                    "terminal-ready",
+                    &terminal_hex,
+                    TerminalLifecycle::Running,
+                    Some(&incarnation),
+                    None,
+                ) {
+                    Ok(ready) => ready,
+                    Err(error) => {
+                        surface.kill();
+                        return Err(error);
+                    }
+                };
+                self.emit_terminal_registry_changed(&registry, revision);
+            }
+            if let Err(error) =
+                insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())
+            {
+                let _ = self.transition_terminal_lifecycle(
+                    "terminal-exited",
+                    "terminal-surface-insert-failed",
+                    &terminal_hex,
+                    TerminalLifecycle::Exited,
+                    Some(&incarnation),
+                    Some(serde_json::json!({"reason":"surface-insert-failed"})),
+                );
+                surface.kill();
+                return Err(error);
+            }
+            self.reserved_in_process_terminals.lock().unwrap().insert(surface.id, identity);
+            return Ok(surface);
         }
         #[cfg(test)]
         let surface_result = if self.test_surface_runtime {
@@ -3157,6 +3255,15 @@ impl Mux {
         self.state.lock().unwrap().surfaces.get(&id).cloned()
     }
 
+    pub(crate) fn resource_terminal_host_identity(
+        &self,
+        surface: &Surface,
+    ) -> Option<TerminalHostIdentity> {
+        surface.terminal_host_identity().or_else(|| {
+            self.reserved_in_process_terminals.lock().unwrap().get(&surface.id).cloned()
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         self.state.lock().unwrap().surfaces.remove(&id)
@@ -3182,7 +3289,7 @@ impl Mux {
         let surface = unique_terminal_match(
             terminal_id,
             state.surfaces.values().filter_map(|surface| {
-                surface.terminal_host_identity().map(|identity| (surface.id, identity))
+                self.resource_terminal_host_identity(surface).map(|identity| (surface.id, identity))
             }),
         )?
         .map(|(surface, _)| surface);
@@ -3240,7 +3347,8 @@ impl Mux {
             let matched = unique_terminal_match(
                 terminal_id,
                 state.surfaces.values().filter_map(|surface| {
-                    surface.terminal_host_identity().map(|identity| (surface.id, identity))
+                    self.resource_terminal_host_identity(surface)
+                        .map(|identity| (surface.id, identity))
                 }),
             )?;
             if let Some((_, identity)) = matched.as_ref()
@@ -3296,7 +3404,7 @@ impl Mux {
     }
 
     fn tombstone_hosted_surface(&self, surface: &Arc<Surface>) -> anyhow::Result<()> {
-        let Some(identity) = surface.terminal_host_identity() else {
+        let Some(identity) = self.resource_terminal_host_identity(surface) else {
             return Ok(());
         };
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -3322,7 +3430,7 @@ impl Mux {
         operation: &str,
         reason: &str,
     ) -> anyhow::Result<()> {
-        let Some(identity) = surface.terminal_host_identity() else {
+        let Some(identity) = self.resource_terminal_host_identity(surface) else {
             let removed = self.state.lock().unwrap().surfaces.remove(&surface.id);
             if removed.is_some() {
                 surface.kill();
@@ -3516,6 +3624,7 @@ impl Mux {
     fn purge_surface_side_tables(&self, surface: SurfaceId) {
         self.agent_records.lock().unwrap().remove(&surface);
         self.surface_notifications.lock().unwrap().remove(&surface);
+        self.reserved_in_process_terminals.lock().unwrap().remove(&surface);
         let mut sizing = self.client_sizing.lock().unwrap();
         sizing.surfaces.remove(&surface);
         sizing.report_order.retain(|(reported_surface, _), _| *reported_surface != surface);
@@ -4337,8 +4446,8 @@ impl Mux {
             size,
             Some(reservation),
         )?;
-        let identity = surface
-            .terminal_host_identity()
+        let identity = self
+            .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
         let snapshot = self.workspace_registry.lock().unwrap().terminal_snapshot()?;
         Ok(TerminalPlacementResult {
@@ -5312,7 +5421,7 @@ impl Mux {
                 let hosted = tabs
                     .iter()
                     .filter_map(|id| state.surfaces.get(id))
-                    .filter_map(|surface| surface.terminal_host_identity())
+                    .filter_map(|surface| self.resource_terminal_host_identity(surface))
                     .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
                     .collect::<Vec<_>>();
                 let batch = registry.close_terminals_atomically(&mutation, &hosted)?;
@@ -6429,7 +6538,7 @@ impl Mux {
         }
         let hosted = spawned
             .iter()
-            .filter_map(|surface| surface.terminal_host_identity())
+            .filter_map(|surface| self.resource_terminal_host_identity(surface))
             .map(|identity| (identity.terminal_id, Some(identity.incarnation)))
             .collect::<Vec<_>>();
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -6616,7 +6725,7 @@ impl Mux {
         let identity = unique_terminal_match(
             terminal_id,
             state.surfaces.values().filter_map(|surface| {
-                surface.terminal_host_identity().map(|identity| (surface.id, identity))
+                self.resource_terminal_host_identity(surface).map(|identity| (surface.id, identity))
             }),
         )?;
         let Some((surface, _)) = identity else {
