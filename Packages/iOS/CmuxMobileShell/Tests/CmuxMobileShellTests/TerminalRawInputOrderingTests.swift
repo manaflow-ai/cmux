@@ -120,6 +120,11 @@ import Testing
             surfaceID: RoutingHostRouter.terminalA
         )
         defer { collector.unmount() }
+        #expect(try await pollUntil {
+            !store.terminalReplaySurfaceIDsInFlight.contains(
+                RoutingHostRouter.terminalA
+            )
+        })
 
         await store.submitTerminalRawInput(
             Data("a".utf8),
@@ -305,6 +310,11 @@ import Testing
             surfaceID: RoutingHostRouter.terminalA
         )
         defer { collector.unmount() }
+        #expect(try await pollUntil {
+            !store.terminalReplaySurfaceIDsInFlight.contains(
+                RoutingHostRouter.terminalA
+            )
+        })
 
         await store.submitTerminalRawInput(
             Data("a".utf8),
