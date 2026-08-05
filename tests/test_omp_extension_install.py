@@ -291,7 +291,11 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
     if launch_command.get("workingDirectory") != str(workspace):
         print(f"FAIL: omp hook persisted wrong working directory: {launch_command!r}")
         return False
-    if launch_command.get("environment") != {"PI_CONFIG_DIR": ".custom-omp"}:
+    expected_environment = {
+        "PATH": hook_env["PATH"],
+        "PI_CONFIG_DIR": ".custom-omp",
+    }
+    if launch_command.get("environment") != expected_environment:
         print(f"FAIL: omp hook did not persist PI_CONFIG_DIR for resume: {launch_command!r}")
         return False
     if "secret-should-not-persist" in json.dumps(session, sort_keys=True):
