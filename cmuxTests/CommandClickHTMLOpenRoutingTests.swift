@@ -365,6 +365,56 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func filesystemProbePoolExpiresCoalescedWorkBeforeDrainingClicks() async {
+        let pool = WordPathFilesystemResolutionCoordinator(
+            maximumCoalescedQueueWait: .nanoseconds(0)
+        )
+        let blockerStarted = AsyncStream<Void>.makeStream()
+        let releaseBlocker = AsyncStream<Void>.makeStream()
+        let events = AsyncStream<String>.makeStream()
+
+        pool.submit(
+            id: UUID(),
+            isUserInitiated: false,
+            work: {
+                blockerStarted.continuation.yield()
+                var releaseIterator = releaseBlocker.stream.makeAsyncIterator()
+                _ = await releaseIterator.next()
+                return { @MainActor in }
+            },
+            discarded: {}
+        )
+        var blockerIterator = blockerStarted.stream.makeAsyncIterator()
+        _ = await blockerIterator.next()
+
+        pool.submitCoalesced(
+            id: UUID(),
+            coalescingKey: UUID(),
+            work: {
+                return { @MainActor in events.continuation.yield("browser-work") }
+            },
+            discarded: {},
+            expired: { events.continuation.yield("browser-expired") }
+        )
+        pool.submit(
+            id: UUID(),
+            isUserInitiated: true,
+            work: {
+                return { @MainActor in events.continuation.yield("click") }
+            },
+            discarded: {}
+        )
+        releaseBlocker.continuation.yield()
+
+        var eventIterator = events.stream.makeAsyncIterator()
+        #expect(await eventIterator.next() == "browser-expired")
+
+        blockerStarted.continuation.finish()
+        releaseBlocker.continuation.finish()
+        events.continuation.finish()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func filesystemProbePoolRateLimitsConsecutiveHovers() async {
         let pool = WordPathFilesystemResolutionCoordinator(
             minimumHoverInterval: .milliseconds(80)
