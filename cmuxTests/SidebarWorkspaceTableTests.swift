@@ -433,6 +433,76 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func reorderDragMovesAnExpandedGroupAsOnePreviewBlock() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        let groupId = UUID()
+        let anchorId = UUID()
+        let childId = UUID()
+        let trailingIds = [UUID(), UUID()]
+        let rows = [
+            makeRowConfiguration(
+                workspaceId: anchorId,
+                groupId: groupId,
+                isGroupHeader: true
+            ),
+            makeRowConfiguration(workspaceId: childId, groupId: groupId),
+            makeRowConfiguration(workspaceId: trailingIds[0]),
+            makeRowConfiguration(workspaceId: trailingIds[1]),
+        ]
+        let actions = makeTableActions(
+            updateWorkspaceDrag: { _, _, _ in
+                SidebarWorkspaceTableReorderDropUpdate(
+                    indicator: SidebarDropIndicator(tabId: trailingIds[1], edge: .bottom),
+                    scope: .topLevel,
+                    draggedWorkspaceId: anchorId,
+                    movingWorkspaceIds: [anchorId],
+                    indicatorRowIds: [anchorId] + trailingIds,
+                    plan: SidebarWorkspaceReorderDropPlan(
+                        draggedWorkspaceId: anchorId,
+                        indicator: SidebarDropIndicator(tabId: trailingIds[1], edge: .bottom),
+                        indicatorScope: .topLevel,
+                        action: .reorder(
+                            targetIndex: 2,
+                            usesTopLevelRows: true,
+                            explicitGroupId: nil
+                        )
+                    )
+                )
+            }
+        )
+        controller.apply(
+            rows: rows,
+            actions: actions,
+            workspaceIds: [anchorId, childId] + trailingIds,
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        #expect(controller.updateReorderDrag(windowPoint: NSPoint(x: 40, y: 120)))
+        #expect(
+            controller.displayedWorkspaceIdsForTesting
+                == trailingIds + [anchorId, childId]
+        )
+        #expect(controller.displayedGroupedWorkspaceIdsForTesting == [childId])
+    }
+
+    @Test
+    @MainActor
     func heightChangingReorderPreservesVisibleRowOffset() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -561,6 +631,8 @@ struct SidebarWorkspaceTableTests {
     @MainActor
     private func makeRowConfiguration(
         workspaceId: UUID = UUID(),
+        groupId: UUID? = nil,
+        isGroupHeader: Bool = false,
         contentToken: Int = 0,
         fontMagnificationPercent: Int = 100,
         colorScheme: ColorScheme = .light,
@@ -578,11 +650,20 @@ struct SidebarWorkspaceTableTests {
             globalFontMagnificationPercent: fontMagnificationPercent
         )
 #endif
+        let rowId: SidebarWorkspaceRenderItemID
+        if isGroupHeader {
+            guard let groupId else {
+                preconditionFailure("A group-header test row requires a group id")
+            }
+            rowId = .group(groupId)
+        } else {
+            rowId = .workspace(workspaceId)
+        }
         return SidebarWorkspaceTableRowConfiguration(
-            id: .workspace(workspaceId),
+            id: rowId,
             workspaceId: workspaceId,
-            groupId: nil,
-            isGroupHeader: false,
+            groupId: groupId,
+            isGroupHeader: isGroupHeader,
             isPinned: false,
             environment: environment,
             equivalenceValue: TestRowContent(token: contentToken, fixedHeight: fixedHeight)

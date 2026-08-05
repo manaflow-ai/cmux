@@ -340,7 +340,7 @@ struct cmuxApp: App {
     static func migrateSidebarAppearanceDefaultsIfNeeded(defaults: UserDefaults) {
         let migrationKey = "sidebarAppearanceDefaultsVersion"
         let sourceVersion = defaults.integer(forKey: migrationKey)
-        let targetVersion = 2
+        let targetVersion = 3
         guard sourceVersion < targetVersion else { return }
 
         func normalizeHex(_ value: String) -> String {
@@ -401,6 +401,22 @@ struct cmuxApp: App {
                 approximatelyEqual(defaults.object(forKey: "sidebarCornerRadius") as? Double ?? .nan, 0.0)
 
             if usesPreviousNativeDefaults {
+                applyNativeSidebarPreset()
+            }
+        }
+
+        if sourceVersion < 3 {
+            let usesPreviousGlassDefaults =
+                defaults.string(forKey: "sidebarPreset") == SidebarPresetOption.nativeSidebar.rawValue &&
+                defaults.string(forKey: "sidebarMaterial") == SidebarMaterialOption.liquidGlass.rawValue &&
+                defaults.string(forKey: "sidebarBlendMode") == SidebarBlendModeOption.withinWindow.rawValue &&
+                defaults.string(forKey: "sidebarState") == SidebarStateOption.followWindow.rawValue &&
+                normalizeHex(defaults.string(forKey: "sidebarTintHex") ?? "") == "808080" &&
+                approximatelyEqual(defaults.object(forKey: "sidebarTintOpacity") as? Double ?? .nan, 0.18) &&
+                approximatelyEqual(defaults.object(forKey: "sidebarBlurOpacity") as? Double ?? .nan, 1.0) &&
+                approximatelyEqual(defaults.object(forKey: "sidebarCornerRadius") as? Double ?? .nan, 0.0)
+
+            if usesPreviousGlassDefaults {
                 applyNativeSidebarPreset()
             }
         }
@@ -1521,7 +1537,7 @@ private enum DebugWindowConfigSnapshot {
         sidebarTintHex=\(stringValue(defaults, key: "sidebarTintHex", fallback: SidebarTintDefaults().hex))
         sidebarTintHexLight=\(stringValue(defaults, key: "sidebarTintHexLight", fallback: "(nil)"))
         sidebarTintHexDark=\(stringValue(defaults, key: "sidebarTintHexDark", fallback: "(nil)"))
-        sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
+        sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.10)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
         sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarCatalogSection().branchVerticalLayout.userDefaultsKey, fallback: SidebarCatalogSection().branchVerticalLayout.defaultValue))
         sidebarBranchDirectoryStacked=\(boolValue(defaults, key: SidebarCatalogSection().stackBranchDirectory.userDefaultsKey, fallback: SidebarCatalogSection().stackBranchDirectory.defaultValue))

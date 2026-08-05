@@ -9,7 +9,7 @@ public struct WindowChromeSidebarTintDefaults: Sendable {
     /// Creates sidebar tint defaults.
     public init(
         hex: String = "#808080",
-        opacity: Double = 0.18
+        opacity: Double = 0.10
     ) {
         self.hex = hex
         self.opacity = opacity

@@ -28,7 +28,7 @@ public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
 
     public let tintOpacity = DefaultsKey<Double>(
         id: "sidebarAppearance.tintOpacity",
-        defaultValue: 0.18,
+        defaultValue: 0.10,
         userDefaultsKey: "sidebarTintOpacity"
     )
 

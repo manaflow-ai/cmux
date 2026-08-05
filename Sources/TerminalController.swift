@@ -10654,8 +10654,10 @@ class TerminalController {
 
 #if DEBUG
 
-    /// Drives `SidebarDragState.draggedTabId` and `dropIndicator` mutations
-    /// across N steps from a starting workspace toward a target neighbor.
+    /// Drives the mounted sidebar's drag presentation across N steps from a
+    /// starting workspace toward a target neighbor. The default AppKit list
+    /// runs its native planner and animated row moves; the legacy list updates
+    /// `SidebarDragState.dropIndicator` as before.
     /// External profilers (e.g. the `profile-pr` skill driving `xctrace`)
     /// invoke this between `xctrace record --launch` and `xctrace stop` to
     /// generate a deterministic 60Hz-style drag load without HID synthesis.
@@ -10669,6 +10671,53 @@ class TerminalController {
         // inter-tick Thread.sleep doesn't block the main actor. All parameter
         // resolution (including workspace:N -> UUID ref-resolution) and the
         // SidebarDragState mutations hop to main via v2MainSync.
+
+        @MainActor
+        func appKitSidebarTable(windowId: UUID) -> SidebarWorkspaceTableViewImpl? {
+            guard let root = AppDelegate.shared?.mainWindow(for: windowId)?.contentView else {
+                return nil
+            }
+            var pending = [root]
+            while let view = pending.popLast() {
+                if let table = view as? SidebarWorkspaceTableViewImpl {
+                    return table
+                }
+                pending.append(contentsOf: view.subviews)
+            }
+            return nil
+        }
+
+        @MainActor
+        func updateAppKitDrag(
+            table: SidebarWorkspaceTableViewImpl,
+            targetWorkspaceId: UUID,
+            edge: SidebarDropEdge
+        ) -> Bool {
+            guard let controller = table.workspaceController else { return false }
+            let pasteboardType = NSPasteboard.PasteboardType(
+                SidebarTabDragPayload.typeIdentifier
+            )
+            let targetRow = (0..<table.numberOfRows).first { row in
+                guard let item = controller.tableView(table, pasteboardWriterForRow: row)
+                        as? NSPasteboardItem else {
+                    return false
+                }
+                return SidebarTabDragPayload.workspaceId(
+                    fromPasteboardString: item.string(forType: pasteboardType)
+                ) == targetWorkspaceId
+            }
+            guard let targetRow else { return false }
+            let rect = table.rect(ofRow: targetRow)
+            guard !rect.isEmpty else { return false }
+            let edgeInset = max(1, rect.height * 0.2)
+            let tablePoint = NSPoint(
+                x: rect.midX,
+                y: edge == .top ? rect.minY + edgeInset : rect.maxY - edgeInset
+            )
+            return controller.updateReorderDrag(
+                windowPoint: table.convert(tablePoint, to: nil)
+            )
+        }
 
         enum PlanResult {
             case ok(
@@ -10805,22 +10854,29 @@ class TerminalController {
 
         // Start the drag. If the sidebar has already unregistered, fail loud
         // instead of silently sleeping through a no-op simulation.
-        let startedOK: Bool = v2MainSync {
-            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+        let startResult: (started: Bool, renderer: String) = v2MainSync {
+            guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else {
+                return (false, "none")
+            }
             // Mark the drag as simulator-driven so VerticalTabsSidebar skips
             // starting SidebarDragFailsafeMonitor — it would otherwise post
             // mouse_up_failsafe immediately because no real mouse is pressed.
             dragState.isSimulated = true
             dragState.beginDragging(tabId: fromTabId)
-            return true
+            if let controller = appKitSidebarTable(windowId: windowId)?.workspaceController {
+                controller.workspaceDragSessionDidBegin()
+                return (true, "appkit")
+            }
+            return (true, "legacy")
         }
-        guard startedOK else {
+        guard startResult.started else {
             return .err(
                 code: "not_found",
                 message: "Sidebar unregistered before simulation could start",
                 data: ["window_id": windowId.uuidString]
             )
         }
+        let renderer = startResult.renderer
 
         var aborted = false
         var pathSample: [String] = []
@@ -10833,6 +10889,16 @@ class TerminalController {
             }
             let tickOK: Bool = v2MainSync {
                 guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
+                if renderer == "appkit" {
+                    guard let table = appKitSidebarTable(windowId: windowId) else {
+                        return false
+                    }
+                    return updateAppKitDrag(
+                        table: table,
+                        targetWorkspaceId: targetTabId,
+                        edge: edge
+                    )
+                }
                 dragState.setDropIndicator(SidebarDropIndicator(tabId: targetTabId, edge: edge))
                 return true
             }
@@ -10846,6 +10912,11 @@ class TerminalController {
         }
 
         v2MainSync {
+            if renderer == "appkit" {
+                appKitSidebarTable(windowId: windowId)?
+                    .workspaceController?
+                    .reorderDropSessionEnded()
+            }
             guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return }
             dragState.clearDrag()
             dragState.isSimulated = false
@@ -10867,6 +10938,7 @@ class TerminalController {
             "step_interval_ms": stepIntervalMs,
             "duration_ms": stepIntervalMs * steps,
             "edge": edge == .top ? "top" : "bottom",
+            "renderer": renderer,
             "path": pathSample
         ]
         if steps > pathSampleLimit {

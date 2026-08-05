@@ -45,26 +45,32 @@ func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileD
 
 final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .light,
+            sidebarSelectionColorHex: nil
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
 
-        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(color.greenComponent, 136.0 / 255.0, accuracy: 0.001)
-        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.redComponent, 0.86, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0.86, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 0.86, accuracy: 0.001)
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
     func testDarkModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .dark).usingColorSpace(.sRGB) else {
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .dark,
+            sidebarSelectionColorHex: nil
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
 
-        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
-        XCTAssertEqual(color.greenComponent, 145.0 / 255.0, accuracy: 0.001)
-        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.redComponent, 0.27, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0.27, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 0.27, accuracy: 0.001)
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
@@ -98,18 +104,21 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 
-    func testDefaultSelectedWorkspaceForegroundUsesNativeSelectionTextOnAccentBackground() {
+    func testDefaultSelectedWorkspaceForegroundUsesBlackOnLightNeutralBackground() {
         guard let color = sidebarSelectedWorkspaceForegroundNSColor(
-            on: sidebarSelectedWorkspaceBackgroundNSColor(for: .light),
+            on: sidebarSelectedWorkspaceBackgroundNSColor(
+                for: .light,
+                sidebarSelectionColorHex: nil
+            ),
             opacity: 0.65
         ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
 
-        XCTAssertEqual(color.redComponent, 1.0, accuracy: 0.001)
-        XCTAssertEqual(color.greenComponent, 1.0, accuracy: 0.001)
-        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.redComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 0.0, accuracy: 0.001)
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 

@@ -245,14 +245,13 @@ struct SidebarAppKitRowCellTests {
     private static func makeGroupModel(
         name: String = "Group",
         isPinned: Bool = false,
-        unreadCount: Int = 0
+        unreadCount: Int = 0,
+        notificationBadgePosition: SidebarIndicatorPosition = .trailing
     ) -> SidebarGroupHeaderRowModel {
         SidebarGroupHeaderRowModel(
             groupId: UUID(),
             anchorWorkspaceId: UUID(),
             name: name,
-            iconSymbol: "folder",
-            tintHex: nil,
             isCollapsed: false,
             isPinned: isPinned,
             isAnchorActive: false,
@@ -260,6 +259,7 @@ struct SidebarAppKitRowCellTests {
             multiSelectionBackgroundStyle: .clear,
             memberCount: 1,
             anchorUnreadCount: unreadCount,
+            notificationBadgePosition: notificationBadgePosition,
             canMarkRead: unreadCount > 0,
             canMarkUnread: unreadCount == 0,
             hasLatestNotifications: unreadCount > 0,
@@ -780,6 +780,11 @@ struct SidebarAppKitRowCellTests {
                 .compactMap { $0 as? SidebarRowUnreadBadgeView }
                 .first { !$0.isHidden }
         )
+        let groupTitle = try #require(
+            Self.descendants(of: group)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.accessibilityIdentifier() == "SidebarWorkspaceGroupName" }
+        )
 
         let expectedMaxX = width
             - SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
@@ -795,6 +800,7 @@ struct SidebarAppKitRowCellTests {
         )
         group.layoutSubtreeIfNeeded()
         #expect(abs(groupBadge.frame.maxX - expectedMaxX) < 0.5)
+        #expect(groupTitle.frame.maxX < groupBadge.frame.minX)
     }
 
     @Test
@@ -853,6 +859,35 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func arcGroupChildTitleAlignsWithHeaderTitle() throws {
+        var childModel = Self.makeModel(canClose: false)
+        childModel.isGrouped = true
+        let child = Self.configuredCell(model: childModel)
+        child.frame = NSRect(x: 0, y: 0, width: 320, height: 44)
+        child.layoutSubtreeIfNeeded()
+        let childTitle = try #require(
+            Self.descendants(of: child)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.accessibilityIdentifier() == "SidebarWorkspaceTitle" }
+        )
+
+        let group = SidebarGroupHeaderTableCellView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 32)
+        )
+        group.configurePresentation(model: Self.makeGroupModel())
+        group.layoutSubtreeIfNeeded()
+        let groupTitle = try #require(
+            Self.descendants(of: group)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.accessibilityIdentifier() == "SidebarWorkspaceGroupName" }
+        )
+
+        let childTitleX = childTitle.convert(.zero, to: child).x
+        let groupTitleX = groupTitle.convert(.zero, to: group).x
+        #expect(abs(childTitleX - groupTitleX) < 0.5)
+    }
+
+    @Test
     func defaultSidebarAppearanceUsesGrayNativeLiquidGlass() throws {
         let defaults = Self.makeDefaults()
         let resolver = WindowAppearanceResolver(
@@ -877,7 +912,7 @@ struct SidebarAppKitRowCellTests {
         #expect(policy.material == .underWindowBackground)
         #expect(policy.blendingMode == .withinWindow)
         #expect(policy.tintColor.hexString() == "#808080")
-        #expect(abs(policy.tintColor.alphaComponent - 0.18) < 0.01)
+        #expect(abs(policy.tintColor.alphaComponent - 0.10) < 0.01)
 
         let catalog = CmuxSettings.SettingCatalog()
         #expect(catalog.sidebarAppearance.material.defaultValue.rawValue == "liquidGlass")
@@ -901,9 +936,26 @@ struct SidebarAppKitRowCellTests {
 
         cmuxApp.migrateSidebarAppearanceDefaultsIfNeeded(defaults: previousDefault)
 
-        #expect(previousDefault.integer(forKey: "sidebarAppearanceDefaultsVersion") == 2)
+        #expect(previousDefault.integer(forKey: "sidebarAppearanceDefaultsVersion") == 3)
+        #expect(abs(previousDefault.double(forKey: "sidebarTintOpacity") - 0.10) < 0.001)
         #expect(previousDefault.string(forKey: "sidebarMaterial") == "liquidGlass")
         #expect(previousDefault.string(forKey: "sidebarTintHex") == "#808080")
+
+        let previousGlassDefault = Self.makeDefaults()
+        previousGlassDefault.set(2, forKey: "sidebarAppearanceDefaultsVersion")
+        previousGlassDefault.set("nativeSidebar", forKey: "sidebarPreset")
+        previousGlassDefault.set("liquidGlass", forKey: "sidebarMaterial")
+        previousGlassDefault.set("withinWindow", forKey: "sidebarBlendMode")
+        previousGlassDefault.set("followWindow", forKey: "sidebarState")
+        previousGlassDefault.set("#808080", forKey: "sidebarTintHex")
+        previousGlassDefault.set(0.18, forKey: "sidebarTintOpacity")
+        previousGlassDefault.set(1.0, forKey: "sidebarBlurOpacity")
+        previousGlassDefault.set(0.0, forKey: "sidebarCornerRadius")
+
+        cmuxApp.migrateSidebarAppearanceDefaultsIfNeeded(defaults: previousGlassDefault)
+
+        #expect(previousGlassDefault.integer(forKey: "sidebarAppearanceDefaultsVersion") == 3)
+        #expect(abs(previousGlassDefault.double(forKey: "sidebarTintOpacity") - 0.10) < 0.001)
 
         let customized = Self.makeDefaults()
         customized.set(1, forKey: "sidebarAppearanceDefaultsVersion")
@@ -918,7 +970,7 @@ struct SidebarAppKitRowCellTests {
 
         cmuxApp.migrateSidebarAppearanceDefaultsIfNeeded(defaults: customized)
 
-        #expect(customized.integer(forKey: "sidebarAppearanceDefaultsVersion") == 2)
+        #expect(customized.integer(forKey: "sidebarAppearanceDefaultsVersion") == 3)
         #expect(customized.string(forKey: "sidebarMaterial") == "sidebar")
         #expect(customized.string(forKey: "sidebarTintHex") == "#334455")
     }
@@ -943,7 +995,7 @@ struct SidebarAppKitRowCellTests {
         )
         group.configurePresentation(model: Self.makeGroupModel())
         let groupBackground = try #require(group.subviews.first)
-        #expect(groupBackground.layer?.cornerRadius == 8)
+        #expect(groupBackground.layer?.cornerRadius == 10)
         #expect(Self.layerBackgroundColor(of: groupBackground)?.alphaComponent == 0)
 
         group.enforcePointerHovering(true)
@@ -1653,8 +1705,6 @@ struct SidebarPinnedIndicatorColorTests {
             groupId: UUID(),
             anchorWorkspaceId: UUID(),
             name: "Group",
-            iconSymbol: "folder",
-            tintHex: nil,
             isCollapsed: false,
             isPinned: true,
             isAnchorActive: false,
@@ -1662,6 +1712,7 @@ struct SidebarPinnedIndicatorColorTests {
             multiSelectionBackgroundStyle: .clear,
             memberCount: 1,
             anchorUnreadCount: 0,
+            notificationBadgePosition: .leading,
             canMarkRead: false,
             canMarkUnread: false,
             hasLatestNotifications: false,

@@ -4,7 +4,7 @@ import CoreGraphics
 /// Font sizes, icon/control frames, and badge padding for
 /// ``SidebarWorkspaceGroupHeaderView``, derived from the sidebar font scale.
 ///
-/// The collapsible workspace group/folder header must grow proportionally with
+/// The collapsible workspace group header must grow proportionally with
 /// the configurable sidebar font size, just like the workspace rows below it.
 /// `TabItemView` already scales its subviews by `settings.sidebarFontScale`
 /// (see ``SidebarTabItemFontScale``); this type is the single place that
@@ -38,10 +38,8 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     static let baseChevronFontSize: CGFloat = 9
     /// Chevron tap-target frame edge at the default sidebar font size.
     static let baseChevronFrame: CGFloat = 14
-    /// Folder/group icon point size at the default sidebar font size.
-    static let baseIconFontSize: CGFloat = 11
-    /// Folder/group icon frame edge at the default sidebar font size.
-    static let baseIconFrame: CGFloat = 14
+    /// Pinned-group frame edge at the default sidebar font size.
+    static let basePinFrame: CGFloat = 14
     /// Pinned group glyph point size at the default sidebar font size.
     static let basePinnedIconFontSize: CGFloat = 9
     /// Group name point size at the default sidebar font size.
@@ -65,10 +63,8 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     var chevronFontSize: CGFloat { Self.baseChevronFontSize * fontScale }
     /// Scaled chevron tap-target frame edge.
     var chevronFrame: CGFloat { Self.baseChevronFrame * fontScale }
-    /// Scaled folder/group icon point size.
-    var iconFontSize: CGFloat { Self.baseIconFontSize * fontScale }
-    /// Scaled folder/group icon frame edge.
-    var iconFrame: CGFloat { Self.baseIconFrame * fontScale }
+    /// Scaled pinned-group frame edge.
+    var pinFrame: CGFloat { Self.basePinFrame * fontScale }
     /// Scaled pinned group glyph point size.
     var pinnedIconFontSize: CGFloat { Self.basePinnedIconFontSize * fontScale }
     /// Scaled group name point size.
@@ -87,7 +83,7 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     var groupScopedBottomDropIndicatorLeadingInset: CGFloat { Self.memberScopedDropIndicatorLeadingInset }
     /// Stable drop-hit height for the group header, without reading SwiftUI layout.
     var dropTargetHeight: CGFloat {
-        let contentHeight = max(chevronFrame, iconFrame, plusFrame, nameFontSize + 4)
+        let contentHeight = max(chevronFrame, pinFrame, plusFrame, nameFontSize + 4)
         return max(24 * fontScale, contentHeight + 10)
     }
 }

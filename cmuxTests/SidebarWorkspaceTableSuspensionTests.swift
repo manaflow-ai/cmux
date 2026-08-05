@@ -527,11 +527,12 @@ struct SidebarWorkspaceTableSuspensionTests {
 
     private func makeGroupHeaderModel() -> SidebarGroupHeaderRowModel {
         SidebarGroupHeaderRowModel(
-            groupId: UUID(), anchorWorkspaceId: UUID(), name: "Group", iconSymbol: "folder",
-            tintHex: nil, isCollapsed: false, isPinned: false, isAnchorActive: false,
+            groupId: UUID(), anchorWorkspaceId: UUID(), name: "Group",
+            isCollapsed: false, isPinned: false, isAnchorActive: false,
             isMultiSelected: false,
             multiSelectionBackgroundStyle: .clear,
-            memberCount: 1, anchorUnreadCount: 0, canMarkRead: false, canMarkUnread: true,
+            memberCount: 1, anchorUnreadCount: 0, notificationBadgePosition: .leading,
+            canMarkRead: false, canMarkUnread: true,
             hasLatestNotifications: false, canMarkAllRead: false, canMarkAllUnread: true,
             shortcutHintText: nil, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
             fontScale: 1, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],

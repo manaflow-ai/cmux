@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 
 /// Pure-AppKit group header cell for the sidebar workspace table.
@@ -11,8 +12,8 @@ import SwiftUI
 @MainActor
 final class SidebarGroupHeaderTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarGroupHeaderTableCellView")
-    private static let backgroundCornerRadius: CGFloat = 8
-    private static let hoverBackgroundOpacity: CGFloat = 0.07
+    private static let backgroundCornerRadius: CGFloat = 10
+    private static let hoverBackgroundOpacity: CGFloat = 0.08
 
     private let backgroundView = NSView()
     private let pinImageView = NSImageView()
@@ -168,7 +169,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             ofSize: GlobalFontMagnification.scaledSize(metrics.nameFontSize, percent: percent),
             weight: .regular
         )
-        let nameColor = model.isAnchorActive ? NSColor.labelColor : NSColor.labelColor.withAlphaComponent(0.9)
+        let nameColor = NSColor.labelColor
         if let rendered = SidebarMarkdownRenderer(markdown: model.name).inline {
             nameField.attributedStringValue = SidebarRowPalette.attributed(
                 rendered,
@@ -299,7 +300,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
-        recolorName(NSColor.labelColor.withAlphaComponent(0.9))
+        recolorName(.labelColor)
     }
 
     /// Inverse of the press treatment: previewing a different row must peel a
@@ -324,7 +325,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
         if model.isAnchorActive {
-            return NSColor.labelColor.withAlphaComponent(0.08)
+            let scheme: ColorScheme = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? .dark
+                : .light
+            return sidebarSelectedWorkspaceBackgroundNSColor(for: scheme)
         }
         if model.isMultiSelected {
             return headerMultiSelectionBackgroundColor(for: model)
@@ -389,7 +393,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         }
 
         if !pinImageView.isHidden {
-            pinImageView.frame = centered(metrics.iconFrame)
+            pinImageView.frame = centered(metrics.pinFrame)
             x = pinImageView.frame.maxX + 4
         }
         chevronButton.frame = centered(metrics.chevronFrame)
@@ -407,8 +411,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         }
 
         let badgeSpacing: CGFloat = 6
+        let badgeOnLeading = !unreadBadgeView.isHidden && model.notificationBadgePosition == .leading
+        let badgeOnTrailing = !unreadBadgeView.isHidden && model.notificationBadgePosition == .trailing
         var trailingAccessoryMaxX = contentMaxX
-        if !unreadBadgeView.isHidden {
+        if badgeOnTrailing {
             unreadBadgeView.frame = NSRect(
                 x: contentMaxX - badgeSize.width,
                 y: midY - badgeSize.height / 2,
@@ -427,15 +433,29 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             height: plusSide
         )
 
-        let nameAvailable = max(0, (plusButton.frame.minX - 4) - x)
+        let accessoryGap: CGFloat = 4
+        let nameAndLeadingBadgeMaxX = plusButton.frame.minX - accessoryGap
         let nameSize = nameField.attributedStringValue.size()
+        let nameAvailable = badgeOnLeading
+            ? max(0, nameAndLeadingBadgeMaxX - x - badgeSpacing - badgeSize.width)
+            : max(0, nameAndLeadingBadgeMaxX - x)
+        let nameWidth = badgeOnLeading ? min(nameSize.width, nameAvailable) : nameAvailable
         // The field owns all space before the fixed trailing accessories.
         nameField.frame = NSRect(
             x: x,
             y: midY - ceil(nameSize.height) / 2,
-            width: nameAvailable,
+            width: nameWidth,
             height: ceil(nameSize.height)
         )
+        if badgeOnLeading {
+            unreadBadgeView.frame = NSRect(
+                x: nameField.frame.maxX + badgeSpacing,
+                y: midY - badgeSize.height / 2,
+                width: badgeSize.width,
+                height: badgeSize.height
+            )
+            unreadBadgeView.needsDisplay = true
+        }
 
         let indicatorX: CGFloat = 8
         let indicatorWidth = max(0, bounds.width - indicatorX - 8)

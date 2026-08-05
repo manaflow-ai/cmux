@@ -14,8 +14,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         lhs.groupId == rhs.groupId &&
             lhs.anchorWorkspaceId == rhs.anchorWorkspaceId &&
             lhs.name == rhs.name &&
-            lhs.iconSymbol == rhs.iconSymbol &&
-            lhs.tintHex == rhs.tintHex &&
             lhs.isCollapsed == rhs.isCollapsed &&
             lhs.isPinned == rhs.isPinned &&
             lhs.isAnchorActive == rhs.isAnchorActive &&
@@ -47,8 +45,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let groupId: UUID
     let anchorWorkspaceId: UUID
     let name: String
-    let iconSymbol: String
-    let tintHex: String?
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
@@ -95,6 +91,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onContextMenuDisappear: () -> Void
 
     @State private var contextMenuVisible = false
+    @Environment(\.colorScheme) private var colorScheme
 
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
@@ -104,17 +101,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
         SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
-    }
-
-    private var iconColor: Color {
-        if let tintHex, let nsColor = NSColor(hex: tintHex) {
-            return Color(nsColor: nsColor)
-        }
-        return .secondary
-    }
-
-    private var displayedIconSymbol: String {
-        RenderableSystemSymbol.resolvedWorkspaceGroupIcon(explicit: iconSymbol, configured: nil)
     }
 
     private var shortcutHintPillText: String? {
@@ -147,7 +133,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     weight: .semibold
                 )
                 .foregroundStyle(.secondary)
-                .frame(width: metrics.iconFrame, height: metrics.iconFrame)
+                .frame(width: metrics.pinFrame, height: metrics.pinFrame)
                 .safeHelp(pinnedGroupTooltip)
                 .accessibilityLabel(Text(pinnedGroupTooltip))
             }
@@ -171,18 +157,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 )
 
             HStack(spacing: 6) {
-                CmuxSystemSymbolImage(
-                    systemName: displayedIconSymbol,
-                    pointSize: metrics.iconFontSize,
-                    weight: .semibold,
-                    appliesGlobalFontMagnification: true
-                )
-                    .foregroundStyle(iconColor)
-                    .frame(width: metrics.iconFrame, height: metrics.iconFrame)
-                    .accessibilityHidden(true)
                 Text(name)
-                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
-                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+                    .cmuxFont(size: metrics.nameFontSize, weight: .regular)
+                    .foregroundStyle(Color.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if anchorUnreadCount > 0 {
@@ -282,13 +259,15 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .contentShape(Rectangle())
         .background(
             isAnchorActive
-                ? Color.primary.opacity(0.08)
+                ? Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(
+                    for: colorScheme
+                ))
                 : isMultiSelected
                     ? multiSelectionBackgroundColor
                     : Color.clear
         )
         .clipShape(RoundedRectangle(
-            cornerRadius: isMultiSelected && !isAnchorActive ? 6 : 4,
+            cornerRadius: 10,
             style: .continuous
         ))
         .sidebarShortcutHintOverlay(

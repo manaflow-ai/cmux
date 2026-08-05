@@ -18,10 +18,6 @@ extension VerticalTabsSidebar {
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
-        let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
-            explicit: group.iconSymbol,
-            configured: resolvedConfig?.iconSymbol
-        )
         let multiSelectionBackgroundStyle = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             isActive: false,
@@ -76,8 +72,6 @@ extension VerticalTabsSidebar {
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
-            iconSymbol: effectiveIcon,
-            tintHex: effectiveColor,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
@@ -85,6 +79,7 @@ extension VerticalTabsSidebar {
             multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
+            notificationBadgePosition: settings.notificationBadgePosition,
             canMarkRead: canMarkAnchorRead,
             canMarkUnread: canMarkAnchorUnread,
             hasLatestNotifications: anchorHasLatestNotification,
@@ -265,10 +260,6 @@ extension VerticalTabsSidebar {
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
-        let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
-            explicit: group.iconSymbol,
-            configured: resolvedConfig?.iconSymbol
-        )
         let multiSelectionBackgroundStyle = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             isActive: false,
@@ -325,8 +316,6 @@ extension VerticalTabsSidebar {
             groupId: group.id,
             anchorWorkspaceId: group.anchorWorkspaceId,
             name: group.name,
-            iconSymbol: effectiveIcon,
-            tintHex: effectiveColor,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
@@ -375,8 +364,6 @@ extension VerticalTabsSidebar {
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
             name: snapshot.name,
-            iconSymbol: snapshot.iconSymbol,
-            tintHex: snapshot.tintHex,
             isCollapsed: snapshot.isCollapsed,
             isPinned: snapshot.isPinned,
             isAnchorActive: snapshot.isAnchorActive,

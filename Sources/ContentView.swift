@@ -13529,10 +13529,17 @@ struct VerticalTabsSidebar: View, Equatable {
             return nil
         }
         dragAutoScrollController.updateFromDragLocation()
+        let movingWorkspaceIds = SidebarWorkspaceDragBlockResolver().movingWorkspaceIds(
+            orderedWorkspaceIds: tabManager.tabs.map(\.id),
+            selectedIds: selectedTabIds,
+            draggedId: draggedWorkspaceId,
+            anchorIds: Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
+        )
         return SidebarWorkspaceTableReorderDropUpdate(
             indicator: plan.indicator,
             scope: plan.indicatorScope,
             draggedWorkspaceId: draggedWorkspaceId,
+            movingWorkspaceIds: movingWorkspaceIds,
             indicatorRowIds: sidebarDropIndicatorRowIds(
                 draggedWorkspaceId: draggedWorkspaceId,
                 scope: plan.indicatorScope,

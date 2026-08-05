@@ -86,7 +86,7 @@ public enum WindowChromeSidebarPresetOption: String, CaseIterable, Identifiable,
     /// Tint opacity selected by this preset.
     public var tintOpacity: Double {
         switch self {
-        case .nativeSidebar: return 0.18
+        case .nativeSidebar: return 0.10
         case .glassBehind: return 0.36
         case .softBlur: return 0.28
         case .popoverGlass: return 0.10

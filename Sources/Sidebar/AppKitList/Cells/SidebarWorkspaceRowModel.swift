@@ -28,7 +28,7 @@ struct SidebarWorkspaceRowModel: Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
-    let isGrouped: Bool
+    var isGrouped: Bool
     let isFirstRow: Bool
     /// Resolved modifier-hold hint text (nil hides the pill).
     let shortcutHintText: String?

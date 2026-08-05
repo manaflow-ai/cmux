@@ -22,6 +22,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private weak var containerView: SidebarWorkspaceTableContainerView?
     private let createdCellViews = NSHashTable<NSView>.weakObjects()
+    /// Canonical rows from the latest SwiftUI snapshot. `rows` may temporarily
+    /// differ while AppKit previews a local drag, but this array never does.
+    private var authoritativeRows: [SidebarWorkspaceTableRowConfiguration] = []
     private var rows: [SidebarWorkspaceTableRowConfiguration] = []
     private var actions: SidebarWorkspaceTableActions?
     private var deferredRowClick: DeferredRowClick?
@@ -48,10 +51,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
 #if DEBUG
     var reconfigurationProbe: (() -> Void)?
+    var displayedWorkspaceIdsForTesting: [UUID] { rows.map(\.workspaceId) }
+    var displayedGroupedWorkspaceIdsForTesting: Set<UUID> {
+        Set(rows.compactMap { row in
+            guard !row.isGroupHeader, row.groupId != nil else { return nil }
+            return row.workspaceId
+        })
+    }
     var dropTargetComputationProbe: (() -> Void)? {
         get { dropTargetGeometry.computationProbe }
         set { dropTargetGeometry.computationProbe = newValue }
     }
+
 #endif
 
     deinit {
@@ -168,6 +179,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         unreadObservation = nil
         unreadSource = nil
         unreadSnapshot = SidebarUnreadSnapshot()
+        authoritativeRows.removeAll(keepingCapacity: false)
         rows.removeAll(keepingCapacity: false)
         workspaceIds.removeAll(keepingCapacity: false)
         selectedScrollTargetWorkspaceId = nil
@@ -210,6 +222,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         })
         guard !changedWorkspaceIds.isEmpty else { return }
 
+        for index in authoritativeRows.indices {
+            let configuration = authoritativeRows[index]
+            guard !configuration.appKitUnreadDependencyWorkspaceIds.isDisjoint(
+                with: changedWorkspaceIds
+            ) else { continue }
+            authoritativeRows[index] = configuration.applyingUnreadSnapshot(nextSnapshot)
+        }
+
         var changedRows = IndexSet()
         for row in rows.indices {
             let configuration = rows[row]
@@ -233,6 +253,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         reconfigureVisibleRows(changedRows)
         if !heightChanges.isEmpty {
             noteHeightOfRowsWithoutAnimation(table, heightChanges)
+        }
+        if hasActiveReorderPreview,
+           let activeReorderDropUpdate,
+           let previewRows = dragPreviewRows(for: activeReorderDropUpdate) {
+            presentReorderRows(previewRows, animated: false)
         }
     }
 
@@ -261,6 +286,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         workspaceIds = liveWorkspaceIds
         let liveIds = Set(liveWorkspaceIds)
         let previousRowIds = rows.map(\.id)
+        authoritativeRows = authoritativeRows.filter { liveIds.contains($0.workspaceId) }
         rows = rows.filter { liveIds.contains($0.workspaceId) }
         rowHeightCache.suspendPresentation(retaining: Set(rows.map(\.id)))
         if previousRowIds != rows.map(\.id) {
@@ -272,6 +298,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let liveIds = Set(liveWorkspaceIds)
         let previousRowIds = rows.map(\.id)
         let postUpdateActions = detachLoadedCells()
+        authoritativeRows = authoritativeRows
+            .filter { liveIds.contains($0.workspaceId) }
+            .map { $0.presentationSnapshot() }
         rows = rows
             .filter { liveIds.contains($0.workspaceId) }
             .map { $0.presentationSnapshot() }
@@ -344,6 +373,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func flushApply(_ input: SidebarWorkspaceTableApplyInput) {
         guard isPresentationActive, let containerView else { return }
         let nextRows = input.rows.map { $0.applyingUnreadSnapshot(unreadSnapshot) }
+        authoritativeRows = nextRows
+        hasActiveReorderPreview = false
+        isAwaitingAuthoritativeDropApply = false
+        activeReorderDropUpdate = nil
+        activeReorderPreviewRowIds.removeAll(keepingCapacity: true)
         let actions = input.actions
         let nextWorkspaceIds = input.workspaceIds
         let selectedWorkspaceId = input.selectedWorkspaceId
@@ -835,13 +869,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         cancelSelectionIntent()
         previewBailoutTask?.cancel()
         previewBailoutTask = nil
+        restoreAuthoritativeReorderPresentation(animated: false)
         restoreVisibleCellPaint()
     }
 
     func workspaceDragSessionDidEnd() {
         reorderDragWindowPoint = nil
         reorderDragPayloadWorkspaceId = nil
-        retireReorderIndicator()
+        let preservePreview = isAwaitingAuthoritativeDropApply
+        retireReorderIndicator(preservingPreview: preservePreview)
     }
 
     // MARK: Workspace reorder drop (native NSTableView destination)
@@ -863,6 +899,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// final drop can re-arm the drag instead of silently no-oping.
     private var reorderDragPayloadWorkspaceId: UUID?
 
+    /// True while `rows` is an AppKit-owned preview derived from
+    /// `authoritativeRows`. The workspace model remains untouched until drop.
+    private var hasActiveReorderPreview = false
+
+    /// A successful drop keeps the preview in place until the canonical model
+    /// apply arrives, preventing a release-time snap back and second move.
+    private var isAwaitingAuthoritativeDropApply = false
+
+    /// Last local plan used to derive the preview, retained so row-local
+    /// notification refreshes can rebuild the same hierarchy without drift.
+    private var activeReorderDropUpdate: SidebarWorkspaceTableReorderDropUpdate?
+
+    /// Render-row identities omitted from hit targets after they move into the
+    /// preview gap. Without this, a stationary pointer lands on the moved row
+    /// and makes the resolver oscillate between preview and canonical order.
+    private var activeReorderPreviewRowIds: Set<SidebarWorkspaceRenderItemID> = []
+
     /// True while a reorder drop session is hovering the table (between an
     /// accepted validateDrop and drop/exit/end). Gates the table's refusal of
     /// AppKit's built-in drag autoscroll to drop sessions only.
@@ -881,6 +934,156 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// selected-workspace scroll policy must not yank the viewport away from
     /// the release position.
     private var suppressSelectedScrollAfterLocalDrop = false
+
+    private func dragPreviewRows(
+        for update: SidebarWorkspaceTableReorderDropUpdate
+    ) -> [SidebarWorkspaceTableRowConfiguration]? {
+        guard let plan = update.plan else { return nil }
+        guard case let .reorder(_, usesTopLevelRows, explicitGroupId) = plan.action else {
+            // A cross-window source has no local row to animate. Keep the
+            // insertion line for that path.
+            return nil
+        }
+
+        let baseRows = authoritativeRows
+        let movingWorkspaceIds = Set(update.movingWorkspaceIds)
+        guard !baseRows.isEmpty, !movingWorkspaceIds.isEmpty else { return nil }
+
+        var movingIndices = IndexSet()
+        for workspaceId in movingWorkspaceIds {
+            guard let rowIndex = baseRows.firstIndex(where: { $0.workspaceId == workspaceId }) else {
+                continue
+            }
+            let row = baseRows[rowIndex]
+            if row.isGroupHeader, let groupId = row.groupId {
+                for (index, candidate) in baseRows.enumerated()
+                where candidate.groupId == groupId {
+                    movingIndices.insert(index)
+                }
+            } else {
+                movingIndices.insert(rowIndex)
+            }
+        }
+        guard !movingIndices.isEmpty else { return nil }
+
+        let movingGroupIds = Set(movingIndices.compactMap { index in
+            let row = baseRows[index]
+            return row.isGroupHeader ? row.groupId : nil
+        })
+
+        let insertionBoundary: Int
+        if let indicator = update.indicator,
+           let targetWorkspaceId = indicator.tabId,
+           let targetIndex = baseRows.firstIndex(where: { $0.workspaceId == targetWorkspaceId }) {
+            switch indicator.edge {
+            case .top:
+                insertionBoundary = targetIndex
+            case .bottom:
+                if update.scope == .topLevel,
+                   baseRows[targetIndex].isGroupHeader,
+                   let groupId = baseRows[targetIndex].groupId {
+                    insertionBoundary = (baseRows.lastIndex { $0.groupId == groupId } ?? targetIndex) + 1
+                } else {
+                    insertionBoundary = targetIndex + 1
+                }
+            }
+        } else if update.indicator?.edge == .top {
+            insertionBoundary = 0
+        } else {
+            insertionBoundary = baseRows.count
+        }
+
+        var movingRows: [SidebarWorkspaceTableRowConfiguration] = []
+        var remainingRows: [SidebarWorkspaceTableRowConfiguration] = []
+        movingRows.reserveCapacity(movingIndices.count)
+        remainingRows.reserveCapacity(baseRows.count - movingIndices.count)
+        var remainingInsertionIndex = 0
+        for (index, row) in baseRows.enumerated() {
+            if movingIndices.contains(index) {
+                let previewGroupId: UUID?
+                if row.isGroupHeader {
+                    previewGroupId = row.groupId
+                } else if let groupId = row.groupId,
+                          movingGroupIds.contains(groupId) {
+                    // Moving an Arc-style group relocates its rendered block;
+                    // its children remain members instead of briefly peeling
+                    // out to the root lane during the animation.
+                    previewGroupId = groupId
+                } else if let explicitGroupId {
+                    previewGroupId = explicitGroupId
+                } else if usesTopLevelRows {
+                    previewGroupId = nil
+                } else {
+                    previewGroupId = row.groupId
+                }
+                movingRows.append(row.applyingDragPreviewGroupId(previewGroupId))
+            } else {
+                if index < insertionBoundary {
+                    remainingInsertionIndex += 1
+                }
+                remainingRows.append(row)
+            }
+        }
+        activeReorderPreviewRowIds = Set(movingRows.map(\.id))
+        remainingRows.insert(contentsOf: movingRows, at: min(remainingInsertionIndex, remainingRows.count))
+        return remainingRows
+    }
+
+    private func presentReorderRows(
+        _ nextRows: [SidebarWorkspaceTableRowConfiguration],
+        animated: Bool
+    ) {
+        guard let table = containerView?.tableView else { return }
+        let previousIds = rows.map(\.id)
+        let nextIds = nextRows.map(\.id)
+        guard previousIds.count == nextIds.count,
+              Self.multisetEqual(previousIds, nextIds) else { return }
+
+        let orderChanged = previousIds != nextIds
+        let contentChanged = zip(rows, nextRows).contains {
+            !$0.0.hasEquivalentContent(to: $0.1)
+        }
+        guard orderChanged || contentChanged else { return }
+        rows = nextRows
+
+        let updates = {
+            table.beginUpdates()
+            var current = previousIds
+            for targetIndex in nextIds.indices where current[targetIndex] != nextIds[targetIndex] {
+                guard let sourceIndex = current.firstIndex(of: nextIds[targetIndex]) else { continue }
+                table.moveRow(at: sourceIndex, to: targetIndex)
+                current.remove(at: sourceIndex)
+                current.insert(nextIds[targetIndex], at: targetIndex)
+            }
+            table.endUpdates()
+        }
+        if animated && orderChanged {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                updates()
+            }
+        } else {
+            updates()
+        }
+
+        let visible = table.rows(in: table.visibleRect)
+        if visible.location != NSNotFound, visible.length > 0 {
+            reconfigureVisibleRows(IndexSet(
+                integersIn: visible.lowerBound..<(visible.lowerBound + visible.length)
+            ))
+        }
+        updateDropTargets()
+    }
+
+    private func restoreAuthoritativeReorderPresentation(animated: Bool) {
+        guard hasActiveReorderPreview else { return }
+        hasActiveReorderPreview = false
+        isAwaitingAuthoritativeDropApply = false
+        activeReorderDropUpdate = nil
+        activeReorderPreviewRowIds.removeAll(keepingCapacity: true)
+        presentReorderRows(authoritativeRows, animated: animated)
+    }
 
     func tableView(
         _ tableView: NSTableView,
@@ -928,8 +1131,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #endif
         if performed {
             suppressSelectedScrollAfterLocalDrop = true
+            isAwaitingAuthoritativeDropApply = hasActiveReorderPreview
         }
-        retireReorderIndicator()
+        retireReorderIndicator(preservingPreview: performed)
         return performed
     }
 
@@ -967,26 +1171,40 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             retireReorderIndicator()
             return false
         }
-        reorderIndicatorPainter = SidebarWorkspaceTableReorderIndicatorPainter(
-            indicator: update.indicator,
-            scope: update.scope,
-            draggedWorkspaceId: update.draggedWorkspaceId,
-            indicatorRowIds: update.indicatorRowIds
-        )
         lastAcceptedReorderDropPlan = update.plan
-        enforceReorderIndicatorPaintOnVisibleCells()
-        setAppKitDropIndicator(update.indicator, scope: update.scope, includeRowTargets: false)
+        if let previewRows = dragPreviewRows(for: update) {
+            clearReorderIndicatorPaintOnVisibleCells()
+            reorderIndicatorPainter = nil
+            setAppKitDropIndicator(nil, scope: update.scope, includeRowTargets: false)
+            hasActiveReorderPreview = true
+            activeReorderDropUpdate = update
+            presentReorderRows(previewRows, animated: true)
+        } else {
+            restoreAuthoritativeReorderPresentation(animated: true)
+            reorderIndicatorPainter = SidebarWorkspaceTableReorderIndicatorPainter(
+                indicator: update.indicator,
+                scope: update.scope,
+                draggedWorkspaceId: update.draggedWorkspaceId,
+                indicatorRowIds: update.indicatorRowIds
+            )
+            enforceReorderIndicatorPaintOnVisibleCells()
+            setAppKitDropIndicator(update.indicator, scope: update.scope, includeRowTargets: false)
+        }
         reorderDragWindowPoint = windowPoint
         return true
     }
 
-    private func retireReorderIndicator() {
+    private func retireReorderIndicator(preservingPreview: Bool = false) {
         lastAcceptedReorderDropPlan = nil
-        guard reorderIndicatorPainter != nil else { return }
-        reorderIndicatorPainter = nil
-        clearReorderIndicatorPaintOnVisibleCells()
+        if reorderIndicatorPainter != nil {
+            reorderIndicatorPainter = nil
+            clearReorderIndicatorPaintOnVisibleCells()
+        }
         actions?.clearWorkspaceDropIndicator()
         setAppKitDropIndicator(nil, scope: .raw, includeRowTargets: false)
+        if !preservingPreview {
+            restoreAuthoritativeReorderPresentation(animated: true)
+        }
     }
 
     private func enforceReorderIndicatorPaintOnVisibleCells() {
@@ -1033,8 +1251,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let lower = max(0, visibleRange.location)
         let upper = min(rows.count, visibleRange.location + visibleRange.length)
         guard lower < upper else { return [] }
-        return (lower..<upper).map { row in
+        return (lower..<upper).compactMap { row in
             let configuration = rows[row]
+            guard !activeReorderPreviewRowIds.contains(configuration.id) else { return nil }
             return SidebarWorkspaceReorderDropOverlay.Target(
                 workspaceId: configuration.workspaceId,
                 groupId: configuration.groupId,
