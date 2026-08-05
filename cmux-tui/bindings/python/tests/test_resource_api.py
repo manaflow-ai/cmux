@@ -1248,6 +1248,40 @@ class ResourceApiTests(unittest.TestCase):
         self.assertEqual(snapshot.lifecycle, "exited")
         self.assertIsInstance(snapshot.exit.outcome, cmux.TerminalExitCode)
 
+    def test_terminal_snapshot_accepts_protocol_one_tab_id_only(self) -> None:
+        responses = [
+            {
+                "id": str(TERMINAL),
+                "tab_id": str(TAB),
+                "title": "attached",
+                "cols": 80,
+                "rows": 24,
+                "running": True,
+                "lifecycle": "running",
+            },
+            {
+                "id": str(TERMINAL),
+                "tab_id": None,
+                "title": "detached",
+                "cols": 80,
+                "rows": 24,
+                "running": True,
+                "lifecycle": "running",
+            },
+        ]
+
+        def handler(connection, _index):
+            request = next(frames(connection))
+            ok(connection, request, responses.pop(0))
+
+        expected = [(TAB, (TAB,)), (None, ())]
+        for tab_id, tab_ids in expected:
+            with UnixJsonServer(handler) as server:
+                with Client(server.path) as client:
+                    snapshot = client.session(SESSION).terminal(TERMINAL).refresh()
+                    self.assertEqual(snapshot.tab_id, tab_id)
+                    self.assertEqual(snapshot.tab_ids, tab_ids)
+
     def test_sync_request_options_apply_one_call_deadline(self) -> None:
         def handler(connection, _index):
             requests = frames(connection)

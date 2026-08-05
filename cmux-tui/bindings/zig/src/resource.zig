@@ -16998,6 +16998,40 @@ test "terminal lifecycle and durable exit constraints are strict" {
     );
     try std.testing.expect(running_snapshot.exit == null);
 
+    var legacy_attached = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer legacy_attached.deinit();
+    const legacy_attached_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        legacy_attached.value,
+    );
+    try std.testing.expectEqual(@as(usize, 1), legacy_attached_snapshot.tab_ids.len);
+    try std.testing.expectEqual(
+        legacy_attached_snapshot.tab_id.?,
+        legacy_attached_snapshot.tab_ids[0],
+    );
+
+    var legacy_detached = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":null,\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer legacy_detached.deinit();
+    const legacy_detached_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        legacy_detached.value,
+    );
+    try std.testing.expect(legacy_detached_snapshot.tab_id == null);
+    try std.testing.expectEqual(@as(usize, 0), legacy_detached_snapshot.tab_ids.len);
+
     var exited = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
