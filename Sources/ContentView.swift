@@ -118,6 +118,13 @@ final class WeakWindowReference {
     init(_ window: NSWindow? = nil) {
         self.window = window
     }
+
+    func preferredWindow(
+        keyWindow: @autoclosure () -> NSWindow?,
+        mainWindow: @autoclosure () -> NSWindow?
+    ) -> NSWindow? {
+        window ?? keyWindow() ?? mainWindow()
+    }
 }
 
 @MainActor

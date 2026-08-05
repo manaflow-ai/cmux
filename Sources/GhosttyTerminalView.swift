@@ -7536,6 +7536,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 #endif
 
+    func updateScrollSpeedMultiplier(_ multiplier: Double) {
+        scrollSpeedAccumulator.updateMultiplier(multiplier)
+    }
+
     override func scrollWheel(with event: NSEvent) {
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
         guard let surface = surface else { return }
@@ -12214,6 +12218,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var searchState: TerminalSurface.SearchState? = nil
     var reattachToken: UInt64 = 0
     var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
+    var scrollSpeedMultiplier = TerminalScrollSpeedSettings.defaultMultiplier
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
@@ -12398,6 +12403,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
+        hostedView.surfaceView.updateScrollSpeedMultiplier(scrollSpeedMultiplier)
         let coordinator = context.coordinator
         let previousDesiredIsActive = coordinator.desiredIsActive
         let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI

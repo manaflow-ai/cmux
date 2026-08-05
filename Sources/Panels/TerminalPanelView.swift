@@ -15,6 +15,8 @@ struct TerminalPanelView: View {
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    @AppStorage(TerminalScrollSpeedSettings.multiplierKey)
+    private var terminalScrollSpeedMultiplier = TerminalScrollSpeedSettings.defaultMultiplier
     @AppStorage(SessionContentWidthSettings.maxWidthKey)
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
@@ -110,6 +112,7 @@ struct TerminalPanelView: View {
                 searchState: panel.searchState,
                 reattachToken: panel.viewReattachToken,
                 sessionContentWidthPresentation: sessionContentWidthPresentation,
+                scrollSpeedMultiplier: terminalScrollSpeedMultiplier,
                 onFocus: { _ in
                     panel.terminalDidBecomeFocused()
                     onFocus()

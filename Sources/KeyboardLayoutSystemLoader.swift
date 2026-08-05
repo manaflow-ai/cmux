@@ -94,7 +94,8 @@ enum KeyboardLayoutSystemLoader {
             for keyCode in keyCodes {
                 var deadKeyState: UInt32 = 0
                 var characters = [UniChar](repeating: 0, count: 4)
-                var length: UniCharCount = 0
+                // Carbon imports UniCharCount as Swift.Int on current SDKs.
+                var length: Int = 0
                 let status = UCKeyTranslate(
                     keyboardLayout,
                     keyCode,
@@ -108,7 +109,7 @@ enum KeyboardLayoutSystemLoader {
                     &characters
                 )
                 guard status == noErr, length > 0 else { continue }
-                let translated = String(utf16CodeUnits: characters, count: Int(length))
+                let translated = String(utf16CodeUnits: characters, count: length)
                 result[KeyboardLayoutSnapshot.Key(
                     keyCode: keyCode,
                     modifierFlags: flags

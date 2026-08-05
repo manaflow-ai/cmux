@@ -1017,6 +1017,7 @@ struct TitlebarControlsView: View {
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
+    @State private var hostWindowReference = WeakWindowReference()
     @State private var focusHistoryAvailabilityRevision: UInt64 = 0
     @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
@@ -1077,6 +1078,7 @@ struct TitlebarControlsView: View {
             .background(
                 WindowAccessor(refreshID: showModifierHoldHints) { window in
                     let nextWindowNumber = window.windowNumber
+                    hostWindowReference.window = window
                     if hostWindowNumber != nextWindowNumber {
                         DispatchQueue.main.async {
                             if hostWindowNumber != nextWindowNumber {
@@ -1109,6 +1111,7 @@ struct TitlebarControlsView: View {
             }
             .onDisappear {
                 modifierKeyMonitor.stop()
+                hostWindowReference.window = nil
                 hostWindowNumber = nil
             }
             .onChange(of: showModifierHoldHints) { _, _ in
@@ -1247,11 +1250,10 @@ struct TitlebarControlsView: View {
 
     @MainActor
     private var focusHistoryTargetWindow: NSWindow? {
-        if let hostWindowNumber,
-           let hostWindow = NSApp.windows.first(where: { $0.windowNumber == hostWindowNumber }) {
-            return hostWindow
-        }
-        return NSApp.keyWindow ?? NSApp.mainWindow
+        hostWindowReference.preferredWindow(
+            keyWindow: NSApp.keyWindow,
+            mainWindow: NSApp.mainWindow
+        )
     }
 
     private func titlebarHintLayoutItems(config: TitlebarControlsStyleConfig) -> [TitlebarHintLayoutItem] {
@@ -1511,6 +1513,7 @@ struct HiddenTitlebarSidebarControlsView: View {
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
     @State private var hostWindowNumber: Int?
+    @State private var hostWindowReference = WeakWindowReference()
     private var shouldPinControls: Bool {
         isHoveringHost || isHoveringWindowChrome || popoverVisibilityState.isShown(in: hostWindowNumber)
     }
@@ -1521,6 +1524,7 @@ struct HiddenTitlebarSidebarControlsView: View {
         ZStack(alignment: .leading) {
             WindowAccessor { window in
                 let nextWindowNumber = window.windowNumber
+                hostWindowReference.window = window
                 let nextHoveringWindowChrome = MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber == nextWindowNumber
                 if hostWindowNumber != nextWindowNumber || isHoveringWindowChrome != nextHoveringWindowChrome {
                     DispatchQueue.main.async {
@@ -1641,17 +1645,17 @@ struct HiddenTitlebarSidebarControlsView: View {
             if let hostWindowNumber {
                 MinimalModeSidebarChromeHoverState.shared.setHovering(false, windowNumber: hostWindowNumber)
             }
+            hostWindowReference.window = nil
             hostWindowNumber = nil
         }
     }
 
     @MainActor
     private var hostWindowForFocusHistoryNavigation: NSWindow? {
-        if let hostWindowNumber,
-           let hostWindow = NSApp.windows.first(where: { $0.windowNumber == hostWindowNumber }) {
-            return hostWindow
-        }
-        return NSApp.keyWindow ?? NSApp.mainWindow
+        hostWindowReference.preferredWindow(
+            keyWindow: NSApp.keyWindow,
+            mainWindow: NSApp.mainWindow
+        )
     }
 }
 
