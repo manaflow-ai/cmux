@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSidebar
+import SwiftUI
 import Testing
 @testable import cmux_DEV
 
@@ -527,6 +528,120 @@ struct SidebarAppKitRowCellTests {
 
         #expect(hitView !== textView)
         #expect(openedURL == nil)
+    }
+
+    /// Rasterizes the link over the row's own selection background. AppKit used
+    /// to paint `.link` runs in `NSColor.linkColor`, which is the same blue as
+    /// the sidebar selection fill, so the URL was unreadable on the active row.
+    @Test(arguments: [nil, "#8A2BE2", "#F2C14E"] as [String?])
+    func activeRowLinkRastersInTheRowForegroundNotSystemLinkColor(_ selectionHex: String?) throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let defaults = Self.makeDefaults()
+        if let selectionHex {
+            defaults.set(selectionHex, forKey: "sidebarSelectionColorHex")
+        }
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(settings.selectionColorHex == selectionHex)
+        let model = Self.makeModel(isActive: true, settings: settings, customDescription: url.absoluteString)
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+
+        let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .dark,
+            sidebarSelectionColorHex: settings.selectionColorHex
+        )
+        let expected = try #require(
+            sidebarSelectedWorkspaceForegroundNSColor(on: selectionBackground, opacity: 1.0)
+                .usingColorSpace(.sRGB)
+        )
+        let rendered = try #require(
+            textView.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        )
+        let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
+        #expect(renderedSRGB == expected)
+        #expect(
+            textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+                == NSUnderlineStyle.single.rawValue
+        )
+
+        let raster = try Self.raster(of: textView, background: selectionBackground)
+        let systemLink = try #require(
+            NSColor.linkColor.usingColorSpace(.sRGB),
+            "linkColor must resolve in sRGB"
+        )
+        #expect(Self.minimumDistance(in: raster, to: expected) < 0.05)
+        #expect(Self.minimumDistance(in: raster, to: systemLink) > 0.15)
+    }
+
+    @Test
+    func inactiveRowLinkKeepsSystemLinkColorAndUnderline() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let model = Self.makeModel(isActive: false, customDescription: url.absoluteString)
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+
+        let rendered = try #require(
+            textView.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        )
+        #expect(rendered == NSColor.linkColor)
+        #expect(
+            textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+                == NSUnderlineStyle.single.rawValue
+        )
+    }
+
+    private static func descriptionTextView(
+        in cell: SidebarWorkspaceRowTableCellView,
+        showing text: String
+    ) -> SidebarRowTextView? {
+        descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .first { !$0.isHidden && $0.stringValue == text }
+    }
+
+    /// Composites the text field over `background` so glyph pixels can be
+    /// compared against a concrete color instead of a transparent bitmap.
+    private static func raster(of view: NSView, background: NSColor) throws -> NSBitmapImageRep {
+        let size = view.bounds.size
+        #expect(size.width > 0 && size.height > 0)
+        let rep = try #require(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(ceil(size.width)),
+                pixelsHigh: Int(ceil(size.height)),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+        let context = try #require(NSGraphicsContext(bitmapImageRep: rep))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        background.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+        view.displayIgnoringOpacity(view.bounds, in: context)
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
+    }
+
+    private static func minimumDistance(in raster: NSBitmapImageRep, to color: NSColor) -> CGFloat {
+        var best = CGFloat.greatestFiniteMagnitude
+        for y in 0 ..< raster.pixelsHigh {
+            for x in 0 ..< raster.pixelsWide {
+                guard let pixel = raster.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let dr = pixel.redComponent - color.redComponent
+                let dg = pixel.greenComponent - color.greenComponent
+                let db = pixel.blueComponent - color.blueComponent
+                best = min(best, sqrt(dr * dr + dg * dg + db * db))
+            }
+        }
+        return best
     }
 
     @Test
