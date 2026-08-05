@@ -6789,6 +6789,29 @@ fn ensure_initial_for_machine_ui(
     Ok(())
 }
 
+fn recover_initial_workspace_failure(
+    result: anyhow::Result<()>,
+    machine_ui: Option<&MachineUiState>,
+) -> anyhow::Result<Option<String>> {
+    match result {
+        Ok(()) => Ok(None),
+        Err(error) if machine_ui.is_some() => {
+            let error = error.to_string();
+            let message = if error.contains("failed to open PTY:")
+                && (error.contains("Device not configured")
+                    || error.contains("No space left on device")
+                    || error.contains("Resource temporarily unavailable"))
+            {
+                localization::catalog().runtime.terminal_capacity_exhausted.to_string()
+            } else {
+                error
+            };
+            Ok(Some(message))
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn uses_provider_managed_workspaces(machine_ui: Option<&MachineUiState>) -> bool {
     matches!(
         machine_ui.and_then(MachineUiState::workspace_creation_policy),
@@ -6886,7 +6909,10 @@ fn run_with_machine_updates_inner(
         content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
     });
     ensure_managed_workspace_guard(&session, machine_ui.as_ref())?;
-    ensure_initial_for_machine_ui(&session, initial_size, machine_ui.as_ref())?;
+    let initial_workspace_error = recover_initial_workspace_failure(
+        ensure_initial_for_machine_ui(&session, initial_size, machine_ui.as_ref()),
+        machine_ui.as_ref(),
+    )?;
     let encoder = KeyEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
     let browser_failure_tx = tx.clone();
@@ -7052,7 +7078,8 @@ fn run_with_machine_updates_inner(
     };
     let sidebar_view = config.sidebar.view;
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let initial_machine_notice = machine_ui.as_ref().and_then(|machine| machine.notice.clone());
+    let initial_machine_notice = initial_workspace_error
+        .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()));
     let mut app = App {
         session,
         session_event_worker: Some(session_event_worker),
@@ -32801,6 +32828,25 @@ mod tests {
         app.prompt = None;
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+    }
+
+    #[test]
+    fn machine_ui_survives_initial_pty_exhaustion_with_an_actionable_status() {
+        let machine_ui = provider_machine_ui();
+        let failure = anyhow::anyhow!(
+            "remote command rejected: failed to open PTY: Device not configured (os error 6)"
+        );
+
+        let status = super::recover_initial_workspace_failure(Err(failure), Some(&machine_ui))
+            .unwrap()
+            .expect("machine mode keeps the launch failure as status");
+        assert_eq!(status, localization::catalog().runtime.terminal_capacity_exhausted);
+
+        let plain_failure = anyhow::anyhow!("failed to open PTY: Device not configured");
+        assert!(
+            super::recover_initial_workspace_failure(Err(plain_failure), None).is_err(),
+            "plain mode must still fail before switching the host terminal into raw mode"
+        );
     }
 
     #[test]

@@ -297,6 +297,7 @@ impl LayoutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RuntimeMessages {
     pub unknown_panic: &'static str,
+    pub terminal_capacity_exhausted: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
     terminal_restore_also_failed: &'static str,
@@ -1045,6 +1046,7 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     runtime: RuntimeMessages {
         unknown_panic: "unknown panic",
+        terminal_capacity_exhausted: "No pseudo-terminals are available. Close an unused terminal session, then retry.",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
@@ -1546,6 +1548,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     runtime: RuntimeMessages {
         unknown_panic: "不明なパニック",
+        terminal_capacity_exhausted: "疑似ターミナルの空きがありません。不要なターミナルセッションを閉じてから再試行してください。",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",

@@ -599,6 +599,30 @@ mod unix {
         }
     }
 
+    fn encode_launch_failure(error: &anyhow::Error) -> Vec<u8> {
+        let mut message = format!("{error:#}");
+        if message.len() > MAX_STRING {
+            let mut boundary = MAX_STRING;
+            while !message.is_char_boundary(boundary) {
+                boundary -= 1;
+            }
+            message.truncate(boundary);
+        }
+        let mut payload = Vec::with_capacity(message.len() + size_of::<u32>());
+        put_string(&mut payload, &message).expect("bounded launch failure must encode");
+        payload
+    }
+
+    fn decode_launch_failure(payload: &[u8]) -> anyhow::Result<String> {
+        let mut decoder = PayloadDecoder::new(payload);
+        let message = decoder.string()?;
+        decoder.finish()?;
+        if message.is_empty() {
+            anyhow::bail!("terminal host returned an empty launch failure");
+        }
+        Ok(message)
+    }
+
     fn encode_default_colors(output: &mut Vec<u8>, colors: DefaultColors) {
         let mut flags = 0u8;
         flags |= colors.fg.is_some() as u8;
@@ -1584,7 +1608,13 @@ mod unix {
         launch_frame.request_id = 2;
         write_frame(&mut stdin, &launch_frame)?;
         let launched_frame = read_required_frame(&mut stdout, "launch ready")?;
-        if launched_frame.kind != MessageKind::Ready || launched_frame.request_id != 2 {
+        if launched_frame.request_id != 2 {
+            anyhow::bail!("terminal host did not acknowledge launch");
+        }
+        if launched_frame.kind == MessageKind::LaunchFailed {
+            anyhow::bail!(decode_launch_failure(&launched_frame.payload)?);
+        }
+        if launched_frame.kind != MessageKind::Ready {
             anyhow::bail!("terminal host did not acknowledge launch");
         }
         let launched = HostReady::decode(&launched_frame.payload)?;
@@ -3427,7 +3457,16 @@ mod unix {
             anyhow::bail!("expected terminal-host Launch, received {:?}", launch_frame.kind);
         }
         let launch = HostLaunch::decode(&launch_frame.payload)?;
-        let shared = spawn_host_runtime(&launch, &bootstrapped)?;
+        let shared = match spawn_host_runtime(&launch, &bootstrapped) {
+            Ok(shared) => shared,
+            Err(error) => {
+                let mut response =
+                    Frame::new(MessageKind::LaunchFailed, encode_launch_failure(&error));
+                response.request_id = launch_frame.request_id;
+                let _ = write_frame(writer, &response);
+                return Err(error);
+            }
+        };
 
         let endpoint = PathBuf::from(&launch.endpoint);
         let mut unpublished = UnpublishedHostGuard {

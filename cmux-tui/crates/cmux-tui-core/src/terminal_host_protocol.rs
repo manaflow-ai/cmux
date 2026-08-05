@@ -273,6 +273,10 @@ pub enum MessageKind {
     /// Targeted response to `SetKittyGraphicsLimits`; payload is the applied
     /// four-field resource limit tuple.
     KittyGraphicsLimitsAck = 19,
+    /// Bootstrap-pipe response when the host could not create its PTY or
+    /// child. The bounded UTF-8 payload preserves the owning process's error
+    /// instead of making the launcher infer failure from EOF.
+    LaunchFailed = 20,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -319,6 +323,7 @@ impl TryFrom<u16> for MessageKind {
             17 => Ok(Self::ClearHistoryAck),
             18 => Ok(Self::CellPixelSizeAck),
             19 => Ok(Self::KittyGraphicsLimitsAck),
+            20 => Ok(Self::LaunchFailed),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -708,6 +713,12 @@ mod tests {
         assert_eq!(MessageKind::try_from(19).unwrap(), MessageKind::KittyGraphicsLimitsAck);
         assert_eq!(MessageKind::SetKittyGraphicsLimits as u16, 109);
         assert_eq!(MessageKind::try_from(109).unwrap(), MessageKind::SetKittyGraphicsLimits);
+    }
+
+    #[test]
+    fn launch_failure_has_a_stable_additive_message_kind() {
+        assert_eq!(MessageKind::LaunchFailed as u16, 20);
+        assert_eq!(MessageKind::try_from(20).unwrap(), MessageKind::LaunchFailed);
     }
 
     #[test]
