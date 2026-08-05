@@ -16213,6 +16213,24 @@ mod tests {
         assert_eq!(surface.test_cell_pixel_size(), (8, 16));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn exited_host_cell_pixels_converge_without_a_live_host() {
+        let mux = test_mux();
+        let surface = insert_terminal_identity_surface(
+            &mux,
+            "00112233445566778899aabbccddeeff",
+            "11111111111111111111111111111111",
+            "exited-cell-pixels",
+        );
+
+        let update = mux.set_cell_pixel_size(16, 32);
+
+        assert!(update.failures.is_empty(), "{:?}", update.failures);
+        assert_eq!(mux.cell_pixel_size(), (16, 32));
+        assert_eq!(surface.test_cell_pixel_size(), (16, 32));
+    }
+
     #[test]
     fn terminal_spawn_releases_cell_pixel_lifecycle_and_reconciles_before_publish() {
         let mux = test_mux();
