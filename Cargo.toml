@@ -1,0 +1,37 @@
+[package]
+name = "coderouter"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "Run Codex across your CodeRouter subscription pool"
+repository = "https://github.com/manaflow-ai/coderouter"
+publish = false
+
+[lib]
+name = "coderouter"
+path = "src/lib.rs"
+
+[[bin]]
+name = "coderouter"
+path = "src/main.rs"
+
+[[bin]]
+name = "cr"
+path = "src/bin/cr.rs"
+
+[dependencies]
+crossterm = "0.29"
+dirs = "6"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-native-roots"] }
+sha2 = "0.10"
+tempfile = "3"
+thiserror = "2"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+
+[package.metadata.maturin]
+bindings = "bin"
+strip = true
