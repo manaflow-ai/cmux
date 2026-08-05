@@ -18,6 +18,8 @@ extension CMUXCLI {
         """
     )
 
+    /// Runs `cmux comments <subcommand>`; `list` is the only subcommand today.
+    /// Rejects anything unrecognized before it resolves a repository or calls the socket.
     func runCommentsNamespace(
         commandArgs: [String],
         client: SocketClient,
@@ -77,6 +79,8 @@ extension CMUXCLI {
         }
     }
 
+    /// Resolves the git top level for `--repo` (or the current directory), so the
+    /// socket receives the same canonical root the store is keyed by.
     private func commentsGitRepoRoot(startingAt directory: String) throws -> String {
         let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
@@ -96,6 +100,8 @@ extension CMUXCLI {
         return root
     }
 
+    /// Builds the count line, picking the singular or plural catalog key so no
+    /// locale has to carry a "comment(s)" form.
     private func commentsListHeaderText(count: Int, repoRoot: String) -> String {
         if count == 1 {
             return String.localizedStringWithFormat(
@@ -116,6 +122,8 @@ extension CMUXCLI {
         )
     }
 
+    /// Renders a `comments.list` reply: raw JSON when `--json` is set, otherwise one
+    /// line per comment with its anchor text and message.
     private func printCommentsListPayload(
         _ payload: [String: Any],
         jsonOutput: Bool,

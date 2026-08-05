@@ -14,7 +14,7 @@ extension TerminalController {
                 code: "invalid_params",
                 message: String(
                     localized: "socket.comments.missingRepoRoot",
-                    defaultValue: "comments.list requires a repo_root string"
+                    defaultValue: "A repository path is required."
                 ),
                 data: nil
             )

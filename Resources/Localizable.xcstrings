@@ -35192,25 +35192,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "يتطلب cmux comments مستودع git: %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments zahtijeva git repozitorij: %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments kræver et git-repository: %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments benötigt ein Git-Repository: %@"
           }
         },
         "en": {
@@ -35222,19 +35222,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments requiere un repositorio git: %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments nécessite un dépôt git : %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments richiede un repository git: %@"
           }
         },
         "ja": {
@@ -35246,67 +35246,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments ត្រូវការ​ឃ្លាំង git: %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments 는 git 저장소에서 실행해야 합니다: %@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments krever et git-repository: %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments wymaga repozytorium git: %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments requer um repositório git: %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments требует git-репозиторий: %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments ต้องใช้ที่เก็บโค้ด git: %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments bir git deposu gerektirir: %@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments потребує git-репозиторію: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments 需要 git 仓库：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux comments requires a git repository: %@"
+            "value": "cmux comments 需要 git 儲存庫：%@"
           }
         }
       }
@@ -35317,25 +35317,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "يتطلب --repo مسارًا. إذا كان المسار يبدأ بشرطة، فمرره بالصيغة ./-name"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo zahtijeva putanju. Putanju koja počinje crticom navedite kao ./-name"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo kræver en sti. En sti der starter med bindestreg, angives som ./-name"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo benötigt einen Pfad. Einen Pfad, der mit einem Bindestrich beginnt, als ./-name angeben"
           }
         },
         "en": {
@@ -35347,19 +35347,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo requiere una ruta. Si la ruta empieza por guion, indíquela como ./-name"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo nécessite un chemin. Pour un chemin commençant par un tiret, écrivez ./-name"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo richiede un percorso. Per un percorso che inizia con un trattino, usa ./-name"
           }
         },
         "ja": {
@@ -35371,67 +35371,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo ត្រូវការ​ផ្លូវ។ ផ្លូវ​ដែល​ចាប់ផ្តើម​ដោយ​សញ្ញា​ដាច់ សូម​សរសេរ​ជា ./-name"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo 에는 경로가 필요합니다. 대시로 시작하는 경로는 ./-name 형식으로 넘기세요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo krever en sti. En sti som starter med bindestrek, oppgis som ./-name"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo wymaga ścieżki. Ścieżkę zaczynającą się od myślnika podaj jako ./-name"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo requer um caminho. Para um caminho que começa com hífen, use ./-name"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo требует путь. Путь, начинающийся с дефиса, укажите как ./-name"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo ต้องระบุพาธ หากพาธเริ่มด้วยขีดกลาง ให้ระบุเป็น ./-name"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo bir yol gerektirir. Kısa çizgiyle başlayan yolu ./-name olarak verin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo потребує шлях. Шлях, що починається з дефіса, вкажіть як ./-name"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo 需要提供路径。以短横线开头的路径请写成 ./-name"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "--repo requires a path. For a path starting with a dash, pass it as ./-name"
+            "value": "--repo 需要提供路徑。以連字號開頭的路徑請寫成 ./-name"
           }
         }
       }
@@ -35442,25 +35442,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "يتطلب comments أمرًا فرعيًا. جرّب: list"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments zahtijeva potkomandu. Pokušajte: list"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments kræver en underkommando. Prøv: list"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments benötigt einen Unterbefehl. Versuche: list"
           }
         },
         "en": {
@@ -35472,19 +35472,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments requiere un subcomando. Prueba: list"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments nécessite une sous-commande. Essayez : list"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments richiede un sottocomando. Prova: list"
           }
         },
         "ja": {
@@ -35496,67 +35496,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments ត្រូវការ​អនុ​បញ្ជា។ សូម​សាកល្បង: list"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments 에는 서브커맨드가 필요합니다. 예: list"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments krever en underkommando. Prøv: list"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments wymaga podkomendy. Spróbuj: list"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments requer um subcomando. Tente: list"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments требует подкоманду. Попробуйте: list"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments ต้องระบุคำสั่งย่อย ลอง: list"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments bir alt komut gerektirir. Deneyin: list"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments потребує підкоманду. Спробуйте: list"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments 需要子命令。可用：list"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments requires a subcommand. Try: list"
+            "value": "comments 需要子命令。可用：list"
           }
         }
       }
@@ -35567,25 +35567,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "وسيطة غير متوقعة '%@' في cmux comments list. المدعوم: --repo <path> و--all و--json"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Neočekivani argument '%@' za cmux comments list. Podržano: --repo <path>, --all, --json"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Uventet argument '%@' til cmux comments list. Understøttet: --repo <path>, --all, --json"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Unerwartetes Argument '%@' für cmux comments list. Unterstützt: --repo <path>, --all, --json"
           }
         },
         "en": {
@@ -35597,19 +35597,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Argumento inesperado '%@' en cmux comments list. Admitidos: --repo <path>, --all, --json"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Argument inattendu '%@' pour cmux comments list. Pris en charge : --repo <path>, --all, --json"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Argomento inatteso '%@' per cmux comments list. Supportati: --repo <path>, --all, --json"
           }
         },
         "ja": {
@@ -35621,67 +35621,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "អាគុយម៉ង់ '%@' មិន​រំពឹង​ទុក​សម្រាប់ cmux comments list។ ដែល​ប្រើ​បាន: --repo <path>, --all, --json"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "cmux comments list 에 예상치 못한 인자 '%@' 입니다. 사용 가능: --repo <path>, --all, --json"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Uventet argument '%@' for cmux comments list. Støttet: --repo <path>, --all, --json"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Nieoczekiwany argument '%@' dla cmux comments list. Obsługiwane: --repo <path>, --all, --json"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Argumento inesperado '%@' em cmux comments list. Suportados: --repo <path>, --all, --json"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Неожиданный аргумент '%@' для cmux comments list. Поддерживаются: --repo <path>, --all, --json"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "อาร์กิวเมนต์ '%@' ไม่ถูกต้องสำหรับ cmux comments list รองรับ: --repo <path>, --all, --json"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "cmux comments list için beklenmeyen argüman '%@'. Desteklenen: --repo <path>, --all, --json"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "Неочікуваний аргумент '%@' для cmux comments list. Підтримуються: --repo <path>, --all, --json"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "cmux comments list 收到意外参数 '%@'。支持：--repo <path>、--all、--json"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+            "value": "cmux comments list 收到未預期的參數 '%@'。支援：--repo <path>、--all、--json"
           }
         }
       }
@@ -35692,25 +35692,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "أمر فرعي غير معروف '%@' في comments. جرّب: list"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Nepoznata potkomanda '%@' za comments. Pokušajte: list"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Ukendt comments-underkommando '%@'. Prøv: list"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Unbekannter comments-Unterbefehl '%@'. Versuche: list"
           }
         },
         "en": {
@@ -35722,19 +35722,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Subcomando de comments desconocido '%@'. Prueba: list"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Sous-commande comments inconnue '%@'. Essayez : list"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Sottocomando comments sconosciuto '%@'. Prova: list"
           }
         },
         "ja": {
@@ -35746,67 +35746,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "អនុ​បញ្ជា comments '%@' មិន​ស្គាល់។ សូម​សាកល្បង: list"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "알 수 없는 comments 서브커맨드 '%@' 입니다. 예: list"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Ukjent comments-underkommando '%@'. Prøv: list"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Nieznana podkomenda comments '%@'. Spróbuj: list"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Subcomando de comments desconhecido '%@'. Tente: list"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Неизвестная подкоманда comments '%@'. Попробуйте: list"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "ไม่รู้จักคำสั่งย่อย '%@' ของ comments ลอง: list"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Bilinmeyen comments alt komutu '%@'. Deneyin: list"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "Невідома підкоманда comments '%@'. Спробуйте: list"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "未知的 comments 子命令 '%@'。可用：list"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown comments subcommand '%@'. Try: list"
+            "value": "未知的 comments 子命令 '%@'。可用：list"
           }
         }
       }
@@ -35817,25 +35817,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    المرساة: %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    sidro: %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    anker: %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    Anker: %@"
           }
         },
         "en": {
@@ -35847,19 +35847,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    ancla: %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    ancre : %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    ancora: %@"
           }
         },
         "ja": {
@@ -35871,67 +35871,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    យុថ្កា: %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    앵커: %@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    anker: %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    zakotwiczenie: %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    âncora: %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    привязка: %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    จุดยึด: %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    bağlantı noktası: %@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    прив'язка: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    锚点：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "    anchor: %@"
+            "value": "    錨點：%@"
           }
         }
       }
@@ -35942,25 +35942,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "لا توجد تعليقات مراجعة. (المستودع: %@)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "Nema komentara pregleda. (repozitorij: %@)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "Ingen gennemgangskommentarer. (repository: %@)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "Keine Review-Kommentare. (Repository: %@)"
           }
         },
         "en": {
@@ -35972,19 +35972,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "No hay comentarios de revisión. (repositorio: %@)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "Aucun commentaire de revue. (dépôt : %@)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "Nessun commento di revisione. (repository: %@)"
           }
         },
         "ja": {
@@ -35996,67 +35996,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "គ្មាន​មតិ​ត្រួតពិនិត្យ។ (ឃ្លាំង: %@)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "리뷰 코멘트가 없습니다. (저장소: %@)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "Ingen gjennomgangskommentarer. (repository: %@)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "Brak komentarzy przeglądu. (repozytorium: %@)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "Nenhum comentário de revisão. (repositório: %@)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "Комментариев ревью нет. (репозиторий: %@)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "ไม่มีคอมเมนต์รีวิว (ที่เก็บโค้ด: %@)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "İnceleme yorumu yok. (depo: %@)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "Немає коментарів рецензування. (репозиторій: %@)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "没有评审评论。（仓库：%@）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "No review comments. (repo: %@)"
+            "value": "沒有審查註解。（儲存庫：%@）"
           }
         }
       }
@@ -36067,25 +36067,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "تعليق مراجعة واحد (المستودع: %@)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 komentar pregleda (repozitorij: %@)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 gennemgangskommentar (repository: %@)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 Review-Kommentar (Repository: %@)"
           }
         },
         "en": {
@@ -36097,19 +36097,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 comentario de revisión (repositorio: %@)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 commentaire de revue (dépôt : %@)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 commento di revisione (repository: %@)"
           }
         },
         "ja": {
@@ -36121,67 +36121,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "មតិ​ត្រួតពិនិត្យ 1 (ឃ្លាំង: %@)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "리뷰 코멘트 1건 (저장소: %@)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 gjennomgangskommentar (repository: %@)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 komentarz przeglądu (repozytorium: %@)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 comentário de revisão (repositório: %@)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 комментарий ревью (репозиторий: %@)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "คอมเมนต์รีวิว 1 รายการ (ที่เก็บโค้ด: %@)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 inceleme yorumu (depo: %@)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 коментар рецензування (репозиторій: %@)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 条评审评论（仓库：%@）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 review comment (repo: %@)"
+            "value": "1 則審查註解（儲存庫：%@）"
           }
         }
       }
@@ -36192,25 +36192,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld تعليق مراجعة (المستودع: %2$@)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld komentara pregleda (repozitorij: %2$@)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld gennemgangskommentarer (repository: %2$@)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld Review-Kommentare (Repository: %2$@)"
           }
         },
         "en": {
@@ -36222,19 +36222,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld comentarios de revisión (repositorio: %2$@)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld commentaires de revue (dépôt : %2$@)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld commenti di revisione (repository: %2$@)"
           }
         },
         "ja": {
@@ -36246,67 +36246,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "មតិ​ត្រួតពិនិត្យ %1$lld (ឃ្លាំង: %2$@)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "리뷰 코멘트 %1$lld건 (저장소: %2$@)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld gjennomgangskommentarer (repository: %2$@)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld komentarzy przeglądu (repozytorium: %2$@)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld comentários de revisão (repositório: %2$@)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld комментариев ревью (репозиторий: %2$@)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "คอมเมนต์รีวิว %1$lld รายการ (ที่เก็บโค้ด: %2$@)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld inceleme yorumu (depo: %2$@)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld коментарів рецензування (репозиторій: %2$@)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld 条评审评论（仓库：%2$@）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld review comments (repo: %2$@)"
+            "value": "%1$lld 則審查註解（儲存庫：%2$@）"
           }
         }
       }
@@ -36317,25 +36317,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "تم التسليم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "predano"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "leveret"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "übergeben"
           }
         },
         "en": {
@@ -36347,19 +36347,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "entregado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "transmis"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "consegnato"
           }
         },
         "ja": {
@@ -36371,67 +36371,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "បាន​ប្រគល់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "전달됨"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "levert"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "przekazany"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "entregue"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "передан"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "ส่งแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "teslim edildi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "передано"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "已交付"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "consumed"
+            "value": "已交付"
           }
         }
       }
@@ -36442,25 +36442,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "قيد الانتظار"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "na čekanju"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "afventer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "offen"
           }
         },
         "en": {
@@ -36472,19 +36472,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "pendiente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "en attente"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "in sospeso"
           }
         },
         "ja": {
@@ -36496,67 +36496,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "រង់ចាំ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "미해결"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "venter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "oczekujący"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "pendente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "в ожидании"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "รอดำเนินการ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "beklemede"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "очікує"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "待处理"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "pending"
+            "value": "待處理"
           }
         }
       }
@@ -37460,25 +37460,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "الاستخدام: cmux comments <subcommand> [options]\n\nتعليقات المراجعة المحفوظة من عارض الفروق، وتُخزَّن لكل مستودع git.\n\nالأوامر الفرعية:\n  list [--repo <path>] [--all] [--json]\n    يسرد تعليقات المراجعة لمستودع (الافتراضي: مستودع git الذي يحتوي\n    الدليل الحالي). يسرد التعليقات المعلَّقة فقط؛ ويضيف --all التعليقات\n    التي سُلِّمت بالفعل إلى وكيل عبر إرسال TextBox."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Upotreba: cmux comments <subcommand> [options]\n\nKomentari pregleda sačuvani iz diff prikaza, čuvaju se po git repozitoriju.\n\nPotkomande:\n  list [--repo <path>] [--all] [--json]\n    Ispisuje komentare pregleda za repozitorij (podrazumijevano: git\n    repozitorij koji sadrži trenutni direktorij). Ispisuje samo komentare\n    na čekanju; --all uključuje i one već predane agentu putem TextBox\n    slanja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Brug: cmux comments <subcommand> [options]\n\nGennemgangskommentarer gemt fra diff-visningen, lagret pr. git-repository.\n\nUnderkommandoer:\n  list [--repo <path>] [--all] [--json]\n    Viser gennemgangskommentarerne for et repository (standard: det\n    git-repository der indeholder den aktuelle mappe). Viser kun\n    afventende kommentarer; --all medtager også dem der allerede er\n    leveret til en agent via en TextBox-indsendelse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Verwendung: cmux comments <subcommand> [options]\n\nIm Diff-Viewer gespeicherte Review-Kommentare, abgelegt pro Git-Repository.\n\nUnterbefehle:\n  list [--repo <path>] [--all] [--json]\n    Listet die Review-Kommentare eines Repositorys auf (Standard: das\n    Git-Repository des aktuellen Verzeichnisses). Zeigt nur offene\n    Kommentare; mit --all auch die, die per TextBox-Übermittlung schon an\n    einen Agenten übergeben wurden."
           }
         },
         "en": {
@@ -37490,19 +37490,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Uso: cmux comments <subcommand> [options]\n\nComentarios de revisión guardados desde el visor de diferencias, almacenados por repositorio git.\n\nSubcomandos:\n  list [--repo <path>] [--all] [--json]\n    Lista los comentarios de revisión de un repositorio (por defecto: el\n    repositorio git que contiene el directorio actual). Muestra solo los\n    comentarios pendientes; --all incluye los ya entregados a un agente\n    mediante un envío de TextBox."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Utilisation : cmux comments <subcommand> [options]\n\nCommentaires de revue enregistrés depuis la visionneuse de diff, stockés par dépôt git.\n\nSous-commandes :\n  list [--repo <path>] [--all] [--json]\n    Liste les commentaires de revue d'un dépôt (par défaut : le dépôt git\n    contenant le répertoire courant). N'affiche que les commentaires en\n    attente ; --all inclut aussi ceux déjà transmis à un agent via un\n    envoi TextBox."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Uso: cmux comments <subcommand> [options]\n\nCommenti di revisione salvati dal visualizzatore di diff, memorizzati per repository git.\n\nSottocomandi:\n  list [--repo <path>] [--all] [--json]\n    Elenca i commenti di revisione di un repository (predefinito: il\n    repository git che contiene la directory corrente). Elenca solo i\n    commenti in sospeso; --all include anche quelli già consegnati a un\n    agente tramite un invio TextBox."
           }
         },
         "ja": {
@@ -37514,67 +37514,67 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "របៀប​ប្រើ: cmux comments <subcommand> [options]\n\nមតិ​ត្រួតពិនិត្យ​ដែល​បាន​រក្សាទុក​ពី​កម្មវិធី​មើល diff ត្រូវ​បាន​ទុក​តាម​ឃ្លាំង git។\n\nអនុ​បញ្ជា:\n  list [--repo <path>] [--all] [--json]\n    បង្ហាញ​មតិ​ត្រួតពិនិត្យ​របស់​ឃ្លាំង (លំនាំដើម: ឃ្លាំង git ដែល​មាន\n    ថត​បច្ចុប្បន្ន)។ បង្ហាញ​តែ​មតិ​ដែល​រង់ចាំ; --all រួម​បញ្ចូល​មតិ​ដែល​បាន\n    ប្រគល់​ទៅ​ភ្នាក់ងារ​តាម​ការ​ផ្ញើ TextBox រួច​ហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "사용법: cmux comments <subcommand> [options]\n\ndiff 뷰어에서 저장한 리뷰 코멘트를 git 저장소 단위로 조회합니다.\n\n서브커맨드:\n  list [--repo <path>] [--all] [--json]\n    저장소의 리뷰 코멘트를 조회합니다 (기본값은 현재 디렉터리가 속한 git\n    저장소). 기본적으로 미해결 코멘트만 표시하고, --all 을 주면 TextBox\n    전송으로 에이전트에 이미 전달된 코멘트까지 포함합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Bruk: cmux comments <subcommand> [options]\n\nGjennomgangskommentarer lagret fra diff-visningen, lagret per git-repository.\n\nUnderkommandoer:\n  list [--repo <path>] [--all] [--json]\n    Lister gjennomgangskommentarene for et repository (standard:\n    git-repositoryet som inneholder gjeldende katalog). Lister bare\n    ventende kommentarer; --all tar også med dem som alt er levert til en\n    agent via en TextBox-sending."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Użycie: cmux comments <subcommand> [options]\n\nKomentarze przeglądu zapisane w podglądzie diff, przechowywane dla każdego repozytorium git.\n\nPodkomendy:\n  list [--repo <path>] [--all] [--json]\n    Wypisuje komentarze przeglądu repozytorium (domyślnie: repozytorium\n    git zawierające bieżący katalog). Pokazuje tylko oczekujące\n    komentarze; --all obejmuje także te już przekazane agentowi przez\n    wysłanie TextBox."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Uso: cmux comments <subcommand> [options]\n\nComentários de revisão salvos no visualizador de diff, armazenados por repositório git.\n\nSubcomandos:\n  list [--repo <path>] [--all] [--json]\n    Lista os comentários de revisão de um repositório (padrão: o\n    repositório git que contém o diretório atual). Lista apenas os\n    comentários pendentes; --all inclui os já entregues a um agente por\n    um envio do TextBox."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Использование: cmux comments <subcommand> [options]\n\nКомментарии ревью, сохранённые в просмотрщике diff, хранятся по git-репозиториям.\n\nПодкоманды:\n  list [--repo <path>] [--all] [--json]\n    Выводит комментарии ревью репозитория (по умолчанию — git-репозиторий\n    текущего каталога). Показывает только ожидающие комментарии; с --all\n    также те, что уже переданы агенту через отправку TextBox."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "วิธีใช้: cmux comments <subcommand> [options]\n\nคอมเมนต์รีวิวที่บันทึกจากตัวดูส่วนต่าง จัดเก็บแยกตามที่เก็บโค้ด git\n\nคำสั่งย่อย:\n  list [--repo <path>] [--all] [--json]\n    แสดงคอมเมนต์รีวิวของที่เก็บโค้ด (ค่าเริ่มต้น: ที่เก็บโค้ด git\n    ที่มีไดเรกทอรีปัจจุบันอยู่) โดยแสดงเฉพาะคอมเมนต์ที่รอดำเนินการ\n    ส่วน --all จะรวมคอมเมนต์ที่ส่งให้เอเจนต์ผ่าน TextBox แล้วด้วย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Kullanım: cmux comments <subcommand> [options]\n\nDiff görüntüleyicide kaydedilen inceleme yorumları, git deposu başına saklanır.\n\nAlt komutlar:\n  list [--repo <path>] [--all] [--json]\n    Bir deponun inceleme yorumlarını listeler (varsayılan: geçerli\n    dizini içeren git deposu). Yalnızca bekleyen yorumları listeler;\n    --all bir TextBox gönderimiyle bir aracıya zaten teslim edilmiş\n    olanları da içerir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Використання: cmux comments <subcommand> [options]\n\nКоментарі рецензування, збережені у переглядачі diff, зберігаються за git-репозиторіями.\n\nПідкоманди:\n  list [--repo <path>] [--all] [--json]\n    Виводить коментарі рецензування репозиторію (типово — git-репозиторій\n    поточного каталогу). Показує лише ті, що очікують; з --all також ті,\n    що вже передані агентові через надсилання TextBox."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "用法：cmux comments <subcommand> [options]\n\n从差异查看器保存的评审评论，按 git 仓库分别存储。\n\n子命令：\n  list [--repo <path>] [--all] [--json]\n    列出仓库的评审评论（默认：包含当前目录的 git 仓库）。默认只列出待处理\n    的评论；加上 --all 还会列出已通过 TextBox 提交交付给代理的评论。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "用法：cmux comments <subcommand> [options]\n\n從差異檢視器儲存的審查註解，依 git 儲存庫分別存放。\n\n子命令：\n  list [--repo <path>] [--all] [--json]\n    列出儲存庫的審查註解（預設：包含目前目錄的 git 儲存庫）。預設只列出待\n    處理的註解；加上 --all 也會列出已透過 TextBox 提交交付給代理的註解。"
           }
         }
       }
@@ -231391,121 +231391,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "مطلوب مسار مستودع."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "Potrebna je putanja repozitorija."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "Der kræves en repository-sti."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "Ein Repository-Pfad ist erforderlich."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "A repository path is required."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "Se requiere una ruta de repositorio."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "Un chemin de dépôt est requis."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "È necessario un percorso di repository."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list には repo_root の文字列が必要です"
+            "value": "リポジトリのパスを指定してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "ត្រូវការផ្លូវ​ឃ្លាំង​កូដ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "저장소 경로가 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "En repositorybane er påkrevd."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "Wymagana jest ścieżka repozytorium."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "É necessário um caminho de repositório."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "Требуется путь к репозиторию."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "ต้องระบุพาธของที่เก็บโค้ด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "Bir depo yolu gerekli."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "Потрібен шлях до репозиторію."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "需要提供仓库路径。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "comments.list requires a repo_root string"
+            "value": "需要提供儲存庫路徑。"
           }
         }
       }
