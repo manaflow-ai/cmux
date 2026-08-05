@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -628,24 +630,50 @@ func (c *apiClient) request(ctx context.Context, method, path string, body any, 
 
 func newClient(baseURL string, value *tokens) *apiClient {
 	normalized, baseErr := normalizedAPIBase(baseURL, value != nil)
+	httpClient := &http.Client{
+		Timeout: 90 * time.Second,
+		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			if len(via) == 0 {
+				return nil
+			}
+			original := via[0].URL
+			if request.URL.Scheme != original.Scheme || request.URL.Host != original.Host {
+				return errors.New("refusing cross-origin API redirect")
+			}
+			return nil
+		},
+	}
+	if baseErr == nil {
+		httpClient.Transport, baseErr = customCARootTransport(
+			strings.TrimSpace(os.Getenv("CMUX_SPRITES_CA_FILE")),
+		)
+	}
 	return &apiClient{
 		baseURL: normalized,
 		baseErr: baseErr,
 		tokens:  value,
-		http: &http.Client{
-			Timeout: 90 * time.Second,
-			CheckRedirect: func(request *http.Request, via []*http.Request) error {
-				if len(via) == 0 {
-					return nil
-				}
-				original := via[0].URL
-				if request.URL.Scheme != original.Scheme || request.URL.Host != original.Host {
-					return errors.New("refusing cross-origin API redirect")
-				}
-				return nil
-			},
-		},
+		http:    httpClient,
 	}
+}
+
+func customCARootTransport(path string) (http.RoundTripper, error) {
+	if path == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, errors.New("could not read CMUX_SPRITES_CA_FILE")
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(data) {
+		return nil, errors.New("CMUX_SPRITES_CA_FILE contains no certificates")
+	}
+	return &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    roots,
+		},
+	}, nil
 }
 
 func normalizedAPIBase(raw string, credentialed bool) (string, error) {

@@ -19,8 +19,9 @@ Login prints a URL and an eight-character code. Browser opening is opt-in with
 `~/.config/cmux-sprites/auth.json` with mode `0600`.
 
 Credential-bearing requests require HTTPS, including local development. Use a
-locally trusted TLS proxy for `next dev`; HTTP is accepted only before the CLI
-has credentials. Cross-origin redirects always fail closed.
+locally trusted TLS proxy for `next dev` and set `CMUX_SPRITES_CA_FILE` when it
+uses a private certificate authority; HTTP is accepted only before the CLI has
+credentials. Cross-origin redirects always fail closed.
 
 `connect` asks the owned Sprite daemon for a five-minute, one-device
 invitation, writes it to an owner-only temporary file, launches `cmux
