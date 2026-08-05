@@ -1,15 +1,22 @@
 import Foundation
+import Observation
 import Testing
 @testable import CmuxSidebar
 
 @Suite("SidebarMultiSelectionModel")
 @MainActor
 struct SidebarMultiSelectionModelTests {
+    private final class ObservationFlag: @unchecked Sendable {
+        // The suite is MainActor-isolated, so callbacks and assertions access
+        // this flag serially even though Observation requires a Sendable closure.
+        var fired = false
+    }
+
     private final class Recorder: @unchecked Sendable {
         // Mutated and read on MainActor only; NotificationCenter delivers
         // posts synchronously on the posting (main) thread in these tests.
         var notifications: [Notification] = []
-        var tokens: [NSObjectProtocol] = []
+        var tokens: [any NSObjectProtocol] = []
         let center: NotificationCenter
 
         init(center: NotificationCenter, names: [Notification.Name]) {
@@ -43,6 +50,52 @@ struct SidebarMultiSelectionModelTests {
         model.replaceSelection(with: [a, b])
         model.intersectSelection(with: [b, c])
         #expect(model.selectedWorkspaceIds == [b])
+    }
+
+    @Test func equivalentMutationsDoNotPublishObservationChanges() {
+        let model = SidebarMultiSelectionModel(notificationCenter: NotificationCenter())
+        let selected = UUID()
+        let absent = UUID()
+        model.replaceSelection(with: [selected])
+
+        let replacementPublished = ObservationFlag()
+        withObservationTracking {
+            _ = model.selectedWorkspaceIds
+        } onChange: {
+            replacementPublished.fired = true
+        }
+        model.replaceSelection(with: [selected])
+        #expect(!replacementPublished.fired)
+
+        let removalPublished = ObservationFlag()
+        withObservationTracking {
+            _ = model.selectedWorkspaceIds
+        } onChange: {
+            removalPublished.fired = true
+        }
+        model.removeFromSelection(absent)
+        #expect(!removalPublished.fired)
+
+        let subtractionPublished = ObservationFlag()
+        withObservationTracking {
+            _ = model.selectedWorkspaceIds
+        } onChange: {
+            subtractionPublished.fired = true
+        }
+        model.subtractSelection([absent])
+        #expect(!subtractionPublished.fired)
+
+        let intersectionPublished = ObservationFlag()
+        withObservationTracking {
+            _ = model.selectedWorkspaceIds
+        } onChange: {
+            intersectionPublished.fired = true
+        }
+        model.intersectSelection(with: [selected, absent])
+        #expect(!intersectionPublished.fired)
+
+        model.removeFromSelection(selected)
+        #expect(intersectionPublished.fired)
     }
 
     @Test func collapsePostsUnconditionallyAndMutatesOnlyOnChange() throws {

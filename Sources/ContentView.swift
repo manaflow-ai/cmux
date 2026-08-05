@@ -2782,10 +2782,9 @@ struct ContentView: View {
                     didRecover = true
                 }
 
-                syncSidebarSelectedWorkspaceIds()
-                applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
-
                 if didRecover {
+                    syncSidebarSelectedWorkspaceIds()
+                    applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
 #if DEBUG
                     cmuxDebugLog("startup.recovery tabCount=\(tabManager.tabs.count) selected=\(tabManager.selectedTabId?.uuidString.prefix(8) ?? "nil") mounted=\(mountedWorkspaceIds.count)")
 #endif
@@ -2795,9 +2794,6 @@ struct ContentView: View {
                         "mountedCount": mountedWorkspaceIds.count
                     ])
                 }
-#if DEBUG
-                minimalModeInvalidationProbe.startupRecoveryCompleted?()
-#endif
             }
         })
 

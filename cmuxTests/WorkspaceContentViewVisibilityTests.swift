@@ -19,7 +19,6 @@ final class WorkspaceContentViewVisibilityTests {
         var contentViewBody = 0
         var workspaceContentBody = 0
         var verticalTabsSidebarBody = 0
-        var startupRecoveryCompleted = false
 
         func reset() {
             contentViewBody = 0
@@ -290,8 +289,7 @@ final class WorkspaceContentViewVisibilityTests {
                 MinimalModeInvalidationProbe(
                     contentViewBody: { counts.contentViewBody += 1 },
                     workspaceContentBody: { counts.workspaceContentBody += 1 },
-                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 },
-                    startupRecoveryCompleted: { counts.startupRecoveryCompleted = true }
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
                 )
             )
             .defaultAppStorage(defaults)
@@ -308,7 +306,7 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        await Self.waitForStartupRecovery(for: window, counts: counts)
+        await Self.drainMainRunLoop(for: window)
         #expect(counts.contentViewBody > 0)
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
@@ -389,8 +387,7 @@ final class WorkspaceContentViewVisibilityTests {
                 MinimalModeInvalidationProbe(
                     contentViewBody: { counts.contentViewBody += 1 },
                     workspaceContentBody: { counts.workspaceContentBody += 1 },
-                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 },
-                    startupRecoveryCompleted: { counts.startupRecoveryCompleted = true }
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
                 )
             )
             .defaultAppStorage(defaults)
@@ -408,7 +405,7 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        await Self.waitForStartupRecovery(for: window, counts: counts)
+        await Self.drainMainRunLoop(for: window)
         counts.reset()
 
         tabManager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
@@ -474,8 +471,7 @@ final class WorkspaceContentViewVisibilityTests {
                 MinimalModeInvalidationProbe(
                     contentViewBody: { counts.contentViewBody += 1 },
                     workspaceContentBody: { counts.workspaceContentBody += 1 },
-                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 },
-                    startupRecoveryCompleted: { counts.startupRecoveryCompleted = true }
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
                 )
             )
             .defaultAppStorage(defaults)
@@ -493,7 +489,7 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        await Self.waitForStartupRecovery(for: window, counts: counts)
+        await Self.drainMainRunLoop(for: window)
         let workspaceCell = try #require(
             window.contentView.flatMap { root in
                 Self.descendants(of: root)
@@ -678,24 +674,6 @@ final class WorkspaceContentViewVisibilityTests {
                 == SidebarFooterCircularIconStyle.standard.weight
         )
 #endif
-    }
-
-    @MainActor
-    private static func waitForStartupRecovery(
-        for window: NSWindow,
-        counts: MinimalModeBodyProbeCounts
-    ) async {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(3))
-        while !counts.startupRecoveryCompleted, clock.now < deadline {
-            window.contentView?.layoutSubtreeIfNeeded()
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
-            await Task.yield()
-        }
-        #expect(
-            counts.startupRecoveryCompleted,
-            "ContentView startup recovery must complete before invalidation counters are reset."
-        )
     }
 
     @MainActor

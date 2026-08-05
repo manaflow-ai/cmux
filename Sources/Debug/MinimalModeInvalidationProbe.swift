@@ -5,6 +5,5 @@ struct MinimalModeInvalidationProbe {
     var contentViewBody: (() -> Void)?
     var workspaceContentBody: (() -> Void)?
     var verticalTabsSidebarBody: (() -> Void)?
-    var startupRecoveryCompleted: (() -> Void)?
 }
 #endif
