@@ -412,10 +412,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .split(separator: "\n")
             .compactMap { Int32($0) }
         let exitDeadline = Date.now.addingTimeInterval(1)
-        var activeProcessIDs = try runningProcessIDs(in: processIDs)
-        while !activeProcessIDs.isEmpty, Date.now < exitDeadline {
+        while processIDs.contains(where: { Darwin.kill($0, 0) == 0 }), Date.now < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
-            activeProcessIDs = try runningProcessIDs(in: processIDs)
         }
 
         #expect(process.terminationStatus == 0)
@@ -424,11 +422,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             elapsed < 3,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
-        let finalProcessSnapshot = try processSnapshot(for: processIDs)
-        #expect(
-            activeProcessIDs.isEmpty,
-            "Foreground authentication cleanup left active descendants: \(activeProcessIDs)\n\(finalProcessSnapshot)"
-        )
+        #expect(!processIDs.contains(where: { Darwin.kill($0, 0) == 0 }))
     }
 
     @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
@@ -696,40 +690,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     private func removeStandardErrorCapture(_ capture: (url: URL, handle: FileHandle)) {
         try? capture.handle.close()
         try? FileManager.default.removeItem(at: capture.url)
-    }
-
-    private func runningProcessIDs(in processIDs: [Int32]) throws -> [Int32] {
-        let snapshot = try processSnapshot(for: processIDs)
-        return snapshot
-            .split(separator: "\n")
-            .compactMap { line in
-                let fields = line.split(whereSeparator: \.isWhitespace)
-                guard fields.count >= 3, let processID = Int32(fields[0]) else { return nil }
-                return fields[2].contains("Z") ? nil : processID
-            }
-    }
-
-    private func processSnapshot(for processIDs: [Int32]) throws -> String {
-        guard !processIDs.isEmpty else { return "" }
-
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = [
-            "-o",
-            "pid=,ppid=,state=,command=",
-            "-p",
-            processIDs.map(String.init).joined(separator: ","),
-        ]
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-
-        try process.run()
-        let data = try output.fileHandleForReading.readToEnd() ?? Data()
-        process.waitUntilExit()
-
-        return String(decoding: data, as: UTF8.self)
     }
 
     private func waitForExit(
