@@ -9,6 +9,9 @@ import Testing
 @testable import cmux
 #endif
 
+/// Covers which remote-daemon errors survive on a workspace's sidebar row:
+/// errors a recovered daemon resolved are retracted, errors that are still
+/// true are not.
 @MainActor
 struct WorkspaceRemoteDaemonRecoveryTests {
     /// https://github.com/manaflow-ai/cmux/issues/8917: a daemon transport
