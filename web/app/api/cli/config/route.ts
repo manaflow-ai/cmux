@@ -1,3 +1,8 @@
+import {
+  defaultHostedSubrouterURL,
+  hostedSubrouterBaseURL,
+} from "@/services/subrouter/constants";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -8,6 +13,15 @@ export function GET(request: Request): Response {
   const publishableClientKey =
     process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
   if (!projectId || !publishableClientKey) {
+    return unavailableResponse();
+  }
+  let subrouterUrl: string;
+  try {
+    subrouterUrl = hostedSubrouterBaseURL(
+      process.env.SUBROUTER_HOSTED_URL?.trim() ||
+        defaultHostedSubrouterURL(),
+    );
+  } catch {
     return unavailableResponse();
   }
 
@@ -28,6 +42,15 @@ export function GET(request: Request): Response {
         sessionUrl: new URL("/api/coderouter/session", request.url).toString(),
         accountsUrl: new URL("/api/coderouter/accounts", request.url).toString(),
         openaiBaseUrl: new URL("/v1", request.url).toString(),
+      },
+      // Keep the hosted Subrouter fields for released sr clients while cmux
+      // migrates its CodeRouter data plane to Vercel.
+      subrouter: {
+        url: subrouterUrl,
+        exchangeUrl: new URL(
+          "/api/subrouter/tenant-exchange",
+          request.url,
+        ).toString(),
       },
     },
     {
