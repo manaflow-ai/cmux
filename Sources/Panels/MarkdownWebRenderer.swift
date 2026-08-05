@@ -19,6 +19,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let fontFamily: String
     /// Maximum content column width, in CSS pixels.
     let maxContentWidth: Double
+    /// Whether `[[Wiki]]` style links are parsed into markdown-file links.
+    let wikiLinksEnabled: Bool
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
 
@@ -45,6 +47,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
+            context.coordinator.setWikiLinksEnabled(wikiLinksEnabled)
             return webView
         }
 
@@ -89,6 +92,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.setWikiLinksEnabled(wikiLinksEnabled)
         context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
         return webView
     }
@@ -103,6 +107,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.setWikiLinksEnabled(wikiLinksEnabled)
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
@@ -149,6 +154,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastFontFamily: String = ""
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
+        private var lastWikiLinksEnabled: Bool = MarkdownWikiLinksSettings.defaultEnabled
         private var isLoaded = false
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
@@ -250,6 +256,23 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             })(\(width));
             """
             webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        /// Records whether `[[Wiki]]` links are parsed and syncs the shell. The
+        /// shell re-renders the current document in place when this flips, and
+        /// picks up the flag on the next markdown push after a shell (re)load.
+        func setWikiLinksEnabled(_ enabled: Bool) {
+            lastWikiLinksEnabled = enabled
+            applyWikiLinks()
+        }
+
+        private func applyWikiLinks() {
+            guard let webView else { return }
+            let enabled = lastWikiLinksEnabled ? "true" : "false"
+            webView.evaluateJavaScript(
+                "window.__cmuxSetWikiLinks && window.__cmuxSetWikiLinks(\(enabled));",
+                completionHandler: nil
+            )
         }
 
         func close() {
@@ -705,6 +728,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // so it MUST be re-applied after every shell (re)load.
             applyFontFamily()
             applyMaxContentWidth()
+            // Sync the wiki-link flag before pushing markdown so the initial
+            // render already reflects it (the shell resets to off on reload).
+            applyWikiLinks()
             applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
             // Keep the recovery budget scoped to the current markdown payload:

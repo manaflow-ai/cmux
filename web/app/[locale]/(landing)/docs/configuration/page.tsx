@@ -103,7 +103,9 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   // ${t("exampleMarkdownFontFamily")}
   //   "fontFamily": "",
   //   // ${t("exampleMarkdownMaxWidth")}
-  //   "maxWidth": 980
+  //   "maxWidth": 980,
+  //   // ${t("exampleMarkdownWikiLinks")}
+  //   "wikiLinks": false
   // },
 
   // "fileEditor": {

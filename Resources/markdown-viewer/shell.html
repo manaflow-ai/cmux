@@ -997,12 +997,18 @@ html { scroll-behavior: smooth; }
   // exception below: processAllTokens replaces marked's pre-escaped
   // text with normalized raw source before the renderer escapes it once.
   var headingSlugCounts = Object.create(null);
-  function uniqueHeadingSlug(raw) {
+  // Slugify a heading's raw text the GitHub way (lowercase, drop non-word
+  // characters, spaces to dashes). Shared by heading id generation and
+  // wiki-link `#heading` fragment resolution so anchors line up.
+  function headingSlugBase(raw) {
     var base = String(raw || '').toLowerCase()
       .replace(/[^\w\- ]+/g, '')
       .replace(/\s+/g, '-')
       .replace(/^-+|-+$/g, '');
-    if (!base) { base = 'heading'; }
+    return base || 'heading';
+  }
+  function uniqueHeadingSlug(raw) {
+    var base = headingSlugBase(raw);
     var count = headingSlugCounts[base] || 0;
     headingSlugCounts[base] = count + 1;
     return count === 0 ? base : base + '-' + count;
@@ -1079,10 +1085,69 @@ html { scroll-behavior: smooth; }
     return tokens;
   }
 
+  // Wiki-style links (`[[Target]]`, `[[Target|Label]]`). Opt-in: off unless the
+  // `markdown.wikiLinks` setting turns it on, so a plain markdown document that
+  // happens to contain `[[...]]` renders it as literal text (marked's default).
+  // Enabling makes cmux feel at home inside an Obsidian-style vault.
+  var wikiLinksEnabled = false;
+
+  // Turn a wiki-link target into an href the existing local-markdown-file
+  // machinery understands. A bare name (no extension) resolves to `<name>.md`;
+  // `#heading` fragments become GitHub-style slugs so same-document anchors line
+  // up. Cross-file heading links keep the `.md#slug` shape; the file resolver
+  // strips the fragment when opening the target note.
+  function wikiLinkHref(target) {
+    var t = String(target == null ? '' : target).trim();
+    if (!t) { return ''; }
+    var hashIdx = t.indexOf('#');
+    var pathPart = (hashIdx >= 0 ? t.slice(0, hashIdx) : t).trim();
+    var frag = hashIdx >= 0 ? t.slice(hashIdx + 1).trim() : '';
+    var fragSuffix = frag ? '#' + headingSlugBase(frag) : '';
+    if (!pathPart) {
+      // `[[#Heading]]` — a link within the current document.
+      return fragSuffix || '#';
+    }
+    var slash = Math.max(pathPart.lastIndexOf('/'), pathPart.lastIndexOf('\\'));
+    var leaf = slash >= 0 ? pathPart.slice(slash + 1) : pathPart;
+    var href = leaf.indexOf('.') >= 0 ? pathPart : pathPart + '.md';
+    return href + fragSuffix;
+  }
+
+  var wikiLinkExtension = {
+    name: 'wikiLink',
+    level: 'inline',
+    start: function(src) {
+      var i = src.indexOf('[[');
+      return i < 0 ? undefined : i;
+    },
+    tokenizer: function(src) {
+      if (!wikiLinksEnabled) { return undefined; }
+      var match = /^\[\[([^\[\]\n]+)\]\]/.exec(src);
+      if (!match) { return undefined; }
+      var inner = match[1];
+      var pipe = inner.indexOf('|');
+      var target = (pipe >= 0 ? inner.slice(0, pipe) : inner).trim();
+      var label = (pipe >= 0 ? inner.slice(pipe + 1) : inner).trim();
+      if (!target && !label) { return undefined; }
+      return {
+        type: 'wikiLink',
+        raw: match[0],
+        href: wikiLinkHref(target),
+        label: label || target
+      };
+    },
+    renderer: function(token) {
+      if (!token.href) { return escapeHtml(token.label); }
+      return '<a href="' + escapeAttribute(token.href) + '" class="cmux-wikilink">'
+        + escapeHtml(token.label) + '</a>';
+    }
+  };
+
   marked.use({
     gfm: true,
     breaks: false,
     pedantic: false,
+    extensions: [wikiLinkExtension],
     hooks: {
       processAllTokens: function(tokens) {
         return normalizeCodespanTokens(tokens);
@@ -1775,8 +1840,25 @@ html { scroll-behavior: smooth; }
     openMarkdownCandidate(rawPath);
   }, true);
 
+  // Last markdown source pushed from Swift, retained so a live settings toggle
+  // (e.g. `markdown.wikiLinks`) can re-render without another push.
+  var lastRenderedMarkdownSource = '';
+
+  // Toggle wiki-link parsing and re-render the current document in place.
+  window.__cmuxSetWikiLinks = function(enabled) {
+    var next = !!enabled;
+    if (next === wikiLinksEnabled) { return; }
+    wikiLinksEnabled = next;
+    // Nothing rendered yet (shell just loaded): the pending markdown push will
+    // pick up the new flag. Only re-render when a document is already showing.
+    if (lastRenderedMarkdownSource) {
+      window.__cmuxRenderMarkdown(lastRenderedMarkdownSource);
+    }
+  };
+
   window.__cmuxRenderMarkdown = function(md) {
     try {
+      lastRenderedMarkdownSource = md || '';
       headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
       var html = renderFrontmatter(documentParts.frontmatter)
