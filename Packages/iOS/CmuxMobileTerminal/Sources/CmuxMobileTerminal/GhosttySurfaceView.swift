@@ -514,6 +514,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var composerBottomToKeyboardConstraint: NSLayoutConstraint?
     private var composerHeightConstraint: NSLayoutConstraint?
     private var toolbarHeightConstraint: NSLayoutConstraint?
+    /// Process-wide keyboard-frame source for floor catch-up on attach/layout.
+    /// Only the DEBUG seam below can replace it: tests inject a
+    /// notification-center-isolated instance without touching the shared
+    /// tracker other suites read.
+    private(set) var keyboardFrameTracker: MobileKeyboardFrameTracker = .shared
+
+    #if DEBUG
+    /// Test seam: swaps the floor's keyboard-frame source for an isolated one.
+    func setKeyboardFrameTrackerForTesting(_ tracker: MobileKeyboardFrameTracker) {
+        keyboardFrameTracker = tracker
+    }
+    #endif
     #if DEBUG
     private var keyboardHeightOverrideForTesting: CGFloat?
     private var composerBottomForTestingConstraint: NSLayoutConstraint?
@@ -1129,6 +1141,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func debugShowZoomControlOverlayForPreview() {
         showZoomOverlay()
         zoomOverlayLastInteraction = CACurrentMediaTime() + 3600
+    }
+
+    /// Test seam: routes a keyboard notification through the production
+    /// `keyboardWillChangeFrame` path for THIS view only, without posting to the
+    /// process-wide notification center (which would leak keyboard state into
+    /// concurrently running suites).
+    func handleKeyboardWillChangeFrameForTesting(_ notification: Notification) {
+        handleKeyboardWillChangeFrame(notification)
     }
     #endif
 
