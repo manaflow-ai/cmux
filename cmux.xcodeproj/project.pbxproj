@@ -1120,6 +1120,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F0F0CF0D0000000000000001 /* ForkParentFallbackSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0CF0D0000000000000002 /* ForkParentFallbackSessionIndexTests.swift */; };
 		F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000004 /* FullWidthTabCommandTests.swift */; };
 		F17F00000000000000000001 /* FullWidthTabPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */; };
+		956300010000000000000001 /* GhosttyAccessibilityFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 956300020000000000000002 /* GhosttyAccessibilityFocusTests.swift */; };
 		85510001A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85510002A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift */; };
 		D0B10012A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */; };
 		EC010D01 /* GhosttyApp+TerminalCustomUpload.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010D02 /* GhosttyApp+TerminalCustomUpload.swift */; };
@@ -3731,6 +3732,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F17F00000000000000000004 /* FullWidthTabCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabCommandTests.swift; sourceTree = "<group>"; };
 		F17F00000000000000000002 /* FullWidthTabPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullWidthTabPersistenceTests.swift; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
+		956300020000000000000002 /* GhosttyAccessibilityFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyAccessibilityFocusTests.swift; sourceTree = "<group>"; };
 		85510002A1B2C3D4E5F60001 /* GhosttyApp+ChildExitPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+ChildExitPolicy.swift"; sourceTree = "<group>"; };
 		D0B10013A1B2C3D4E5F60001 /* GhosttyApp+SurfaceConfigurationReload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+SurfaceConfigurationReload.swift"; sourceTree = "<group>"; };
 		EC010D02 /* GhosttyApp+TerminalCustomUpload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyApp+TerminalCustomUpload.swift"; sourceTree = "<group>"; };
@@ -7468,6 +7470,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */,
 				F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */,
 				7269A0027269A0027269A002 /* GhosttyPhysicalInputFocusReassertionTests.swift */,
+				956300020000000000000002 /* GhosttyAccessibilityFocusTests.swift */,
 				DE71CE000000000000000001 /* DeviceRegistryClientTests.swift */,
 				REE0CA0000000000000000B1 /* RemotesClientTests.swift */,
 				DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */,
@@ -10599,6 +10602,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F0F0CF0D0000000000000001 /* ForkParentFallbackSessionIndexTests.swift in Sources */,
 				F17F00000000000000000003 /* FullWidthTabCommandTests.swift in Sources */,
 				F17F00000000000000000001 /* FullWidthTabPersistenceTests.swift in Sources */,
+				956300010000000000000001 /* GhosttyAccessibilityFocusTests.swift in Sources */,
 				1718C0DE1718C0DE17180002 /* GhosttyCommandShiftForwardingTests.swift in Sources */,
 				A11EB0000000000000000000 /* GhosttyConfigPathResolverTests.swift in Sources */,
 				F4000000A1B2C3D4E5F60718 /* GhosttyConfigTests.swift in Sources */,
