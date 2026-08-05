@@ -48,6 +48,57 @@ final class SidebarLazyLayoutScaleTests {
         )
     }
 
+    @Test
+    @MainActor
+    func configRevisionInvalidatesSidebarEquatableGate() {
+        let updateViewModel = UpdateStateModel()
+        let tabManager = TabManager()
+        let configStore = CmuxConfigStore(
+            globalConfigPath: "/nonexistent/cmux-sidebar-config.json"
+        )
+        let fileExplorerState = FileExplorerState()
+        let featureFlags = CmuxFeatureFlags(
+            telemetryEnabled: false,
+            remoteFlagValueProvider: { _ in nil }
+        )
+        let unread = SidebarUnreadModel()
+        let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
+        let windowId = UUID()
+        let observedWindowReference = WeakWindowReference()
+
+        func makeSidebar() -> VerticalTabsSidebar {
+            VerticalTabsSidebar(
+                updateViewModel: updateViewModel,
+                tabManager: tabManager,
+                cmuxConfigStore: configStore,
+                fileExplorerState: fileExplorerState,
+                featureFlags: featureFlags,
+                sidebarUnread: unread,
+                titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+                windowId: windowId,
+                onSendFeedback: {},
+                onToggleSidebar: {},
+                onNewTab: {},
+                observedWindowReference: observedWindowReference,
+                selectedExtensionSidebarProviderId: CmuxExtensionSidebarSelection.defaultProviderId,
+                sidebarMatchTerminalBackground: false,
+                titlebarLeftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+                titlebarLeftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+                selection: .constant(.tabs),
+                selectedTabIds: .constant([]),
+                lastSidebarSelectionIndex: .constant(nil),
+                sidebarRenderWorkerClient: .constant(nil)
+            )
+        }
+
+        let beforeReload = makeSidebar()
+        configStore.loadAll()
+        let afterReload = makeSidebar()
+
+        #expect(configStore.configRevision > 0)
+        #expect(beforeReload != afterReload)
+    }
+
     final class InjectableMouseLocationWindow: NSWindow {
         var injectedMouseLocation = NSPoint.zero
 
@@ -173,6 +224,7 @@ final class SidebarLazyLayoutScaleTests {
         let root = VerticalTabsSidebar(
             updateViewModel: UpdateStateModel(),
             tabManager: tabManager,
+            cmuxConfigStore: CmuxConfigStore(),
             fileExplorerState: fileExplorerState,
             featureFlags: featureFlags,
             sidebarUnread: unread,
