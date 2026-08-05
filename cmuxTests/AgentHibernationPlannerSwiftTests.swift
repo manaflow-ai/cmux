@@ -12,6 +12,130 @@ import Testing
 struct AgentHibernationPlannerSwiftTests {
     @MainActor
     @Test
+    func unreadCompletionNotificationProtectsPaneUntilItIsRead() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = previousShared ?? AppDelegate()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let notificationStore = TerminalNotificationStore.shared
+        let manager = TabManager()
+
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = notificationStore
+        notificationStore.replaceNotificationsForTesting([])
+
+        let unreadWorkspace = manager.addWorkspace(title: "Unread completion", select: true)
+        let readWorkspace = manager.addWorkspace(title: "Read completion", select: true)
+        defer {
+            for workspace in manager.tabs {
+                manager.closeWorkspace(workspace)
+            }
+            notificationStore.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppDelegate.shared = previousShared
+        }
+
+        let unreadPanelId = try #require(unreadWorkspace.focusedPanelId)
+        let readPanelId = try #require(readWorkspace.focusedPanelId)
+        unreadWorkspace.restoredAgentSnapshotsByPanelId[unreadPanelId] = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: "omp-unread-completion",
+            workingDirectory: "/tmp/omp-unread",
+            launchCommand: nil,
+            registration: .builtInOmp
+        )
+        readWorkspace.restoredAgentSnapshotsByPanelId[readPanelId] = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: "omp-read-completion",
+            workingDirectory: "/tmp/omp-read",
+            launchCommand: nil,
+            registration: .builtInOmp
+        )
+        unreadWorkspace.setAgentLifecycle(key: "omp", panelId: unreadPanelId, lifecycle: .idle)
+        readWorkspace.setAgentLifecycle(key: "omp", panelId: readPanelId, lifecycle: .idle)
+
+        let unreadNotification = TerminalNotification(
+            id: UUID(),
+            tabId: unreadWorkspace.id,
+            surfaceId: unreadPanelId,
+            title: "OMP",
+            subtitle: "",
+            body: "Completed",
+            createdAt: Date(),
+            isRead: false
+        )
+        notificationStore.replaceNotificationsForTesting([unreadNotification])
+
+        let baseActivity = Date().timeIntervalSince1970 + 100
+        let unreadKey = AgentHibernationPanelKey(
+            workspaceId: unreadWorkspace.id,
+            panelId: unreadPanelId
+        )
+        let readKey = AgentHibernationPanelKey(
+            workspaceId: readWorkspace.id,
+            panelId: readPanelId
+        )
+        let activityByPanel = [
+            unreadKey: baseActivity,
+            readKey: baseActivity + 10,
+        ]
+        let settings = AgentHibernationSettings.Values(
+            enabled: true,
+            idleSeconds: 5,
+            maxLiveTerminals: 1,
+            confirmationSeconds: 60
+        )
+
+        func selectedKeys(trigger: AgentHibernationReclaimTrigger) -> Set<AgentHibernationPanelKey> {
+            let records = appDelegate.agentHibernationRecords(
+                index: .empty,
+                activityByPanel: activityByPanel,
+                terminalInputByPanel: [:],
+                lifecycleChangeByPanel: [:]
+            ).filter { $0.key == unreadKey || $0.key == readKey }
+            let inputs = records.map { record in
+                AgentHibernationPlannerInput(
+                    key: record.key,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    hasLiveProcess: record.hasLiveProcess,
+                    isProtected: record.isProtected,
+                    lifecycle: record.lifecycle,
+                    hasUnconfirmedTerminalInput: record.hasUnconfirmedTerminalInput,
+                    lastActivityAt: record.lastActivityAt
+                )
+            }
+            return AgentHibernationPlanner.selectedPanelKeys(
+                inputs: inputs,
+                settings: settings,
+                now: baseActivity + 1_000,
+                trigger: trigger
+            )
+        }
+
+        #expect(selectedKeys(trigger: .scheduled) == Set([readKey]))
+        #expect(selectedKeys(trigger: .systemMemoryPressure) == Set([readKey]))
+
+        notificationStore.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: unreadNotification.id,
+                tabId: unreadNotification.tabId,
+                surfaceId: unreadNotification.surfaceId,
+                title: unreadNotification.title,
+                subtitle: unreadNotification.subtitle,
+                body: unreadNotification.body,
+                createdAt: unreadNotification.createdAt,
+                isRead: true
+            ),
+        ])
+
+        #expect(selectedKeys(trigger: .scheduled) == Set([unreadKey]))
+    }
+
+    @MainActor
+    @Test
     func agentPIDMutationInvalidatesPendingHibernationTeardown() throws {
         let controller = AgentHibernationController.shared
         let wasEnabled = AgentHibernationTrackingGate.isEnabled()

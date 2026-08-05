@@ -440,6 +440,8 @@ rmdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null || true
         parent_artifacts_dir.mkdir()
         nested_session_file = parent_artifacts_dir / "StorageRaceReview.jsonl"
         nested_session_file.write_text("{}\n", encoding="utf-8")
+        foreign_nested_session_file = sessions_dir / "2026-08-04T16-20-36_omp-nested-task-session.jsonl"
+        foreign_nested_session_file.write_text("{}\n", encoding="utf-8")
 
         check_env = env.copy()
         for key in [
@@ -452,6 +454,7 @@ rmdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null || true
         check_env["CMUX_TEST_OMP_EXTENSION_PATH"] = str(extension_path)
         check_env["CMUX_TEST_OMP_PARENT_SESSION_FILE"] = str(parent_session_file)
         check_env["CMUX_TEST_OMP_NESTED_SESSION_FILE"] = str(nested_session_file)
+        check_env["CMUX_TEST_OMP_FOREIGN_NESTED_SESSION_FILE"] = str(foreign_nested_session_file)
         check_env["CMUX_SURFACE_ID"] = "surface-omp-test"
         check_env["CMUX_OMP_CMUX_BIN"] = str(fake_cmux)
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
@@ -498,6 +501,14 @@ const nestedCtx = {
     getSessionFile() { return process.env.CMUX_TEST_OMP_NESTED_SESSION_FILE; }
   }
 };
+const foreignNestedCtx = {
+  cwd: "/tmp/omp-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "omp-foreign-nested-task-session"; },
+    getSessionFile() { return process.env.CMUX_TEST_OMP_FOREIGN_NESTED_SESSION_FILE; }
+  }
+};
 let currentSessionId = "omp-session-test";
 async function expectHandlerCompletion(promise, label) {
   let completed = false;
@@ -533,6 +544,18 @@ async function releaseHook(expectedStartedCount) {
 async function waitForCompletedHooks(expected) {
   await waitForLineCount(process.env.FAKE_CMUX_ARGS_LOG, expected);
 }
+async function expectNoAdditionalHookStarts(expected, label) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const pids = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
+    if (pids.length > expected) {
+      for (const rawPid of pids.slice(expected)) {
+        try { process.kill(Number(rawPid), "SIGKILL"); } catch (_) {}
+      }
+      throw new Error(`${label} spawned a hook child: ${pids}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 const start = Date.now();
 await expectHandlerCompletion(handlers.get("session_start")({}, parentCtx), "session_start");
 for (let index = 0; index < 40; index += 1) {
@@ -560,6 +583,31 @@ await releaseHook(1);
 await waitForCompletedHooks(1);
 await releaseHook(2);
 await waitForCompletedHooks(2);
+await handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "review the storage race" },
+    { role: "assistant", content: [{ type: "text", text: "foreign nested done" }] }
+  ],
+  stopReason: "completed"
+}, foreignNestedCtx);
+await expectNoAdditionalHookStarts(2, "foreign OMP task agent_end");
+await handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "hello omp" },
+    { role: "assistant", content: [{ type: "text", text: "done" }] }
+  ],
+  stopReason: "completed",
+  willContinue: true
+}, parentCtx);
+await expectNoAdditionalHookStarts(2, "continuing top-level OMP agent_end");
+const sessionStop = handlers.get("session_stop");
+if (typeof sessionStop !== "function") throw new Error("missing session_stop");
+await sessionStop({
+  messages: [
+    { role: "user", content: "hello omp" },
+    { role: "assistant", content: [{ type: "text", text: "done" }] }
+  ]
+}, parentCtx);
 await releaseHook(3);
 await waitForCompletedHooks(3);
 await handlers.get("session_shutdown")({}, parentCtx);
@@ -569,7 +617,7 @@ if (firstPhasePids.length !== 3) {
 }
 currentSessionId = "priority-stop-session";
 await handlers.get("session_start")({}, parentCtx);
-await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, parentCtx);
+await sessionStop({ messages: [] }, parentCtx);
 for (let index = 0; index < 40; index += 1) {
   currentSessionId = `priority-prompt-${index}`;
   await handlers.get("before_agent_start")({ prompt: `priority prompt ${index}` }, parentCtx);
@@ -588,7 +636,7 @@ await handlers.get("session_start")({}, parentCtx);
 for (let index = 0; index < 40; index += 1) {
   await handlers.get("before_agent_start")({ prompt: `hung omp ${index}` }, parentCtx);
 }
-await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, parentCtx);
+await sessionStop({ messages: [] }, parentCtx);
 await handlers.get("session_shutdown")({}, parentCtx);
 const hungPidLines = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
 const startedArgs = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG);
