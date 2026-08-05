@@ -11,6 +11,8 @@ import SwiftUI
 @MainActor
 final class SidebarGroupHeaderTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarGroupHeaderTableCellView")
+    private static let backgroundCornerRadius: CGFloat = 8
+    private static let hoverBackgroundOpacity: CGFloat = 0.07
 
     private let backgroundView = NSView()
     private let pinImageView = NSImageView()
@@ -53,7 +55,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         layer?.masksToBounds = false
 
         backgroundView.wantsLayer = true
-        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.cornerCurve = .continuous
         addSubview(backgroundView)
 
@@ -210,9 +212,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             defaultValue: "New workspace in group"
         ))
 
-        backgroundView.layer?.cornerRadius = model.isMultiSelected && !model.isAnchorActive
-            ? 6
-            : 4
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model).cgColor
 
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
@@ -259,7 +259,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     func enforcePointerHovering(_ hovering: Bool) {
         guard isPointerHovering != hovering else { return }
         isPointerHovering = hovering
-        updatePlusVisibility()
+        if let model {
+            applyModel(model)
+        } else {
+            updatePlusVisibility()
+        }
     }
 
     /// Optimistic press treatment: paints the anchor-active header visuals
@@ -269,7 +273,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         guard let model, !model.isAnchorActive else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
         CATransaction.commit()
         recolorName(.labelColor)
@@ -281,7 +285,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         guard let model, !model.isAnchorActive, !model.isMultiSelected else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        backgroundView.layer?.cornerRadius = 6
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
         CATransaction.commit()
     }
@@ -292,7 +296,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         guard let model, model.isAnchorActive || model.isMultiSelected else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        backgroundView.layer?.cornerRadius = 4
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
         recolorName(NSColor.labelColor.withAlphaComponent(0.9))
@@ -324,6 +328,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         }
         if model.isMultiSelected {
             return headerMultiSelectionBackgroundColor(for: model)
+        }
+        if isPointerHovering {
+            return NSColor.labelColor.withAlphaComponent(Self.hoverBackgroundOpacity)
         }
         return .clear
     }

@@ -10,7 +10,7 @@ public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
 
     public let tintColorHex = DefaultsKey<String>(
         id: "sidebarAppearance.tintColor",
-        defaultValue: "#000000",
+        defaultValue: "#808080",
         userDefaultsKey: "sidebarTintHex"
     )
 
@@ -52,7 +52,7 @@ public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
 
     public let material = DefaultsKey<SidebarMaterialOption>(
         id: "sidebarAppearance.material",
-        defaultValue: .sidebar,
+        defaultValue: .liquidGlass,
         userDefaultsKey: "sidebarMaterial"
     )
 

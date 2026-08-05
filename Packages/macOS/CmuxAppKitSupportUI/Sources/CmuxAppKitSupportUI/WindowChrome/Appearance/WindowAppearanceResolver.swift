@@ -55,7 +55,7 @@ public struct WindowAppearanceResolver {
         return current(settings: WindowAppearanceUserSettingsSnapshot(
             unifySurfaceBackdrops: defaults.object(forKey: "sidebarMatchTerminalBackground") as? Bool ?? false,
             colorScheme: colorScheme,
-            sidebarMaterial: defaults.string(forKey: "sidebarMaterial") ?? WindowChromeSidebarMaterialOption.sidebar.rawValue,
+            sidebarMaterial: defaults.string(forKey: "sidebarMaterial") ?? WindowChromeSidebarMaterialOption.liquidGlass.rawValue,
             sidebarBlendMode: defaults.string(forKey: "sidebarBlendMode") ?? WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
             sidebarState: defaults.string(forKey: "sidebarState") ?? WindowChromeSidebarStateOption.followWindow.rawValue,
             sidebarTintHex: defaults.string(forKey: "sidebarTintHex") ?? tintDefaults.hex,

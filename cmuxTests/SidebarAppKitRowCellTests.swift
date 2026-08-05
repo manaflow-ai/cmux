@@ -793,6 +793,43 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func sidebarAppearanceMigrationUpdatesOnlyTheUntouchedPreviousDefault() {
+        let previousDefault = Self.makeDefaults()
+        previousDefault.set(1, forKey: "sidebarAppearanceDefaultsVersion")
+        previousDefault.set("nativeSidebar", forKey: "sidebarPreset")
+        previousDefault.set("sidebar", forKey: "sidebarMaterial")
+        previousDefault.set("withinWindow", forKey: "sidebarBlendMode")
+        previousDefault.set("followWindow", forKey: "sidebarState")
+        previousDefault.set("#000000", forKey: "sidebarTintHex")
+        previousDefault.set(0.18, forKey: "sidebarTintOpacity")
+        previousDefault.set(1.0, forKey: "sidebarBlurOpacity")
+        previousDefault.set(0.0, forKey: "sidebarCornerRadius")
+
+        cmuxApp.migrateSidebarAppearanceDefaultsIfNeeded(defaults: previousDefault)
+
+        #expect(previousDefault.integer(forKey: "sidebarAppearanceDefaultsVersion") == 2)
+        #expect(previousDefault.string(forKey: "sidebarMaterial") == "liquidGlass")
+        #expect(previousDefault.string(forKey: "sidebarTintHex") == "#808080")
+
+        let customized = Self.makeDefaults()
+        customized.set(1, forKey: "sidebarAppearanceDefaultsVersion")
+        customized.set("nativeSidebar", forKey: "sidebarPreset")
+        customized.set("sidebar", forKey: "sidebarMaterial")
+        customized.set("withinWindow", forKey: "sidebarBlendMode")
+        customized.set("followWindow", forKey: "sidebarState")
+        customized.set("#334455", forKey: "sidebarTintHex")
+        customized.set(0.18, forKey: "sidebarTintOpacity")
+        customized.set(1.0, forKey: "sidebarBlurOpacity")
+        customized.set(0.0, forKey: "sidebarCornerRadius")
+
+        cmuxApp.migrateSidebarAppearanceDefaultsIfNeeded(defaults: customized)
+
+        #expect(customized.integer(forKey: "sidebarAppearanceDefaultsVersion") == 2)
+        #expect(customized.string(forKey: "sidebarMaterial") == "sidebar")
+        #expect(customized.string(forKey: "sidebarTintHex") == "#334455")
+    }
+
+    @Test
     func workspaceAndGroupRowsPaintRoundedHoverBackgrounds() throws {
         let workspace = Self.configuredCell(model: Self.makeModel())
         let workspaceBackground = try #require(workspace.subviews.first)

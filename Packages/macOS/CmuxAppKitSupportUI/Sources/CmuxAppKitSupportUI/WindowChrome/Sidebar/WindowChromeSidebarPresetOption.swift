@@ -38,7 +38,7 @@ public enum WindowChromeSidebarPresetOption: String, CaseIterable, Identifiable,
     /// Material selected by this preset.
     public var material: WindowChromeSidebarMaterialOption {
         switch self {
-        case .nativeSidebar: return .sidebar
+        case .nativeSidebar: return .liquidGlass
         case .glassBehind: return .sidebar
         case .softBlur: return .sidebar
         case .popoverGlass: return .popover
@@ -74,7 +74,7 @@ public enum WindowChromeSidebarPresetOption: String, CaseIterable, Identifiable,
     /// Tint hex selected by this preset.
     public var tintHex: String {
         switch self {
-        case .nativeSidebar: return "#000000"
+        case .nativeSidebar: return "#808080"
         case .glassBehind: return "#000000"
         case .softBlur: return "#000000"
         case .popoverGlass: return "#000000"

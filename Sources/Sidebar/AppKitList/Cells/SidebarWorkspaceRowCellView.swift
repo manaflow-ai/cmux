@@ -12,6 +12,8 @@ import SwiftUI
 @MainActor
 final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SidebarWorkspaceRowTableCellView")
+    private static let backgroundCornerRadius: CGFloat = 10
+    private static let hoverBackgroundOpacity = 0.07
 
     // Chrome
     private let backgroundView = NSView()
@@ -183,7 +185,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         layer?.masksToBounds = false
 
         backgroundView.wantsLayer = true
-        backgroundView.layer?.cornerRadius = 6
+        backgroundView.layer?.cornerRadius = Self.backgroundCornerRadius
         backgroundView.layer?.cornerCurve = .continuous
         backgroundView.layer?.borderWidth = 0
         addSubview(backgroundView)
@@ -353,7 +355,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let settings = model.settings
 
         // Chrome
-        let style = sidebarWorkspaceRowBackgroundStyle(
+        let baseStyle = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             isActive: model.isActive,
             isMultiSelected: model.isMultiSelected,
@@ -361,6 +363,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             colorScheme: palette.colorScheme,
             sidebarSelectionColorHex: settings.selectionColorHex
         )
+        let style = baseStyle == .clear && isPointerHovering
+            ? SidebarWorkspaceRowBackgroundStyle(
+                color: .labelColor,
+                opacity: Self.hoverBackgroundOpacity
+            )
+            : baseStyle
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5

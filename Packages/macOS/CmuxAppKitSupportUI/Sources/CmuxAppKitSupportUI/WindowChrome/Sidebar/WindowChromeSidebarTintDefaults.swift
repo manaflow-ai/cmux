@@ -1,4 +1,4 @@
-/// Legacy default sidebar tint values.
+/// Default sidebar tint values.
 public struct WindowChromeSidebarTintDefaults: Sendable {
     /// Default tint hex value.
     public let hex: String
@@ -8,7 +8,7 @@ public struct WindowChromeSidebarTintDefaults: Sendable {
 
     /// Creates sidebar tint defaults.
     public init(
-        hex: String = "#000000",
+        hex: String = "#808080",
         opacity: Double = 0.18
     ) {
         self.hex = hex
