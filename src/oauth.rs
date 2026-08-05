@@ -16,6 +16,7 @@ const OPENAI_ISSUER: &str = "https://auth.openai.com";
 // OpenAI validates this value against the first-party Codex OAuth client.
 // Keep it synchronized with codex-rs/login/src/auth/default_client.rs.
 const OPENAI_ORIGINATOR: &str = "codex_cli_rs";
+const OPENAI_CALLBACK_PORTS: [u16; 2] = [1455, 1457];
 const OPENCODE_CONSOLE: &str = "https://console.opencode.ai";
 const OPENCODE_CLIENT_ID: &str = "opencode-cli";
 
@@ -129,8 +130,7 @@ fn codex_portable_pty() -> Result<Value, Error> {
 }
 
 fn codex_browser_oauth() -> Result<Value, Error> {
-    let server = Server::http("127.0.0.1:0")
-        .map_err(|error| Error::Backend(format!("start OAuth callback: {error}")))?;
+    let server = bind_codex_callback()?;
     let port = server
         .server_addr()
         .to_ip()
@@ -233,6 +233,26 @@ fn codex_browser_oauth() -> Result<Value, Error> {
         "email": email,
         "expiresAt": now_millis() + token.expires_in.unwrap_or(3_600) * 1_000,
     }))
+}
+
+fn codex_callback_ports() -> [u16; 2] {
+    OPENAI_CALLBACK_PORTS
+}
+
+fn bind_codex_callback() -> Result<Server, Error> {
+    let mut last_error = None;
+    for port in codex_callback_ports() {
+        match Server::http(format!("127.0.0.1:{port}")) {
+            Ok(server) => return Ok(server),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(Error::Backend(format!(
+        "start OAuth callback on the official Codex ports 1455 or 1457: {}",
+        last_error
+            .map(|error| error.to_string())
+            .unwrap_or_else(|| "no callback port available".to_owned())
+    )))
 }
 
 fn codex_authorize_url(
@@ -498,5 +518,10 @@ mod tests {
             Some(OPENAI_CLIENT_ID)
         );
         assert!(url.as_str().contains("scope=openid%20profile%20email"));
+    }
+
+    #[test]
+    fn codex_callback_ports_match_the_official_registered_redirects() {
+        assert_eq!(codex_callback_ports(), [1455, 1457]);
     }
 }
