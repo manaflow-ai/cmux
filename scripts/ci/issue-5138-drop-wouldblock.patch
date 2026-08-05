@@ -1,0 +1,12 @@
+diff --git a/vendor/libxev/src/watcher/stream.zig b/vendor/libxev/src/watcher/stream.zig
+--- a/vendor/libxev/src/watcher/stream.zig
++++ b/vendor/libxev/src/watcher/stream.zig
+@@ -1050,7 +1050,7 @@ pub fn Writeable(comptime xev: type, comptime T: type, comptime options: Options
+                             );
+                             break :retry null;
+                         } else |err| switch (@as(anyerror, err)) {
+-                            error.WouldBlock => break :retry cb_res.buf,
++                            error.WouldBlock => break :retry null,
+                             else => break :retry null,
+                         }
+                     };

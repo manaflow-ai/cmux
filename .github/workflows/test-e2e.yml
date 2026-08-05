@@ -191,6 +191,25 @@ jobs:
         run: |
           ./scripts/install-zig-ci.sh
 
+      - name: Build GhosttyKit without the WouldBlock retry
+        run: |
+          set -euo pipefail
+          git -C ghostty apply --check ../scripts/ci/issue-5138-drop-wouldblock.patch
+          git -C ghostty apply ../scripts/ci/issue-5138-drop-wouldblock.patch
+          rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
+          (
+            cd ghostty
+            zig build \
+              -Dcrash-report-subdir="cmux/crash" \
+              -Dsentry=false \
+              -Demit-xcframework=true \
+              -Demit-macos-app=false \
+              -Dxcframework-target=universal \
+              -Doptimize=ReleaseFast
+          )
+          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+          test -d GhosttyKit.xcframework
+
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
