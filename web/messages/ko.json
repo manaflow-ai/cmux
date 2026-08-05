@@ -3568,7 +3568,6 @@
     "title": "{platform}용 cmux",
     "tagline": "Chromium 브라우저와 에이전트 작업 공간을 하나로 만들었습니다.",
     "logoAlt": "cmux 앱 아이콘",
-    "portableCta": "포터블 ZIP",
     "featuresTitle": "에이전트 작업을 위한 설계",
     "features": {
       "chromium": {
@@ -3590,7 +3589,7 @@
     },
     "installTitle": "설치",
     "releaseTitle": "릴리스 및 업데이트",
-    "releaseBody": "이 링크는 항상 <github>GitHub Releases</github>의 최신 안정 버전을 가리킵니다. cmux는 업데이트를 설치하기 전에 서명된 업데이트 매니페스트를 확인합니다.",
+    "releaseBody": "이 링크는 항상 <github>GitHub Releases</github>의 최신 나이틀리 버전을 가리킵니다. cmux는 업데이트를 설치하기 전에 서명된 업데이트 매니페스트를 확인합니다.",
     "sourceLink": "GitHub에서 소스 보기",
     "otherPlatform": "{platform}용 cmux",
     "macLink": "Mac용 cmux 터미널",
@@ -3600,6 +3599,7 @@
       "metaDescription": "Windows x64용 cmux를 다운로드하세요. 작업 중심 탭과 터미널 화면을 갖춘 무료 오픈 소스 Chromium 브라우저이자 에이전트 작업 공간입니다.",
       "subtitle": "Chromium 탭, cmux 워크스페이스, 익숙한 Windows 키보드 사용 방식을 갖춘 네이티브 x64 빌드입니다.",
       "primaryCta": "설치 프로그램(.exe) 다운로드",
+      "secondaryCta": "포터블 ZIP",
       "requirements": "Windows 10 이상 · x64",
       "installBody": "설치 프로그램을 실행하고 Windows 안내를 따르세요. 시스템 전체에 설치하지 않고 폴더에 cmux를 보관하려면 포터블 ZIP을 선택하세요."
     },
@@ -3608,9 +3608,10 @@
       "metaTitle": "Linux용 cmux 다운로드",
       "metaDescription": "Linux x64용 cmux를 다운로드하세요. 작업 중심 탭과 터미널 화면을 갖춘 무료 오픈 소스 Chromium 브라우저이자 에이전트 작업 공간입니다.",
       "subtitle": "Chromium 탭, cmux 워크스페이스, 통합 터미널 화면을 갖춘 네이티브 x64 빌드입니다.",
-      "primaryCta": ".deb 다운로드",
-      "requirements": "Debian 또는 Ubuntu · x64",
-      "installBody": "Debian 패키지를 다운로드하여 패키지 관리자로 설치하세요. 사용자별 설치와 앱 내 업데이트가 필요하면 포터블 ZIP을 선택하세요."
+      "primaryCta": "자동 업데이트 설치 프로그램(.run) 다운로드",
+      "secondaryCta": "Debian 패키지(.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "사용자별 설치 프로그램을 한 번 실행하세요. root 권한 없이 ~/.local에 설치되며 서명된 앱 내 업데이트가 활성화됩니다. 패키지 관리자로 업데이트를 관리하려면 대신 Debian 패키지를 선택하세요."
     }
   },
   "emails": {

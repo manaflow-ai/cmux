@@ -19,7 +19,15 @@ extension DockSplitStore {
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard let terminal = panels[panelId] as? TerminalPanel else { return }
+        let previousState = terminal.shellActivity.state
         terminal.updateShellActivityState(state)
+        if previousState != state,
+           let pendingTitle = advanceTransferredRestoredPanelTitleBoundary(
+               panelId: panelId,
+               state: state
+           ) {
+            terminal.updateTitle(pendingTitle)
+        }
         let restoredAgent = restoredAgentLifecycle.snapshotsByPanelId[panelId]
 
         switch (state, restoredAgentLifecycle.resumeStatesByPanelId[panelId]) {
@@ -41,6 +49,22 @@ extension DockSplitStore {
         default:
             break
         }
+    }
+
+    /// Keeps a Workspace-owned restore boundary coherent while its live panel
+    /// temporarily belongs to a Dock.
+    private func advanceTransferredRestoredPanelTitleBoundary(
+        panelId: UUID,
+        state: PanelShellActivityState
+    ) -> String? {
+        guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
+              var boundary = transfer.restoredPanelTitleBoundary else {
+            return nil
+        }
+        let pendingTitle = boundary.observe(shellState: state)
+        transfer.restoredPanelTitleBoundary = boundary.isReleased ? nil : boundary
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        return pendingTitle
     }
 
     func adoptSessionRestoreState(from detached: Workspace.DetachedSurfaceTransfer) {

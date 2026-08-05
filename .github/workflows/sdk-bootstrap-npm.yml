@@ -258,7 +258,7 @@ jobs:
             exit 1
           }
           echo "npm lifecycle scripts are disabled in the credentialed publisher"
-          npm publish "${packages[0]}" \
+          npm publish "$(realpath "${packages[0]}")" \
             --ignore-scripts \
             --tag bootstrap \
             --provenance \
