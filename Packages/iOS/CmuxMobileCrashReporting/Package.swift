@@ -24,7 +24,7 @@ let package = Package(
         .package(path: "../../Shared/CmuxSentryTelemetry"),
         .package(
             url: "https://github.com/manaflow-ai/sentry-cocoa.git",
-            revision: "c276db5ef78325d350e09176fb9b25c459940a89"
+            revision: "d0aa95b3663450790c721c13748fc9d007c8f856"
         ),
     ],
     targets: [

@@ -1,4 +1,4 @@
-import Sentry
+import SentryFacade
 import Testing
 
 import CmuxMobileAnalytics

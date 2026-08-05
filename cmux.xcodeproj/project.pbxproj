@@ -1260,6 +1260,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		87590000000000000000000B /* MainThreadHangSampleRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87590000000000000000000C /* MainThreadHangSampleRunner.swift */; };
 		875900000000000000000003 /* MainThreadHangWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000004 /* MainThreadHangWatchdog.swift */; };
 		875900000000000000000007 /* MainThreadHangWatchdogState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000008 /* MainThreadHangWatchdogState.swift */; };
+		A4F700000000000000000017 /* MainWindowCommandPaletteController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F700000000000000000018 /* MainWindowCommandPaletteController.swift */; };
 		895500000000000000000003 /* MainWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895500000000000000000004 /* MainWindowController.swift */; };
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		6512F0C06512F0C06512F002 /* MainWindowFocusRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */; };
@@ -3835,6 +3836,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		87590000000000000000000C /* MainThreadHangSampleRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangSampleRunner.swift; sourceTree = "<group>"; };
 		875900000000000000000004 /* MainThreadHangWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangWatchdog.swift; sourceTree = "<group>"; };
 		875900000000000000000008 /* MainThreadHangWatchdogState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainThreadHangWatchdogState.swift; sourceTree = "<group>"; };
+		A4F700000000000000000018 /* MainWindowCommandPaletteController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowCommandPaletteController.swift; sourceTree = "<group>"; };
 		895500000000000000000004 /* MainWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowController.swift; sourceTree = "<group>"; };
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusRestoreTests.swift; sourceTree = "<group>"; };
@@ -5841,7 +5843,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					C0DE705A0000000000000001 /* MenuBarProfilingProcessLogs.swift */,
 					C0DE70580000000000000001 /* MenuBarProfilingProgressWindowLayout.swift */,
 					C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */,
-					2F0C07000000000000000001 /* CmuxMainWindow.swift */,
+				2F0C07000000000000000001 /* CmuxMainWindow.swift */,
+				A4F700000000000000000018 /* MainWindowCommandPaletteController.swift */,
 				A4F700000000000000000010 /* MainWindowNativeViewController.swift */,
 				A4F700000000000000000016 /* MainWindowSidebarWidthPolicy.swift */,
 				AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */,
@@ -9042,6 +9045,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				87590000000000000000000B /* MainThreadHangSampleRunner.swift in Sources */,
 				875900000000000000000003 /* MainThreadHangWatchdog.swift in Sources */,
 				875900000000000000000007 /* MainThreadHangWatchdogState.swift in Sources */,
+				A4F700000000000000000017 /* MainWindowCommandPaletteController.swift in Sources */,
 				895500000000000000000003 /* MainWindowController.swift in Sources */,
 				2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
@@ -11453,7 +11457,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			repositoryURL = "https://github.com/manaflow-ai/sentry-cocoa.git";
 			requirement = {
 				kind = revision;
-				revision = c276db5ef78325d350e09176fb9b25c459940a89;
+				revision = d0aa95b3663450790c721c13748fc9d007c8f856;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

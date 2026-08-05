@@ -1,5 +1,5 @@
 import CmuxSentryScrubbing
-import Sentry
+import SentryFacade
 import Testing
 
 @testable import CmuxSentryReporting

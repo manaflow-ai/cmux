@@ -1,7 +1,7 @@
 public import CmuxMobileAnalytics
 import CmuxSentryReporting
 import Foundation
-public import Sentry
+public import SentryFacade
 
 /// Starts Sentry-backed crash reporting for the iOS app.
 ///

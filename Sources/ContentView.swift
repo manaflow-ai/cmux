@@ -31,7 +31,6 @@ import WebKit
 
 var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
-let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
 private func sidebarShortTabId(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(5)) } ?? "nil" }
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
@@ -843,6 +842,58 @@ struct SidebarUnreadSnapshotObserver: View {
             .onChange(of: source.snapshot) { _, snapshot in
                 action(snapshot)
             }
+    }
+}
+
+/// Legacy test-only host retained until the remaining SwiftUI root behavior
+/// tests are rewritten against ``MainWindowNativeViewController``.
+final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
+    private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
+
+    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
+    override var safeAreaRect: NSRect { bounds }
+    override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override var fittingSize: NSSize { CmuxMainWindow.minimumContentSize }
+    override var intrinsicContentSize: NSSize { CmuxMainWindow.minimumContentSize }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        guard let event, let window else { return false }
+        return isMinimalModeTitlebarControlHit(
+            window: window,
+            locationInWindow: event.locationInWindow
+        )
+    }
+
+    @objc private func windowDidLayout() {}
+
+    override func setFrameSize(_ newSize: NSSize) {
+        var size = newSize
+        if let window {
+            let bound = window.frame.size
+            if bound.width >= 1, bound.height >= 1 {
+                size.width = min(size.width, bound.width)
+                size.height = min(size.height, bound.height)
+            }
+        }
+        super.setFrameSize(size)
+    }
+
+    required init(rootView: Content) {
+        super.init(rootView: rootView)
+        sizingOptions = []
+        addLayoutGuide(zeroSafeAreaLayoutGuide)
+        NSLayoutConstraint.activate([
+            zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
+            zeroSafeAreaLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
+            zeroSafeAreaLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
+            zeroSafeAreaLayoutGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 

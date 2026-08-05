@@ -70,7 +70,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
     AppKit composition root.
   - [ ] Replace scene, environment, focused-value, storage, command, window,
     settings, toolbar, sheet, popover, and alert ownership with AppKit owners.
-  - [ ] Replace the 10 importing files remaining under `Sources`, including the
+  - [ ] Replace the 9 importing files remaining under `Sources`, including the
     application root and remaining sidebar auxiliaries. Workspace, terminal,
     browser, Vault, Feed, titlebar controls, notifications popover, the
     right-sidebar root, and the browser design-mode composer are native AppKit.
@@ -78,7 +78,7 @@ The counts are discovery metrics. Completion is determined by the gates below.
     host, all six bundled providers, permission review, provider picker, and
     XPC renderer are also native.
     - [ ] `Sources/App/CmuxHelpCommands.swift`
-    - [ ] `Sources/App/CmuxMainWindow.swift`
+    - [x] `Sources/App/CmuxMainWindow.swift` (native root container and window policy only)
     - [ ] `Sources/ContentView.swift`
     - [ ] `Sources/IrohTransportDebugMenuButtons.swift`
     - [ ] `Sources/NativeAppKitSupportBridges.swift`

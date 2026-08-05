@@ -1,6 +1,6 @@
 import CMUXMobileCore
 import Foundation
-import Sentry
+import SentryFacade
 import Testing
 import os
 @testable import CmuxSentryReporting

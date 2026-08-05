@@ -229,6 +229,13 @@ final class MainWindowNativeViewController: NSViewController {
     private let modelRefreshScheduler = MainActorDeferredActionScheduler()
     private let workspaceHandoffFallbackScheduler = MainActorDeferredActionScheduler()
 
+    private lazy var commandPaletteController = MainWindowCommandPaletteController(
+        windowId: windowId,
+        tabManager: tabManager,
+        hostView: rootLayoutView,
+        windowProvider: { [weak self] in self?.view.window }
+    )
+
     private lazy var sidebarController = SidebarNativeViewController(
         updateViewModel: updateViewModel,
         tabManager: tabManager,
@@ -374,6 +381,7 @@ final class MainWindowNativeViewController: NSViewController {
         modelRefreshScheduler.cancel()
         workspaceHandoffFallbackScheduler.cancel()
         sidebarState.removeVisibilityWillChangeHandler(ownerId: windowId)
+        commandPaletteController.teardown()
         sidebarController.teardown()
         rightSidebarController.teardown()
         notificationsController.teardown()
@@ -505,6 +513,7 @@ final class MainWindowNativeViewController: NSViewController {
         ])
 
         configureResizeHandles()
+        _ = commandPaletteController
     }
 
     private func configureResizeHandles() {
@@ -634,6 +643,52 @@ final class MainWindowNativeViewController: NSViewController {
             let requestedWindow = notification.object as? NSWindow
             guard requestedWindow == nil || requestedWindow === controller.view.window else { return }
             controller.presentFeedbackComposer()
+        }
+        observeNotification(.commandPaletteToggleRequested) { controller, notification in
+            guard controller.commandPaletteController.handles(notification) else { return }
+            controller.commandPaletteController.toggleCommands()
+        }
+        observeNotification(.commandPaletteRequested) { controller, notification in
+            guard controller.commandPaletteController.handles(notification) else { return }
+            controller.commandPaletteController.openCommands()
+        }
+        observeNotification(.commandPaletteSwitcherRequested) { controller, notification in
+            guard controller.commandPaletteController.handles(notification) else { return }
+            controller.commandPaletteController.openSwitcher()
+        }
+        observeNotification(.commandPaletteSubmitRequested) { controller, notification in
+            guard controller.commandPaletteController.handles(notification) else { return }
+            controller.commandPaletteController.submit()
+        }
+        observeNotification(.commandPaletteDismissRequested) { controller, notification in
+            guard controller.commandPaletteController.handles(notification) else { return }
+            controller.commandPaletteController.dismiss()
+        }
+        observeNotification(.commandPaletteMoveSelection) { controller, notification in
+            guard controller.commandPaletteController.handles(notification),
+                  let delta = notification.userInfo?["delta"] as? Int,
+                  delta != 0 else { return }
+            controller.commandPaletteController.moveSelection(by: delta)
+        }
+        observeNotification(.commandPaletteRenameTabRequested) { controller, notification in
+            guard controller.commandPaletteController.handles(notification) else { return }
+            controller.commandPaletteController.openRenameTab()
+        }
+        observeNotification(.commandPaletteRenameWorkspaceRequested) { controller, notification in
+            guard controller.commandPaletteController.handles(notification) else { return }
+            controller.commandPaletteController.openRenameWorkspace()
+        }
+        observeNotification(.commandPaletteEditWorkspaceDescriptionRequested) { controller, notification in
+            guard controller.commandPaletteController.handles(notification) else { return }
+            controller.commandPaletteController.openWorkspaceDescription()
+        }
+        observeNotification(.commandPaletteRenameInputInteractionRequested) { controller, notification in
+            guard controller.commandPaletteController.handles(notification) else { return }
+            controller.commandPaletteController.handleRenameInputInteraction()
+        }
+        observeNotification(.commandPaletteRenameInputDeleteBackwardRequested) { controller, notification in
+            guard controller.commandPaletteController.handles(notification) else { return }
+            controller.commandPaletteController.handleRenameDeleteBackwardFromEmptyInput()
         }
     }
 

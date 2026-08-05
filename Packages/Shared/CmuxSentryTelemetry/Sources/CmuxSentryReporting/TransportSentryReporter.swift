@@ -1,6 +1,6 @@
 public import CMUXMobileCore
 public import Foundation
-public import Sentry
+public import SentryFacade
 internal import os
 
 /// Bridges the transport diagnostic event stream into Sentry so any user's

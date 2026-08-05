@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 /// Native root container for cmux main-window content. The window owns this
 /// view's size; descendant intrinsic sizes never resize the window or inflate
@@ -57,92 +56,6 @@ final class MainWindowContentView: NSView {
             }
         }
         super.setFrameSize(size)
-    }
-}
-
-final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
-    private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
-
-    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
-    override var safeAreaRect: NSRect { bounds }
-    override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
-    override var mouseDownCanMoveWindow: Bool { false }
-    override var fittingSize: NSSize { CmuxMainWindow.minimumContentSize }
-    override var intrinsicContentSize: NSSize { CmuxMainWindow.minimumContentSize }
-
-    /// Lets a click on an interactive titlebar control (the sidebar toggle, the
-    /// right-sidebar mode bar, the session-index header controls, etc.) both
-    /// activate the window and trigger the control in a single click when the
-    /// window is inactive — matching how macOS services controls in the titlebar.
-    ///
-    /// Scoped to registered ``MinimalModeTitlebarControlHitRegionRegistry`` regions
-    /// (the regions `titlebarInteractiveControl()` registers) so clicking inactive
-    /// *content* still only activates the window. This recovers the first-mouse
-    /// behavior the previous nested-`NSHostingView` host provided, without
-    /// reparenting the control (which dropped active-window clicks in the
-    /// full-size-content titlebar band — issue #5099).
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        guard let event, let window else { return false }
-        return isMinimalModeTitlebarControlHit(window: window, locationInWindow: event.locationInWindow)
-    }
-
-    /// The window must never be resized to fit this view's SwiftUI content.
-    /// NSHostingView watches window layout and calls NSWindow.setFrame itself
-    /// (`windowDidLayout` → `updateAnimatedWindowSize`) when the content's
-    /// measured size disagrees with the window's — and it does so even with
-    /// empty `sizingOptions`, which only governs the constraint-based paths.
-    /// If content ever measures wider than the window (a workspace pushed
-    /// below its minimum width by a programmatic resize), that hook re-grows
-    /// the window a step per layout pass, without bound. Shadowing the
-    /// hook's Objective-C selector severs the path; should a future macOS
-    /// rename it, this no-op stops shadowing anything and
-    /// `MainWindowSelfSizingTests` flags the behavior's return.
-    @objc private func windowDidLayout() {
-        // Deliberately empty: the main window's size belongs to the user and
-        // to explicit window management, never to content measurement.
-    }
-
-    /// The hosting view's own frame may never exceed its window. The paths
-    /// above cover the hosting view's OWN sizing behavior, but AppKit's
-    /// layout engine can hand this view an inflated frame directly: hosted
-    /// AppKit subtrees carry required constraints, and when one of them is
-    /// laid out oversized the engine resolves the conflict by growing the
-    /// containers — observed live as this view at 6373pt inside a 1728pt
-    /// window, with every space-filling descendant (including terminal
-    /// surfaces, whose rendered grids feed remote size claims) inheriting
-    /// the inflated width. The frame setter is the last line: clamp to the
-    /// window, so the host answers the window, never the content.
-    override func setFrameSize(_ newSize: NSSize) {
-        var size = newSize
-        if let window {
-            let bound = window.frame.size
-            if bound.width >= 1, bound.height >= 1 {
-                size.width = min(size.width, bound.width)
-                size.height = min(size.height, bound.height)
-            }
-        }
-        super.setFrameSize(size)
-    }
-
-    required init(rootView: Content) {
-        super.init(rootView: rootView)
-        // Belt with the suspenders above: keep the hosting view from creating
-        // any content-derived sizing constraints either.
-        sizingOptions = []
-        addLayoutGuide(zeroSafeAreaLayoutGuide)
-        NSLayoutConstraint.activate([
-            zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
-            zeroSafeAreaLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
-            zeroSafeAreaLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
-            zeroSafeAreaLayoutGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    deinit {}
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 }
 

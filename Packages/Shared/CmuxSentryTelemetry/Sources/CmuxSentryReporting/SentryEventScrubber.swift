@@ -1,5 +1,5 @@
 public import CmuxSentryScrubbing
-public import Sentry
+public import SentryFacade
 
 /// Applies a ``SentryScrubber`` to outgoing Sentry events and breadcrumbs so
 /// file paths, emails, and secrets are redacted before they leave the device.

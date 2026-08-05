@@ -20,7 +20,7 @@ import CoreServices
 import CoreGraphics
 import UserNotifications
 import CMUXMobileCore
-import Sentry
+import SentryFacade
 import WebKit
 import Combine
 import ObjectiveC.runtime
@@ -9007,8 +9007,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        let usesNativeAppKitRoot = ProcessInfo.processInfo.environment["CMUX_NATIVE_APPKIT_ROOT"] == "1"
-
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
@@ -9082,45 +9080,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 lastCascadePoint = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
             }
         }
-        let nativeRootController: MainWindowNativeViewController?
-        if usesNativeAppKitRoot {
-            let rootController = MainWindowNativeViewController(
-                updateViewModel: updateViewModel,
-                windowId: windowId,
-                tabManager: tabManager,
-                notificationStore: notificationStore,
-                sidebarState: sidebarState,
-                sidebarSelectionState: sidebarSelectionState,
-                fileExplorerState: fileExplorerState,
-                cmuxConfigStore: cmuxConfigStore,
-                titlebarControlsLayoutModel: titlebarControlsLayoutModel,
-                settingsRuntime: settingsRuntime
-            )
-            nativeRootController = rootController
-            window.contentViewController = rootController
-        } else {
-            nativeRootController = nil
-            let root = ContentView(
-                updateViewModel: updateViewModel,
-                windowId: windowId,
-                titlebarControlsLayoutModel: titlebarControlsLayoutModel
-            )
-                .environmentObject(tabManager)
-                .environmentObject(notificationStore)
-                .environmentObject(sidebarState)
-                .environmentObject(sidebarSelectionState)
-                .environmentObject(fileExplorerState)
-                .environmentObject(cmuxConfigStore)
-                // AppKit hosts this ContentView in its own NSHostingView, which does
-                // not inherit the App scene's SwiftUI environment. Inject the
-                // settings runtime so `@LiveSetting` can resolve the stores it
-                // observes throughout the main window (e.g. the sidebar). The key is
-                // optional, so a nil runtime just leaves reads at their seeded
-                // catalog default.
-                .environment(\.settingsRuntime, settingsRuntime)
-                .cmuxFontMagnificationEnvironment()
-            window.contentView = MainWindowHostingView(rootView: root)
-        }
+        let nativeRootController = MainWindowNativeViewController(
+            updateViewModel: updateViewModel,
+            windowId: windowId,
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            fileExplorerState: fileExplorerState,
+            cmuxConfigStore: cmuxConfigStore,
+            titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+            settingsRuntime: settingsRuntime
+        )
+        window.contentViewController = nativeRootController
 
         // Apply shared window styling.
         attachUpdateAccessory(to: window)
