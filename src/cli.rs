@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::backend;
+use crate::control_plane;
+use crate::oauth::{self, Provider};
 use crate::process;
 use crate::tui::{self, AddChoice};
 
@@ -14,14 +15,15 @@ CodeRouter — run Codex across your subscription pool
 Usage:
   cr                            Show account usage across CodeRouter
   cr codex [arguments...]       Run Codex through CodeRouter
+  cr opencode [arguments...]    Run OpenCode through CodeRouter
   cr naked [arguments...]       Run the real Codex without CodeRouter
   cr direct [arguments...]      Alias for `cr naked`
-  cr add                        Add a Codex subscription interactively
-  cr add login                  Sign in to a new Codex subscription
-  cr add import                 Import local Codex credentials
+  cr add                        Add a subscription interactively
+  cr add codex                  Add ChatGPT Plus or Pro
+  cr add opencode               Add OpenCode Go
   cr login | logout             Manage this machine's CodeRouter login
   cr login --device-auth        Copy a code into coderouter.dev/authorize
-  cr accounts                   List shared Codex subscriptions
+  cr accounts                   List shared subscriptions and usage
   cr usage                      Show subscription usage
   cr doctor                     Diagnose CodeRouter
 
@@ -62,29 +64,63 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
         Some("add") => run_add(&remaining[1..]),
         Some("login") => run_login(&remaining[1..]),
         Some("logout") => run_logout(&remaining[1..]),
-        Some("accounts" | "account") => run_backend(&["account", "list"], &remaining[1..]),
-        Some("usage") => run_backend(&["status"], &remaining[1..]),
-        Some("doctor") => run_backend(&["doctor"], &remaining[1..]),
+        Some("accounts" | "account" | "usage") => run_accounts(&remaining[1..]),
+        Some("doctor") => run_doctor(&remaining[1..]),
         Some("codex") => run_routed_codex(&remaining[1..]),
-        None => run_backend(&["status"], &[]),
+        Some("opencode") => run_routed_opencode(&remaining[1..]),
+        None => run_accounts(&[]),
         Some(value) => Err(Error::Usage(format!(
             "unknown CodeRouter command `{value}`; run Codex explicitly with `cr codex [arguments...]`"
         ))),
     }
 }
 
+fn run_routed_opencode(args: &[OsString]) -> Result<i32, Error> {
+    let opencode = process::find_on_path("opencode").ok_or_else(|| {
+        Error::Usage(
+            "OpenCode is not installed or is not on PATH; install OpenCode before running `cr opencode`"
+                .into(),
+        )
+    })?;
+    let content = control_plane::opencode_config()?;
+    process::run_attached_with_env(
+        &opencode,
+        args,
+        &[],
+        &[("OPENCODE_CONFIG_CONTENT", content.as_str())],
+    )
+}
+
 fn run_routed_codex(args: &[OsString]) -> Result<i32, Error> {
-    let backend = backend::resolve()?;
-    let setup = backend::ensure_ready(&backend)?;
-    if setup != 0 {
-        return Ok(setup);
+    let config = crate::config::load()?;
+    if !config.logged_in() {
+        return Err(Error::Usage("not signed in; run `cr login`".into()));
     }
-    let mut backend_args = vec![process::os("codex")];
-    backend_args.extend_from_slice(args);
-    backend::run_attached(
-        &backend,
-        &backend_args,
-        &[("SUBROUTER_CODEX_SERVER", "local")],
+    let codex = resolve_real_codex()?;
+    let provider = vec![
+        process::os("-c"),
+        process::os(r#"model_provider="coderouter""#),
+        process::os("-c"),
+        process::os(r#"model_providers.coderouter.name="CodeRouter""#),
+        process::os("-c"),
+        process::os(format!(
+            "model_providers.coderouter.base_url={:?}",
+            config.openai_base_url
+        )),
+        process::os("-c"),
+        process::os(r#"model_providers.coderouter.env_key="CODEROUTER_ROUTE_TOKEN""#),
+        process::os("-c"),
+        process::os(r#"model_providers.coderouter.wire_api="responses""#),
+        process::os("-c"),
+        process::os(r#"model_providers.coderouter.supports_websockets=false"#),
+    ];
+    let routed = codex_args(args, &provider);
+    let route_token = config.route_token;
+    process::run_attached_with_env(
+        &codex,
+        &routed,
+        &[],
+        &[("CODEROUTER_ROUTE_TOKEN", route_token.as_str())],
     )
 }
 
@@ -96,6 +132,7 @@ fn run_naked(args: &[OsString]) -> Result<i32, Error> {
         &[
             "CODEROUTER_API_URL",
             "CODEROUTER_DATA_DIR",
+            "CODEROUTER_ROUTE_TOKEN",
             "CODEROUTER_SUBROUTER_BIN",
             "CR_ACCOUNT",
             "CR_POLICY",
@@ -112,85 +149,161 @@ fn run_naked(args: &[OsString]) -> Result<i32, Error> {
 fn run_add(args: &[OsString]) -> Result<i32, Error> {
     let choice = match args.first().and_then(|arg| arg.to_str()) {
         None => tui::choose_add_action()?,
-        Some("login" | "new") if args.len() == 1 => AddChoice::NewLogin,
-        Some("import") if args.len() == 1 => AddChoice::ImportLocal,
+        Some("codex") if args.len() == 1 => AddChoice::Provider(Provider::Codex),
+        Some("opencode" | "opencode-go" | "go") if args.len() == 1 => {
+            AddChoice::Provider(Provider::OpenCodeGo)
+        }
         Some("cancel") if args.len() == 1 => AddChoice::Cancel,
         _ => {
-            return Err(Error::Usage("usage: cr add [login|import]".into()));
+            return Err(Error::Usage("usage: cr add [codex|opencode]".into()));
         }
     };
     if choice == AddChoice::Cancel {
         return Ok(0);
     }
-
-    let backend = backend::resolve()?;
-    let login = backend::ensure_hosted_login(&backend)?;
-    if login != 0 {
-        return Ok(login);
-    }
-    let storage = backend::run_attached(
-        &backend,
-        &[process::os("storage"), process::os("hosted")],
-        &[],
-    )?;
-    if storage != 0 {
-        return Ok(storage);
-    }
-
-    let code = match choice {
-        AddChoice::NewLogin => backend::run_attached(
-            &backend,
-            &[
-                process::os("account"),
-                process::os("add"),
-                process::os("codex"),
-            ],
-            &[],
-        )?,
-        AddChoice::ImportLocal => backend::run_attached(
-            &backend,
-            &[
-                process::os("account"),
-                process::os("import"),
-                process::os("--all"),
-            ],
-            &[],
-        )?,
-        AddChoice::Cancel => 0,
+    let AddChoice::Provider(provider) = choice else {
+        return Ok(0);
     };
-    if code != 0 {
-        return Ok(code);
+    if !crate::config::load()?.logged_in() {
+        control_plane::login(false)?;
     }
-    backend::ensure_ready(&backend)
-}
-
-fn run_backend(prefix: &[&str], rest: &[OsString]) -> Result<i32, Error> {
-    let backend = backend::resolve()?;
-    let mut args: Vec<OsString> = prefix.iter().map(process::os).collect();
-    args.extend_from_slice(rest);
-    backend::run_attached(&backend, &args, &[])
+    println!("Adding {}…", provider.label());
+    let credential = oauth::authenticate_with_fallback(provider)?;
+    let result = control_plane::upload_credential(&credential)?;
+    if result
+        .get("alreadyExists")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        println!("That subscription is already in CodeRouter and is healthy.");
+    } else {
+        println!("Subscription added.");
+    }
+    Ok(0)
 }
 
 fn run_login(rest: &[OsString]) -> Result<i32, Error> {
-    let backend = backend::resolve()?;
-    let device_auth = rest
-        .iter()
-        .any(|arg| matches!(arg.to_str(), Some("--device-auth" | "--device")));
-    if device_auth {
-        let forwarded: Vec<OsString> = rest
-            .iter()
-            .filter(|arg| !matches!(arg.to_str(), Some("--device-auth" | "--device")))
-            .cloned()
-            .collect();
-        backend::login_device(&backend, &forwarded)
-    } else {
-        backend::login(&backend, rest)
+    let no_browser = rest.iter().any(|arg| {
+        matches!(
+            arg.to_str(),
+            Some("--no-browser" | "--device-auth" | "--device")
+        )
+    });
+    if rest.iter().any(|arg| {
+        !matches!(
+            arg.to_str(),
+            Some("--no-browser" | "--device-auth" | "--device")
+        )
+    }) {
+        return Err(Error::Usage(
+            "usage: cr login [--no-browser|--device-auth]".into(),
+        ));
     }
+    control_plane::login(no_browser)?;
+    Ok(0)
 }
 
 fn run_logout(rest: &[OsString]) -> Result<i32, Error> {
-    let backend = backend::resolve()?;
-    backend::logout(&backend, rest)
+    if !rest.is_empty() {
+        return Err(Error::Usage("usage: cr logout".into()));
+    }
+    control_plane::logout()?;
+    Ok(0)
+}
+
+fn run_accounts(rest: &[OsString]) -> Result<i32, Error> {
+    if !rest.is_empty() {
+        return Err(Error::Usage("usage: cr accounts".into()));
+    }
+    let value = control_plane::accounts()?;
+    let accounts = value
+        .get("accounts")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if accounts.is_empty() {
+        println!("No subscriptions. Run `cr add`.");
+    } else {
+        println!("Subscriptions\n");
+        for account in accounts {
+            let provider = account
+                .get("provider")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            let label = account
+                .get("label")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            let state = account
+                .get("state")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            let usage = account.get("usage").map(format_usage).unwrap_or_default();
+            println!("{provider:<12} {label:<36} {state:<12} {usage}");
+        }
+    }
+    Ok(0)
+}
+
+fn format_usage(value: &serde_json::Value) -> String {
+    let plan = value
+        .get("plan_type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let rate = value.get("rate_limit");
+    let five_hour = rate
+        .and_then(|value| value.get("primary_window"))
+        .and_then(|value| value.get("used_percent"))
+        .and_then(serde_json::Value::as_f64)
+        .map(|used| format!("{:.0}% left", (100.0 - used).clamp(0.0, 100.0)));
+    let weekly = rate
+        .and_then(|value| value.get("secondary_window"))
+        .and_then(|value| value.get("used_percent"))
+        .and_then(serde_json::Value::as_f64)
+        .map(|used| format!("{:.0}% weekly", (100.0 - used).clamp(0.0, 100.0)));
+    [
+        (!plan.is_empty()).then_some(plan.to_owned()),
+        five_hour,
+        weekly,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+
+fn run_doctor(rest: &[OsString]) -> Result<i32, Error> {
+    if !rest.is_empty() {
+        return Err(Error::Usage("usage: cr doctor".into()));
+    }
+    let config = crate::config::load()?;
+    println!(
+        "{:<20} {}",
+        "login",
+        if config.logged_in() {
+            "ok"
+        } else {
+            "not signed in"
+        }
+    );
+    println!("{:<20} {}", "data plane", config.openai_base_url);
+    println!("{:<20} none", "local daemon");
+    Ok(if config.logged_in() { 0 } else { 1 })
+}
+
+fn codex_args(args: &[OsString], provider: &[OsString]) -> Vec<OsString> {
+    let routed_commands = ["exec", "e", "review", "resume", "fork", "app-server"];
+    if let Some(command) = args.first().and_then(|arg| arg.to_str())
+        && routed_commands.contains(&command)
+    {
+        let mut out = vec![args[0].clone()];
+        out.extend_from_slice(provider);
+        out.extend_from_slice(&args[1..]);
+        return out;
+    }
+    let mut out = provider.to_vec();
+    out.extend_from_slice(args);
+    out
 }
 
 fn resolve_real_codex() -> Result<PathBuf, Error> {

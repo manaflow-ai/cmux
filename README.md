@@ -1,6 +1,6 @@
 # CodeRouter CLI
 
-CodeRouter gives Codex one command for a shared pool of Codex subscriptions.
+CodeRouter gives coding agents one command for a shared subscription pool.
 
 ```bash
 cr add
@@ -16,31 +16,26 @@ show the account and usage summary. Agent routing is always explicit.
 ```text
 cr                           account and usage summary
 cr codex [arguments...]       Codex through CodeRouter
+cr opencode [arguments...]    OpenCode through CodeRouter
 cr naked [arguments...]       ordinary Codex, with CodeRouter bypassed
 cr direct [arguments...]      alias for naked
-cr add                        interactive Codex subscription setup
+cr add                        add Codex or OpenCode Go interactively
 cr accounts                   list available subscriptions
 cr usage                      show quota state
-cr doctor                     diagnose login, vault, and local routing
+cr doctor                     diagnose login and the Vercel data plane
 cr login / cr logout          manage this machine's Stack Auth session
 cr login --device-auth        copy a code into coderouter.dev/authorize
 ```
 
-The interactive add flow either opens a fresh official Codex OAuth login in an
-isolated `CODEX_HOME`, or shows the local import plan and asks for confirmation.
-The
-normal `~/.codex/auth.json` is not modified by the new-login flow.
-
-CodeRouter currently supports Codex subscriptions only.
+The Ratatui add flow supports direct Codex OAuth/PKCE and OpenCode Go device
+authorization. Direct Codex authentication has an explicit portable-PTY
+fallback through the official CLI. Normal agent credentials are untouched.
 
 The production control plane is `https://coderouter.dev`. CodeRouter uses a
-separate hosted-session config, so installing it does not reuse or overwrite a
-generic Subrouter login. `CODEROUTER_API_URL` can override the control-plane
-origin for staging and loopback development.
+separate session config and never overwrites normal agent configuration.
+`CODEROUTER_API_URL` can override the origin for staging and loopback tests.
 
-## Routing engine
+## Routing
 
-The CLI uses the open-source Subrouter routing engine. It first honors
-`CODEROUTER_SUBROUTER_BIN`, then an existing `subrouter` on `PATH`, then installs
-the pinned release into the user's application-data directory after verifying
-the release SHA-256 manifest.
+The CLI routes directly to the Vercel data plane at `coderouter.dev`. It does
+not install Subrouter, a local daemon, Go code, or GCP tooling.

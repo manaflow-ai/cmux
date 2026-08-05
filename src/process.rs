@@ -44,47 +44,6 @@ pub fn run_attached_with_env(
     Ok(exit_code(status))
 }
 
-pub fn run_attached_with_os_env(
-    executable: &Path,
-    args: &[OsString],
-    removed_env: &[&str],
-    added_env: &[(OsString, OsString)],
-) -> Result<i32, Error> {
-    let mut command = Command::new(executable);
-    command
-        .args(args)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-    for key in removed_env {
-        command.env_remove(key);
-    }
-    for (key, value) in added_env {
-        command.env(key, value);
-    }
-    let status = command.status().map_err(|source| Error::Spawn {
-        executable: executable.to_path_buf(),
-        source,
-    })?;
-    Ok(exit_code(status))
-}
-
-pub fn output_with_os_env(
-    executable: &Path,
-    args: &[&str],
-    added_env: &[(OsString, OsString)],
-) -> Result<std::process::Output, Error> {
-    let mut command = Command::new(executable);
-    command.args(args).stdin(Stdio::null());
-    for (key, value) in added_env {
-        command.env(key, value);
-    }
-    command.output().map_err(|source| Error::Spawn {
-        executable: executable.to_path_buf(),
-        source,
-    })
-}
-
 pub fn is_same_executable(left: &Path, right: &Path) -> bool {
     let left = std::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
     let right = std::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());

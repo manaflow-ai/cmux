@@ -1,32 +1,34 @@
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal};
 
-use crossterm::{
-    cursor,
-    event::{self, Event, KeyCode, KeyEventKind},
-    execute,
-    style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor},
-    terminal::{self, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use ratatui::{
+    Terminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
 };
 
 use crate::cli::Error;
+use crate::oauth::Provider;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AddChoice {
-    NewLogin,
-    ImportLocal,
+    Provider(Provider),
     Cancel,
 }
 
 const ITEMS: &[(AddChoice, &str, &str)] = &[
     (
-        AddChoice::NewLogin,
-        "Sign in to a new Codex subscription",
-        "Opens the official Codex OAuth flow in an isolated profile.",
+        AddChoice::Provider(Provider::Codex),
+        "Codex / ChatGPT Plus or Pro",
+        "Authorize directly with OpenAI using OAuth and PKCE.",
     ),
     (
-        AddChoice::ImportLocal,
-        "Import local Codex credentials",
-        "Reviews and uploads Codex accounts already present on this machine.",
+        AddChoice::Provider(Provider::OpenCodeGo),
+        "OpenCode Go",
+        "Connect your OpenCode Console subscription using device authorization.",
     ),
     (AddChoice::Cancel, "Cancel", "Make no changes."),
 ];
@@ -34,28 +36,44 @@ const ITEMS: &[(AddChoice, &str, &str)] = &[
 pub fn choose_add_action() -> Result<AddChoice, Error> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(Error::Usage(
-            "`cr add` needs an interactive terminal; use `cr add login` or `cr add import`".into(),
+            "`cr add` needs an interactive terminal; use `cr add codex` or `cr add opencode`"
+                .into(),
         ));
     }
-    let mut screen = Screen::enter()?;
-    let mut selected = 0_usize;
+    crossterm::terminal::enable_raw_mode()?;
+    let backend = CrosstermBackend::new(io::stdout());
+    let options = ratatui::TerminalOptions {
+        viewport: ratatui::Viewport::Inline(12),
+    };
+    let mut terminal = Terminal::with_options(backend, options)?;
+    let result = choose(&mut terminal);
+    let restore = crossterm::terminal::disable_raw_mode();
+    terminal.show_cursor()?;
+    println!();
+    restore?;
+    result
+}
+
+fn choose(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<AddChoice, Error> {
+    let mut state = ListState::default().with_selected(Some(0));
     loop {
-        screen.draw(selected)?;
+        terminal.draw(|frame| draw_add(frame, &mut state))?;
         let Event::Key(key) = event::read()? else {
             continue;
         };
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        let selected = state.selected().unwrap_or(0);
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                selected = selected.checked_sub(1).unwrap_or(ITEMS.len() - 1);
+                state.select(Some(selected.checked_sub(1).unwrap_or(ITEMS.len() - 1)));
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                selected = (selected + 1) % ITEMS.len();
+                state.select(Some((selected + 1) % ITEMS.len()));
             }
-            KeyCode::Char('1') => return Ok(AddChoice::NewLogin),
-            KeyCode::Char('2') => return Ok(AddChoice::ImportLocal),
+            KeyCode::Char('1') => return Ok(ITEMS[0].0),
+            KeyCode::Char('2') => return Ok(ITEMS[1].0),
             KeyCode::Enter => return Ok(ITEMS[selected].0),
             KeyCode::Esc | KeyCode::Char('q') => return Ok(AddChoice::Cancel),
             _ => {}
@@ -63,67 +81,71 @@ pub fn choose_add_action() -> Result<AddChoice, Error> {
     }
 }
 
-struct Screen {
-    stdout: io::Stdout,
+fn draw_add(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
+    let [header, choices, footer] = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Length(7),
+        Constraint::Length(2),
+    ])
+    .areas(frame.area());
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(
+                "Add a subscription",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                "Credentials go directly to your team’s Stack vault.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]),
+        header,
+    );
+    let rows = ITEMS.iter().map(|(_, title, detail)| {
+        ListItem::new(vec![
+            Line::from(*title),
+            Line::from(Span::styled(
+                format!("  {detail}"),
+                Style::default().fg(Color::DarkGray),
+            )),
+        ])
+    });
+    frame.render_stateful_widget(
+        List::new(rows)
+            .block(Block::default().borders(Borders::NONE))
+            .highlight_symbol("› ")
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        choices,
+        state,
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "↑/↓ move  enter select  esc cancel",
+            Style::default().fg(Color::DarkGray),
+        )),
+        footer,
+    );
 }
 
-impl Screen {
-    fn enter() -> Result<Self, Error> {
-        terminal::enable_raw_mode()?;
-        let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, cursor::Hide)?;
-        Ok(Self { stdout })
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::backend::TestBackend;
 
-    fn draw(&mut self, selected: usize) -> Result<(), Error> {
-        execute!(
-            self.stdout,
-            cursor::MoveTo(0, 0),
-            terminal::Clear(ClearType::All),
-            SetAttribute(Attribute::Bold),
-            Print("Add a Codex subscription\n\n"),
-            SetAttribute(Attribute::Reset),
-            SetForegroundColor(Color::DarkGrey),
-            Print("Credentials are uploaded to your selected CodeRouter team vault.\n"),
-            Print("Your normal ~/.codex/auth.json is never modified.\n\n"),
-            ResetColor
-        )?;
-        for (index, (_, title, description)) in ITEMS.iter().enumerate() {
-            if index == selected {
-                execute!(
-                    self.stdout,
-                    SetForegroundColor(Color::Cyan),
-                    SetAttribute(Attribute::Bold),
-                    Print(format!("› {}. {title}\n", index + 1)),
-                    SetAttribute(Attribute::Reset),
-                    SetForegroundColor(Color::DarkGrey),
-                    Print(format!("    {description}\n\n")),
-                    ResetColor
-                )?;
-            } else {
-                execute!(
-                    self.stdout,
-                    Print(format!("  {}. {title}\n", index + 1)),
-                    SetForegroundColor(Color::DarkGrey),
-                    Print(format!("    {description}\n\n")),
-                    ResetColor
-                )?;
-            }
-        }
-        execute!(
-            self.stdout,
-            SetForegroundColor(Color::DarkGrey),
-            Print("↑/↓ move  enter select  esc cancel"),
-            ResetColor
-        )?;
-        self.stdout.flush()?;
-        Ok(())
-    }
-}
-
-impl Drop for Screen {
-    fn drop(&mut self) {
-        let _ = execute!(self.stdout, LeaveAlternateScreen, cursor::Show);
-        let _ = terminal::disable_raw_mode();
+    #[test]
+    fn add_screen_names_only_supported_subscriptions() {
+        let backend = TestBackend::new(80, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = ListState::default().with_selected(Some(0));
+        terminal.draw(|frame| draw_add(frame, &mut state)).unwrap();
+        let screen = terminal.backend().to_string();
+        assert!(screen.contains("Codex / ChatGPT Plus or Pro"));
+        assert!(screen.contains("OpenCode Go"));
+        assert!(!screen.contains("Claude"));
+        assert!(screen.contains("Stack vault"));
     }
 }
