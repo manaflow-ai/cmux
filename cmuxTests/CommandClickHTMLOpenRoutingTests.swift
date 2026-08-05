@@ -213,6 +213,108 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func filesystemProbePoolPreservesDistinctCoalescedOwnersBeyondClickLimit() async {
+        let pool = WordPathFilesystemResolutionCoordinator()
+        let blockerStarted = AsyncStream<Void>.makeStream()
+        let releaseBlocker = AsyncStream<Void>.makeStream()
+        let jobsFinished = AsyncStream<Int>.makeStream()
+
+        pool.submit(
+            id: UUID(),
+            isUserInitiated: false,
+            work: {
+                blockerStarted.continuation.yield()
+                var releaseIterator = releaseBlocker.stream.makeAsyncIterator()
+                _ = await releaseIterator.next()
+                return { @MainActor in }
+            },
+            discarded: {}
+        )
+        var blockerIterator = blockerStarted.stream.makeAsyncIterator()
+        _ = await blockerIterator.next()
+
+        for job in 1...40 {
+            pool.submitCoalesced(
+                id: UUID(),
+                coalescingKey: UUID(),
+                work: {
+                    return { @MainActor in jobsFinished.continuation.yield(job) }
+                },
+                discarded: {}
+            )
+        }
+        releaseBlocker.continuation.yield()
+
+        var finishedIterator = jobsFinished.stream.makeAsyncIterator()
+        var completedJobs: [Int] = []
+        for _ in 1...40 {
+            if let job = await finishedIterator.next() {
+                completedJobs.append(job)
+            }
+        }
+        #expect(completedJobs == Array(1...40))
+
+        blockerStarted.continuation.finish()
+        releaseBlocker.continuation.finish()
+        jobsFinished.continuation.finish()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func filesystemProbePoolKeepsOnlyLatestPendingJobForOneCoalescedOwner() async {
+        let pool = WordPathFilesystemResolutionCoordinator()
+        let blockerStarted = AsyncStream<Void>.makeStream()
+        let releaseBlocker = AsyncStream<Void>.makeStream()
+        let firstDiscarded = AsyncStream<Void>.makeStream()
+        let latestFinished = AsyncStream<Void>.makeStream()
+        let firstRan = AtomicBooleanGate(false)
+        let owner = UUID()
+
+        pool.submit(
+            id: UUID(),
+            isUserInitiated: false,
+            work: {
+                blockerStarted.continuation.yield()
+                var releaseIterator = releaseBlocker.stream.makeAsyncIterator()
+                _ = await releaseIterator.next()
+                return { @MainActor in }
+            },
+            discarded: {}
+        )
+        var blockerIterator = blockerStarted.stream.makeAsyncIterator()
+        _ = await blockerIterator.next()
+
+        pool.submitCoalesced(
+            id: UUID(),
+            coalescingKey: owner,
+            work: {
+                firstRan.storeRelease(true)
+                return { @MainActor in }
+            },
+            discarded: { firstDiscarded.continuation.yield() }
+        )
+        pool.submitCoalesced(
+            id: UUID(),
+            coalescingKey: owner,
+            work: {
+                return { @MainActor in latestFinished.continuation.yield() }
+            },
+            discarded: {}
+        )
+
+        var discardedIterator = firstDiscarded.stream.makeAsyncIterator()
+        _ = await discardedIterator.next()
+        releaseBlocker.continuation.yield()
+        var latestIterator = latestFinished.stream.makeAsyncIterator()
+        _ = await latestIterator.next()
+        #expect(!firstRan.loadAcquire())
+
+        blockerStarted.continuation.finish()
+        releaseBlocker.continuation.finish()
+        firstDiscarded.continuation.finish()
+        latestFinished.continuation.finish()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func filesystemProbePoolRateLimitsConsecutiveHovers() async {
         let pool = WordPathFilesystemResolutionCoordinator(
             minimumHoverInterval: .milliseconds(80)
@@ -377,6 +479,35 @@ struct CommandClickHTMLOpenRoutingTests {
 
         #expect(navigation == nil)
         webView.stopLoading()
+    }
+
+    @Test
+    func missingFileOnlyBrowserExposesAWorkingRetryState() async throws {
+        _ = NSApplication.shared
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-only-retry-\(UUID().uuidString).html")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let browser = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: fileURL,
+            localFileReadAccessPolicy: .fileOnly
+        )
+        defer { browser.close() }
+
+        #expect(await waitForNavigationRecovery(in: browser))
+        #expect(browser.hasRecoverableNavigationFailure)
+        #expect(browser.currentURL == fileURL)
+
+        try "<!doctype html><title>retry succeeded</title>".write(
+            to: fileURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        #expect(browser.recoverFailedNavigation(reason: "test"))
+        #expect(await waitForDocumentTitle("retry succeeded", in: browser))
+        #expect(!browser.hasRecoverableNavigationFailure)
     }
 
     @Test
@@ -1086,6 +1217,16 @@ struct CommandClickHTMLOpenRoutingTests {
         for _ in 0..<100 {
             if let result = try? await browser.webView.evaluateJavaScript("document.title"),
                result as? String == expectedTitle {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
+    private func waitForNavigationRecovery(in browser: BrowserPanel) async -> Bool {
+        for _ in 0..<100 {
+            if browser.hasRecoverableNavigationFailure {
                 return true
             }
             try? await Task.sleep(for: .milliseconds(50))
