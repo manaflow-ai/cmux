@@ -1,6 +1,7 @@
 import Foundation
 
-/// Bounds command-path and restricted Browser filesystem work process-wide.
+/// Bounds command-path and restricted Browser filesystem work for one owning
+/// workspace or Dock.
 ///
 /// Mutable scheduling state is main-actor isolated. Click and hover probes share
 /// one interactive lane. Correctness-critical Browser work has a separate,
@@ -21,8 +22,6 @@ final class WordPathFilesystemResolutionCoordinator {
         discarded: Discarded
     )
     private typealias RunningCoalescedJob = (id: UUID, task: Task<Void, Never>)
-
-    static let shared = WordPathFilesystemResolutionCoordinator()
 
     private static let maximumPendingClicks = 32
 

@@ -2100,6 +2100,7 @@ final class Workspace: Identifiable, ObservableObject {
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
     let id: UUID
+    let filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator
     /// Restart-stable workspace identifier persisted for durable deep links.
     private(set) var stableId = UUID()
     /// Durable idempotency key for task-composer workspace creation.
@@ -2201,6 +2202,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let existing = _dockSplit { return existing }
         let store = DockSplitStore(
             workspaceId: id,
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 guard let self else { return .local }
@@ -3196,9 +3198,12 @@ final class Workspace: Identifiable, ObservableObject {
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
+        filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.id = id ?? UUID()
+        self.filesystemResolutionCoordinator = filesystemResolutionCoordinator
+            ?? WordPathFilesystemResolutionCoordinator()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
@@ -3276,7 +3281,8 @@ final class Workspace: Identifiable, ObservableObject {
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
                 omnibarVisible: initialBrowserOmnibarVisible,
-                transparentBackground: initialBrowserTransparentBackground
+                transparentBackground: initialBrowserTransparentBackground,
+                filesystemResolutionCoordinator: self.filesystemResolutionCoordinator
             )
             configureBrowserPanel(browserPanel)
             panels[browserPanel.id] = browserPanel
@@ -3904,6 +3910,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
+        terminalPanel.hostedView.surfaceView.updateWordPathFilesystemResolutionCoordinator(
+            filesystemResolutionCoordinator
+        )
         terminalPanel.surface.onFontSizeLineageChanged = { [weak self, weak terminalPanel] lineage in
             guard let self, let terminalPanel,
                   self.lastTerminalConfigInheritancePanelId == terminalPanel.id,
@@ -3926,6 +3935,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+        browserPanel.updateFilesystemResolutionCoordinator(filesystemResolutionCoordinator)
         AppDelegate.shared?.auth?.browserAppSession.register(browserPanel)
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
@@ -8484,6 +8494,7 @@ final class Workspace: Identifiable, ObservableObject {
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
             localFileReadAccessPolicy: localFileReadAccessPolicy,
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator,
             websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
@@ -8602,6 +8613,7 @@ final class Workspace: Identifiable, ObservableObject {
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
             localFileReadAccessPolicy: localFileReadAccessPolicy,
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator,
             websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)

@@ -731,6 +731,7 @@ func browserNewTabNavigationSeed(
 struct BrowserPopupBrowserContext {
     let websiteDataStore: WKWebsiteDataStore
     let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
+    let filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator
 }
 
 enum BrowserFileSystemAccessBridge {
@@ -2740,6 +2741,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var workspaceId: UUID
 
     let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
+    private(set) var filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator
     private var terminalFileReuseIdentity: BrowserLocalFileIdentity?
     private var terminalFileReusePaths: Set<String> = []
     private var terminalFileReuseAllowsNextCommitAlias = false
@@ -3190,6 +3192,17 @@ final class BrowserPanel: Panel, ObservableObject {
         preserveRestoredSessionHistory: Bool,
         onNavigationStarted: ((WKNavigation?) -> Void)?
     )?
+    private enum FileOnlyNativeNavigationAction {
+        case goBack
+        case goForward
+        case reload
+        case reloadFromOrigin
+    }
+    private var pendingFileOnlyNativeNavigation: (
+        id: UUID,
+        targetURL: URL,
+        action: FileOnlyNativeNavigationAction
+    )?
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
@@ -3460,7 +3473,8 @@ final class BrowserPanel: Panel, ObservableObject {
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
             websiteDataStore: websiteDataStore,
-            localFileReadAccessPolicy: localFileReadAccessPolicy
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator
         )
     }
 
@@ -4147,6 +4161,7 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
+        filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
@@ -4156,6 +4171,8 @@ final class BrowserPanel: Panel, ObservableObject {
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)
         self.workspaceId = workspaceId
         self.localFileReadAccessPolicy = localFileReadAccessPolicy
+        self.filesystemResolutionCoordinator = filesystemResolutionCoordinator
+            ?? WordPathFilesystemResolutionCoordinator()
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
@@ -4832,6 +4849,15 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
+    }
+
+    func updateFilesystemResolutionCoordinator(
+        _ coordinator: WordPathFilesystemResolutionCoordinator
+    ) {
+        guard filesystemResolutionCoordinator !== coordinator else { return }
+        cancelPendingFileOnlyNavigation()
+        closeAllPopupControllers()
+        filesystemResolutionCoordinator = coordinator
     }
 
     var explicitEphemeralWebsiteDataStoreForSibling: WKWebsiteDataStore? {
@@ -6202,7 +6228,7 @@ final class BrowserPanel: Panel, ObservableObject {
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
             onNavigationStarted: onNavigationStarted
         )
-        WordPathFilesystemResolutionCoordinator.shared.submitCoalesced(
+        filesystemResolutionCoordinator.submitCoalesced(
             id: id,
             coalescingKey: self.id,
             work: {
@@ -6284,12 +6310,130 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func cancelPendingFileOnlyNavigation() {
-        guard let pendingFileOnlyNavigation else { return }
-        self.pendingFileOnlyNavigation = nil
-        pendingFileOnlyNavigation.onNavigationStarted?(nil)
-        WordPathFilesystemResolutionCoordinator.shared.cancelPending(
-            id: pendingFileOnlyNavigation.id
+        if let pendingFileOnlyNavigation {
+            self.pendingFileOnlyNavigation = nil
+            pendingFileOnlyNavigation.onNavigationStarted?(nil)
+            filesystemResolutionCoordinator.cancelPending(
+                id: pendingFileOnlyNavigation.id
+            )
+        }
+        if let pendingFileOnlyNativeNavigation {
+            self.pendingFileOnlyNativeNavigation = nil
+            filesystemResolutionCoordinator.cancelPending(
+                id: pendingFileOnlyNativeNavigation.id
+            )
+        }
+    }
+
+    private func enqueueFileOnlyNativeNavigation(
+        to targetURL: URL,
+        action: FileOnlyNativeNavigationAction
+    ) {
+        guard targetURL.browserIsLocalFileURL else {
+            finishRejectedFileOnlyNativeNavigation(targetURL: targetURL, action: action)
+            return
+        }
+        cancelPendingFileOnlyNavigation()
+        let id = UUID()
+        pendingFileOnlyNativeNavigation = (id, targetURL, action)
+        filesystemResolutionCoordinator.submitCoalesced(
+            id: id,
+            coalescingKey: self.id,
+            work: {
+                let result = await WordPathFilesystemProbe()
+                    .firstExistingPath(in: [targetURL.path])
+                let navigationURL = result.flatMap { result -> URL? in
+                    guard result.isReadableRegularFile else { return nil }
+                    return BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                        for: targetURL,
+                        resolvedFileURL: URL(fileURLWithPath: result.resolvedPath)
+                    )
+                }
+                return { @MainActor [weak self] in
+                    self?.finishFileOnlyNativeNavigation(
+                        id: id,
+                        navigationURL: navigationURL
+                    )
+                }
+            },
+            discarded: { [weak self] in
+                self?.discardFileOnlyNativeNavigation(id: id)
+            },
+            rejected: { [weak self] in
+                self?.finishFileOnlyNativeNavigation(id: id, navigationURL: nil)
+            }
         )
+    }
+
+    private func finishFileOnlyNativeNavigation(id: UUID, navigationURL: URL?) {
+        guard let pendingFileOnlyNativeNavigation,
+              pendingFileOnlyNativeNavigation.id == id else {
+            return
+        }
+        self.pendingFileOnlyNativeNavigation = nil
+        let targetURL = pendingFileOnlyNativeNavigation.targetURL
+        let action = pendingFileOnlyNativeNavigation.action
+        guard navigationURL?.absoluteString == targetURL.absoluteString else {
+            finishRejectedFileOnlyNativeNavigation(targetURL: targetURL, action: action)
+            return
+        }
+        guard currentNativeNavigationTarget(for: action)?.absoluteString == targetURL.absoluteString,
+              navigationDelegate?.authorizeValidatedFileOnlyNavigation(targetURL) == true else {
+            refreshNavigationAvailability()
+            return
+        }
+        webView.applyBrowserUserAgentPolicy(for: targetURL)
+        if performNativeNavigation(action) == nil {
+            navigationDelegate?.cancelValidatedFileOnlyNavigationAllowance()
+            finishRejectedFileOnlyNativeNavigation(targetURL: targetURL, action: action)
+        }
+    }
+
+    private func discardFileOnlyNativeNavigation(id: UUID) {
+        guard pendingFileOnlyNativeNavigation?.id == id else { return }
+        pendingFileOnlyNativeNavigation = nil
+        refreshNavigationAvailability()
+    }
+
+    private func finishRejectedFileOnlyNativeNavigation(
+        targetURL: URL,
+        action: FileOnlyNativeNavigationAction
+    ) {
+        switch action {
+        case .reload, .reloadFromOrigin:
+            noteFileOnlyNavigationResolutionFailure(request: URLRequest(url: targetURL))
+        case .goBack, .goForward:
+            refreshNavigationAvailability()
+        }
+    }
+
+    private func currentNativeNavigationTarget(
+        for action: FileOnlyNativeNavigationAction
+    ) -> URL? {
+        switch action {
+        case .goBack:
+            return webView.backForwardList.backItem?.url
+        case .goForward:
+            return webView.backForwardList.forwardItem?.url
+        case .reload, .reloadFromOrigin:
+            return webView.url
+        }
+    }
+
+    @discardableResult
+    private func performNativeNavigation(
+        _ action: FileOnlyNativeNavigationAction
+    ) -> WKNavigation? {
+        switch action {
+        case .goBack:
+            return webView.goBack()
+        case .goForward:
+            return webView.goForward()
+        case .reload:
+            return webView.reload()
+        case .reloadFromOrigin:
+            return webView.reloadFromOrigin()
+        }
     }
 
     private func resumePendingRemoteNavigationIfNeeded() {
@@ -6667,7 +6811,9 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isVisibleInUI: isWebViewVisibleInUI,
             shouldRenderWebView: shouldRenderWebView,
             hasPendingRemoteNavigation:
-                pendingRemoteNavigation != nil || pendingFileOnlyNavigation != nil,
+                pendingRemoteNavigation != nil ||
+                pendingFileOnlyNavigation != nil ||
+                pendingFileOnlyNativeNavigation != nil,
             hasCurrentURL: (currentURL ?? Self.remoteProxyDisplayURL(for: webView.url)) != nil,
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
@@ -6730,6 +6876,7 @@ extension BrowserPanel {
         hasRecoverableNavigationFailure ||
         pendingNavigationRecoveryURL != nil ||
         pendingFileOnlyNavigation != nil ||
+        pendingFileOnlyNativeNavigation != nil ||
         webView.cmuxBrowserViewportAttachmentSuperview != nil
     }
 
@@ -6902,16 +7049,14 @@ extension BrowserPanel {
                     preserveRestoredSessionHistory: true
                 )
             case .nativeGoBack:
-                webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.backItem?.url)
-                webView.goBack()
+                performHistoryNavigation(.goBack)
             case .nativeGoForward, .refreshOnly:
                 refreshNavigationAvailability()
             }
             return
         }
 
-        webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.backItem?.url)
-        webView.goBack()
+        performHistoryNavigation(.goBack)
     }
 
     /// Go forward in history
@@ -6929,8 +7074,7 @@ extension BrowserPanel {
             )
             switch decision {
             case .nativeGoForward:
-                webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.forwardItem?.url)
-                webView.goForward()
+                performHistoryNavigation(.goForward)
             case .navigate(let targetURL):
                 refreshNavigationAvailability()
                 navigateWithoutInsecureHTTPPrompt(
@@ -6944,8 +7088,20 @@ extension BrowserPanel {
             return
         }
 
-        webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.forwardItem?.url)
-        webView.goForward()
+        performHistoryNavigation(.goForward)
+    }
+
+    private func performHistoryNavigation(_ action: FileOnlyNativeNavigationAction) {
+        guard let targetURL = currentNativeNavigationTarget(for: action) else {
+            refreshNavigationAvailability()
+            return
+        }
+        if localFileReadAccessPolicy == .fileOnly, targetURL.isFileURL {
+            enqueueFileOnlyNativeNavigation(to: targetURL, action: action)
+            return
+        }
+        webView.applyBrowserUserAgentPolicy(for: targetURL)
+        _ = performNativeNavigation(action)
     }
 
     /// Open a link in a new browser surface in the same pane
@@ -7003,7 +7159,7 @@ extension BrowserPanel {
             finishResolution(nil)
             return
         }
-        WordPathFilesystemResolutionCoordinator.shared.submit(
+        filesystemResolutionCoordinator.submit(
             id: UUID(),
             isUserInitiated: true,
             work: {
@@ -7214,7 +7370,13 @@ extension BrowserPanel {
         if prepareForReload(reason: "reload", mode: .soft) {
             return nil
         }
-        return webView.reload()
+        if let targetURL = currentNativeNavigationTarget(for: .reload),
+           localFileReadAccessPolicy == .fileOnly,
+           targetURL.isFileURL {
+            enqueueFileOnlyNativeNavigation(to: targetURL, action: .reload)
+            return nil
+        }
+        return performNativeNavigation(.reload)
     }
 
     /// Reload the current page, bypassing WebKit's cache.
@@ -7222,7 +7384,13 @@ extension BrowserPanel {
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }
-        webView.reloadFromOrigin()
+        if let targetURL = currentNativeNavigationTarget(for: .reloadFromOrigin),
+           localFileReadAccessPolicy == .fileOnly,
+           targetURL.isFileURL {
+            enqueueFileOnlyNativeNavigation(to: targetURL, action: .reloadFromOrigin)
+            return
+        }
+        _ = performNativeNavigation(.reloadFromOrigin)
     }
 
     /// Stop loading

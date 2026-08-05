@@ -374,7 +374,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             }
             let id = UUID()
             pendingFileOnlyNavigation = (id, request)
-            WordPathFilesystemResolutionCoordinator.shared.submitCoalesced(
+            browserContext.filesystemResolutionCoordinator.submitCoalesced(
                 id: id,
                 coalescingKey: fileOnlyNavigationResolutionKey,
                 work: {
@@ -453,7 +453,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private func cancelPendingFileOnlyNavigation() {
         guard let pendingFileOnlyNavigation else { return }
         self.pendingFileOnlyNavigation = nil
-        WordPathFilesystemResolutionCoordinator.shared.cancelPending(
+        browserContext.filesystemResolutionCoordinator.cancelPending(
             id: pendingFileOnlyNavigation.id
         )
     }

@@ -128,6 +128,7 @@ extension DockSplitStore {
                 ? settings.remoteWebsiteDataStoreIdentifier
                 : nil,
             localFileReadAccessPolicy: localFileReadAccessPolicy,
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator,
             websiteDataStore: websiteDataStore
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
@@ -139,6 +140,7 @@ extension DockSplitStore {
     /// A transferred panel may still carry closures owned by its old Workspace
     /// or Dock, so configuration is intentionally safe to repeat.
     func configureBrowserPanel(_ panel: BrowserPanel) {
+        panel.updateFilesystemResolutionCoordinator(filesystemResolutionCoordinator)
         AppDelegate.shared?.auth?.browserAppSession.register(panel)
         panel.webViewDidRequestClose = { [weak self, weak panel] in
             guard let self, let panel else { return }

@@ -8,12 +8,14 @@ import Foundation
 @MainActor
 struct TerminalLinkOpenCoordinator {
     private let defaults: UserDefaults
+    private let filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
     init(
         defaults: UserDefaults = .standard,
+        filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator? = nil,
         containerResolver: @escaping @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)? = Self.resolveContainer,
         externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
@@ -21,6 +23,8 @@ struct TerminalLinkOpenCoordinator {
         }
     ) {
         self.defaults = defaults
+        self.filesystemResolutionCoordinator = filesystemResolutionCoordinator
+            ?? WordPathFilesystemResolutionCoordinator()
         self.containerResolver = containerResolver
         self.externalOpen = externalOpen
         self.deferOperation = deferOperation
@@ -246,7 +250,7 @@ struct TerminalLinkOpenCoordinator {
                 finishResolution(resolvedFileURL)
                 return
             }
-            WordPathFilesystemResolutionCoordinator.shared.submit(
+            filesystemResolutionCoordinator.submit(
                 id: UUID(),
                 isUserInitiated: true,
                 work: {

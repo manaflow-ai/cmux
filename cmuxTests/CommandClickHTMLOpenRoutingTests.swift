@@ -130,6 +130,39 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test
+    func workspacesOwnIndependentFilesystemResolutionCoordinators() throws {
+        _ = NSApplication.shared
+
+        let first = Workspace()
+        let second = Workspace()
+        let browserWorkspace = Workspace(initialSurface: .browser)
+        defer {
+            first.teardownAllPanels()
+            second.teardownAllPanels()
+            browserWorkspace.teardownAllPanels()
+        }
+
+        #expect(first.filesystemResolutionCoordinator !== second.filesystemResolutionCoordinator)
+        #expect(first.dockSplit.filesystemResolutionCoordinator === first.filesystemResolutionCoordinator)
+
+        let firstTerminal = try #require(
+            first.panels.values.compactMap { $0 as? TerminalPanel }.first
+        )
+        #expect(
+            firstTerminal.hostedView.surfaceView.wordPathFilesystemResolutionCoordinator
+                === first.filesystemResolutionCoordinator
+        )
+
+        let browser = try #require(
+            browserWorkspace.panels.values.compactMap { $0 as? BrowserPanel }.first
+        )
+        #expect(
+            browser.filesystemResolutionCoordinator
+                === browserWorkspace.filesystemResolutionCoordinator
+        )
+    }
+
+    @Test
     func hoverFilesystemProbePoolRunsOneAndRetainsOnlyLatestPendingJob() async {
         let pool = WordPathFilesystemResolutionCoordinator()
         let firstStarted = AsyncStream<Void>.makeStream()
@@ -834,7 +867,8 @@ struct CommandClickHTMLOpenRoutingTests {
             windowFeatures: WKWindowFeatures(),
             browserContext: BrowserPopupBrowserContext(
                 websiteDataStore: .nonPersistent(),
-                localFileReadAccessPolicy: .fileOnly
+                localFileReadAccessPolicy: .fileOnly,
+                filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator()
             ),
             openerPanel: nil
         )
@@ -981,7 +1015,8 @@ struct CommandClickHTMLOpenRoutingTests {
         let blockerStarted = AsyncStream<Void>.makeStream()
         let releaseBlocker = AsyncStream<Void>.makeStream()
         let blockerFinished = AsyncStream<Void>.makeStream()
-        WordPathFilesystemResolutionCoordinator.shared.submit(
+        let filesystemResolutionCoordinator = WordPathFilesystemResolutionCoordinator()
+        filesystemResolutionCoordinator.submit(
             id: UUID(),
             isUserInitiated: true,
             work: {
@@ -995,7 +1030,9 @@ struct CommandClickHTMLOpenRoutingTests {
         var blockerStartedIterator = blockerStarted.stream.makeAsyncIterator()
         _ = await blockerStartedIterator.next()
 
-        let workspace = Workspace()
+        let workspace = Workspace(
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator
+        )
         defer { workspace.teardownAllPanels() }
         let sourcePanelId = try #require(workspace.focusedPanelId)
         let opened = openResolvedHTMLInCmux(

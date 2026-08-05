@@ -17,6 +17,7 @@ import WebKit
 @Observable
 final class DockSplitStore: BonsplitDelegate {
     let workspaceId: UUID
+    @ObservationIgnored let filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator
     let bonsplitController: BonsplitController
 
     /// Which Dock this store backs: `.workspace` (per-workspace, seeded from the
@@ -243,6 +244,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     init(
         workspaceId: UUID,
+        filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator? = nil,
         scope: DockScope = .workspace,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
@@ -252,6 +254,8 @@ final class DockSplitStore: BonsplitDelegate {
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver()
     ) {
         self.workspaceId = workspaceId
+        self.filesystemResolutionCoordinator = filesystemResolutionCoordinator
+            ?? WordPathFilesystemResolutionCoordinator()
         self.scope = scope
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
@@ -891,6 +895,9 @@ final class DockSplitStore: BonsplitDelegate {
 
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let terminal = panel as? TerminalPanel {
+            terminal.hostedView.surfaceView.updateWordPathFilesystemResolutionCoordinator(
+                filesystemResolutionCoordinator
+            )
             configureAgentHibernationResume(for: terminal)
         }
         installAttentionFlashRouting(for: panel)

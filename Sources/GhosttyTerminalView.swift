@@ -3475,7 +3475,9 @@ class GhosttyApp {
                 workingDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
             )
             return performOnMain {
-                TerminalLinkOpenCoordinator().open(request)
+                TerminalLinkOpenCoordinator(
+                    filesystemResolutionCoordinator: surfaceView.wordPathFilesystemResolutionCoordinator
+                ).open(request)
             }
         default:
             return false
@@ -3667,6 +3669,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
     private var cachedWordPathHover: WordPathHoverCacheEntry?
+    private(set) var wordPathFilesystemResolutionCoordinator = WordPathFilesystemResolutionCoordinator()
     private weak var cachedTerminalLinkOpenContainer: (any TerminalLinkOpenContainer)?
     private var cachedTerminalLinkOpenContainerSurfaceID: UUID?
     /// A surface-scoped render lease keeps a stationary Command-hover aligned
@@ -3685,6 +3688,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathClickResolutionCancellation: AtomicBooleanGate?
     private var wordPathClickResolutionCompletion:
         (@MainActor @Sendable (WordPathResolution?) -> Void)?
+
+    func updateWordPathFilesystemResolutionCoordinator(
+        _ coordinator: WordPathFilesystemResolutionCoordinator
+    ) {
+        guard wordPathFilesystemResolutionCoordinator !== coordinator else { return }
+        cancelWordPathHoverResolution()
+        cancelWordPathClickResolution()
+        wordPathFilesystemResolutionCoordinator = coordinator
+    }
     private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
     private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
@@ -6957,7 +6969,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         wordPathHoverResolutionTaskIdentity = identity
         wordPathHoverResolutionTaskRequest = nil
 
-        WordPathFilesystemResolutionCoordinator.shared.submit(
+        wordPathFilesystemResolutionCoordinator.submit(
             id: jobID,
             isUserInitiated: false,
             prepare: { [weak self, cancellation, identity] in
@@ -7048,7 +7060,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func cancelWordPathHoverResolution() {
         guard let jobID = wordPathHoverResolutionJobID else { return }
         wordPathHoverResolutionCancellation?.storeRelease(true)
-        WordPathFilesystemResolutionCoordinator.shared.cancelPending(id: jobID)
+        wordPathFilesystemResolutionCoordinator.cancelPending(id: jobID)
         wordPathHoverResolutionJobID = nil
         wordPathHoverResolutionCancellation = nil
         wordPathHoverResolutionTaskIdentity = nil
@@ -7358,7 +7370,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         wordPathClickResolutionCancellation = cancellation
         wordPathClickResolutionCompletion = completion
 
-        WordPathFilesystemResolutionCoordinator.shared.submit(
+        wordPathFilesystemResolutionCoordinator.submit(
             id: jobID,
             isUserInitiated: true,
             work: { [weak self, cancellation, snapshot] in
@@ -7499,6 +7511,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if resolution.isReadableRegularFile,
            CommandClickFileOpenRouter.shouldRouteResolvedFileInCmux(path: resolution.path) {
             let coordinator = TerminalLinkOpenCoordinator(
+                filesystemResolutionCoordinator: wordPathFilesystemResolutionCoordinator,
                 externalOpen: { url in
                     PreferredEditorService(defaults: .standard).open(url)
                     return true
@@ -7535,7 +7548,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func cancelWordPathClickResolution() {
         guard let jobID = wordPathClickResolutionJobID else { return }
         wordPathClickResolutionCancellation?.storeRelease(true)
-        WordPathFilesystemResolutionCoordinator.shared.cancelPending(id: jobID)
+        wordPathFilesystemResolutionCoordinator.cancelPending(id: jobID)
         discardWordPathClickResolution(jobID: jobID)
     }
 
