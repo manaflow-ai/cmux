@@ -89,6 +89,22 @@ FORCE_LOCAL_GITHUB_PATH_FILE="$TMP_DIR/force-local-github-path"
 FORCE_LOCAL_GITHUB_ENV_FILE="$TMP_DIR/force-local-github-env"
 FORCE_LOCAL_INSTALL_PARENT="$TMP_DIR/force-local-install"
 FORCE_LOCAL_MARKER="$FORCE_LOCAL_INSTALL_PARENT/keep.txt"
+LOCAL_ONLY_OUTPUT_FILE="$TMP_DIR/local-only-output"
+LOCAL_ONLY_REUSE_OUTPUT_FILE="$TMP_DIR/local-only-reuse-output"
+LOCAL_ONLY_GITHUB_PATH_FILE="$TMP_DIR/local-only-github-path"
+LOCAL_ONLY_GITHUB_ENV_FILE="$TMP_DIR/local-only-github-env"
+LOCAL_ONLY_INSTALL_PARENT="$TMP_DIR/local-only-install"
+LOCAL_ONLY_PATH_OUTPUT="$TMP_DIR/local-only-zig-path"
+LOCAL_ONLY_REUSE_PATH_OUTPUT="$TMP_DIR/local-only-reuse-zig-path"
+LOCAL_ONLY_MARKER="$LOCAL_ONLY_INSTALL_PARENT/keep.txt"
+CONCURRENT_INSTALL_PARENT="$TMP_DIR/concurrent-install"
+CONCURRENT_OUTPUT_ONE="$TMP_DIR/concurrent-output-one"
+CONCURRENT_OUTPUT_TWO="$TMP_DIR/concurrent-output-two"
+CONCURRENT_PATH_OUTPUT_ONE="$TMP_DIR/concurrent-path-one"
+CONCURRENT_PATH_OUTPUT_TWO="$TMP_DIR/concurrent-path-two"
+ORPHAN_LOCK_INSTALL_PARENT="$TMP_DIR/orphan-lock-install"
+ORPHAN_LOCK_OUTPUT="$TMP_DIR/orphan-lock-output"
+ORPHAN_LOCK_PATH_OUTPUT="$TMP_DIR/orphan-lock-path"
 DEFAULT_OUTPUT_FILE="$TMP_DIR/default-output"
 DEFAULT_GITHUB_PATH_FILE="$TMP_DIR/default-github-path"
 DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
@@ -373,6 +389,189 @@ if ! grep -Fxq "CMUX_ZIG=$EXPECTED_FORCE_LOCAL_INSTALL_ROOT/zig" "$FORCE_LOCAL_G
   exit 1
 fi
 
+rm -f "$SUDO_LOG"
+mkdir -p "$LOCAL_ONLY_INSTALL_PARENT"
+printf 'keep\n' > "$LOCAL_ONLY_MARKER"
+
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  GITHUB_PATH="$LOCAL_ONLY_GITHUB_PATH_FILE" \
+  GITHUB_ENV="$LOCAL_ONLY_GITHUB_ENV_FILE" \
+  FAKE_ZIG_VERSION="98.98.98" \
+  FAKE_ZIG_LIB_DIR="$FIXTURE_ROOT/$ZIG_NAME/lib" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_LOCAL_INSTALL_ONLY=1 \
+  ZIG_INSTALL_ROOT="$LOCAL_ONLY_INSTALL_PARENT" \
+  ZIG_PATH_OUTPUT="$LOCAL_ONLY_PATH_OUTPUT" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$LOCAL_ONLY_OUTPUT_FILE" 2>&1
+
+LOCAL_ONLY_INSTALL_ROOT="$LOCAL_ONLY_INSTALL_PARENT/$ZIG_NAME"
+EXPECTED_LOCAL_ONLY_INSTALL_ROOT="$(canonical_install_root "$LOCAL_ONLY_INSTALL_ROOT")"
+if [ ! -x "$LOCAL_ONLY_INSTALL_ROOT/zig" ]; then
+  cat "$LOCAL_ONLY_OUTPUT_FILE"
+  echo "FAIL: local-only install did not install zig under ZIG_INSTALL_ROOT" >&2
+  exit 1
+fi
+
+if [ ! -f "$LOCAL_ONLY_MARKER" ]; then
+  cat "$LOCAL_ONLY_OUTPUT_FILE"
+  echo "FAIL: local-only install deleted unrelated parent directory contents" >&2
+  exit 1
+fi
+
+if [ -s "$SUDO_LOG" ]; then
+  cat "$LOCAL_ONLY_OUTPUT_FILE"
+  cat "$SUDO_LOG"
+  echo "FAIL: local-only install invoked sudo" >&2
+  exit 1
+fi
+
+if ! grep -Fq "ZIG_LOCAL_INSTALL_ONLY=1; installing zig under" "$LOCAL_ONLY_OUTPUT_FILE"; then
+  cat "$LOCAL_ONLY_OUTPUT_FILE"
+  echo "FAIL: local-only install did not report the isolated path" >&2
+  exit 1
+fi
+
+if ! grep -Fxq "$EXPECTED_LOCAL_ONLY_INSTALL_ROOT/zig" "$LOCAL_ONLY_PATH_OUTPUT"; then
+  cat "$LOCAL_ONLY_OUTPUT_FILE"
+  echo "FAIL: local-only install did not publish its executable to ZIG_PATH_OUTPUT" >&2
+  exit 1
+fi
+
+rm -f "$SUDO_LOG"
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  GITHUB_PATH="$LOCAL_ONLY_GITHUB_PATH_FILE" \
+  GITHUB_ENV="$LOCAL_ONLY_GITHUB_ENV_FILE" \
+  FAKE_ZIG_VERSION="98.98.98" \
+  FAKE_ZIG_LIB_DIR="$FIXTURE_ROOT/$ZIG_NAME/lib" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_LOCAL_INSTALL_ONLY=1 \
+  ZIG_INSTALL_ROOT="$LOCAL_ONLY_INSTALL_PARENT" \
+  ZIG_PATH_OUTPUT="$LOCAL_ONLY_REUSE_PATH_OUTPUT" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$LOCAL_ONLY_REUSE_OUTPUT_FILE" 2>&1
+
+if ! grep -Fq "already installed at" "$LOCAL_ONLY_REUSE_OUTPUT_FILE"; then
+  cat "$LOCAL_ONLY_REUSE_OUTPUT_FILE"
+  echo "FAIL: local-only installer did not reuse its verified cached Zig" >&2
+  exit 1
+fi
+
+REUSED_LOCAL_ONLY_ZIG="$(cat "$LOCAL_ONLY_REUSE_PATH_OUTPUT")"
+CANONICAL_REUSED_LOCAL_ONLY_ZIG="$(canonical_install_root "$(dirname "$REUSED_LOCAL_ONLY_ZIG")")/zig"
+if [ "$CANONICAL_REUSED_LOCAL_ONLY_ZIG" != "$EXPECTED_LOCAL_ONLY_INSTALL_ROOT/zig" ]; then
+  cat "$LOCAL_ONLY_REUSE_OUTPUT_FILE"
+  echo "FAIL: cached local-only Zig was not published to ZIG_PATH_OUTPUT" >&2
+  exit 1
+fi
+
+if [ -s "$SUDO_LOG" ]; then
+  cat "$LOCAL_ONLY_REUSE_OUTPUT_FILE"
+  cat "$SUDO_LOG"
+  echo "FAIL: cached local-only reuse invoked sudo" >&2
+  exit 1
+fi
+
+mkdir -p "$CONCURRENT_INSTALL_PARENT"
+run_concurrent_install() {
+  local output_file="$1"
+  local path_output="$2"
+  PATH="$BIN_DIR:/usr/bin:/bin" \
+    RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+    FAKE_ZIG_VERSION="98.98.98" \
+    FAKE_ZIG_LIB_DIR="$FIXTURE_ROOT/$ZIG_NAME/lib" \
+    ZIG_REQUIRED="$ZIG_REQUIRED" \
+    ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+    ZIG_FORCE_LOCAL_INSTALL=1 \
+    ZIG_INSTALL_ROOT="$CONCURRENT_INSTALL_PARENT" \
+    ZIG_PATH_OUTPUT="$path_output" \
+    ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+    "$SCRIPT" > "$output_file" 2>&1
+}
+
+run_concurrent_install "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_PATH_OUTPUT_ONE" &
+CONCURRENT_PID_ONE=$!
+run_concurrent_install "$CONCURRENT_OUTPUT_TWO" "$CONCURRENT_PATH_OUTPUT_TWO" &
+CONCURRENT_PID_TWO=$!
+CONCURRENT_STATUS_ONE=0
+CONCURRENT_STATUS_TWO=0
+wait "$CONCURRENT_PID_ONE" || CONCURRENT_STATUS_ONE=$?
+wait "$CONCURRENT_PID_TWO" || CONCURRENT_STATUS_TWO=$?
+if [ "$CONCURRENT_STATUS_ONE" -ne 0 ] || [ "$CONCURRENT_STATUS_TWO" -ne 0 ]; then
+  cat "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_OUTPUT_TWO"
+  echo "FAIL: concurrent local Zig installers did not both succeed" >&2
+  exit 1
+fi
+
+CONCURRENT_INSTALL_ROOT="$CONCURRENT_INSTALL_PARENT/$ZIG_NAME"
+EXPECTED_CONCURRENT_ZIG="$(canonical_install_root "$CONCURRENT_INSTALL_ROOT")/zig"
+if [ ! -x "$EXPECTED_CONCURRENT_ZIG" ]; then
+  cat "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_OUTPUT_TWO"
+  echo "FAIL: concurrent local Zig install did not publish one complete toolchain" >&2
+  exit 1
+fi
+
+for path_output in "$CONCURRENT_PATH_OUTPUT_ONE" "$CONCURRENT_PATH_OUTPUT_TWO"; do
+  actual_zig="$(cat "$path_output")"
+  canonical_actual_zig="$(canonical_install_root "$(dirname "$actual_zig")")/zig"
+  if [ "$canonical_actual_zig" != "$EXPECTED_CONCURRENT_ZIG" ]; then
+    cat "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_OUTPUT_TWO"
+    echo "FAIL: concurrent installer published a noncanonical Zig path" >&2
+    exit 1
+  fi
+done
+
+if [ -e "${CONCURRENT_INSTALL_ROOT}.install-lock" ] \
+  || find "$CONCURRENT_INSTALL_PARENT" -maxdepth 1 -name "${ZIG_NAME}.staging.*" -print -quit | grep -q . \
+  || [ -e "$CONCURRENT_INSTALL_ROOT/$ZIG_NAME" ]; then
+  cat "$CONCURRENT_OUTPUT_ONE" "$CONCURRENT_OUTPUT_TWO"
+  echo "FAIL: concurrent Zig cache publication left lock, staging, or nested toolchain state" >&2
+  exit 1
+fi
+
+mkdir -p "$ORPHAN_LOCK_INSTALL_PARENT/${ZIG_NAME}.install-lock"
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  FAKE_ZIG_VERSION="98.98.98" \
+  FAKE_ZIG_LIB_DIR="$FIXTURE_ROOT/$ZIG_NAME/lib" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_FORCE_LOCAL_INSTALL=1 \
+  ZIG_INSTALL_ROOT="$ORPHAN_LOCK_INSTALL_PARENT" \
+  ZIG_PATH_OUTPUT="$ORPHAN_LOCK_PATH_OUTPUT" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$ORPHAN_LOCK_OUTPUT" 2>&1 &
+ORPHAN_LOCK_PID=$!
+
+for _ in $(seq 1 50); do
+  if ! kill -0 "$ORPHAN_LOCK_PID" 2>/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
+
+if kill -0 "$ORPHAN_LOCK_PID" 2>/dev/null; then
+  kill "$ORPHAN_LOCK_PID" 2>/dev/null || true
+  wait "$ORPHAN_LOCK_PID" 2>/dev/null || true
+  cat "$ORPHAN_LOCK_OUTPUT"
+  echo "FAIL: installer did not recover an interrupted cache lock without a PID" >&2
+  exit 1
+fi
+
+ORPHAN_LOCK_STATUS=0
+wait "$ORPHAN_LOCK_PID" || ORPHAN_LOCK_STATUS=$?
+if [ "$ORPHAN_LOCK_STATUS" -ne 0 ] \
+  || [ ! -x "$ORPHAN_LOCK_INSTALL_PARENT/$ZIG_NAME/zig" ] \
+  || [ -e "$ORPHAN_LOCK_INSTALL_PARENT/${ZIG_NAME}.install-lock" ]; then
+  cat "$ORPHAN_LOCK_OUTPUT"
+  echo "FAIL: installer did not replace an interrupted cache lock with a complete toolchain" >&2
+  exit 1
+fi
+
 cat > "$BIN_DIR/sudo" <<'EOF'
 #!/usr/bin/env bash
 exit 1
@@ -416,4 +615,4 @@ if ! grep -Fxq "CMUX_ZIG=$EXPECTED_DEFAULT_INSTALL_ROOT/zig" "$DEFAULT_GITHUB_EN
   exit 1
 fi
 
-echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, validates sudo lib_dir, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"
+echo "PASS: install-zig-ci validates existing Zig, supports isolated cached installs with path output, validates sudo lib_dir, and handles missing RUNNER_TEMP"
