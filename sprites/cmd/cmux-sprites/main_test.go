@@ -9,7 +9,28 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+type fakeClock struct {
+	now    time.Time
+	sleeps []time.Duration
+}
+
+func (clock *fakeClock) Now() time.Time {
+	return clock.now
+}
+
+func (clock *fakeClock) Sleep(ctx context.Context, delay time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		clock.sleeps = append(clock.sleeps, delay)
+		clock.now = clock.now.Add(delay)
+		return nil
+	}
+}
 
 func TestInvitationID(t *testing.T) {
 	payload, err := json.Marshal(map[string]any{
@@ -93,7 +114,14 @@ func TestLoginPrintsCopyPasteCodeAndBindsClient(t *testing.T) {
 	defer server.Close()
 
 	var output strings.Builder
-	got, err := login(context.Background(), newClient(server.URL, nil), false, &output)
+	clock := &fakeClock{now: time.Unix(0, 0)}
+	got, err := loginWithClock(
+		context.Background(),
+		newClient(server.URL, nil),
+		false,
+		&output,
+		clock,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,6 +133,9 @@ func TestLoginPrintsCopyPasteCodeAndBindsClient(t *testing.T) {
 	}
 	if got.AccessToken != "access" || got.RefreshToken != "refresh" {
 		t.Fatalf("login tokens = %#v", got)
+	}
+	if len(clock.sleeps) != 1 || clock.sleeps[0] != time.Second {
+		t.Fatalf("login sleeps = %v", clock.sleeps)
 	}
 }
 
@@ -132,7 +163,13 @@ func TestLoginRejectsCredentialsMintedForAnotherClient(t *testing.T) {
 	}))
 	defer server.Close()
 
-	got, err := login(context.Background(), newClient(server.URL, nil), false, io.Discard)
+	got, err := loginWithClock(
+		context.Background(),
+		newClient(server.URL, nil),
+		false,
+		io.Discard,
+		&fakeClock{now: time.Unix(0, 0)},
+	)
 	if err == nil {
 		t.Fatal("login accepted credentials for cmux-vault")
 	}
@@ -151,12 +188,12 @@ func TestAPIClientRejectsInsecureRemoteBaseAndCrossOriginRedirects(t *testing.T)
 	}
 
 	targetCalled := false
-	target := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	target := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		targetCalled = true
 		response.WriteHeader(http.StatusNoContent)
 	}))
 	defer target.Close()
-	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	source := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		http.Redirect(response, request, target.URL, http.StatusTemporaryRedirect)
 	}))
 	defer source.Close()
@@ -165,12 +202,24 @@ func TestAPIClientRejectsInsecureRemoteBaseAndCrossOriginRedirects(t *testing.T)
 		AccessToken:  "access",
 		RefreshToken: "refresh",
 	})
+	redirecting.http.Transport = source.Client().Transport
 	err := redirecting.request(context.Background(), http.MethodGet, "/", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "refusing cross-origin API redirect") {
 		t.Fatalf("cross-origin redirect error = %v", err)
 	}
 	if targetCalled {
 		t.Fatal("credential-bearing redirect reached the second origin")
+	}
+}
+
+func TestCredentialedClientRequiresHTTPSEvenOnLoopback(t *testing.T) {
+	client := newClient("http://127.0.0.1:4733", &tokens{
+		AccessToken:  "access",
+		RefreshToken: "refresh",
+	})
+	err := client.request(context.Background(), http.MethodGet, "/api/vm", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "credentialed cmux API requests require HTTPS") {
+		t.Fatalf("credentialed loopback HTTP error = %v", err)
 	}
 }
 
@@ -197,5 +246,61 @@ func TestAPIClientDoesNotExposeRawErrorBodies(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "code vm_cloud_service_unavailable") {
 		t.Fatalf("safe error code missing: %v", err)
+	}
+}
+
+type fakeEnrollmentExecutor struct {
+	results  []execResult
+	errors   []error
+	timeouts []int
+}
+
+func (executor *fakeEnrollmentExecutor) execWithTimeout(
+	_ context.Context,
+	_ string,
+	_ string,
+	timeout int,
+) (execResult, error) {
+	executor.timeouts = append(executor.timeouts, timeout)
+	index := len(executor.timeouts) - 1
+	var result execResult
+	if index < len(executor.results) {
+		result = executor.results[index]
+	}
+	var err error
+	if index < len(executor.errors) {
+		err = executor.errors[index]
+	}
+	return result, err
+}
+
+func TestApproveEnrollmentUsesInjectedCancellationAwareRetry(t *testing.T) {
+	executor := &fakeEnrollmentExecutor{
+		results: []execResult{
+			{ExitCode: 0, Stdout: "[]"},
+			{ExitCode: 0, Stdout: `[{"invitation_id":"invite-1"}]`},
+			{ExitCode: 0},
+		},
+	}
+	clock := &fakeClock{now: time.Unix(0, 0)}
+
+	err := approveEnrollmentWithClock(
+		context.Background(),
+		executor,
+		"sprite-1",
+		"invite-1",
+		clock,
+		10*time.Second,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clock.sleeps) != 1 || clock.sleeps[0] != time.Second {
+		t.Fatalf("retry sleeps = %v", clock.sleeps)
+	}
+	for _, timeout := range executor.timeouts {
+		if timeout != 8_000 {
+			t.Fatalf("exec timeout = %d", timeout)
+		}
 	}
 }

@@ -66,6 +66,32 @@ type apiClient struct {
 	http    *http.Client
 }
 
+type retryClock interface {
+	Now() time.Time
+	Sleep(context.Context, time.Duration) error
+}
+
+type systemClock struct{}
+
+func (systemClock) Now() time.Time {
+	return time.Now()
+}
+
+func (systemClock) Sleep(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+type enrollmentExecutor interface {
+	execWithTimeout(context.Context, string, string, int) (execResult, error)
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -226,6 +252,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func login(ctx context.Context, client *apiClient, openBrowser bool, out io.Writer) (tokens, error) {
+	return loginWithClock(ctx, client, openBrowser, out, systemClock{})
+}
+
+func loginWithClock(
+	ctx context.Context,
+	client *apiClient,
+	openBrowser bool,
+	out io.Writer,
+	clock retryClock,
+) (tokens, error) {
 	var started authStart
 	if err := client.request(ctx, http.MethodPost, "/api/vault/cli/auth/start", map[string]string{
 		"client": "cmux-sprites",
@@ -243,37 +279,35 @@ func login(ctx context.Context, client *apiClient, openBrowser bool, out io.Writ
 	}
 	interval := time.Duration(max(started.IntervalSeconds, 1)) * time.Second
 	expires := time.Duration(max(started.ExpiresInSeconds, 60)) * time.Second
-	deadline := time.NewTimer(expires)
-	defer deadline.Stop()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	deadline := clock.Now().Add(expires)
 	for {
-		select {
-		case <-ctx.Done():
-			return tokens{}, ctx.Err()
-		case <-deadline.C:
+		remaining := deadline.Sub(clock.Now())
+		if remaining <= 0 {
 			return tokens{}, errors.New("login expired before approval")
-		case <-ticker.C:
-			var polled authPoll
-			if err := client.request(ctx, http.MethodPost, "/api/vault/cli/auth/poll", map[string]string{
-				"deviceCode": started.DeviceCode,
-			}, &polled); err != nil {
-				return tokens{}, err
+		}
+		delay := min(interval, remaining)
+		if err := clock.Sleep(ctx, delay); err != nil {
+			return tokens{}, err
+		}
+		var polled authPoll
+		if err := client.request(ctx, http.MethodPost, "/api/vault/cli/auth/poll", map[string]string{
+			"deviceCode": started.DeviceCode,
+		}, &polled); err != nil {
+			return tokens{}, err
+		}
+		switch polled.Status {
+		case "pending":
+			continue
+		case "approved":
+			if polled.Client != "cmux-sprites" {
+				return tokens{}, fmt.Errorf("server returned credentials for %q", polled.Client)
 			}
-			switch polled.Status {
-			case "pending":
-				continue
-			case "approved":
-				if polled.Client != "cmux-sprites" {
-					return tokens{}, fmt.Errorf("server returned credentials for %q", polled.Client)
-				}
-				if polled.AccessToken == "" || polled.RefreshToken == "" {
-					return tokens{}, errors.New("server approved login without credentials")
-				}
-				return tokens{AccessToken: polled.AccessToken, RefreshToken: polled.RefreshToken}, nil
-			default:
-				return tokens{}, fmt.Errorf("login %s", polled.Status)
+			if polled.AccessToken == "" || polled.RefreshToken == "" {
+				return tokens{}, errors.New("server approved login without credentials")
 			}
+			return tokens{AccessToken: polled.AccessToken, RefreshToken: polled.RefreshToken}, nil
+		default:
+			return tokens{}, fmt.Errorf("login %s", polled.Status)
 		}
 	}
 }
@@ -423,11 +457,27 @@ func processExitCode(err error, stderr io.Writer) int {
 }
 
 func approveEnrollment(ctx context.Context, client *apiClient, vmID, invitationID string) error {
-	deadline := time.NewTimer(45 * time.Second)
-	defer deadline.Stop()
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	return approveEnrollmentWithClock(
+		ctx,
+		client,
+		vmID,
+		invitationID,
+		systemClock{},
+		45*time.Second,
+	)
+}
+
+func approveEnrollmentWithClock(
+	ctx context.Context,
+	client enrollmentExecutor,
+	vmID string,
+	invitationID string,
+	clock retryClock,
+	timeout time.Duration,
+) error {
+	deadline := clock.Now().Add(timeout)
 	var latestError error
+	attempt := 0
 	for {
 		pending, err := client.execWithTimeout(
 			ctx,
@@ -467,10 +517,8 @@ func approveEnrollment(ctx context.Context, client *apiClient, vmID, invitationI
 				}
 			}
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline.C:
+		remaining := deadline.Sub(clock.Now())
+		if remaining <= 0 {
 			if latestError != nil {
 				return fmt.Errorf(
 					"timed out waiting for the device enrollment claim; last check: %w",
@@ -478,8 +526,12 @@ func approveEnrollment(ctx context.Context, client *apiClient, vmID, invitationI
 				)
 			}
 			return errors.New("timed out waiting for the device enrollment claim")
-		case <-ticker.C:
 		}
+		delay := min(time.Second<<min(attempt, 1), remaining)
+		if err := clock.Sleep(ctx, delay); err != nil {
+			return err
+		}
+		attempt++
 	}
 }
 
@@ -544,7 +596,7 @@ func (c *apiClient) request(ctx context.Context, method, path string, body any, 
 }
 
 func newClient(baseURL string, value *tokens) *apiClient {
-	normalized, baseErr := normalizedAPIBase(baseURL)
+	normalized, baseErr := normalizedAPIBase(baseURL, value != nil)
 	return &apiClient{
 		baseURL: normalized,
 		baseErr: baseErr,
@@ -565,7 +617,7 @@ func newClient(baseURL string, value *tokens) *apiClient {
 	}
 }
 
-func normalizedAPIBase(raw string) (string, error) {
+func normalizedAPIBase(raw string, credentialed bool) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Host == "" || parsed.User != nil ||
 		parsed.RawQuery != "" || parsed.Fragment != "" {
@@ -576,6 +628,12 @@ func normalizedAPIBase(raw string) (string, error) {
 		if parsed.Scheme != "http" ||
 			(host != "localhost" && host != "127.0.0.1" && host != "::1") {
 			return "", errors.New("cmux API base URL must use HTTPS")
+		}
+		if credentialed && os.Getenv("CMUX_SPRITES_ALLOW_INSECURE_LOCALHOST") != "1" {
+			return "", errors.New(
+				"credentialed cmux API requests require HTTPS; " +
+					"set CMUX_SPRITES_ALLOW_INSECURE_LOCALHOST=1 only for local development",
+			)
 		}
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")

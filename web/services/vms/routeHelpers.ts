@@ -295,7 +295,7 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
       error: "vm_cloud_service_unavailable",
       status: 502,
       message: vmUnavailableMessage(phase),
-      reason: "Cloud VM service is temporarily unavailable.",
+      reason: "provider_unavailable",
       action: cloudServiceAction(workflowError.operation, retryAfterSeconds),
       phase,
       retryable: true,
