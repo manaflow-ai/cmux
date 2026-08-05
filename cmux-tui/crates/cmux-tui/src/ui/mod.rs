@@ -286,27 +286,24 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         (start, width)
     };
 
-    let Some(ws) = app.tree.active_workspace().cloned() else {
-        if app.prefix_armed {
-            draw_prefix_help_bar(app, frame, bar_x, status_y.saturating_sub(1));
+    if let Some(ws) = app.tree.active_workspace().cloned() {
+        put(frame, &mut x, " screens ", base.fg(chrome.status_dim_fg));
+        for (i, screen) in ws.screens.iter().enumerate() {
+            let active = i == ws.active_screen;
+            let label = format!(" {} ", truncate(&screen.display_name(i), 20));
+            let (start, width) =
+                put(frame, &mut x, &label, if active { active_style } else { base });
+            if width > 0 {
+                hits.push((
+                    Rect { x: start, y: status_y, width, height: 1 },
+                    Hit::ScreenEntry { index: i, id: screen.id },
+                ));
+            }
         }
-        return;
-    };
-    put(frame, &mut x, " screens ", base.fg(chrome.status_dim_fg));
-    for (i, screen) in ws.screens.iter().enumerate() {
-        let active = i == ws.active_screen;
-        let label = format!(" {} ", truncate(&screen.display_name(i), 20));
-        let (start, width) = put(frame, &mut x, &label, if active { active_style } else { base });
+        let (start, width) = put(frame, &mut x, " + ", base.fg(chrome.status_dim_fg));
         if width > 0 {
-            hits.push((
-                Rect { x: start, y: status_y, width, height: 1 },
-                Hit::ScreenEntry { index: i, id: screen.id },
-            ));
+            hits.push((Rect { x: start, y: status_y, width, height: 1 }, Hit::NewScreen));
         }
-    }
-    let (start, width) = put(frame, &mut x, " + ", base.fg(chrome.status_dim_fg));
-    if width > 0 {
-        hits.push((Rect { x: start, y: status_y, width, height: 1 }, Hit::NewScreen));
     }
     // Session label / status message, right-aligned. Prefix help renders
     // over the pane border above this row.
