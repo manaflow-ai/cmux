@@ -38,6 +38,10 @@ SUPPORTED_LOCALES = {
     "zh-Hans",
     "zh-Hant",
 }
+MISSING_SCAN_OFFSET_MESSAGE = "CLI event reader is missing its persistent scan offset"
+MISSING_INCREMENTAL_SEARCH_MESSAGE = "readStreamLine is missing its incremental newline search"
+FULL_RESCAN_MESSAGE = "readStreamLine still rescans the complete buffered frame"
+MISSING_OFFSET_RESET_MESSAGE = "stream scan offset must reset on close and frame consumption"
 
 
 def validate_incremental_stream_scan(source: str) -> None:
@@ -48,14 +52,14 @@ def validate_incremental_stream_scan(source: str) -> None:
     declaration = "private var streamLineSearchOffset = 0"
     incremental_search = "streamReadBuffer[searchStart...].firstIndex(of: 0x0A)"
     if declaration not in source:
-        raise AssertionError("CLI event reader is missing its persistent scan offset")
+        raise AssertionError(MISSING_SCAN_OFFSET_MESSAGE)
     if incremental_search not in body:
-        raise AssertionError("readStreamLine is missing its incremental newline search")
+        raise AssertionError(MISSING_INCREMENTAL_SEARCH_MESSAGE)
     if "streamReadBuffer.firstIndex(of: 0x0A)" in body:
-        raise AssertionError("readStreamLine still rescans the complete buffered frame")
+        raise AssertionError(FULL_RESCAN_MESSAGE)
     reset_count = source.count("streamLineSearchOffset = 0") - source.count(declaration)
     if reset_count < 2:
-        raise AssertionError("stream scan offset must reset on close and frame consumption")
+        raise AssertionError(MISSING_OFFSET_RESET_MESSAGE)
 
 
 def validate_event_localizations() -> None:

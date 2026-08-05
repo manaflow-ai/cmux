@@ -9,7 +9,6 @@ import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S, cmux, cmuxError
@@ -163,7 +162,7 @@ def _serve_pages(pages: dict[str, str]) -> Iterator[dict[str, str]]:
             self.end_headers()
             self.wfile.write(body)
 
-        def log_message(self, _format: str, *_args: Any) -> None:
+        def log_message(self, _format: str, *_args: object) -> None:
             return
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FixtureHandler)

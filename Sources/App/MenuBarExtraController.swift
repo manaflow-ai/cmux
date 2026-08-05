@@ -328,7 +328,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 }
 
-private final class NotificationMenuItemPayload: NSObject {
+final class NotificationMenuItemPayload: NSObject {
     let notification: TerminalNotification
 
     init(notification: TerminalNotification) {

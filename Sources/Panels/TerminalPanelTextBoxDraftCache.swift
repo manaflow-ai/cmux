@@ -48,25 +48,114 @@ final class TerminalPanelTextBoxDraftCache {
             return
         }
 
-        let textIndices = snapshot?.parts.indices.filter {
-            snapshot?.parts[$0].kind == .text
-        } ?? []
-        if text.isEmpty {
-            for index in textIndices.reversed() {
-                snapshot?.parts.remove(at: index)
-            }
-        } else if let firstTextIndex = textIndices.first {
-            snapshot?.parts[firstTextIndex] = .text(text)
-            for index in textIndices.dropFirst().reversed() {
-                snapshot?.parts.remove(at: index)
-            }
+        let currentParts = snapshot?.parts ?? []
+        let updatedParts = Self.partsByApplyingTextEdit(
+            to: currentParts,
+            nextText: text
+        )
+        if !updatedParts.contains(where: isMeaningfulTextBoxDraftPart) {
+            snapshot = nil
         } else {
-            snapshot?.parts.insert(.text(text), at: 0)
+            snapshot = SessionTextBoxInputDraftSnapshot(
+                isActive: isActive,
+                parts: updatedParts
+            )
+        }
+    }
+
+    private struct AttachmentAnchor {
+        let part: SessionTextBoxInputDraftPart
+        let textOffset: Int
+    }
+
+    private struct FlatTextEdit {
+        let replacedRange: Range<Int>
+        let replacement: [Character]
+    }
+
+    private static func partsByApplyingTextEdit(
+        to parts: [SessionTextBoxInputDraftPart],
+        nextText: String
+    ) -> [SessionTextBoxInputDraftPart] {
+        var previousCharacters: [Character] = []
+        var attachmentAnchors: [AttachmentAnchor] = []
+        for part in parts {
+            switch part.kind {
+            case .text:
+                previousCharacters.append(contentsOf: part.text ?? "")
+            case .attachment:
+                attachmentAnchors.append(AttachmentAnchor(
+                    part: part,
+                    textOffset: previousCharacters.count
+                ))
+            }
         }
 
-        if snapshot?.parts.contains(where: isMeaningfulTextBoxDraftPart) != true {
-            snapshot = nil
+        let nextCharacters = Array(nextText)
+        guard previousCharacters != nextCharacters else { return parts }
+        guard !attachmentAnchors.isEmpty else {
+            return nextCharacters.isEmpty ? [] : [.text(nextText)]
         }
+
+        let edit = minimalTextEdit(from: previousCharacters, to: nextCharacters)
+        var updatedParts: [SessionTextBoxInputDraftPart] = []
+        updatedParts.reserveCapacity(attachmentAnchors.count * 2 + 1)
+        var emittedTextOffset = 0
+        for anchor in attachmentAnchors {
+            let mappedOffset = min(
+                max(mappedTextOffset(anchor.textOffset, through: edit), emittedTextOffset),
+                nextCharacters.count
+            )
+            if emittedTextOffset < mappedOffset {
+                updatedParts.append(.text(String(nextCharacters[emittedTextOffset..<mappedOffset])))
+            }
+            updatedParts.append(anchor.part)
+            emittedTextOffset = mappedOffset
+        }
+        if emittedTextOffset < nextCharacters.count {
+            updatedParts.append(.text(String(nextCharacters[emittedTextOffset...])))
+        }
+        return updatedParts
+    }
+
+    private static func minimalTextEdit(
+        from previous: [Character],
+        to next: [Character]
+    ) -> FlatTextEdit {
+        let sharedLimit = min(previous.count, next.count)
+        var sharedPrefixCount = 0
+        while sharedPrefixCount < sharedLimit,
+              previous[sharedPrefixCount] == next[sharedPrefixCount] {
+            sharedPrefixCount += 1
+        }
+
+        var sharedSuffixCount = 0
+        while sharedSuffixCount < previous.count - sharedPrefixCount,
+              sharedSuffixCount < next.count - sharedPrefixCount,
+              previous[previous.count - sharedSuffixCount - 1]
+                == next[next.count - sharedSuffixCount - 1] {
+            sharedSuffixCount += 1
+        }
+
+        return FlatTextEdit(
+            replacedRange: sharedPrefixCount..<(previous.count - sharedSuffixCount),
+            replacement: Array(next[sharedPrefixCount..<(next.count - sharedSuffixCount)])
+        )
+    }
+
+    private static func mappedTextOffset(_ offset: Int, through edit: FlatTextEdit) -> Int {
+        if edit.replacedRange.isEmpty {
+            return offset < edit.replacedRange.lowerBound
+                ? offset
+                : offset + edit.replacement.count
+        }
+        if offset <= edit.replacedRange.lowerBound {
+            return offset
+        }
+        if offset >= edit.replacedRange.upperBound {
+            return offset + edit.replacement.count - edit.replacedRange.count
+        }
+        return edit.replacedRange.lowerBound + edit.replacement.count
     }
 
     private func rebuildSnapshot(

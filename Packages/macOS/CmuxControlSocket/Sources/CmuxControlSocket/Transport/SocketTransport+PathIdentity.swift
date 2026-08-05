@@ -4,6 +4,8 @@ internal import Darwin
 extension SocketTransport {
     /// Maximum number of preexisting clients discarded during one retained-path proof.
     private static let maximumQueuedConnectionsToDrain = 64
+    /// Maximum interrupted accepts tolerated before startup returns to its retry policy.
+    private static let maximumInterruptedDrainAcceptAttempts = 64
 
     /// The filesystem identity of the socket inode at `path`, or nil when the
     /// path is missing or not a socket.
@@ -76,16 +78,34 @@ extension SocketTransport {
         }
 
         var drainedConnectionCount = 0
+        var interruptedAcceptCount = 0
         while drainedConnectionCount < Self.maximumQueuedConnectionsToDrain {
-            let queuedSocket = accept(listenerSocket, nil, nil)
+            let queuedSocket: Int32
+            let acceptErrno: Int32
+            if let injectedErrno = injectedErrnoCode(
+                stage: "verify_bound_path_drain_accept",
+                path: path
+            ) {
+                queuedSocket = -1
+                acceptErrno = injectedErrno
+            } else {
+                queuedSocket = accept(listenerSocket, nil, nil)
+                acceptErrno = queuedSocket >= 0 ? 0 : errno
+            }
             if queuedSocket >= 0 {
                 _ = configureCloseOnExec(queuedSocket)
                 close(queuedSocket)
                 drainedConnectionCount += 1
                 continue
             }
-            let acceptErrno = errno
             if acceptErrno == EINTR {
+                interruptedAcceptCount += 1
+                if interruptedAcceptCount >= Self.maximumInterruptedDrainAcceptAttempts {
+                    return .pending(SocketStageFailure(
+                        stage: "verify_bound_path_drain",
+                        errnoCode: EINTR
+                    ))
+                }
                 continue
             }
             guard acceptErrno == EAGAIN || acceptErrno == EWOULDBLOCK else {

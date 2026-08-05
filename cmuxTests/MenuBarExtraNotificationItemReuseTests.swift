@@ -35,16 +35,25 @@ struct MenuBarExtraNotificationItemReuseTests {
         }
 
         let initialItem = try #require(controller.menu.items.first {
-            $0.representedObject is TerminalNotification
+            $0.representedObject is NotificationMenuItemPayload
         })
+        let initialPayload = try #require(
+            initialItem.representedObject as? NotificationMenuItemPayload
+        )
+        #expect(initialPayload.notification.title == "First")
 
         store.replaceNotificationsForTesting([makeNotification(title: "Second")])
         controller.menuWillOpen(controller.menu)
 
         let refreshedItem = try #require(controller.menu.items.first {
-            $0.representedObject is TerminalNotification
+            $0.representedObject is NotificationMenuItemPayload
         })
+        let refreshedPayload = try #require(
+            refreshedItem.representedObject as? NotificationMenuItemPayload
+        )
         #expect(refreshedItem === initialItem)
+        #expect(refreshedPayload.notification.title == "Second")
+        #expect(refreshedItem.attributedTitle.string.contains("Second"))
     }
 
     private func makeNotification(title: String) -> TerminalNotification {

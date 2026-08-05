@@ -207,7 +207,7 @@ public struct SocketListenerPolicy: Sendable {
             return isPendingSocketConnectErrno(errnoCode)
         }
         if stage == "verify_bound_path_drain" {
-            return errnoCode == EAGAIN
+            return errnoCode == EAGAIN || errnoCode == EINTR
         }
         // Once the retained descriptor is listening for an ownership proof,
         // any inconclusive result must close it instead of leaving an
