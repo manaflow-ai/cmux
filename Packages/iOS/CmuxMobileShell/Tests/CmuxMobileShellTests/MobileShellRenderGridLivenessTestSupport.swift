@@ -947,7 +947,8 @@ func makeConnectedStore(
     clock: TestClock,
     probeTimeoutNanoseconds: UInt64 = 200_000_000,
     inputAckRetryClock: any Clock<Duration> = ContinuousClock(),
-    dogfoodLaunchID: String? = nil
+    dogfoodLaunchID: String? = nil,
+    awaitInitialSubscription: Bool = true
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
         transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -967,6 +968,22 @@ func makeConnectedStore(
         !store.supportedHostCapabilities.isEmpty
     }
     #expect(capabilitiesResolved, "scripted connect must resolve host capabilities")
+    if awaitInitialSubscription {
+        let subscriptionIsUsable = try await pollUntil(attempts: 1_000) {
+            guard let listenerID = store.terminalEventListenerID else {
+                return false
+            }
+            return store.lastSuccessfulTerminalSubscription
+                == MobileTerminalSubscriptionValidation(
+                    connectionGeneration: store.connectionGeneration,
+                    listenerID: listenerID
+                )
+        }
+        #expect(
+            subscriptionIsUsable,
+            "a connected-store fixture must not return before its initial event subscription is usable"
+        )
+    }
     return store
 }
 

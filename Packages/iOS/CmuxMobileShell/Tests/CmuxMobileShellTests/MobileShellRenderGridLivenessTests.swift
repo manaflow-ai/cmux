@@ -55,7 +55,12 @@ import Testing
     let router = LivenessHostRouter()
     let box = TransportBox()
     await router.delaySubscribeRequest(number: 1)
-    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        awaitInitialSubscription: false
+    )
     defer {
         Task { await router.releaseAllHeld() }
     }
@@ -105,7 +110,12 @@ import Testing
     let router = LivenessHostRouter()
     let box = TransportBox()
     await router.delaySubscribeRequest(number: 1)
-    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        awaitInitialSubscription: false
+    )
     defer {
         Task { await router.releaseAllHeld() }
     }
@@ -756,7 +766,12 @@ import Testing
     let router = LivenessHostRouter()
     let box = TransportBox()
     await router.setHoldSubscribe(true)
-    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        awaitInitialSubscription: false
+    )
     defer {
         Task { await router.releaseAllHeld() }
     }

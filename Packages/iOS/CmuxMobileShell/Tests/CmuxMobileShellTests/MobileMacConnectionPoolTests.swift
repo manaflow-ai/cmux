@@ -4132,9 +4132,10 @@ import Testing
         })
         subscription.isTransitioningToFocus = true
         clock.advance(by: .milliseconds(500))
-        for _ in 0 ..< 16 { await Task.yield() }
+        #expect(try await pollUntil {
+            subscription.deferredRefreshTask == nil
+        })
         #expect(await router.count(of: "workspace.list") == 3)
-        #expect(subscription.deferredRefreshTask == nil)
         #expect(subscription.refreshPending)
         let feedFetchesBeforeResume = await router.count(
             of: "notification.feed.list"
