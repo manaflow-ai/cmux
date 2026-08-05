@@ -579,13 +579,14 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
-def run_feed_hook_optional_frame(
+def run_feed_hook_frames(
     cli_path: str,
     socket_path: Path,
     payload: dict,
     decision: dict | None,
     source: str = "codex",
-) -> tuple[dict, dict | None]:
+    command_event: str | None = None,
+) -> tuple[dict, list[dict]]:
     env = os.environ.copy()
     for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
         env.pop(key, None)
@@ -611,7 +612,7 @@ def run_feed_hook_optional_frame(
                 "--source",
                 source,
                 "--event",
-                payload.get("hook_event_name", ""),
+                command_event or payload.get("hook_event_name", ""),
             ],
             input=json.dumps(payload),
             capture_output=True,
@@ -625,8 +626,19 @@ def run_feed_hook_optional_frame(
                 f"hooks feed failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
             )
         stdout = json.loads(result.stdout.strip() or "{}")
-        feed_frame = next((frame for frame in fake.frames if frame.get("method") == "feed.push"), None)
-        return stdout, feed_frame
+        return stdout, list(fake.frames)
+
+
+def run_feed_hook_optional_frame(
+    cli_path: str,
+    socket_path: Path,
+    payload: dict,
+    decision: dict | None,
+    source: str = "codex",
+) -> tuple[dict, dict | None]:
+    stdout, frames = run_feed_hook_frames(cli_path, socket_path, payload, decision, source)
+    feed_frame = next((frame for frame in frames if frame.get("method") == "feed.push"), None)
+    return stdout, feed_frame
 
 
 def run_feed_hook(
@@ -2127,6 +2139,51 @@ def test_codex_permission_request_is_nonblocking_telemetry(cli_path: str, root: 
     event = params["event"]
     if event.get("hook_event_name") != "PreToolUse" or event.get("_source") != "codex":
         raise AssertionError(f"wrong feed event: {event!r}")
+
+
+def test_codex_permission_request_requests_gated_user_notification(
+    cli_path: str,
+    root: Path,
+) -> None:
+    stdout, frames = run_feed_hook_frames(
+        cli_path,
+        root / "cmux-permission-notification.sock",
+        {},
+        None,
+        command_event="PermissionRequest",
+    )
+    if stdout != {}:
+        raise AssertionError(f"Codex PermissionRequest must stay non-blocking: {stdout!r}")
+
+    notification_commands = [
+        frame["raw"]
+        for frame in frames
+        if frame.get("raw", "").startswith(
+            f"notify_target_async {FAKE_WORKSPACE_ID} {FAKE_SURFACE_ID} "
+        )
+    ]
+    if len(notification_commands) != 1:
+        raise AssertionError(
+            "Codex PermissionRequest must request exactly one user notification: "
+            f"{frames!r}"
+        )
+    if not notification_commands[0].endswith("|c=needs-permission;p=0"):
+        raise AssertionError(
+            "Codex PermissionRequest notification must use the Agent Needs Permission gate: "
+            f"{notification_commands[0]!r}"
+        )
+
+    _, pre_tool_frames = run_feed_hook_frames(
+        cli_path,
+        root / "cmux-pre-tool-notification.sock",
+        {},
+        None,
+        command_event="PreToolUse",
+    )
+    if any(frame.get("raw", "").startswith("notify_target_async ") for frame in pre_tool_frames):
+        raise AssertionError(
+            f"Codex PreToolUse telemetry must not request a permission notification: {pre_tool_frames!r}"
+        )
 
 
 def test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path: str, root: Path) -> None:
@@ -4016,6 +4073,7 @@ def main() -> int:
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path, root)
             test_codex_permission_request_is_nonblocking_telemetry(cli_path, root)
+            test_codex_permission_request_requests_gated_user_notification(cli_path, root)
             test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
             test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
