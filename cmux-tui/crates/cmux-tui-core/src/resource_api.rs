@@ -894,6 +894,27 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_uses_durable_terminal_state_before_runtime_adoption() {
+        let mux = Mux::new_for_test("snapshot-before-adoption", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("restoring".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+
+        mux.remove_surface_runtime_for_test(surface.id).unwrap();
+        mux.remove_terminal_catalog_for_test(&terminal_id).unwrap();
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("durable terminal remains visible while its runtime is not adopted");
+        assert_eq!(terminal["cols"], 80);
+        assert_eq!(terminal["rows"], 24);
+        assert_eq!(terminal["lifecycle"], "running");
+    }
+
+    #[test]
     fn snapshot_cursor_and_auxiliary_values_share_one_durable_cut() {
         let mux = Mux::new_for_test("snapshot-cut", SurfaceOptions::default());
         let created = resource_request(

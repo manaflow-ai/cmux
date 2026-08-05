@@ -738,6 +738,39 @@ mod tests {
     }
 
     #[test]
+    fn filtered_agent_list_does_not_decode_unrelated_projections() {
+        let mux = Mux::new_for_test("filtered-agent-list", SurfaceOptions::default());
+        let requested = mux.new_workspace(Some("requested".into()), None).unwrap();
+        let unrelated = mux.new_workspace(Some("unrelated".into()), None).unwrap();
+        let requested_terminal = requested.terminal_public_id().cloned().unwrap();
+        let unrelated_terminal = unrelated.terminal_public_id().cloned().unwrap();
+
+        for (surface, session) in [(requested.id, "requested"), (unrelated.id, "unrelated")] {
+            mux.report_agent(
+                surface,
+                AgentState::Working,
+                AgentSource::Hook,
+                Some(session.into()),
+            )
+            .unwrap();
+        }
+        mux.corrupt_agent_projection_for_test(&unrelated_terminal);
+
+        let listed = dispatch(
+            &mux,
+            request(
+                ResourceOperation::AgentList,
+                None,
+                session_selectors(),
+                json!({"terminal_id":requested_terminal,"state":"working"}),
+            ),
+        )
+        .expect("the selected query must not decode an unrelated projection");
+        assert_eq!(listed.as_array().unwrap().len(), 1);
+        assert_eq!(listed[0]["terminal_id"], requested_terminal.as_str());
+    }
+
+    #[test]
     fn pairing_resolution_replays_without_resolving_twice() {
         let mux = Mux::new_for_test("aux-pairing-resolve", SurfaceOptions::default());
         let (challenge, response) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();

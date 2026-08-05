@@ -4424,6 +4424,14 @@ impl Mux {
         self.workspace_registry.lock().unwrap().resource_agent_projection_count_for_test()
     }
 
+    #[cfg(test)]
+    pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .corrupt_agent_projection_for_test(terminal_id);
+    }
+
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
         self.workspace_registry.lock().unwrap().terminal_snapshot()
     }
@@ -6568,6 +6576,19 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         self.state.lock().unwrap().surfaces.remove(&id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remove_terminal_catalog_for_test(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<Arc<Surface>> {
+        let mut state = self.state.lock().unwrap();
+        let removed = state.terminal_catalog.remove(terminal_id)?;
+        if let Some(runtime_id) = removed.terminal_runtime_id() {
+            state.terminal_catalog_by_runtime.remove(&runtime_id);
+        }
+        Some(removed)
     }
 
     /// Resolve a process-stable terminal UUID and one live view placement.
@@ -15470,6 +15491,66 @@ mod tests {
         assert_eq!(error.code, "selector.wrong_parent");
         assert_eq!(error.details["scope"], "terminal");
         assert_eq!(error.details["actual_parent"], "<none>");
+    }
+
+    #[test]
+    fn terminal_projection_event_matches_every_changed_public_snapshot() {
+        let mux = test_mux();
+        let source = mux.new_workspace(Some("source".into()), None).unwrap();
+        let destination = mux.new_workspace(Some("destination".into()), None).unwrap();
+        let destination_pane = mux.with_state(|state| state.pane_of(destination.id).unwrap());
+        mux.new_tab(Some(destination_pane), None, None).unwrap();
+        let terminal_id = source.terminal_public_id().cloned().unwrap();
+        let destination_selectors = mux.ordinary_pane_selectors(destination_pane).unwrap();
+        let destination_pane_id = destination_selectors.pane.clone().unwrap();
+        let before = mux.with_state(|state| state.resource_revision);
+
+        mux.resource_project_terminal_selected(
+            crate::ResourceSelectors {
+                terminal: Some(terminal_id.to_string()),
+                ..Mux::ordinary_resource_selectors()
+            },
+            destination_selectors,
+            0,
+            Some("projected".into()),
+            None,
+            &WorkspaceMutation::local("projection-complete-delta"),
+        )
+        .unwrap();
+
+        let batches = mux.resource_events_after(before).unwrap().batches;
+        assert_eq!(batches.len(), 1);
+        let changes = batches[0].changes.as_array().unwrap();
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|value| value["id"] == terminal_id.as_str())
+            .unwrap();
+        let terminal_delta = changes
+            .iter()
+            .find(|change| {
+                change["resource"] == "terminal" && change["id"] == terminal_id.as_str()
+            })
+            .expect("projection changes the terminal's placement list");
+        assert_eq!(&terminal_delta["value"], terminal);
+
+        let destination_tabs = snapshot["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|tab| tab["pane_id"] == destination_pane_id)
+            .collect::<Vec<_>>();
+        assert_eq!(destination_tabs.len(), 3);
+        for tab in destination_tabs {
+            let tab_id = tab["id"].as_str().unwrap();
+            let delta = changes
+                .iter()
+                .find(|change| change["resource"] == "tab" && change["id"] == tab_id)
+                .unwrap_or_else(|| panic!("projection omitted changed tab {tab_id}"));
+            assert_eq!(&delta["value"], tab);
+        }
     }
 
     #[test]

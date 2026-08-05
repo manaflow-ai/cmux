@@ -209,4 +209,31 @@ mod tests {
         let error = restore_public_projections(&empty_state(), projections).unwrap_err();
         assert!(error.to_string().contains("omitted its terminal identity"));
     }
+
+    #[test]
+    fn orphaned_unread_notification_restores_only_in_the_historical_ledger() {
+        let terminal = TerminalPublicId::parse("term_00000000000000000000000000000003").unwrap();
+        let projections = RegistryPublicProjections {
+            notifications: vec![RegistryNotificationProjection {
+                id: NotificationPublicId::parse(
+                    "notification_00000000000000000000000000000003",
+                )
+                .unwrap(),
+                title: "finished".into(),
+                body: String::new(),
+                level: "info".into(),
+                terminal_id: Some(terminal.clone()),
+                created_at_ms: 3,
+                unread: true,
+            }],
+            agents: Vec::new(),
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        assert_eq!(restored.notification_ledger.len(), 1);
+        assert_eq!(restored.notification_ledger[0].terminal_id, Some(terminal));
+        assert!(restored.terminal_notifications.is_empty());
+    }
 }
