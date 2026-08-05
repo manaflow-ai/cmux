@@ -43,7 +43,7 @@ export function GET(request: Request): Response {
       subrouter: {
         url: subrouterURL,
         exchangeUrl: new URL(
-          "/api/subrouter/exchange",
+          "/api/subrouter/exchange-v2",
           request.url,
         ).toString(),
       },
