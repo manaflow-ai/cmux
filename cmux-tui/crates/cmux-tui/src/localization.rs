@@ -159,6 +159,10 @@ pub(crate) struct MenuMessages {
     pub compact_sidebar: &'static str,
     pub full_sidebar: &'static str,
     pub focus_sidebar: &'static str,
+    pub sidebar_layout: &'static str,
+    pub sidebar_profiles: &'static str,
+    pub show_sidebar_view: &'static str,
+    pub hide_sidebar_view: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -708,6 +712,11 @@ pub(crate) struct SidebarMessages {
     pub unknown: &'static str,
     pub connect_prompt: &'static str,
     pub connect_host_prompt: &'static str,
+    pub connecting_to: &'static str,
+    pub starting_on: &'static str,
+    pub failed_to_connect: &'static str,
+    pub retry_connection: &'static str,
+    pub close_dialog: &'static str,
     pub ssh_hosts: &'static str,
     pub type_to_filter: &'static str,
     pub other_host: &'static str,
@@ -767,6 +776,18 @@ pub(crate) struct SidebarMessages {
 }
 
 impl SidebarMessages {
+    pub(crate) fn connecting_to_message(&self, target: &str) -> String {
+        self.connecting_to.replace("{target}", target)
+    }
+
+    pub(crate) fn starting_on_message(&self, target: &str) -> String {
+        self.starting_on.replace("{target}", target)
+    }
+
+    pub(crate) fn failed_to_connect_message(&self, target: &str) -> String {
+        self.failed_to_connect.replace("{target}", target)
+    }
+
     pub(crate) fn provider_action_label(&self, action_id: &str) -> Option<&'static str> {
         match action_id {
             provider_action_id::LIST_WORKSPACE_PORTS => Some(self.action_list_workspace_ports),
@@ -990,6 +1011,10 @@ edits shell files. Authenticate with the configured host before retrying.
         compact_sidebar: "Use compact sidebar",
         full_sidebar: "Use full sidebar",
         focus_sidebar: "Focus sidebar",
+        sidebar_layout: "Sidebar",
+        sidebar_profiles: "Layouts",
+        show_sidebar_view: "Show {view}",
+        hide_sidebar_view: "Hide {view}",
     },
     shortcuts: ShortcutMessages {
         title: "Keyboard shortcuts",
@@ -1329,6 +1354,11 @@ OPTIONS:
         unknown: "unknown",
         connect_prompt: "Host address or pairing code",
         connect_host_prompt: "SSH host or user@host",
+        connecting_to: "Connecting to {target}…",
+        starting_on: "Starting a session on {target}…",
+        failed_to_connect: "Could not connect to {target}",
+        retry_connection: "Retry",
+        close_dialog: "Close",
         ssh_hosts: "SSH hosts",
         type_to_filter: "type to filter",
         other_host: "Add SSH host…",
@@ -1492,6 +1522,10 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         compact_sidebar: "サイドバーをコンパクト表示",
         full_sidebar: "サイドバーを通常表示",
         focus_sidebar: "サイドバーにフォーカス",
+        sidebar_layout: "サイドバー",
+        sidebar_profiles: "レイアウト",
+        show_sidebar_view: "{view}を表示",
+        hide_sidebar_view: "{view}を非表示",
     },
     shortcuts: ShortcutMessages {
         title: "キーボードショートカット",
@@ -1828,6 +1862,11 @@ ID とセッション:
         unknown: "不明",
         connect_prompt: "ホストアドレスまたはペアリングコード",
         connect_host_prompt: "SSH ホストまたは user@host",
+        connecting_to: "{target} に接続中…",
+        starting_on: "{target} でセッションを開始中…",
+        failed_to_connect: "{target} に接続できませんでした",
+        retry_connection: "再試行",
+        close_dialog: "閉じる",
         ssh_hosts: "SSH ホスト",
         type_to_filter: "入力して絞り込み",
         other_host: "SSH ホストを追加…",

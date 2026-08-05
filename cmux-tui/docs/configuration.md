@@ -40,6 +40,8 @@ The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "f
 
 `sidebar.views` is an ordered list of native resource projections, with no fixed column count. Each view has a stable `id`, a `levels` path, and optional native `actions`. A one-level path renders a list. Multi-level paths such as `workspaces → agents` and `workspaces → panes → tabs` render collapsible trees in one column. Nesting is optional. Valid resources are `machines`, `workspaces`, `panes`, `tabs`, and `agents`. Flat pane, tab, and agent views follow the highlighted workspace. Omit a resource to hide it.
 
+`sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices.
+
 Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
 
 Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
@@ -50,6 +52,11 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.width` | integer | `22` | Sidebar width, clamped to 10 through 60 on load |
 | `sidebar.compact_width` | integer | `10` | Width used by compact mode, clamped to 10 through 60 and capped at `sidebar.width` |
 | `sidebar.max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
+| `sidebar.profile` | string | first configured profile | Startup profile ID; ignored without `sidebar.profiles` |
+| `sidebar.profiles` | array of profile objects | unset | Named layouts available from every context menu; overrides top-level `sidebar.views` and `sidebar.columns` |
+| `sidebar.profiles[].id` | string | required | Stable unique profile identity |
+| `sidebar.profiles[].name` | string | profile ID | Display name in the layout picker |
+| `sidebar.profiles[].views` | array of view objects | required | Ordered projections using the same schema as `sidebar.views` |
 | `sidebar.views` | array of view objects | unset | Ordered native lists and trees; omission preserves the machine-plus-workspace default |
 | `sidebar.views[].id` | string | required | Stable unique identity for focus, collapse, scroll, and width state |
 | `sidebar.views[].levels` | array of strings | required | Resource path, such as `["agents"]`, `["workspaces", "agents"]`, or `["workspaces", "panes", "tabs"]` |
@@ -107,9 +114,11 @@ cd cmux-tui
 CMUX_TUI_CONFIG=examples/resource-columns.prototype.json cargo run -p cmux-tui -- --session columns
 ```
 
-`resource-columns.prototype.json` shows three flat columns. `resource-tree.prototype.json` combines machines with a workspace/agent tree. `resource-tree-no-agents.prototype.json` combines machines with a workspace/pane/tab tree and contains no agent representation.
+`resource-columns.prototype.json` starts with a two-column focused layout that omits tabs, then exposes three-column and tree profiles from the right-click Sidebar menu. `resource-tree.prototype.json` combines machines with a workspace/agent tree. `resource-tree-no-agents.prototype.json` combines machines with a workspace/pane/tab tree and contains no agent representation.
 
 Every machine has a unique nonempty `id`, a nonempty display `name`, an optional `subtitle`, and one transport. The id `current` is reserved for the automatically inserted local session.
+
+SSH machine targets currently require macOS or Linux because the remote daemon uses Unix PTYs and sockets. A native Windows OpenSSH target reports the WSL 2 prerequisite instead of attempting a Unix command in `cmd.exe`. Install a Linux distribution under WSL 2 and expose that Linux environment through its own SSH alias before attaching it as a machine.
 
 | Machine key | Applies to | Type | Default | Effect |
 | --- | --- | --- | --- | --- |

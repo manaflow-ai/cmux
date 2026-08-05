@@ -52,8 +52,8 @@ use crate::browser_input::{
     BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind, BrowserKey, BrowserResizeFailure,
 };
 use crate::config::{
-    Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarResourceKind,
-    SidebarView,
+    Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumn, SidebarColumnKind,
+    SidebarResourceKind, SidebarView,
 };
 use crate::keys;
 use crate::localization;
@@ -3092,6 +3092,8 @@ pub enum Hit {
     },
     /// Visible status text on the final row.
     StatusMessage,
+    /// Visible copy control next to the status text.
+    CopyStatusMessage,
     NewScreen,
     /// Pane tab-bar entry.
     Tab {
@@ -3360,6 +3362,8 @@ pub enum MenuAction {
     ToggleSidebar { visible: bool },
     ToggleSidebarCompact { compact: bool },
     FocusSidebar,
+    ActivateSidebarProfile(usize),
+    SetSidebarViewVisible { view: usize, visible: bool },
     ShowShortcuts,
     SetClientSizing { surface: SurfaceId, client: u64, enabled: bool },
     UseClientSize { surface: SurfaceId, client: u64 },
@@ -3439,6 +3443,9 @@ impl MenuAction {
             MenuAction::ToggleSidebarCompact { compact: false } => menu.compact_sidebar,
             MenuAction::ToggleSidebarCompact { compact: true } => menu.full_sidebar,
             MenuAction::FocusSidebar => menu.focus_sidebar,
+            MenuAction::ActivateSidebarProfile(_) => menu.sidebar_profiles,
+            MenuAction::SetSidebarViewVisible { visible: true, .. } => menu.show_sidebar_view,
+            MenuAction::SetSidebarViewVisible { visible: false, .. } => menu.hide_sidebar_view,
             MenuAction::ShowShortcuts => {
                 localization::catalog().action_label(Action::ShowShortcuts)
             }
@@ -3753,11 +3760,11 @@ impl ContextMenu {
         let placeholder = placeholder.into();
         let search_items: Arc<[MenuItem]> = items.into();
         let fallback: Arc<[MenuItem]> = fallback.into();
-        let mut visible = search_items.to_vec();
-        if !visible.is_empty() && !fallback.is_empty() {
+        let mut visible = fallback.to_vec();
+        if !visible.is_empty() && !search_items.is_empty() {
             visible.push(MenuItem::Separator);
         }
-        visible.extend(fallback.iter().cloned());
+        visible.extend(search_items.iter().cloned());
         let mut level = MenuLevel::new(x.saturating_sub(1), y.saturating_sub(1), visible);
         let search_width = label.width() + placeholder.width() + 9;
         level.rect.width = level.rect.width.max(search_width.min(u16::MAX as usize) as u16);
@@ -3781,7 +3788,7 @@ impl ContextMenu {
         let Some(search) = self.search.as_ref() else { return };
         let query = search.input.as_str().trim().to_lowercase();
         let terms = query.split_whitespace().collect::<Vec<_>>();
-        let mut visible = search
+        let matches = search
             .items
             .iter()
             .filter(|item| {
@@ -3793,14 +3800,20 @@ impl ContextMenu {
             })
             .cloned()
             .collect::<Vec<_>>();
-        if !visible.is_empty() && !search.fallback.is_empty() {
+        let mut visible = search.fallback.to_vec();
+        if !matches.is_empty() && !search.fallback.is_empty() {
             visible.push(MenuItem::Separator);
         }
-        visible.extend(search.fallback.iter().cloned());
+        let first_match = (!terms.is_empty() && !matches.is_empty()).then_some(visible.len());
+        visible.extend(matches);
         self.levels.truncate(1);
         self.scrollbar_drag = None;
         if let Some(level) = self.levels.first_mut() {
             level.replace_items(visible);
+            if let Some(first_match) = first_match {
+                level.selected = first_match;
+                level.ensure_selection_visible();
+            }
         }
     }
 
@@ -4207,6 +4220,22 @@ pub struct PairingDialog {
     pub rect: Rect,
     pub approve: Rect,
     pub deny: Rect,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ConnectionDialogPhase {
+    Editing,
+    Connecting,
+    Starting,
+    Failed(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConnectionTransaction {
+    pub attempt: u64,
+    pub target: String,
+    pub route: MachineConnectRoute,
+    pub phase: ConnectionDialogPhase,
 }
 
 impl PairingDialog {
@@ -4646,6 +4675,8 @@ enum MenuActionResource {
     StatusMessage(String),
     MachineCreationSource(String),
     MachineConnectionTarget(String),
+    SidebarProfile(String),
+    SidebarView { profile: String, view: String },
     ManagedWorkspace { machine: MachineKey, id: String, version: u64 },
     ProviderScope { machine: Option<MachineKey>, id: String },
     ProviderAction { machine: Option<MachineKey>, id: String },
@@ -5680,6 +5711,7 @@ pub struct App {
     machine_action_worker: Option<MachineActionWorker>,
     machine_action_in_flight: bool,
     machine_action_request: Option<MachineRequest>,
+    machine_action_connection_attempt: Option<u64>,
     machine_action_intent_generation: Option<u64>,
     machine_selection_intent: Option<MachineKey>,
     machine_selection_generation: u64,
@@ -5790,6 +5822,8 @@ pub struct App {
     machine_sidebar_width_override: Option<u16>,
     tabs_sidebar_width_override: Option<u16>,
     projection_sidebar_width_overrides: HashMap<String, u16>,
+    /// Session-local visibility overrides, keyed by profile and stable view id.
+    hidden_sidebar_views: HashMap<String, HashSet<String>>,
     /// Pane region of the current frame (screen minus sidebar/status).
     pub content_area: Rect,
     /// Clickable regions of the current frame, rebuilt by the renderers.
@@ -5804,6 +5838,8 @@ pub struct App {
     pub clients: Vec<ClientInfo>,
     pub client_border_labels: HashMap<SurfaceId, String>,
     pub prompt: Option<Prompt>,
+    pub(crate) connection_transaction: Option<ConnectionTransaction>,
+    next_connection_attempt: u64,
     pending_provider_action: Option<MachineRequest>,
     pub pairing_dialog: Option<PairingDialog>,
     pairing_queue: VecDeque<PairingChallenge>,
@@ -5945,6 +5981,7 @@ fn sidebar_layout_for(
         machine_override,
         tabs_override,
         &HashMap::new(),
+        &HashSet::new(),
         None,
     )
 }
@@ -5960,6 +5997,7 @@ fn sidebar_layout_for_state(
     machine_override: Option<u16>,
     tabs_override: Option<u16>,
     projection_overrides: &HashMap<String, u16>,
+    hidden_views: &HashSet<String>,
     previous: Option<&SidebarLayout>,
 ) -> SidebarLayout {
     let (width, height) = size;
@@ -5986,6 +6024,9 @@ fn sidebar_layout_for_state(
         .iter()
         .enumerate()
         .filter_map(|(view_index, view)| {
+            if hidden_views.contains(&view.id) {
+                return None;
+            }
             if view.includes(SidebarResourceKind::Machines) && !machine_visible {
                 return None;
             }
@@ -7099,6 +7140,7 @@ fn run_with_machine_updates_inner(
         machine_action_worker,
         machine_action_in_flight: false,
         machine_action_request: None,
+        machine_action_connection_attempt: None,
         machine_action_intent_generation: None,
         machine_selection_intent,
         machine_selection_generation: 0,
@@ -7188,6 +7230,7 @@ fn run_with_machine_updates_inner(
         machine_sidebar_width_override: None,
         tabs_sidebar_width_override: None,
         projection_sidebar_width_overrides: HashMap::new(),
+        hidden_sidebar_views: HashMap::new(),
         content_area: Rect::default(),
         hits: Vec::new(),
         tab_scroll: HashMap::new(),
@@ -7196,6 +7239,8 @@ fn run_with_machine_updates_inner(
         clients: Vec::new(),
         client_border_labels: HashMap::new(),
         prompt: None,
+        connection_transaction: None,
+        next_connection_attempt: 1,
         pending_provider_action: None,
         pairing_dialog: None,
         pairing_queue: VecDeque::new(),
@@ -7727,6 +7772,19 @@ impl App {
                 | FocusTarget::TabsRail
                 | FocusTarget::ProjectionRail(_)
         )
+    }
+
+    fn focused_sidebar_view_id(&self) -> Option<String> {
+        let rail = match self.focus {
+            FocusTarget::MachineRail => RailKind::Machine,
+            FocusTarget::WorkspaceRail => RailKind::Workspace,
+            FocusTarget::TabsRail => RailKind::Tabs,
+            FocusTarget::ProjectionRail(index) => RailKind::Projection(index),
+            FocusTarget::Pane => return None,
+        };
+        self.view_index_for_rail(rail)
+            .and_then(|index| self.config.sidebar.views.get(index))
+            .map(|view| view.id.clone())
     }
 
     fn fallback_sidebar_area(&self, kind: RailKind, height: u16) -> Option<Rect> {
@@ -8289,6 +8347,17 @@ impl App {
         };
         match worker.perform(request.clone(), preparation) {
             Ok(()) => {
+                self.machine_action_connection_attempt = self
+                    .connection_transaction
+                    .as_ref()
+                    .filter(|transaction| {
+                        matches!(
+                            &request,
+                            MachineRequest::Connect { target, route }
+                                if target == &transaction.target && route == &transaction.route
+                        )
+                    })
+                    .map(|transaction| transaction.attempt);
                 self.machine_action_in_flight = true;
                 self.machine_action_request = Some(request);
                 self.machine_action_intent_generation = Some(self.machine_selection_generation);
@@ -8329,9 +8398,85 @@ impl App {
         self.machine_provider_reconnect_retry_at = None;
     }
 
-    fn take_machine_action_request(&mut self) -> Option<MachineRequest> {
+    fn take_machine_action_request(&mut self) -> (Option<MachineRequest>, Option<u64>) {
         self.machine_action_intent_generation = None;
-        self.machine_action_request.take()
+        (self.machine_action_request.take(), self.machine_action_connection_attempt.take())
+    }
+
+    fn connection_request_matches(
+        &self,
+        request: Option<&MachineRequest>,
+        attempt: Option<u64>,
+    ) -> bool {
+        let Some(transaction) = self.connection_transaction.as_ref() else { return false };
+        attempt == Some(transaction.attempt)
+            && matches!(
+                request,
+                Some(MachineRequest::Connect { target, route })
+                    if target == &transaction.target && route == &transaction.route
+            )
+    }
+
+    fn advance_connection_transaction(
+        &mut self,
+        request: Option<&MachineRequest>,
+        attempt: Option<u64>,
+        phase: ConnectionDialogPhase,
+    ) {
+        if self.connection_request_matches(request, attempt)
+            && let Some(transaction) = self.connection_transaction.as_mut()
+        {
+            transaction.phase = phase;
+        }
+    }
+
+    fn fail_connection_transaction(
+        &mut self,
+        request: Option<&MachineRequest>,
+        attempt: Option<u64>,
+        error: String,
+    ) -> bool {
+        if !self.connection_request_matches(request, attempt) {
+            return false;
+        }
+        self.advance_connection_transaction(
+            request,
+            attempt,
+            ConnectionDialogPhase::Failed(error.clone()),
+        );
+        self.status_message = Some(error);
+        true
+    }
+
+    fn report_machine_action_failure(
+        &mut self,
+        request: Option<&MachineRequest>,
+        attempt: Option<u64>,
+        message: String,
+    ) {
+        let is_connection = matches!(request, Some(MachineRequest::Connect { .. }));
+        let matched = self.fail_connection_transaction(request, attempt, message.clone());
+        if !matched && (!is_connection || self.connection_transaction.is_none()) {
+            self.status_message = Some(message);
+        }
+    }
+
+    fn complete_connection_transaction(
+        &mut self,
+        request: Option<&MachineRequest>,
+        attempt: Option<u64>,
+    ) {
+        if !self.connection_request_matches(request, attempt) {
+            return;
+        }
+        self.connection_transaction = None;
+        if self
+            .prompt
+            .as_ref()
+            .is_some_and(|prompt| matches!(prompt.target, PromptTarget::ConnectMachine(_)))
+        {
+            self.prompt = None;
+        }
     }
 
     fn fail_machine_action(&mut self, request: Option<&MachineRequest>) {
@@ -8390,7 +8535,7 @@ impl App {
             }
             MachineControllerCompletion::Action { result, updates } => {
                 self.machine_action_in_flight = false;
-                let request = self.take_machine_action_request();
+                let (request, connection_attempt) = self.take_machine_action_request();
                 let reconnecting =
                     matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider));
                 let result = match result {
@@ -8400,10 +8545,15 @@ impl App {
                         if reconnecting {
                             self.schedule_machine_provider_reconnect();
                         }
-                        self.status_message = Some(format!(
+                        let message = format!(
                             "{}: {error}",
                             localization::catalog().sidebar.machine_action_failed
-                        ));
+                        );
+                        self.report_machine_action_failure(
+                            request.as_ref(),
+                            connection_attempt,
+                            message,
+                        );
                         return RenderAction::Draw;
                     }
                 };
@@ -8439,6 +8589,7 @@ impl App {
                     ));
                     action = action.merge(RenderAction::Draw);
                 }
+                self.complete_connection_transaction(request.as_ref(), connection_attempt);
                 action
             }
             MachineControllerCompletion::ReplacementPrepared { action_id, action } => {
@@ -8447,18 +8598,29 @@ impl App {
                         let _ = worker.abort_replacement(action_id);
                     }
                     self.machine_action_in_flight = false;
-                    let request = self.take_machine_action_request();
+                    let (request, connection_attempt) = self.take_machine_action_request();
                     self.fail_machine_action(request.as_ref());
                     if matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider)) {
                         self.schedule_machine_provider_reconnect();
                     }
-                    self.status_message = Some(format!(
+                    let message = format!(
                         "{}: {}",
                         localization::catalog().sidebar.machine_action_failed,
                         localization::catalog().sidebar.machine_replacement_pending
-                    ));
+                    );
+                    self.report_machine_action_failure(
+                        request.as_ref(),
+                        connection_attempt,
+                        message,
+                    );
                     return RenderAction::Draw;
                 }
+                let request = self.machine_action_request.clone();
+                self.advance_connection_transaction(
+                    request.as_ref(),
+                    self.machine_action_connection_attempt,
+                    ConnectionDialogPhase::Starting,
+                );
                 let present = self.machine_action_intent_generation
                     == Some(self.machine_selection_generation)
                     && match self.machine_action_request.as_ref() {
@@ -8477,19 +8639,24 @@ impl App {
                 {
                     self.pending_machine_replacement.take();
                     self.machine_action_in_flight = false;
-                    let request = self.take_machine_action_request();
+                    let (request, connection_attempt) = self.take_machine_action_request();
                     self.fail_machine_action(request.as_ref());
                     if matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider)) {
                         self.schedule_machine_provider_reconnect();
                     }
-                    self.status_message = Some(format!(
+                    let message = format!(
                         "{}: {}",
                         localization::catalog().sidebar.machine_action_failed,
                         localization::catalog().sidebar.machine_replacement_worker_stopped
-                    ));
+                    );
+                    self.report_machine_action_failure(
+                        request.as_ref(),
+                        connection_attempt,
+                        message,
+                    );
                     return RenderAction::Draw;
                 }
-                RenderAction::None
+                RenderAction::Draw
             }
             MachineControllerCompletion::ReplacementSettled { action_id, committed, updates } => {
                 if self
@@ -8509,7 +8676,7 @@ impl App {
                     .take()
                     .expect("matching pending replacement was checked");
                 self.machine_action_in_flight = false;
-                let request = self.take_machine_action_request();
+                let (request, connection_attempt) = self.take_machine_action_request();
                 let reconnecting =
                     matches!(request.as_ref(), Some(MachineRequest::ReconnectProvider));
                 let mut action = RenderAction::None;
@@ -8542,6 +8709,7 @@ impl App {
                             drop((ui, session_mutation, session_label, session));
                             action = action.merge(RenderAction::Draw);
                         }
+                        self.complete_connection_transaction(request.as_ref(), connection_attempt);
                     }
                     Ok(false) => {
                         drop(pending);
@@ -8555,10 +8723,15 @@ impl App {
                         if reconnecting {
                             self.schedule_machine_provider_reconnect();
                         }
-                        self.status_message = Some(format!(
+                        let message = format!(
                             "{}: {error}",
                             localization::catalog().sidebar.machine_action_failed
-                        ));
+                        );
+                        self.report_machine_action_failure(
+                            request.as_ref(),
+                            connection_attempt,
+                            message,
+                        );
                         action = action.merge(RenderAction::Draw);
                     }
                 }
@@ -9065,6 +9238,7 @@ impl App {
             | Hit::SidebarAction { .. }
             | Hit::ScreenEntry { .. }
             | Hit::StatusMessage
+            | Hit::CopyStatusMessage
             | Hit::NewTab { .. }
             | Hit::Clients { .. }
             | Hit::Scrollbar { .. }
@@ -9133,6 +9307,18 @@ impl App {
             MenuAction::ConnectMachineTarget(index) => {
                 self.machine_ui.as_ref()?.connection_targets.get(index).map(|target| {
                     MenuActionResource::MachineConnectionTarget(target.target.clone())
+                })
+            }
+            MenuAction::ActivateSidebarProfile(index) => self
+                .config
+                .sidebar
+                .profiles
+                .get(index)
+                .map(|profile| MenuActionResource::SidebarProfile(profile.id.clone())),
+            MenuAction::SetSidebarViewVisible { view, .. } => {
+                self.config.sidebar.views.get(view).map(|view| MenuActionResource::SidebarView {
+                    profile: self.config.sidebar.active_profile.clone(),
+                    view: view.id.clone(),
                 })
             }
             _ => None,
@@ -10715,6 +10901,11 @@ impl App {
                 ..SidebarLayout::default()
             }
         } else {
+            let hidden_views = self
+                .hidden_sidebar_views
+                .get(&self.config.sidebar.active_profile)
+                .cloned()
+                .unwrap_or_default();
             let previous =
                 (!self.sidebar_layout.ordered.is_empty()).then_some(&self.sidebar_layout);
             sidebar_layout_for_state(
@@ -10727,6 +10918,7 @@ impl App {
                 self.machine_sidebar_width_override,
                 self.tabs_sidebar_width_override,
                 &self.projection_sidebar_width_overrides,
+                &hidden_views,
                 previous,
             )
         };
@@ -11954,7 +12146,7 @@ impl App {
         // A context menu acts on the resources visible when it opened. Keep a
         // status message alive while the menu owns input so status actions can
         // still validate and copy that exact message.
-        if self.menu.is_none() {
+        if self.menu.is_none() && !self.status_message_hovered() {
             self.status_message = None;
         }
         if self.pairing_dialog.is_some() || self.shortcut_help.is_some() {
@@ -12824,6 +13016,18 @@ impl App {
         self.status_selection.as_ref().is_some_and(|selection| selection.contains(text, cell))
     }
 
+    fn status_message_hovered(&self) -> bool {
+        self.hover.is_some_and(|(x, y)| {
+            self.rendered_status_message
+                .as_ref()
+                .is_some_and(|rendered| rendered.rect.contains(x, y))
+                || self
+                    .hits
+                    .iter()
+                    .any(|(rect, hit)| *hit == Hit::CopyStatusMessage && rect.contains(x, y))
+        })
+    }
+
     fn begin_status_message_selection(&mut self, x: u16) -> bool {
         let Some(rendered) = self.rendered_status_message.clone() else { return false };
         if rendered.rect.width == 0 || !rendered.rect.contains(x, rendered.rect.y) {
@@ -13408,7 +13612,7 @@ impl App {
         // A context menu acts on the resources visible when it opened. Keep a
         // status message alive while the menu owns input so status actions can
         // still validate and copy that exact message.
-        if self.menu.is_none() {
+        if self.menu.is_none() && !self.status_message_hovered() {
             self.status_message = None;
         }
         if self.pairing_dialog.is_some() {
@@ -13734,13 +13938,15 @@ impl App {
 
     fn open_machine_connection_menu(&mut self, x: u16, y: u16) {
         if self.machine_ui.as_ref().is_some_and(|ui| ui.connect_accepts_pairing_code) {
-            self.prompt = Some(self.connect_machine_prompt());
+            let prompt = self.connect_machine_prompt();
+            self.prompt = Some(prompt);
             return;
         }
         let targets =
             self.machine_ui.as_ref().map(|ui| ui.connection_targets.clone()).unwrap_or_default();
         if targets.is_empty() {
-            self.prompt = Some(self.connect_machine_prompt());
+            let prompt = self.connect_machine_prompt();
+            self.prompt = Some(prompt);
             return;
         }
         let targets = targets
@@ -13763,21 +13969,67 @@ impl App {
         self.capture_menu_resources();
     }
 
-    fn connect_machine_prompt(&self) -> Prompt {
+    fn connect_machine_prompt(&mut self) -> Prompt {
         let messages = &localization::catalog().sidebar;
-        if self.machine_ui.as_ref().is_some_and(|ui| ui.connect_accepts_pairing_code) {
-            Prompt::new(
-                messages.connect_prompt,
-                String::new(),
-                PromptTarget::ConnectMachine(MachineConnectRoute::Provider),
-            )
-        } else {
-            Prompt::new(
-                messages.connect_host_prompt,
-                String::new(),
-                PromptTarget::ConnectMachine(MachineConnectRoute::Local),
-            )
+        let (label, route) =
+            if self.machine_ui.as_ref().is_some_and(|ui| ui.connect_accepts_pairing_code) {
+                (messages.connect_prompt, MachineConnectRoute::Provider)
+            } else {
+                (messages.connect_host_prompt, MachineConnectRoute::Local)
+            };
+        self.connection_transaction = Some(ConnectionTransaction {
+            attempt: self.next_connection_attempt,
+            target: String::new(),
+            route,
+            phase: ConnectionDialogPhase::Editing,
+        });
+        Prompt::new(label, String::new(), PromptTarget::ConnectMachine(route))
+    }
+
+    fn begin_machine_connection(&mut self, target: String, route: MachineConnectRoute) {
+        let target = target.trim().to_string();
+        if target.is_empty() {
+            return;
         }
+        if let Some(ConnectionTransaction { phase: ConnectionDialogPhase::Failed(error), .. }) =
+            self.connection_transaction.as_ref()
+            && self.status_message.as_deref() == Some(error.as_str())
+        {
+            self.status_message = None;
+            self.status_selection = None;
+        }
+        let attempt = self.next_connection_attempt;
+        self.next_connection_attempt = self.next_connection_attempt.wrapping_add(1).max(1);
+        self.connection_transaction = Some(ConnectionTransaction {
+            attempt,
+            target: target.clone(),
+            route,
+            phase: ConnectionDialogPhase::Connecting,
+        });
+        let label = match route {
+            MachineConnectRoute::Local => localization::catalog().sidebar.connect_host_prompt,
+            MachineConnectRoute::Provider => localization::catalog().sidebar.connect_prompt,
+        };
+        self.prompt = Some(Prompt::new(label, target.clone(), PromptTarget::ConnectMachine(route)));
+        if let Some(machine) = self.machine_ui.as_mut() {
+            machine.request = Some(MachineRequest::Connect { target, route });
+        }
+    }
+
+    fn retry_machine_connection(&mut self) {
+        let Some(transaction) = self.connection_transaction.clone() else { return };
+        self.begin_machine_connection(transaction.target, transaction.route);
+    }
+
+    fn copy_connection_error(&mut self) {
+        let Some(ConnectionTransaction { phase: ConnectionDialogPhase::Failed(error), .. }) =
+            self.connection_transaction.as_ref()
+        else {
+            return;
+        };
+        let error = error.clone();
+        self.copy_text_to_clipboard(&error);
+        self.show_toast("Copied".to_string());
     }
 
     fn open_provider_scope_menu(&mut self, x: u16, y: u16) {
@@ -14118,17 +14370,17 @@ impl App {
 
     /// Commit the open rename dialog (Enter or the OK button).
     fn commit_prompt(&mut self) {
-        let Some(prompt) = self.take_prompt() else { return };
-        let input = prompt.input.as_str().to_string();
-        if let PromptTarget::ConnectMachine(route) = prompt.target {
-            if !input.trim().is_empty()
-                && let Some(machine) = self.machine_ui.as_mut()
-            {
-                machine.request =
-                    Some(MachineRequest::Connect { target: input.trim().to_string(), route });
-            }
+        if let Some((route, input)) = self.prompt.as_ref().and_then(|prompt| {
+            matches!(prompt.target, PromptTarget::ConnectMachine(_)).then(|| {
+                let PromptTarget::ConnectMachine(route) = prompt.target else { unreachable!() };
+                (route, prompt.input.as_str().to_string())
+            })
+        }) {
+            self.begin_machine_connection(input, route);
             return;
         }
+        let Some(prompt) = self.take_prompt() else { return };
+        let input = prompt.input.as_str().to_string();
         if let PromptTarget::ClientMachine(key) = prompt.target {
             if !input.trim().is_empty() {
                 self.request_rename_client_machine(key, input);
@@ -14279,10 +14531,37 @@ impl App {
     fn close_prompt(&mut self) {
         self.shake_frames = 0;
         self.prompt = None;
+        self.connection_transaction = None;
         self.pending_provider_action = None;
     }
 
     fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<RenderAction> {
+        if let Some(phase) =
+            self.connection_transaction.as_ref().map(|transaction| transaction.phase.clone())
+        {
+            match phase {
+                ConnectionDialogPhase::Editing => {}
+                ConnectionDialogPhase::Connecting | ConnectionDialogPhase::Starting => {
+                    if key.code == KeyCode::Esc {
+                        self.close_prompt();
+                    }
+                    return Ok(RenderAction::Draw);
+                }
+                ConnectionDialogPhase::Failed(_) => {
+                    match key.code {
+                        KeyCode::Enter => self.retry_machine_connection(),
+                        KeyCode::Esc => self.close_prompt(),
+                        KeyCode::Char('c' | 'C')
+                            if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                        {
+                            self.copy_connection_error();
+                        }
+                        _ => {}
+                    }
+                    return Ok(RenderAction::Draw);
+                }
+            }
+        }
         let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
         match prompt.input.handle_key(&key) {
             InputEvent::Commit => self.commit_prompt(),
@@ -14293,6 +14572,13 @@ impl App {
     }
 
     fn handle_prompt_text(&mut self, text: &str) -> anyhow::Result<RenderAction> {
+        if self
+            .connection_transaction
+            .as_ref()
+            .is_some_and(|transaction| !matches!(transaction.phase, ConnectionDialogPhase::Editing))
+        {
+            return Ok(RenderAction::Draw);
+        }
         let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
         prompt.input.insert_str(text);
         Ok(RenderAction::Draw)
@@ -14413,6 +14699,30 @@ impl App {
     /// Clicks while the rename dialog is open: OK commits, Cancel (or a
     /// click outside the dialog) dismisses; clicks inside are swallowed.
     fn handle_prompt_click(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
+        if let Some(phase) =
+            self.connection_transaction.as_ref().map(|transaction| transaction.phase.clone())
+        {
+            let Some(prompt) = self.prompt.as_ref() else { return Ok(RenderAction::None) };
+            match phase {
+                ConnectionDialogPhase::Editing => {}
+                ConnectionDialogPhase::Connecting | ConnectionDialogPhase::Starting => {
+                    if prompt.cancel.contains(x, y) || !prompt.rect.contains(x, y) {
+                        self.close_prompt();
+                    }
+                    return Ok(RenderAction::Draw);
+                }
+                ConnectionDialogPhase::Failed(_) => {
+                    if prompt.ok.contains(x, y) {
+                        self.retry_machine_connection();
+                    } else if prompt.clear.contains(x, y) {
+                        self.copy_connection_error();
+                    } else if prompt.cancel.contains(x, y) || !prompt.rect.contains(x, y) {
+                        self.close_prompt();
+                    }
+                    return Ok(RenderAction::Draw);
+                }
+            }
+        }
         let Some(prompt) = self.prompt.as_mut() else { return Ok(RenderAction::None) };
         if prompt.ok.contains(x, y) {
             self.commit_prompt();
@@ -14763,7 +15073,9 @@ impl App {
                 return Ok(RenderAction::None);
             }
         }
-        self.status_message = None;
+        if !self.status_message_hovered() {
+            self.status_message = None;
+        }
         Ok(RenderAction::Draw)
     }
 
@@ -14938,7 +15250,9 @@ impl App {
         kind: BrowserInputKind,
     ) {
         if self.browser_input.enqueue(BrowserInputEvent { surface_id, surface, kind }) {
-            self.status_message = None;
+            if !self.status_message_hovered() {
+                self.status_message = None;
+            }
         } else {
             self.status_message = Some("browser is busy; command dropped".to_string());
         }
@@ -15030,6 +15344,14 @@ impl App {
                 if !self.workspace_sidebar_focused() && self.prepare_pty_input_before_mutation() {
                     self.focus_sidebar();
                 }
+                return Ok(());
+            }
+            MenuAction::ActivateSidebarProfile(index) => {
+                self.activate_sidebar_profile(index);
+                return Ok(());
+            }
+            MenuAction::SetSidebarViewVisible { view, visible } => {
+                self.set_sidebar_view_visible(view, visible);
                 return Ok(());
             }
             MenuAction::ShowShortcuts => {
@@ -15146,6 +15468,8 @@ impl App {
             | MenuAction::ToggleSidebar { .. }
             | MenuAction::ToggleSidebarCompact { .. }
             | MenuAction::FocusSidebar
+            | MenuAction::ActivateSidebarProfile(_)
+            | MenuAction::SetSidebarViewVisible { .. }
             | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
             MenuAction::SetClientSizing { surface, client, enabled } => {
                 self.session.set_client_sizing(surface, client, enabled);
@@ -15202,13 +15526,13 @@ impl App {
                     .as_ref()
                     .and_then(|ui| ui.connection_targets.get(index))
                     .map(|target| target.target.clone());
-                if let (Some(ui), Some(target)) = (self.machine_ui.as_mut(), target) {
-                    ui.request =
-                        Some(MachineRequest::Connect { target, route: MachineConnectRoute::Local });
+                if let Some(target) = target {
+                    self.begin_machine_connection(target, MachineConnectRoute::Local);
                 }
             }
             MenuAction::ConnectOtherMachine => {
-                self.prompt = Some(self.connect_machine_prompt());
+                let prompt = self.connect_machine_prompt();
+                self.prompt = Some(prompt);
             }
         }
         Ok(())
@@ -17283,6 +17607,7 @@ impl App {
                 Hit::StatusMessage => {
                     self.begin_status_message_selection(x);
                 }
+                Hit::CopyStatusMessage => self.copy_status_message(),
                 Hit::NewScreen => {
                     self.focus = FocusTarget::Pane;
                     self.new_screen()?;
@@ -18182,8 +18507,134 @@ impl App {
         ]
     }
 
-    fn global_menu_actions(&self) -> Vec<MenuAction> {
-        vec![MenuAction::ToggleSidebar { visible: self.sidebar_visible }, MenuAction::ShowShortcuts]
+    fn sidebar_view_name(&self, index: usize) -> String {
+        let messages = &localization::catalog().sidebar;
+        let Some(view) = self.config.sidebar.views.get(index) else { return String::new() };
+        match view.levels.as_slice() {
+            [SidebarResourceKind::Machines] => messages.machines.to_string(),
+            [SidebarResourceKind::Workspaces] => messages.workspaces.to_string(),
+            [SidebarResourceKind::Tabs] => messages.tabs.to_string(),
+            _ => view.id.clone(),
+        }
+    }
+
+    fn sidebar_view_visibility_item(&self, index: usize) -> Option<MenuItem> {
+        let view = self.config.sidebar.views.get(index)?;
+        let hidden = self
+            .hidden_sidebar_views
+            .get(&self.config.sidebar.active_profile)
+            .is_some_and(|hidden| hidden.contains(&view.id));
+        let template = if hidden {
+            localization::catalog().menu.show_sidebar_view
+        } else {
+            localization::catalog().menu.hide_sidebar_view
+        };
+        Some(MenuItem::LabeledAction {
+            label: template.replace("{view}", &self.sidebar_view_name(index)),
+            action: MenuAction::SetSidebarViewVisible { view: index, visible: hidden },
+        })
+    }
+
+    fn sidebar_presentation_menu_item(&self) -> MenuItem {
+        let mut items = Vec::new();
+        if self.config.sidebar.profiles.len() > 1 {
+            items.push(MenuItem::Submenu {
+                label: localization::catalog().menu.sidebar_profiles.to_string(),
+                items: self
+                    .config
+                    .sidebar
+                    .profiles
+                    .iter()
+                    .enumerate()
+                    .map(|(index, profile)| MenuItem::LabeledAction {
+                        label: format!(
+                            "{}{}",
+                            if profile.id == self.config.sidebar.active_profile {
+                                "✓ "
+                            } else {
+                                "  "
+                            },
+                            profile.name
+                        ),
+                        action: MenuAction::ActivateSidebarProfile(index),
+                    })
+                    .collect(),
+            });
+        }
+        if !self.config.sidebar.views.is_empty() {
+            if !items.is_empty() {
+                items.push(MenuItem::Separator);
+            }
+            items.extend(
+                (0..self.config.sidebar.views.len())
+                    .filter_map(|index| self.sidebar_view_visibility_item(index)),
+            );
+        }
+        MenuItem::Submenu { label: localization::catalog().menu.sidebar_layout.to_string(), items }
+    }
+
+    fn global_menu_items(&self) -> Vec<MenuItem> {
+        let mut items =
+            self.menu_group([MenuAction::ToggleSidebar { visible: self.sidebar_visible }]);
+        if self.surface_only.is_none() {
+            items.push(self.sidebar_presentation_menu_item());
+        }
+        items.push(self.menu_item(MenuAction::ShowShortcuts));
+        items
+    }
+
+    fn set_sidebar_view_visible(&mut self, index: usize, visible: bool) {
+        let Some(view) = self.config.sidebar.views.get(index) else { return };
+        let view_id = view.id.clone();
+        let hides_focused = !visible && self.focused_sidebar_view_id().as_deref() == Some(&view_id);
+        let hidden = self
+            .hidden_sidebar_views
+            .entry(self.config.sidebar.active_profile.clone())
+            .or_default();
+        if visible {
+            hidden.remove(&view_id);
+            self.sidebar_visible = true;
+        } else {
+            hidden.insert(view_id);
+            if hides_focused {
+                self.focus = FocusTarget::Pane;
+            }
+        }
+    }
+
+    fn activate_sidebar_profile(&mut self, index: usize) {
+        let Some(profile) = self.config.sidebar.profiles.get(index).cloned() else { return };
+        let focused_view = self.focused_sidebar_view_id();
+        self.config.sidebar.active_profile = profile.id;
+        self.config.sidebar.views = profile.views;
+        self.config.sidebar.columns = self
+            .config
+            .sidebar
+            .views
+            .iter()
+            .filter_map(|view| {
+                view.legacy_kind().map(|kind| SidebarColumn {
+                    kind,
+                    width: view.width,
+                    max_width: view.max_width,
+                })
+            })
+            .collect();
+        self.sidebar_visible = true;
+        if let Some(focused_view) = focused_view {
+            let hidden = self
+                .hidden_sidebar_views
+                .get(&self.config.sidebar.active_profile)
+                .is_some_and(|hidden| hidden.contains(&focused_view));
+            if !hidden
+                && let Some(index) =
+                    self.config.sidebar.views.iter().position(|view| view.id == focused_view)
+            {
+                self.focus_rail(self.rail_kind_for_view(index));
+                return;
+            }
+            self.focus = FocusTarget::Pane;
+        }
     }
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
@@ -18213,10 +18664,7 @@ impl App {
             self.menu = Some(ContextMenu::with_groups(
                 x,
                 y,
-                vec![
-                    self.menu_group([MenuAction::CopyStatusMessage]),
-                    self.menu_group(self.global_menu_actions()),
-                ],
+                vec![self.menu_group([MenuAction::CopyStatusMessage]), self.global_menu_items()],
             ));
             return;
         }
@@ -18323,7 +18771,18 @@ impl App {
                 }
                 _ => {}
             }
+            if let Some(view_index) = self
+                .sidebar_layout
+                .ordered
+                .iter()
+                .find(|placement| placement.rect.contains(x, y))
+                .map(|placement| placement.view_index)
+                && let Some(item) = self.sidebar_view_visibility_item(view_index)
+            {
+                groups.push(vec![item]);
+            }
             groups.push(self.menu_group(self.sidebar_menu_actions()));
+            groups.push(vec![self.sidebar_presentation_menu_item()]);
             groups.push(self.menu_group([MenuAction::ShowShortcuts]));
             self.menu = Some(ContextMenu::with_groups(x, y, groups));
             return;
@@ -18361,7 +18820,7 @@ impl App {
                 {
                     groups.push(vec![clients]);
                 }
-                groups.push(self.menu_group(self.global_menu_actions()));
+                groups.push(self.global_menu_items());
                 self.menu = Some(ContextMenu::with_groups(x, y, groups));
                 return;
             }
@@ -18374,7 +18833,7 @@ impl App {
                             MenuAction::RenameScreen(id),
                             MenuAction::CloseScreen(id),
                         ]),
-                        self.menu_group(self.global_menu_actions()),
+                        self.global_menu_items(),
                     ],
                 ));
                 return;
@@ -18407,12 +18866,11 @@ impl App {
             {
                 groups.push(vec![clients]);
             }
-            groups.push(self.menu_group(self.global_menu_actions()));
+            groups.push(self.global_menu_items());
             self.menu = Some(ContextMenu::with_groups(x, y, groups));
             return;
         }
-        self.menu =
-            Some(ContextMenu::with_groups(x, y, vec![self.menu_group(self.global_menu_actions())]));
+        self.menu = Some(ContextMenu::with_groups(x, y, vec![self.global_menu_items()]));
     }
 
     fn replace_clients(&mut self, clients: Vec<ClientInfo>) {
@@ -18426,7 +18884,7 @@ impl App {
         if let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&self.clients, surface) {
             groups.push(items);
         }
-        groups.push(self.menu_group(self.global_menu_actions()));
+        groups.push(self.global_menu_items());
         self.menu = Some(ContextMenu::with_groups(x, y, groups));
     }
 
@@ -18907,6 +19365,8 @@ fn menu_action_prepares_pty_release(action: MenuAction) -> bool {
             | MenuAction::InvokeProviderAction(_)
             | MenuAction::ConnectMachineTarget(_)
             | MenuAction::ConnectOtherMachine
+            | MenuAction::ActivateSidebarProfile(_)
+            | MenuAction::SetSidebarViewVisible { .. }
     )
 }
 
@@ -19102,8 +19562,8 @@ mod tests {
 
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{
-        Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarResourceKind,
-        SidebarView, SidebarViewSpec, action_definitions,
+        Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarProfileSpec,
+        SidebarResourceKind, SidebarView, SidebarViewSpec, action_definitions,
     };
     use crate::localization;
     use crate::machine::{
@@ -20608,6 +21068,57 @@ mod tests {
     }
 
     #[test]
+    fn context_menu_switches_sidebar_profiles_and_keeps_per_profile_visibility() {
+        let mux = Mux::new("sidebar-profile-menu-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let full = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 22, 0),
+        ];
+        let focused = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: vec![Action::NewWorkspace],
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+        }];
+        app.config.sidebar.profiles = vec![
+            SidebarProfileSpec { id: "full".into(), name: "Full".into(), views: full.clone() },
+            SidebarProfileSpec {
+                id: "focused".into(),
+                name: "Focused".into(),
+                views: focused.clone(),
+            },
+        ];
+        app.config.sidebar.active_profile = "full".into();
+        app.config.sidebar.views = full;
+        app.config.sidebar.views_explicit = true;
+        app.sync_layout((120, 20));
+
+        app.open_context_menu(100, 10);
+        let actions = app.menu.as_ref().unwrap().actions();
+        assert!(actions.contains(&MenuAction::ActivateSidebarProfile(1)));
+        assert!(actions.contains(&MenuAction::SetSidebarViewVisible { view: 1, visible: false }));
+
+        app.focus = FocusTarget::TabsRail;
+        app.activate_menu(MenuAction::ActivateSidebarProfile(1)).unwrap();
+        app.sync_layout((120, 20));
+        assert_eq!(app.config.sidebar.views, focused);
+        assert!(app.sidebar_layout.tabs.is_none());
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        app.activate_sidebar_profile(0);
+        app.set_sidebar_view_visible(1, false);
+        app.sync_layout((120, 20));
+        assert!(app.sidebar_layout.tabs.is_none());
+        app.activate_sidebar_profile(1);
+        app.activate_sidebar_profile(0);
+        app.sync_layout((120, 20));
+        assert!(app.sidebar_layout.tabs.is_none());
+    }
+
+    #[test]
     fn collapsed_rail_requires_hysteresis_before_reappearing() {
         let mut config = Config::default();
         config.sidebar.views = vec![
@@ -20627,6 +21138,7 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashSet::new(),
             None,
         );
         assert!(collapsed.machine.is_none());
@@ -20641,6 +21153,7 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashSet::new(),
             Some(&collapsed),
         );
         assert!(at_boundary.machine.is_none());
@@ -20654,6 +21167,7 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashSet::new(),
             Some(&at_boundary),
         );
         assert!(revealed.machine.is_some());
@@ -21132,6 +21646,8 @@ mod tests {
         .unwrap();
         app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT)).unwrap();
 
+        assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
+        app.run_action(Action::ToggleSidebarCompact).unwrap();
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
     }
 
@@ -22813,9 +23329,9 @@ mod tests {
         assert_eq!(menu.levels[0].items[2].label(), Some("cloud-mac-0000"));
         assert!(menu.insert_search_text("3999"));
         assert_eq!(menu.levels[0].items.len(), 3);
-        assert_eq!(menu.levels[0].items[0].label(), Some("cloud-mac-3999"));
+        assert_eq!(menu.levels[0].items[0].action(), Some(MenuAction::ConnectOtherMachine));
         assert_eq!(menu.levels[0].items[1], MenuItem::Separator);
-        assert_eq!(menu.levels[0].items[2].action(), Some(MenuAction::ConnectOtherMachine));
+        assert_eq!(menu.levels[0].items[2].label(), Some("cloud-mac-3999"));
         assert_eq!(menu.selected_action(), Some(MenuAction::ConnectMachineTarget(3_999)));
 
         assert!(menu.handle_search_key(&KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL,)));
@@ -33117,6 +33633,70 @@ mod tests {
     }
 
     #[test]
+    fn stale_connection_completion_cannot_settle_a_retry_to_the_same_host() {
+        let mux = Mux::new("connection-attempt-correlation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let request = MachineRequest::Connect {
+            target: "mini.local".into(),
+            route: MachineConnectRoute::Local,
+        };
+        app.connection_transaction = Some(super::ConnectionTransaction {
+            attempt: 2,
+            target: "mini.local".into(),
+            route: MachineConnectRoute::Local,
+            phase: super::ConnectionDialogPhase::Connecting,
+        });
+
+        app.report_machine_action_failure(Some(&request), Some(1), "old failure".into());
+        assert_eq!(
+            app.connection_transaction.as_ref().map(|transaction| &transaction.phase),
+            Some(&super::ConnectionDialogPhase::Connecting)
+        );
+        assert!(app.status_message.is_none());
+
+        app.report_machine_action_failure(Some(&request), Some(2), "current failure".into());
+        assert!(matches!(
+            app.connection_transaction.as_ref().map(|transaction| &transaction.phase),
+            Some(super::ConnectionDialogPhase::Failed(error)) if error == "current failure"
+        ));
+        assert_eq!(app.status_message.as_deref(), Some("current failure"));
+    }
+
+    #[test]
+    fn connection_dialog_renders_loading_error_retry_and_copy_states() {
+        let mux = Mux::new("connection-dialog-state-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.begin_machine_connection("mini.local".into(), MachineConnectRoute::Local);
+        app.sync_layout((100, 24));
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("Connecting to mini.local"), "{rendered}");
+
+        let request = MachineRequest::Connect {
+            target: "mini.local".into(),
+            route: MachineConnectRoute::Local,
+        };
+        let attempt = app.connection_transaction.as_ref().unwrap().attempt;
+        app.fail_connection_transaction(
+            Some(&request),
+            Some(attempt),
+            "permission denied by remote host".into(),
+        );
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(rendered.contains("Could not connect to mini.local"), "{rendered}");
+        assert!(rendered.contains("permission denied by remote host"), "{rendered}");
+        assert!(rendered.contains("Retry"), "{rendered}");
+        assert!(rendered.contains("Copy message"), "{rendered}");
+        let prompt = app.prompt.as_ref().unwrap();
+        assert!(prompt.ok.width > 0);
+        assert!(prompt.clear.width > 0);
+    }
+
+    #[test]
     fn provider_owned_workspace_policy_never_creates_an_untracked_session_workspace() {
         let mux = Mux::new("provider-owned-initial-workspace-test", SurfaceOptions::default());
         let mut ui = provider_machine_ui();
@@ -35720,6 +36300,7 @@ mod tests {
             machine_action_worker: None,
             machine_action_in_flight: false,
             machine_action_request: None,
+            machine_action_connection_attempt: None,
             machine_action_intent_generation: None,
             machine_selection_intent: None,
             machine_selection_generation: 0,
@@ -35809,6 +36390,7 @@ mod tests {
             machine_sidebar_width_override: None,
             tabs_sidebar_width_override: None,
             projection_sidebar_width_overrides: HashMap::new(),
+            hidden_sidebar_views: HashMap::new(),
             content_area: Rect::default(),
             hits: Vec::new(),
             tab_scroll: HashMap::new(),
@@ -35817,6 +36399,8 @@ mod tests {
             clients: Vec::new(),
             client_border_labels: HashMap::new(),
             prompt: None,
+            connection_transaction: None,
+            next_connection_attempt: 1,
             pending_provider_action: None,
             pairing_dialog: None,
             pairing_queue: VecDeque::new(),

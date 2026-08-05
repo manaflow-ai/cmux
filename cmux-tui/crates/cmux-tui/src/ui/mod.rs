@@ -215,7 +215,7 @@ fn draw_durable_notice_banner(app: &mut App, frame: &mut Frame) {
         return;
     };
     app.hide_status_message();
-    app.hits.retain(|(_, hit)| !matches!(hit, Hit::StatusMessage));
+    app.hits.retain(|(_, hit)| !matches!(hit, Hit::StatusMessage | Hit::CopyStatusMessage));
     let (marker, color) = match notice.level {
         DurableNoticeLevel::Info => ("i ", app.config.theme.notification_info),
         DurableNoticeLevel::Warning => ("! ", app.config.theme.notification_warning),
@@ -248,14 +248,38 @@ fn draw_surface_status(app: &mut App, frame: &mut Frame) {
         app.hide_status_message();
         return;
     }
-    let text = status_display_text(message, area.width as usize);
+    let copy_label = status_copy_label();
+    let copy_width = copy_label.width().min(area.width as usize) as u16;
+    let show_copy = area.width > copy_width.saturating_add(2);
+    let message_width = if show_copy {
+        area.width.saturating_sub(copy_width.saturating_add(1))
+    } else {
+        area.width
+    };
+    let text = status_display_text(message, message_width as usize);
+    let text_width = text.width() as u16;
+    let style = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
     draw_interactive_status_message(
         app,
         frame,
-        Rect { x: 0, y: area.height - 1, width: text.width() as u16, height: 1 },
+        Rect { x: 0, y: area.height - 1, width: text_width, height: 1 },
         text,
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        style,
     );
+    if show_copy {
+        draw_status_copy_control(
+            app,
+            frame,
+            Rect {
+                x: text_width.saturating_add(1),
+                y: area.height - 1,
+                width: copy_width,
+                height: 1,
+            },
+            &copy_label,
+            style,
+        );
+    }
 }
 
 fn status_display_text(message: &str, max_width: usize) -> String {
@@ -290,6 +314,26 @@ fn draw_interactive_status_message(
             frame.buffer_mut()[(rect.x + cell, rect.y)].set_style(selected_style);
         }
     }
+}
+
+fn status_copy_label() -> String {
+    format!("[{}]", catalog().menu.copy_message)
+}
+
+fn draw_status_copy_control(
+    app: &mut App,
+    frame: &mut Frame,
+    rect: Rect,
+    label: &str,
+    style: Style,
+) {
+    if rect.width == 0 {
+        return;
+    }
+    let hovered = app.hover.is_some_and(|(x, y)| rect.contains(x, y));
+    let style = if hovered { style.add_modifier(Modifier::REVERSED) } else { style };
+    frame.buffer_mut().set_stringn(rect.x, rect.y, label, rect.width as usize, style);
+    app.hits.push((rect, Hit::CopyStatusMessage));
 }
 
 fn sanitize_render_buffer(buffer: &mut Buffer) {
@@ -354,16 +398,27 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     // Session label / status message, right-aligned. Prefix help renders
     // over the pane border above this row.
     let available_label_width = area.width.saturating_sub(x) as usize;
-    let status_text = app
-        .status_message
-        .as_deref()
-        .map(|message| status_display_text(message, available_label_width.saturating_sub(2)));
+    let copy_label = status_copy_label();
+    let copy_width = copy_label.width();
+    let show_copy =
+        app.status_message.is_some() && available_label_width > copy_width.saturating_add(3);
+    let status_text = app.status_message.as_deref().map(|message| {
+        let reserved = if show_copy { copy_width.saturating_add(3) } else { 2 };
+        status_display_text(message, available_label_width.saturating_sub(reserved))
+    });
     if status_text.is_none() {
         app.hide_status_message();
     }
-    let label = status_text.as_ref().map(|message| format!(" {message} ")).unwrap_or_else(|| {
-        format!("[{}] ", truncate(&app.session_label, available_label_width.saturating_sub(3)))
-    });
+    let label = status_text
+        .as_ref()
+        .map(
+            |message| {
+                if show_copy { format!(" {message} {copy_label} ") } else { format!(" {message} ") }
+            },
+        )
+        .unwrap_or_else(|| {
+            format!("[{}] ", truncate(&app.session_label, available_label_width.saturating_sub(3)))
+        });
     let label_w = label.width().min(area.width as usize) as u16;
     let track_end = area.width.saturating_sub(label_w);
     let track_start = x.saturating_add(1);
@@ -400,18 +455,28 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             },
         );
         if let Some(status_text) = status_text {
+            let status_width = status_text.width() as u16;
             draw_interactive_status_message(
                 app,
                 frame,
-                Rect {
-                    x: label_x.saturating_add(1),
-                    y: status_y,
-                    width: status_text.width() as u16,
-                    height: 1,
-                },
+                Rect { x: label_x.saturating_add(1), y: status_y, width: status_width, height: 1 },
                 status_text,
                 base.fg(Color::Red).add_modifier(Modifier::BOLD),
             );
+            if show_copy {
+                draw_status_copy_control(
+                    app,
+                    frame,
+                    Rect {
+                        x: label_x.saturating_add(status_width).saturating_add(2),
+                        y: status_y,
+                        width: copy_width as u16,
+                        height: 1,
+                    },
+                    &copy_label,
+                    base.fg(Color::Red).add_modifier(Modifier::BOLD),
+                );
+            }
         }
     } else {
         app.hide_status_message();

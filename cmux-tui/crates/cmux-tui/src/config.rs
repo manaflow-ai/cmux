@@ -438,12 +438,22 @@ struct RawTabs {
 #[serde(deny_unknown_fields)]
 struct RawSidebar {
     view: Option<String>,
+    profile: Option<String>,
     width: Option<u16>,
     compact_width: Option<u16>,
     max_width: Option<u16>,
+    profiles: Option<Vec<RawSidebarProfile>>,
     views: Option<Vec<RawSidebarView>>,
     columns: Option<Vec<RawSidebarColumn>>,
     plugin: Option<RawSidebarPlugin>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSidebarProfile {
+    id: String,
+    name: Option<String>,
+    views: Vec<RawSidebarView>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -751,11 +761,19 @@ pub struct Sidebar {
     /// list behavior; multiple levels render as one native tree column.
     pub views: Vec<SidebarViewSpec>,
     pub views_explicit: bool,
+    /// Named native layouts. `views` is always the currently selected
+    /// profile's resolved rail list so older consumers remain compatible.
+    pub profiles: Vec<SidebarProfileSpec>,
+    pub active_profile: String,
     pub plugin: Option<SidebarPluginOptions>,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
+        let views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Machines, 22, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
+        ];
         Sidebar {
             view: SidebarView::Workspaces,
             width: 22,
@@ -766,14 +784,24 @@ impl Default for Sidebar {
                 SidebarColumn { kind: SidebarColumnKind::Workspaces, width: 22, max_width: 0 },
             ],
             columns_explicit: false,
-            views: vec![
-                SidebarViewSpec::legacy(SidebarColumnKind::Machines, 22, 0),
-                SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
-            ],
+            views: views.clone(),
             views_explicit: false,
+            profiles: vec![SidebarProfileSpec {
+                id: "default".to_string(),
+                name: "Default".to_string(),
+                views,
+            }],
+            active_profile: "default".to_string(),
             plugin: None,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarProfileSpec {
+    pub id: String,
+    pub name: String,
+    pub views: Vec<SidebarViewSpec>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1019,6 +1047,106 @@ fn parse_sidebar_action(value: &str) -> Result<Action, String> {
         .find(|definition| definition.config_key == value)
         .map(|definition| definition.action)
         .ok_or_else(|| format!("cmux-tui: ignoring unknown sidebar action {value:?}"))
+}
+
+fn resolve_sidebar_view_specs(
+    views: &[RawSidebarView],
+    machine_width: u16,
+    machine_max_width: u16,
+    workspace_width: u16,
+    workspace_max_width: u16,
+    owner: &str,
+) -> Vec<SidebarViewSpec> {
+    let mut ids = HashSet::new();
+    let mut legacy_kinds = HashSet::new();
+    let mut resolved = Vec::new();
+    for view in views {
+        let id = view.id.trim();
+        if id.is_empty() || ids.contains(id) {
+            eprintln!("cmux-tui: ignoring {owner} view with an empty or duplicate id");
+            continue;
+        }
+        let mut levels = Vec::with_capacity(view.levels.len());
+        let mut valid = true;
+        for level in &view.levels {
+            match parse_sidebar_resource_kind(level.trim()) {
+                Ok(level) => levels.push(level),
+                Err(warning) => {
+                    eprintln!("{warning}");
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if !valid {
+            continue;
+        }
+        if let Err(reason) = validate_sidebar_levels(&levels) {
+            eprintln!("cmux-tui: ignoring {owner} view {id:?}: {reason}");
+            continue;
+        }
+        let legacy_kind = SidebarViewSpec {
+            id: id.to_string(),
+            levels: levels.clone(),
+            actions: Vec::new(),
+            width: 0,
+            max_width: 0,
+            collapse_priority: 0,
+        }
+        .legacy_kind();
+        if legacy_kind.is_some_and(|kind| !legacy_kinds.insert(kind)) {
+            eprintln!(
+                "cmux-tui: ignoring {owner} view {id:?}: a one-level view for that resource already exists"
+            );
+            continue;
+        }
+        ids.insert(id.to_string());
+        let (default_width, default_max_width) = match legacy_kind {
+            Some(SidebarColumnKind::Machines) => (machine_width, machine_max_width),
+            Some(SidebarColumnKind::Workspaces) => (workspace_width, workspace_max_width),
+            Some(SidebarColumnKind::Tabs) | None => (22, 0),
+        };
+        let actions = if levels == [SidebarResourceKind::Machines]
+            && view.actions.as_ref().is_some_and(|actions| !actions.is_empty())
+        {
+            eprintln!(
+                "cmux-tui: ignoring sidebar actions in {owner} machine view {id:?}; machine actions come from provider capabilities"
+            );
+            Vec::new()
+        } else if let Some(raw_actions) = view.actions.as_ref() {
+            let mut seen = HashSet::new();
+            raw_actions
+                .iter()
+                .filter_map(|raw_action| match parse_sidebar_action(raw_action.trim()) {
+                    Ok(action) if seen.insert(action) => Some(action),
+                    Ok(_) => {
+                        eprintln!(
+                            "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
+                            raw_action.trim()
+                        );
+                        None
+                    }
+                    Err(warning) => {
+                        eprintln!("{warning} in {owner} view {id:?}");
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            default_sidebar_actions(&levels)
+        };
+        resolved.push(SidebarViewSpec {
+            id: id.to_string(),
+            collapse_priority: view
+                .collapse_priority
+                .unwrap_or_else(|| default_sidebar_collapse_priority(&levels)),
+            levels,
+            actions,
+            width: view.width.unwrap_or(default_width).clamp(10, 60),
+            max_width: view.max_width.unwrap_or(default_max_width),
+        });
+    }
+    resolved
 }
 
 #[derive(Debug, Clone)]
@@ -2646,99 +2774,14 @@ pub fn load() -> Config {
         if raw.sidebar.columns.is_some() {
             eprintln!("cmux-tui: sidebar.views overrides sidebar.columns");
         }
-        let mut ids = HashSet::new();
-        let mut legacy_kinds = HashSet::new();
-        let mut resolved = Vec::new();
-        for view in views {
-            let id = view.id.trim();
-            if id.is_empty() || ids.contains(id) {
-                eprintln!("cmux-tui: ignoring sidebar view with an empty or duplicate id");
-                continue;
-            }
-            let mut levels = Vec::with_capacity(view.levels.len());
-            let mut valid = true;
-            for level in &view.levels {
-                match parse_sidebar_resource_kind(level.trim()) {
-                    Ok(level) => levels.push(level),
-                    Err(warning) => {
-                        eprintln!("{warning}");
-                        valid = false;
-                        break;
-                    }
-                }
-            }
-            if !valid {
-                continue;
-            }
-            if let Err(reason) = validate_sidebar_levels(&levels) {
-                eprintln!("cmux-tui: ignoring sidebar view {id:?}: {reason}");
-                continue;
-            }
-            let legacy_kind = SidebarViewSpec {
-                id: id.to_string(),
-                levels: levels.clone(),
-                actions: Vec::new(),
-                width: 0,
-                max_width: 0,
-                collapse_priority: 0,
-            }
-            .legacy_kind();
-            if legacy_kind.is_some_and(|kind| !legacy_kinds.insert(kind)) {
-                eprintln!(
-                    "cmux-tui: ignoring sidebar view {id:?}: a one-level view for that resource already exists"
-                );
-                continue;
-            }
-            ids.insert(id.to_string());
-            let (default_width, default_max_width) = match legacy_kind {
-                Some(SidebarColumnKind::Machines) => {
-                    (config.machine_sidebar.width, config.machine_sidebar.max_width)
-                }
-                Some(SidebarColumnKind::Workspaces) => {
-                    (config.sidebar.width, config.sidebar.max_width)
-                }
-                Some(SidebarColumnKind::Tabs) | None => (22, 0),
-            };
-            let actions = if levels == [SidebarResourceKind::Machines]
-                && view.actions.as_ref().is_some_and(|actions| !actions.is_empty())
-            {
-                eprintln!(
-                    "cmux-tui: ignoring sidebar actions in machine view {id:?}; machine actions come from provider capabilities"
-                );
-                Vec::new()
-            } else if let Some(raw_actions) = view.actions.as_ref() {
-                let mut seen = HashSet::new();
-                raw_actions
-                    .iter()
-                    .filter_map(|raw_action| match parse_sidebar_action(raw_action.trim()) {
-                        Ok(action) if seen.insert(action) => Some(action),
-                        Ok(_) => {
-                            eprintln!(
-                                "cmux-tui: ignoring duplicate sidebar action {:?} in view {id:?}",
-                                raw_action.trim()
-                            );
-                            None
-                        }
-                        Err(warning) => {
-                            eprintln!("{warning} in view {id:?}");
-                            None
-                        }
-                    })
-                    .collect()
-            } else {
-                default_sidebar_actions(&levels)
-            };
-            resolved.push(SidebarViewSpec {
-                id: id.to_string(),
-                collapse_priority: view
-                    .collapse_priority
-                    .unwrap_or_else(|| default_sidebar_collapse_priority(&levels)),
-                levels,
-                actions,
-                width: view.width.unwrap_or(default_width).clamp(10, 60),
-                max_width: view.max_width.unwrap_or(default_max_width),
-            });
-        }
+        let resolved = resolve_sidebar_view_specs(
+            views,
+            config.machine_sidebar.width,
+            config.machine_sidebar.max_width,
+            config.sidebar.width,
+            config.sidebar.max_width,
+            "sidebar",
+        );
         if resolved.is_empty() {
             eprintln!("cmux-tui: sidebar.views had no usable entries; keeping defaults");
         } else {
@@ -2756,6 +2799,77 @@ pub fn load() -> Config {
             config.sidebar.columns_explicit = false;
             config.sidebar.views_explicit = true;
         }
+    }
+    config.sidebar.profiles[0].views.clone_from(&config.sidebar.views);
+    if let Some(raw_profiles) = raw.sidebar.profiles.as_ref() {
+        if raw.sidebar.views.is_some() || raw.sidebar.columns.is_some() {
+            eprintln!("cmux-tui: sidebar.profiles overrides sidebar.views and sidebar.columns");
+        }
+        let mut ids = HashSet::new();
+        let mut profiles = Vec::new();
+        for raw_profile in raw_profiles {
+            let id = raw_profile.id.trim();
+            if id.is_empty() || !ids.insert(id.to_string()) {
+                eprintln!("cmux-tui: ignoring sidebar profile with an empty or duplicate id");
+                continue;
+            }
+            let owner = format!("sidebar profile {id:?}");
+            let views = resolve_sidebar_view_specs(
+                &raw_profile.views,
+                config.machine_sidebar.width,
+                config.machine_sidebar.max_width,
+                config.sidebar.width,
+                config.sidebar.max_width,
+                &owner,
+            );
+            if views.is_empty() {
+                eprintln!("cmux-tui: ignoring sidebar profile {id:?} with no usable views");
+                continue;
+            }
+            let name = raw_profile
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(id)
+                .to_string();
+            profiles.push(SidebarProfileSpec { id: id.to_string(), name, views });
+        }
+        if profiles.is_empty() {
+            eprintln!("cmux-tui: sidebar.profiles had no usable entries; keeping defaults");
+        } else {
+            let requested =
+                raw.sidebar.profile.as_deref().map(str::trim).filter(|id| !id.is_empty());
+            let selected = requested
+                .and_then(|id| profiles.iter().position(|profile| profile.id == id))
+                .unwrap_or_else(|| {
+                    if let Some(requested) = requested {
+                        eprintln!(
+                            "cmux-tui: sidebar.profile {requested:?} was not found; using the first profile"
+                        );
+                    }
+                    0
+                });
+            config.sidebar.active_profile = profiles[selected].id.clone();
+            config.sidebar.views = profiles[selected].views.clone();
+            config.sidebar.columns = config
+                .sidebar
+                .views
+                .iter()
+                .filter_map(|view| {
+                    view.legacy_kind().map(|kind| SidebarColumn {
+                        kind,
+                        width: view.width,
+                        max_width: view.max_width,
+                    })
+                })
+                .collect();
+            config.sidebar.columns_explicit = false;
+            config.sidebar.views_explicit = true;
+            config.sidebar.profiles = profiles;
+        }
+    } else if raw.sidebar.profile.is_some() {
+        eprintln!("cmux-tui: ignoring sidebar.profile without sidebar.profiles");
     }
     let cloud = raw.machine_provider.cloud;
     if let Some(enabled) = cloud.enabled {
@@ -4167,13 +4281,7 @@ mod tests {
             config.sidebar.views.iter().map(|view| view.id.as_str()).collect::<Vec<_>>(),
             vec!["machines", "workspace-tree"]
         );
-        assert!(
-            config
-                .sidebar
-                .views
-                .iter()
-                .all(|view| !view.includes(SidebarResourceKind::Tabs))
-        );
+        assert!(config.sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Tabs)));
     }
 
     #[test]

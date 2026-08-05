@@ -310,6 +310,7 @@ impl SshConfigDiscovery<'_> {
             return;
         }
         let Ok(contents) = fs::read_to_string(path) else { return };
+        let mut includes = Vec::new();
         for line in contents.lines() {
             let mut words = ssh_config_words(line);
             let Some(first) = words.first_mut() else { continue };
@@ -334,13 +335,17 @@ impl SshConfigDiscovery<'_> {
                     }
                 }
                 "include" => {
-                    for pattern in values.by_ref() {
-                        for included in self.expand_include(&pattern) {
-                            self.visit(&included, depth.saturating_add(1));
-                        }
-                    }
+                    includes.extend(values);
                 }
                 _ => {}
+            }
+        }
+        // The root file is the user's curated catalog. Included files are
+        // often generated inventories, so list direct aliases first while
+        // still following every include for discovery and de-duplication.
+        for pattern in includes {
+            for included in self.expand_include(&pattern) {
+                self.visit(&included, depth.saturating_add(1));
             }
         }
     }

@@ -88,12 +88,20 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
     let hover = app.hover;
     let shake = app.shake_frames;
+    let connection = app.connection_transaction.clone();
     if app.shake_frames > 0 {
         app.shake_frames -= 1;
     }
 
-    let width: u16 = 42.min(screen.width.saturating_sub(2)).max(20);
-    let height: u16 = 9;
+    let width: u16 =
+        if connection.is_some() { 64 } else { 42 }.min(screen.width.saturating_sub(2)).max(20);
+    let height: u16 = if connection.as_ref().is_some_and(|transaction| {
+        matches!(transaction.phase, crate::app::ConnectionDialogPhase::Failed(_))
+    }) {
+        13
+    } else {
+        9
+    };
     if screen.width < width || screen.height < height {
         return;
     }
@@ -121,6 +129,22 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
         }
     }
     draw_border(buf, prompt.rect, border);
+    if let Some(transaction) = connection
+        && !matches!(transaction.phase, crate::app::ConnectionDialogPhase::Editing)
+    {
+        draw_connection_prompt(
+            frame,
+            prompt,
+            &transaction,
+            hover,
+            base,
+            title_style,
+            input_style,
+            chrome.prompt_button_accent_fg,
+            chrome.prompt_button_hover_bg,
+        );
+        return;
+    }
     buf.set_stringn(x + 2, y + 2, prompt.label.as_str(), (width - 4) as usize, title_style);
 
     // Input row: visible slice around the cursor.
@@ -179,6 +203,159 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
         button_style(prompt.cancel, false),
     );
     buf.set_stringn(ok_x, button_y, ok_label, ok_w as usize, button_style(prompt.ok, true));
+}
+
+fn draw_connection_prompt(
+    frame: &mut Frame,
+    prompt: &mut crate::app::Prompt,
+    transaction: &crate::app::ConnectionTransaction,
+    hover: Option<(u16, u16)>,
+    base: Style,
+    title_style: Style,
+    input_style: Style,
+    button_accent: ratatui::style::Color,
+    button_hover: ratatui::style::Color,
+) {
+    use crate::app::ConnectionDialogPhase;
+
+    let Rect { x, y, width, height } = prompt.rect;
+    let copy = &catalog().sidebar;
+    let (title, error) = match &transaction.phase {
+        ConnectionDialogPhase::Editing => return,
+        ConnectionDialogPhase::Connecting => {
+            (copy.connecting_to_message(&transaction.target), None)
+        }
+        ConnectionDialogPhase::Starting => (copy.starting_on_message(&transaction.target), None),
+        ConnectionDialogPhase::Failed(error) => {
+            (copy.failed_to_connect_message(&transaction.target), Some(error.as_str()))
+        }
+    };
+    frame.buffer_mut().set_stringn(x + 2, y + 2, &title, (width - 4) as usize, title_style);
+
+    let input_w = width.saturating_sub(4);
+    prompt.input_rect = Rect::default();
+    for dx in 0..input_w {
+        set_cell(frame.buffer_mut(), x + 2 + dx, y + 4, " ", input_style);
+    }
+    frame.buffer_mut().set_stringn(
+        x + 2,
+        y + 4,
+        &transaction.target,
+        input_w as usize,
+        input_style,
+    );
+
+    if let Some(error) = error {
+        for (index, line) in
+            wrapped_message_lines(error, (width - 4) as usize, 3).into_iter().enumerate()
+        {
+            frame.buffer_mut().set_stringn(
+                x + 2,
+                y + 6 + index as u16,
+                &line,
+                (width - 4) as usize,
+                base,
+            );
+        }
+    }
+
+    let close_label = format!("[ {} esc ]", copy.close_dialog);
+    let retry_label = format!("[ {} ⏎ ]", copy.retry_connection);
+    let copy_label = format!("[ {} ^C ]", catalog().menu.copy_message);
+    let close_w = label_width(&close_label);
+    let retry_w = label_width(&retry_label);
+    let copy_w = label_width(&copy_label);
+    let button_y = y + height.saturating_sub(3);
+    let retry_x = x + width - 2 - retry_w;
+    let close_x = retry_x.saturating_sub(close_w + 2);
+    let copy_x = close_x.saturating_sub(copy_w + 2);
+    let failed = error.is_some();
+    prompt.ok = if failed {
+        Rect { x: retry_x, y: button_y, width: retry_w, height: 1 }
+    } else {
+        Rect::default()
+    };
+    prompt.clear = if failed && copy_x >= x + 2 {
+        Rect { x: copy_x, y: button_y, width: copy_w, height: 1 }
+    } else {
+        Rect::default()
+    };
+    prompt.cancel = Rect {
+        x: if failed { close_x } else { x + width - 2 - close_w },
+        y: button_y,
+        width: close_w,
+        height: 1,
+    };
+    let button_style = |rect: Rect, accent: bool| {
+        let hovered = hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
+        let mut style = if accent { base.fg(button_accent) } else { base };
+        if hovered {
+            style = style.add_modifier(Modifier::BOLD).bg(button_hover);
+        }
+        style
+    };
+    if prompt.clear.width > 0 {
+        frame.buffer_mut().set_stringn(
+            prompt.clear.x,
+            button_y,
+            &copy_label,
+            copy_w as usize,
+            button_style(prompt.clear, false),
+        );
+    }
+    frame.buffer_mut().set_stringn(
+        prompt.cancel.x,
+        button_y,
+        &close_label,
+        close_w as usize,
+        button_style(prompt.cancel, false),
+    );
+    if prompt.ok.width > 0 {
+        frame.buffer_mut().set_stringn(
+            prompt.ok.x,
+            button_y,
+            &retry_label,
+            retry_w as usize,
+            button_style(prompt.ok, true),
+        );
+    }
+}
+
+fn wrapped_message_lines(message: &str, width: usize, limit: usize) -> Vec<String> {
+    if width == 0 || limit == 0 {
+        return Vec::new();
+    }
+    let sanitized = message
+        .chars()
+        .map(|character| if character.is_control() { ' ' } else { character })
+        .collect::<String>();
+    let mut lines = Vec::new();
+    let mut remaining = sanitized.as_str();
+    while !remaining.is_empty() && lines.len() < limit {
+        let mut end = remaining.len();
+        while end > 0 && remaining[..end].width() > width {
+            end = remaining[..end].char_indices().next_back().map_or(0, |(index, _)| index);
+        }
+        if end == 0 {
+            break;
+        }
+        let split = if end < remaining.len() {
+            remaining[..end].rfind(char::is_whitespace).filter(|index| *index > 0).unwrap_or(end)
+        } else {
+            end
+        };
+        lines.push(remaining[..split].trim().to_string());
+        remaining = remaining[split..].trim_start();
+    }
+    if !remaining.is_empty()
+        && let Some(last) = lines.last_mut()
+    {
+        while format!("{last}…").width() > width && !last.is_empty() {
+            last.pop();
+        }
+        last.push('…');
+    }
+    lines
 }
 
 pub fn draw_menu(app: &mut App, frame: &mut Frame) {

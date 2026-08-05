@@ -1,15 +1,48 @@
 {
   "sidebar": {
     "view": "workspaces",
-    "views": [
-      { "id": "machines", "levels": ["machines"], "width": 18 },
+    "profile": "focused",
+    "profiles": [
       {
-        "id": "workspaces",
-        "levels": ["workspaces"],
-        "actions": ["new-workspace"],
-        "width": 22
+        "id": "focused",
+        "name": "Workspaces + agents",
+        "views": [
+          { "id": "machines", "levels": ["machines"], "width": 18 },
+          {
+            "id": "workspace-agents",
+            "levels": ["workspaces", "agents"],
+            "actions": ["new-workspace"],
+            "width": 28
+          }
+        ]
       },
-      { "id": "tabs", "levels": ["tabs"], "width": 24 }
+      {
+        "id": "columns",
+        "name": "Three columns",
+        "views": [
+          { "id": "machines", "levels": ["machines"], "width": 18 },
+          {
+            "id": "workspaces",
+            "levels": ["workspaces"],
+            "actions": ["new-workspace"],
+            "width": 22
+          },
+          { "id": "tabs", "levels": ["tabs"], "width": 24 }
+        ]
+      },
+      {
+        "id": "tree",
+        "name": "Workspace tree",
+        "views": [
+          { "id": "machines", "levels": ["machines"], "width": 18 },
+          {
+            "id": "workspace-tree",
+            "levels": ["workspaces", "panes", "tabs"],
+            "actions": ["new-workspace", "new-tab"],
+            "width": 32
+          }
+        ]
+      }
     ]
   },
   "machine_sidebar": {
