@@ -234,6 +234,58 @@ struct CommandClickHTMLOpenRoutingTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func filesystemProbePoolAlternatesBrowserWorkWithQueuedClicks() async {
+        let pool = WordPathFilesystemResolutionCoordinator(
+            maximumCoalescedQueueWait: .seconds(60)
+        )
+        let firstClickStarted = AsyncStream<Void>.makeStream()
+        let releaseFirstClick = AsyncStream<Void>.makeStream()
+        let events = AsyncStream<String>.makeStream()
+
+        pool.submit(
+            id: UUID(),
+            isUserInitiated: true,
+            work: {
+                firstClickStarted.continuation.yield()
+                var releaseIterator = releaseFirstClick.stream.makeAsyncIterator()
+                _ = await releaseIterator.next()
+                return { @MainActor in events.continuation.yield("click-1") }
+            },
+            discarded: {}
+        )
+        var firstClickStartedIterator = firstClickStarted.stream.makeAsyncIterator()
+        _ = await firstClickStartedIterator.next()
+
+        pool.submit(
+            id: UUID(),
+            isUserInitiated: true,
+            work: {
+                return { @MainActor in events.continuation.yield("click-2") }
+            },
+            discarded: {}
+        )
+        pool.submitCoalesced(
+            id: UUID(),
+            coalescingKey: UUID(),
+            work: {
+                return { @MainActor in events.continuation.yield("browser") }
+            },
+            discarded: {},
+            expired: {}
+        )
+        releaseFirstClick.continuation.yield()
+
+        var eventIterator = events.stream.makeAsyncIterator()
+        #expect(await eventIterator.next() == "click-1")
+        #expect(await eventIterator.next() == "browser")
+        #expect(await eventIterator.next() == "click-2")
+
+        firstClickStarted.continuation.finish()
+        releaseFirstClick.continuation.finish()
+        events.continuation.finish()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func filesystemProbePoolPreservesDistinctCoalescedOwnersBeyondClickLimit() async {
         let pool = WordPathFilesystemResolutionCoordinator(
             maximumCoalescedQueueWait: .seconds(60)
