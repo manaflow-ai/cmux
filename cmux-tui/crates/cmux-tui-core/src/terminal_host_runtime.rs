@@ -4843,6 +4843,13 @@ mod unix {
         Ok(output)
     }
 
+    /// Encode the version-current snapshot payload used by native smart
+    /// renderer clients. Keeping this paired with the public decoder prevents
+    /// client fixtures and adapters from reproducing a stale wire schema.
+    pub fn encode_host_snapshot_payload(snapshot: &HostSnapshot) -> anyhow::Result<Vec<u8>> {
+        encode_snapshot(snapshot)
+    }
+
     #[cfg(test)]
     fn decode_snapshot(payload: &[u8]) -> anyhow::Result<HostSnapshot> {
         decode_snapshot_for_version(payload, PROTOCOL_VERSION)
@@ -5345,15 +5352,18 @@ mod unix {
             }
         }
 
-        fn exited_host_fixture_at(exit_record_path: PathBuf) -> Arc<HostShared> {
+        fn exited_host_fixture_at(exit_record_parent: PathBuf) -> Arc<HostShared> {
             let mut term = Terminal::new(80, 24, 1_000, Callbacks::default()).unwrap();
             term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
                 .unwrap();
             let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
             let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
             let (parser_commands, _parser_receiver) = sync_channel(1);
+            let terminal_id = TerminalId::random().unwrap();
+            let exit_record_path =
+                exit_record_parent.join(format!("{}.exit", terminal_id.to_hex()));
             let host = Arc::new(HostShared {
-                terminal_id: TerminalId::random().unwrap(),
+                terminal_id,
                 incarnation: HostIncarnation::random().unwrap(),
                 owner_token: CapabilityToken::random().unwrap(),
                 capabilities: CapabilityStore::new(64),
@@ -5410,11 +5420,13 @@ mod unix {
         }
 
         fn exited_host_fixture() -> Arc<HostShared> {
-            exited_host_fixture_at(std::env::temp_dir().join(format!(
-                "cmux-terminal-exit-tests-{}-{}.exit",
+            let root = std::env::temp_dir().join(format!(
+                "cmux-terminal-exit-tests-{}-{}",
                 std::process::id(),
                 RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-            )))
+            ));
+            prepare_private_dir(&root).unwrap();
+            exited_host_fixture_at(root)
         }
 
         fn test_host_shared() -> Arc<HostShared> {
@@ -7065,8 +7077,13 @@ mod unix {
             let smart_publication = host.smart.broadcast_lock.lock().unwrap();
             assert!(!host.dead.load(Ordering::Acquire));
 
-            let exit = thread::spawn(move || exit_host.publish_exit_if_drained());
-            let deadline = Instant::now() + Duration::from_secs(1);
+            let (started_tx, started_rx) = std::sync::mpsc::channel();
+            let exit = thread::spawn(move || {
+                started_tx.send(()).unwrap();
+                exit_host.persist_and_publish_exit_if_drained().unwrap();
+            });
+            started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
             loop {
                 match host.source_order_lock.try_lock() {
                     Ok(source_order) => {
@@ -7497,7 +7514,7 @@ mod unix {
                 RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
             ));
             fs::write(&blocking_parent, b"not a directory").unwrap();
-            let host = exited_host_fixture_at(blocking_parent.join("terminal.exit"));
+            let host = exited_host_fixture_at(blocking_parent.clone());
             let weak = Arc::downgrade(&host);
             let (returned_tx, returned_rx) = std::sync::mpsc::channel();
             let publisher = thread::spawn({
@@ -7725,8 +7742,8 @@ pub(crate) use unix::{
 #[cfg(unix)]
 pub use unix::{
     HostAttachment, acknowledge_terminal_host_exit_record, adopt_terminal_host,
-    decode_host_snapshot_payload, isolate_terminal_host_process_fds, launch_terminal_host,
-    launch_terminal_host_with_identity, load_terminal_host_exit_records,
+    decode_host_snapshot_payload, encode_host_snapshot_payload, isolate_terminal_host_process_fds,
+    launch_terminal_host, launch_terminal_host_with_identity, load_terminal_host_exit_records,
     load_terminal_host_records, remove_stale_terminal_host_record, serve_terminal_host_stdio,
     terminal_host_exit_record, terminal_host_record_liveness, terminal_host_root,
     validate_terminal_host_exit_record, validate_terminal_host_record,

@@ -652,9 +652,8 @@ pub enum MuxEvent {
         retry_after_ms: Option<u64>,
         reservation_id: Option<u64>,
     },
-    /// A surface's child exited. Hosted terminals remain in the tree as an
-    /// addressable Exited tab until an explicit close tombstones them; local
-    /// terminals have already been reaped when this arrives.
+    /// A surface's child exited. Consumers use this notification to clear
+    /// selection and cached state after the surface is detached.
     SurfaceExited(SurfaceId),
     TitleChanged {
         surface: SurfaceId,

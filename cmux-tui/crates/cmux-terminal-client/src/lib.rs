@@ -21,8 +21,9 @@ use cmux_tui_core::resource::TerminalPublicId;
 use cmux_tui_core::terminal_host_protocol::{
     Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, encode_frame,
 };
-use cmux_tui_core::terminal_host_runtime::decode_host_snapshot_payload;
-use cmux_tui_core::terminal_host_runtime::decode_terminal_color_overrides;
+use cmux_tui_core::terminal_host_runtime::{
+    decode_host_snapshot_payload, decode_terminal_color_overrides,
+};
 use ghostty_vt::{
     Callbacks, CellWidth, KeyAction, KeyEncoder, RenderState, Terminal, key_input_from_chord,
 };
@@ -124,6 +125,7 @@ struct ClientState {
     expected_sequence: Option<u64>,
     cols: u16,
     rows: u16,
+    cell_pixels: (u16, u16),
 }
 
 #[derive(Serialize)]
@@ -185,6 +187,7 @@ impl ClientState {
             expected_sequence: None,
             cols: 0,
             rows: 0,
+            cell_pixels: (8, 16),
         })
     }
 
@@ -201,6 +204,7 @@ impl ClientState {
         self.expected_sequence = None;
         self.cols = 0;
         self.rows = 0;
+        self.cell_pixels = (8, 16);
         Ok(())
     }
 
@@ -228,9 +232,24 @@ impl ClientState {
                 let mut terminal =
                     Terminal::new(snapshot.cols, snapshot.rows, 100_000, Callbacks::default())
                         .map_err(|error| error.to_string())?;
-                terminal.vt_write(&snapshot.replay);
+                terminal
+                    .resize(
+                        snapshot.cols,
+                        snapshot.rows,
+                        u32::from(snapshot.cell_pixels.0),
+                        u32::from(snapshot.cell_pixels.1),
+                    )
+                    .map_err(|error| error.to_string())?;
+                terminal
+                    .apply_vt_replay_parts(
+                        &snapshot.replay,
+                        &snapshot.kitty_image_aliases,
+                        snapshot.kitty_state,
+                    )
+                    .map_err(|error| error.to_string())?;
                 self.cols = snapshot.cols;
                 self.rows = snapshot.rows;
+                self.cell_pixels = snapshot.cell_pixels;
                 self.snapshot_boundary = frame.sequence;
                 self.snapshot_bytes = frame.payload.len() as u64;
                 self.bootstrap_frames = 1;
@@ -281,7 +300,12 @@ impl ClientState {
                 self.terminal
                     .as_mut()
                     .ok_or_else(|| "resize arrived before snapshot".to_string())?
-                    .resize(cols, rows, 8, 16)
+                    .resize(
+                        cols,
+                        rows,
+                        u32::from(self.cell_pixels.0),
+                        u32::from(self.cell_pixels.1),
+                    )
                     .map_err(|error| error.to_string())?;
                 self.cols = cols;
                 self.rows = rows;
@@ -1434,15 +1458,22 @@ mod tests {
     }
 
     fn test_snapshot_payload(replay: &[u8]) -> Vec<u8> {
-        let mut payload = Vec::new();
-        payload.extend_from_slice(&80u16.to_le_bytes());
-        payload.extend_from_slice(&24u16.to_le_bytes());
-        payload.extend_from_slice(&0u32.to_le_bytes());
-        payload.extend_from_slice(&(replay.len() as u32).to_le_bytes());
-        payload.extend_from_slice(replay);
-        payload.push(0);
-        payload.extend_from_slice(&0u16.to_le_bytes());
-        payload
+        cmux_tui_core::terminal_host_runtime::encode_host_snapshot_payload(
+            &cmux_tui_core::terminal_host_runtime::HostSnapshot {
+                cols: 80,
+                rows: 24,
+                cell_pixels: (8, 16),
+                replay: replay.to_vec(),
+                kitty_image_aliases: Vec::new(),
+                kitty_state: ghostty_vt::KittyReplayState::disabled(),
+                sequence_boundary: 0,
+                colors: ghostty_vt::TerminalColorOverrides::default(),
+                pid: None,
+                command: Vec::new(),
+                cwd: None,
+            },
+        )
+        .unwrap()
     }
 
     async fn send_test_terminal_frame(stream: &ServiceStream, frame: Frame) {

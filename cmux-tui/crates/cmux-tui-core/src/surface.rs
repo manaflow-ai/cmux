@@ -422,6 +422,14 @@ impl HostedFrameStager {
                 if !valid_smart && !valid_legacy {
                     return Err("invalid Resized frame");
                 }
+                if valid_smart {
+                    let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
+                    let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
+                    let (cols, rows) =
+                        crate::terminal_host_runtime::normalize_terminal_geometry(cols, rows)
+                            .map_err(|_| "invalid Resized geometry")?;
+                    return Ok(Some(HostedTransition::Resized { cols, rows }));
+                }
                 let crate::terminal_host_runtime::DecodedHostResize {
                     cols,
                     rows,
@@ -434,9 +442,6 @@ impl HostedFrameStager {
                     self.protocol_version,
                 )
                 .map_err(|_| "invalid Resized geometry")?;
-                if valid_smart {
-                    return Ok(Some(HostedTransition::Resized { cols, rows }));
-                }
                 self.pending = Some(PendingHostedTransition::Resized {
                     cols,
                     rows,
