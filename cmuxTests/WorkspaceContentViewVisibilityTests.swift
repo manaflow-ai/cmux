@@ -15,6 +15,8 @@ import Bonsplit
 
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
+    private static let quietTerminalCommand = "/bin/sleep 30"
+
     private final class MinimalModeBodyProbeCounts {
         var contentViewBody = 0
         var workspaceContentBody = 0
@@ -267,9 +269,15 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: WorkspacePresentationModeSettings.modeKey
         )
 
-        let tabManager = TabManager()
+        let tabManager = TabManager(
+            initialTerminalCommand: Self.quietTerminalCommand,
+            autoWelcomeIfNeeded: false
+        )
         for _ in 0..<6 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+            tabManager.addWorkspace(
+                initialTerminalCommand: Self.quietTerminalCommand,
+                autoWelcomeIfNeeded: false
+            )
         }
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
@@ -369,7 +377,10 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
 
-        let tabManager = TabManager()
+        let tabManager = TabManager(
+            initialTerminalCommand: Self.quietTerminalCommand,
+            autoWelcomeIfNeeded: false
+        )
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
@@ -408,7 +419,11 @@ final class WorkspaceContentViewVisibilityTests {
         try await Self.waitForSelectedTerminalRuntime(in: tabManager, window: window)
         counts.reset()
 
-        tabManager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        tabManager.addWorkspace(
+            initialTerminalCommand: Self.quietTerminalCommand,
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
         await Self.drainMainRunLoop(for: window)
 
         #expect(
@@ -446,9 +461,13 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
 
-        let tabManager = TabManager()
+        let tabManager = TabManager(
+            initialTerminalCommand: Self.quietTerminalCommand,
+            autoWelcomeIfNeeded: false
+        )
         let workspaceId = try #require(tabManager.selectedTabId)
         let unaffectedWorkspace = tabManager.addWorkspace(
+            initialTerminalCommand: Self.quietTerminalCommand,
             select: false,
             autoWelcomeIfNeeded: false
         )
