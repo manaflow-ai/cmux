@@ -45,6 +45,7 @@ extension ControlPaneContext {
     func controlPaneList(routing: ControlRoutingSelectors) -> ControlPaneListSnapshot? { nil }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { false }
     func controlPaneResizeInvalidParametersMessage() -> String { "Invalid pane resize parameters" }
+    func controlPaneSurfaceNotFoundMessage() -> String { "Surface not found" }
     func controlPaneFocus(
         routing: ControlRoutingSelectors,
         paneID: UUID
@@ -419,6 +420,7 @@ extension ControlSurfaceContext {
             surfaceNotTerminal: ""
         )
     }
+    func controlSurfaceNotFoundMessage() -> String { "Surface not found" }
 
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
@@ -437,7 +439,8 @@ extension ControlSurfaceContext {
 
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceCloseResolution { .tabManagerUnavailable }
 
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
@@ -470,7 +473,10 @@ extension ControlSurfaceContext {
     }
 
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
-        ControlSurfaceResumeStrings(agentSessionEndedMustBeBoolean: "")
+        ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: "",
+            launchCommandMustBeValid: ""
+        )
     }
 
     func controlSurfaceSendText(
@@ -512,7 +518,14 @@ extension ControlSurfaceContext {
     nonisolated func controlSurfaceParseShellActivityState(_ rawState: String) -> String? { nil }
     nonisolated func controlSurfaceParsePortScanKickReason(_ rawReason: String) -> String? { nil }
 
-    func controlSurfaceReportTTY(workspaceID: UUID, requestedSurfaceID: UUID?, ttyName: String)
+    func controlSurfaceReportTTY(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        ttyName: String,
+        authenticatedRemoteWorkspaceID: UUID?,
+        terminalLifecycleID: UUID?,
+        attemptID: UUID?
+    )
         -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
     func controlSurfaceReportPWD(workspaceID: UUID, requestedSurfaceID: UUID?, path: String)
         -> ControlSurfaceReportPWDResolution { .workspaceNotFound }
@@ -554,5 +567,6 @@ extension ControlMobileHostContext {
     func controlMobileTerminalScroll(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalMouse(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalPaste(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileTaskAttachmentUpload(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileChatSessionsDump() -> ControlCallResult { mobileHostStubResult }
 }

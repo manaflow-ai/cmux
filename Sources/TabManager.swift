@@ -395,7 +395,7 @@ class TabManager: ObservableObject {
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
     private let defaultWorkspaceWorkingDirectoryProvider: () -> String
-    let workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore
+    let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
 
@@ -478,6 +478,7 @@ class TabManager: ObservableObject {
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
+        focusHistoryNow: @escaping @MainActor @Sendable () -> Date = { Date() },
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         defaultWorkspaceWorkingDirectoryProvider: @escaping () -> String = {
@@ -488,18 +489,21 @@ class TabManager: ObservableObject {
                 configuredValue: GhosttyConfig.load().workingDirectory
             )
         },
-        workspaceDirectoryCustomizationStore: WorkspaceDirectoryCustomizationStore? = nil,
+        workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
-        self.workspaceDirectoryCustomizationStore = workspaceDirectoryCustomizationStore ?? WorkspaceDirectoryCustomizationStore()
+        self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
-        self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
-            settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
-        })
+        self.focusHistoryNavigation = FocusHistoryModel(
+            now: focusHistoryNow,
+            navigationScope: {
+                settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
+            }
+        )
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
@@ -1117,7 +1121,7 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory,
+        applyCreationTitleAsCustomTitle: Bool = true,
         allowTextBoxFocusDefault: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
@@ -1200,10 +1204,9 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
-            if workspaceDirectoryCustomizationMode == .trackDirectory {
-                trackWorkspaceDirectoryCustomization(
+            if applyCreationTitleAsCustomTitle {
+                applyCreationWorkspaceCustomization(
                     to: newWorkspace,
-                    rootDirectory: workingDirectory,
                     explicitTitle: title,
                     explicitTitleSource: titleSource
                 )
@@ -1876,7 +1879,7 @@ class TabManager: ObservableObject {
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode = .trackDirectory
+        applyCreationTitleAsCustomTitle: Bool = true
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -1888,7 +1891,7 @@ class TabManager: ObservableObject {
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         )
     }
 
@@ -1990,7 +1993,7 @@ class TabManager: ObservableObject {
         initialBrowserTransparentBackground: Bool,
         inheritWorkingDirectory: Bool,
         select: Bool,
-        workspaceDirectoryCustomizationMode: WorkspaceDirectoryCustomizationCreationMode
+        applyCreationTitleAsCustomTitle: Bool
     ) -> Workspace {
         addWorkspace(
             title: title,
@@ -2002,7 +2005,7 @@ class TabManager: ObservableObject {
             inheritWorkingDirectory: inheritWorkingDirectory,
             select: select,
             autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationMode: workspaceDirectoryCustomizationMode
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
         )
     }
 
@@ -2110,6 +2113,12 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
+        // Only this manager's own workspaces close here. The teardown below frees
+        // Ghostty surfaces, which SIGHUPs the child processes, empties `panels`, and
+        // publishes a workspace-closed event, so running it for a workspace that
+        // lives in another window or was already detached kills terminals nobody
+        // asked to close and announces a close that did not happen.
+        guard tabs.contains(where: { $0.id == workspace.id }) else { return }
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // Closing a mirrored remote tmux workspace DETACHES from the remote session,
@@ -2788,7 +2797,14 @@ class TabManager: ObservableObject {
     /// They must not escalate into workspace/window-close semantics for "last tab".
     func closeRuntimeSurfaceWithConfirmation(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: false); return }
+        if tab.panels[surfaceId] == nil {
+            tab.closeDockPanelAndClearNotifications(
+                surfaceId,
+                force: false,
+                recordsHistory: false
+            )
+            return
+        }
 
         let requiresConfirmation: Bool
         if let terminalPanel = tab.terminalPanel(for: surfaceId),
@@ -2817,7 +2833,14 @@ class TabManager: ObservableObject {
     /// This path must only close the addressed surface and must never close the workspace window.
     func closeRuntimeSurface(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: true); return }
+        if tab.panels[surfaceId] == nil {
+            tab.closeDockPanelAndClearNotifications(
+                surfaceId,
+                force: true,
+                recordsHistory: false
+            )
+            return
+        }
 
 #if DEBUG
         cmuxDebugLog(
@@ -2849,7 +2872,14 @@ class TabManager: ObservableObject {
         keepSurfaceVisible: Bool = false
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: true); return }
+        if tab.panels[surfaceId] == nil {
+            tab.closeDockPanelAndClearNotifications(
+                surfaceId,
+                force: true,
+                recordsHistory: false
+            )
+            return
+        }
         if let runtimeSurface, tab.terminalPanel(for: surfaceId)?.surface !== runtimeSurface { return }
         let ownsRemoteChildExit = tab.isRemoteTerminalSurface(surfaceId) ||
             tab.pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId) || tab.remoteDisconnectPlaceholderPanelIds.contains(surfaceId)
@@ -2899,8 +2929,22 @@ class TabManager: ObservableObject {
         if tab.panels.count <= 1 {
             if tabs.count <= 1 {
                 if let app = AppDelegate.shared {
-                    app.notificationStore?.clearNotifications(forTabId: tabId)
-                    app.closeMainWindowContainingTabId(tabId, recordHistory: false)
+                    // Notification cleanup belongs to the committed outcome:
+                    // unregisterMainWindow handles a closed window and
+                    // applicationWillTerminate clears the store on Quit.
+                    let exitedSurface = runtimeSurface ?? tab.terminalPanel(for: surfaceId)?.surface
+                    let onCancelled = exitedSurface.flatMap {
+                        lastTerminalChildExitRecoveryAction(
+                            tabId: tabId,
+                            surfaceId: surfaceId,
+                            runtimeSurface: $0
+                        )
+                    }
+                    app.closeMainWindowContainingTabId(
+                        tabId,
+                        recordHistory: false,
+                        onCancelled: onCancelled
+                    )
                 } else {
                     // Headless/test fallback when no AppDelegate window context exists.
                     closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
@@ -2912,6 +2956,39 @@ class TabManager: ObservableObject {
         }
 
         closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
+    }
+
+    /// Returns a one-shot close-transaction rollback. It revalidates the exact
+    /// terminal identity before replacing the exited renderer with a fresh shell.
+    func lastTerminalChildExitRecoveryAction(
+        tabId: UUID,
+        surfaceId: UUID,
+        runtimeSurface: TerminalSurface
+    ) -> (() -> Void)? {
+        guard tabs.count == 1,
+              let workspace = tabs.first,
+              workspace.id == tabId,
+              workspace.panels.count == 1,
+              workspace.terminalPanel(for: surfaceId)?.surface === runtimeSurface else {
+            return nil
+        }
+
+        return { [weak self, weak workspace, weak runtimeSurface] in
+            guard let self, let workspace, let runtimeSurface,
+                  self.tabs.count == 1,
+                  self.tabs.first === workspace,
+                  workspace.panels.count == 1,
+                  workspace.terminalPanel(for: surfaceId)?.surface === runtimeSurface else {
+                return
+            }
+            _ = workspace.respawnTerminalSurface(
+                panelId: surfaceId,
+                command: nil,
+                focus: true,
+                replayScrollback: nil,
+                replayFileURL: nil
+            )
+        }
     }
 
     private func workspaceNeedsConfirmClose(_ workspace: Workspace) -> Bool {
@@ -4308,7 +4385,7 @@ class TabManager: ObservableObject {
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
             autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationMode: .disabled
+            applyCreationTitleAsCustomTitle: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: excludedStableIdentities)
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {
@@ -4319,7 +4396,7 @@ class TabManager: ObservableObject {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
-        reconcileWorkspaceDirectoryCustomization(afterRestoring: entry.snapshot, to: workspace)
+        reconcileWorkspaceCustomization(afterRestoring: entry.snapshot, to: workspace)
         // The snapshot may carry a groupId for a group that no longer exists
         // in this TabManager (e.g. the group was dissolved between close and
         // reopen). Drop those stale references so the restored workspace
@@ -5735,7 +5812,6 @@ extension TabManager {
             hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
-            hasher.combine(workspace.customizationDirectory ?? "")
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
@@ -5910,6 +5986,8 @@ extension TabManager {
         hashOptionalString(snapshot.checkpointId, into: &hasher)
         hashOptionalString(snapshot.source, into: &hasher)
         hashStringMap(snapshot.environment, into: &hasher)
+        hashAgentLaunchCommand(snapshot.launchCommand, into: &hasher)
+        hashOptionalString(snapshot.permissionMode, into: &hasher)
         hasher.combine(snapshot.allowsAutomaticResume)
         hasher.combine(snapshot.launchFlavor)
         if snapshot.isProcessDetected {
@@ -6140,7 +6218,12 @@ extension TabManager {
         )
         let workspaceSnapshots = normalizedWorkspaceSnapshots
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-        var restoredDirectoryCustomizations = cachedWorkspaceDirectoryCustomizations(afterRestoring: Array(workspaceSnapshots))
+        prepareLegacyWorkspaceCustomizationMigration(
+            afterRestoring: Array(workspaceSnapshots)
+        )
+        let restoredCustomizations = cachedWorkspaceCustomizations(
+            afterRestoring: Array(workspaceSnapshots)
+        )
         var restoredOriginalWorkspaceIds: [UUID?] = []
         var reservedWorkspaceIds = excludingWorkspaceIds
         let identitySelector = WorkspaceSessionRestoreIdentity()
@@ -6164,7 +6247,11 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
-            reconcileWorkspaceDirectoryCustomization(afterRestoring: workspaceSnapshot, to: workspace, cachedCustomizations: &restoredDirectoryCustomizations)
+            reconcileWorkspaceCustomization(
+                afterRestoring: workspaceSnapshot,
+                to: workspace,
+                cachedCustomizations: restoredCustomizations
+            )
             Self.recordRestoredTaskCreateProvenance(for: workspace, in: workspaceCreateIdempotencyCache)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
@@ -6187,7 +6274,6 @@ extension TabManager {
                 nativeSSHConnectionBroker: nativeSSHConnectionBroker
             )
             fallback.owningTabManager = self
-            trackWorkspaceDirectoryCustomization(to: fallback, rootDirectory: nil, explicitTitle: nil, explicitTitleSource: .auto)
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }

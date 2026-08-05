@@ -113,7 +113,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
     ) -> String {
         deviceID(
-            store: KeychainDeviceIdentityStore(),
+            store: defaultDeviceIdentityStore(defaults: defaults),
             defaults: defaults,
             deviceWitness: currentDeviceWitness(),
             evidence: evidence
@@ -166,7 +166,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
     ) -> String? {
         durableDeviceID(
-            store: KeychainDeviceIdentityStore(),
+            store: defaultDeviceIdentityStore(defaults: defaults),
             defaults: defaults,
             deviceWitness: currentDeviceWitness(),
             evidence: evidence
@@ -184,11 +184,26 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
     ) -> String? {
         durableDeviceID(
-            store: KeychainDeviceIdentityStore(),
+            store: defaultDeviceIdentityStore(defaults: defaults),
             defaults: defaults,
             deviceWitness: deviceWitness,
             evidence: evidence
         )
+    }
+
+    private static func defaultDeviceIdentityStore(
+        defaults: UserDefaults
+    ) -> any DeviceIdentityStoring {
+        #if targetEnvironment(simulator)
+        SimulatorDeviceIdentityStore(
+            defaults: defaults,
+            seededDeviceID: ProcessInfo.processInfo.environment[
+                "CMUX_SIMULATOR_DEVICE_ID"
+            ]
+        )
+        #else
+        KeychainDeviceIdentityStore()
+        #endif
     }
 
     /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.
