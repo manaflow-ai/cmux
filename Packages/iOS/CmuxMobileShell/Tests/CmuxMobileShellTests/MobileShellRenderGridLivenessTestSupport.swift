@@ -864,8 +864,12 @@ final class OutputCollector {
     private(set) var lines: [String] = []
     private(set) var viewportPolicies: [MobileTerminalOutputViewportPolicy?] = []
     private var task: Task<Void, Never>?
+    private weak var mountedStore: MobileShellComposite?
+    private var mountedSurfaceID: String?
 
     func mount(store: MobileShellComposite, surfaceID: String) {
+        mountedStore = store
+        mountedSurfaceID = surfaceID
         task = Task { @MainActor [weak self] in
             for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                 self?.lines.append(String(decoding: chunk.data, as: UTF8.self))
@@ -881,8 +885,15 @@ final class OutputCollector {
     func unmount() async {
         let mountedTask = task
         task = nil
+        if let mountedStore, let mountedSurfaceID {
+            mountedStore.terminalByteContinuationsBySurfaceID[
+                mountedSurfaceID
+            ]?.finish()
+        }
         mountedTask?.cancel()
         _ = await mountedTask?.value
+        mountedStore = nil
+        mountedSurfaceID = nil
     }
 }
 

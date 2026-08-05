@@ -4130,6 +4130,9 @@ import Testing
         #expect(try await pollUntil {
             subscription.deferredRefreshTask != nil
         })
+        #expect(try await pollUntil {
+            clock.sleeperCount > 0
+        })
         subscription.isTransitioningToFocus = true
         clock.advance(by: .milliseconds(500))
         #expect(try await pollUntil {
@@ -4151,7 +4154,9 @@ import Testing
         #expect(try await pollUntil {
             subscription.deferredRefreshTask != nil
         })
-        for _ in 0 ..< 16 { await Task.yield() }
+        #expect(try await pollUntil {
+            clock.sleeperCount > 0
+        })
         clock.advance(by: .milliseconds(500))
         #expect(await router.waitForCount(of: "workspace.list", atLeast: 4))
         #expect(try await pollUntil {
