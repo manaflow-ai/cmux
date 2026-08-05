@@ -29,16 +29,25 @@ extension CMUXCLI {
             return
         }
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "comments requires a subcommand. Try: list")
+            throw CLIError(message: String(
+                localized: "cli.comments.error.subcommandRequired",
+                defaultValue: "comments requires a subcommand. Try: list"
+            ))
         }
         let rest = Array(commandArgs.dropFirst())
         switch sub {
         case "list", "ls":
             let (repoOption, remainder) = parseOption(rest, name: "--repo")
-            // Fail closed on unrecognized options: a typo like `--al` must not
-            // read as "list everything the caller asked for".
-            if let unknown = remainder.first(where: { $0.hasPrefix("--") && $0 != "--all" }) {
-                throw CLIError(message: "Unknown option '\(unknown)' for cmux comments list. Supported: --repo <path>, --all, --json")
+            // Fail closed on anything unrecognized: neither a typo like `--al`
+            // nor a stray positional may read as a supported request.
+            if let unexpected = remainder.first(where: { $0 != "--all" }) {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.comments.error.unexpectedArgument",
+                        defaultValue: "Unexpected argument '%@' for cmux comments list. Supported: --repo <path>, --all, --json"
+                    ),
+                    unexpected
+                ))
             }
             let includeConsumed = remainder.contains("--all")
             let startPath = repoOption ?? FileManager.default.currentDirectoryPath
@@ -49,7 +58,13 @@ extension CMUXCLI {
             let payload = try client.sendV2(method: "comments.list", params: params)
             printCommentsListPayload(payload, jsonOutput: jsonOutput, idFormat: idFormat)
         default:
-            throw CLIError(message: "Unknown comments subcommand '\(sub)'. Try: list")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.comments.error.unknownSubcommand",
+                    defaultValue: "Unknown comments subcommand '%@'. Try: list"
+                ),
+                sub
+            ))
         }
     }
 
@@ -61,7 +76,13 @@ extension CMUXCLI {
         )
         let root = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !result.timedOut, result.status == 0, !root.isEmpty else {
-            throw CLIError(message: "cmux comments requires a git repository: \(directory)")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.comments.error.notARepository",
+                    defaultValue: "cmux comments requires a git repository: %@"
+                ),
+                directory
+            ))
         }
         return root
     }
@@ -78,19 +99,40 @@ extension CMUXCLI {
         let comments = payload["comments"] as? [[String: Any]] ?? []
         let repoRoot = payload["repo_root"] as? String ?? ""
         guard !comments.isEmpty else {
-            print("No review comments. (repo: \(repoRoot))")
+            print(String.localizedStringWithFormat(
+                String(
+                    localized: "cli.comments.list.empty",
+                    defaultValue: "No review comments. (repo: %@)"
+                ),
+                repoRoot
+            ))
             return
         }
-        print("\(comments.count) review comment\(comments.count == 1 ? "" : "s") (repo: \(repoRoot))")
+        print(String.localizedStringWithFormat(
+            String(
+                localized: "cli.comments.list.header",
+                defaultValue: "%1$d review comment(s) (repo: %2$@)"
+            ),
+            comments.count,
+            repoRoot
+        ))
         for comment in comments {
             let filePath = comment["filePath"] as? String ?? "?"
             let startLine = intFromAny(comment["startLine"]) ?? 0
             let endLine = intFromAny(comment["endLine"]) ?? startLine
             let range = endLine > startLine ? "\(startLine)-\(endLine)" : "\(startLine)"
-            let state = comment["consumedAt"] == nil ? "pending" : "consumed"
+            let state = comment["consumedAt"] == nil
+                ? String(localized: "cli.comments.list.statePending", defaultValue: "pending")
+                : String(localized: "cli.comments.list.stateConsumed", defaultValue: "consumed")
             print("- \(filePath):\(range) [\(state)]")
             if let lineText = comment["lineText"] as? String, !lineText.isEmpty {
-                print("    anchor: \(lineText)")
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.comments.list.anchor",
+                        defaultValue: "    anchor: %@"
+                    ),
+                    lineText
+                ))
             }
             if let message = comment["message"] as? String, !message.isEmpty {
                 print("    \(message)")

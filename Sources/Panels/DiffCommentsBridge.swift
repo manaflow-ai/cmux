@@ -166,7 +166,8 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
                     registerPending(comment, repoRoot: repoRoot, workspaceId: workspace.id)
                 }
             }
-            return ["comments": comments.map(Self.commentJSON)]
+            let formatter = ISO8601DateFormatter()
+            return ["comments": comments.map { Self.commentJSON($0, formatter: formatter) }]
         case "comments.save":
             guard let commentParams = params["comment"] as? [String: Any],
                   let comment = Self.comment(fromJSON: commentParams) else {
