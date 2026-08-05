@@ -98,6 +98,20 @@ struct PullRequestLinkConfigurationTests {
         #expect(configuration.resolvedURL(for: url) == url)
     }
 
+    /// An empty authority parses as `/{owner}/{repo}/pull/{number}` with a `nil`
+    /// host, which would otherwise satisfy the path check.
+    @Test(arguments: [
+        "https:///manaflow-ai/cmux/pull/9641",
+        "http:///manaflow-ai/cmux/pull/9641",
+    ])
+    func referenceRejectsURLsWithoutAHost(rawURL: String) throws {
+        let url = try #require(URL(string: rawURL))
+        let configuration = PullRequestLinkConfiguration(destination: .graphite, customURLTemplate: "")
+
+        #expect(PullRequestLinkReference(pullRequestURL: url) == nil)
+        #expect(configuration.resolvedURL(for: url) == url)
+    }
+
     @Test func referenceParsesCanonicalPullRequestURL() throws {
         let reference = try #require(PullRequestLinkReference(pullRequestURL: canonical))
 
