@@ -570,15 +570,14 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                 if seen_terminals.insert(terminal_id.clone()) {
                     terminal_order.push(terminal_id.clone());
                 }
-                if let Some(host_id) = &tab.terminal_id {
-                    if let Some(previous) =
+                if let Some(host_id) = &tab.terminal_id
+                    && let Some(previous) =
                         terminal_hosts.insert(terminal_id.clone(), host_id.clone())
-                    {
-                        anyhow::ensure!(
-                            previous == *host_id,
-                            "terminal {terminal_id} references multiple durable hosts"
-                        );
-                    }
+                {
+                    anyhow::ensure!(
+                        previous == *host_id,
+                        "terminal {terminal_id} references multiple durable hosts"
+                    );
                 }
             }
         }
