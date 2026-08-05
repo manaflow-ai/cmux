@@ -1,8 +1,3 @@
-import {
-  defaultHostedSubrouterURL,
-  hostedSubrouterBaseURL,
-} from "@/services/subrouter/constants";
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -12,24 +7,13 @@ export function GET(request: Request): Response {
   const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
   const publishableClientKey =
     process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
-  const tenantControlToken =
-    process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN?.trim();
-  if (!projectId || !publishableClientKey || !tenantControlToken) {
-    return unavailableResponse();
-  }
-  let subrouterURL: string;
-  try {
-    subrouterURL = hostedSubrouterBaseURL(
-      process.env.SUBROUTER_HOSTED_URL?.trim() ||
-        defaultHostedSubrouterURL(),
-    );
-  } catch {
+  if (!projectId || !publishableClientKey) {
     return unavailableResponse();
   }
 
   return Response.json(
     {
-      version: 2,
+      version: 3,
       auth: {
         apiUrl:
           process.env.NEXT_PUBLIC_STACK_API_URL?.trim() ||
@@ -40,17 +24,15 @@ export function GET(request: Request): Response {
         // confirmation page uses the Stack project that issued the login code.
         confirmUrl: new URL("/handler/cli-auth-confirm", request.url).toString(),
       },
-      subrouter: {
-        url: subrouterURL,
-        exchangeUrl: new URL(
-          "/api/subrouter/exchange",
-          request.url,
-        ).toString(),
+      coderouter: {
+        sessionUrl: new URL("/api/coderouter/session", request.url).toString(),
+        accountsUrl: new URL("/api/coderouter/accounts", request.url).toString(),
+        openaiBaseUrl: new URL("/v1", request.url).toString(),
       },
     },
     {
       headers: {
-        "cache-control": "public, max-age=300",
+        "cache-control": "no-store",
       },
     },
   );
