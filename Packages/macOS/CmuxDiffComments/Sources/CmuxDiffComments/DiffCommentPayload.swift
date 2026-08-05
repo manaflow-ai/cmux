@@ -1,16 +1,22 @@
 import Foundation
 
-/// Wire mapping for diff review comments, kept free of AppKit and controller
-/// state so it can be unit tested directly — and lifted behind a package
-/// boundary later without touching its callers.
+/// Wire mapping for diff review comments, free of AppKit and controller state.
 ///
-/// Both surfaces that hand comments to a client go through here: the webview
-/// bridge (`comments.list` for the diff viewer) and the socket method of the
-/// same name.
-public enum DiffCommentPayload {
-    /// Serializes one comment. Callers mapping several comments pass a shared
-    /// `formatter` so a reply does not allocate one per comment.
-    public static func json(_ comment: DiffComment, formatter: ISO8601DateFormatter) -> [String: Any] {
+/// An instance owns the timestamp formatter, so constructing one per response is
+/// what keeps a reply from allocating a formatter per comment. Both surfaces
+/// that hand comments to a client use it: the webview bridge (`comments.list`
+/// for the diff viewer) and the socket method of the same name.
+public struct DiffCommentPayload {
+    private let formatter: ISO8601DateFormatter
+
+    /// Creates a mapper. Pass a formatter to share one across several replies or
+    /// to pin a specific configuration in tests.
+    public init(formatter: ISO8601DateFormatter = ISO8601DateFormatter()) {
+        self.formatter = formatter
+    }
+
+    /// Serializes one comment.
+    public func json(_ comment: DiffComment) -> [String: Any] {
         var json: [String: Any] = [
             "id": comment.id.uuidString,
             "filePath": comment.filePath,
@@ -29,24 +35,18 @@ public enum DiffCommentPayload {
         return json
     }
 
-    /// Serializes one comment with its own formatter, for single-comment replies.
-    public static func json(_ comment: DiffComment) -> [String: Any] {
-        json(comment, formatter: ISO8601DateFormatter())
-    }
-
     /// Builds the `comments.list` reply. Comments delivered to an agent through
     /// a TextBox submission carry `consumedAt` and stay out of the default
     /// listing so callers see only what is still unaddressed.
-    public static func list(
+    public func list(
         comments: [DiffComment],
         repoRoot: String,
         includeConsumed: Bool
     ) -> [String: Any] {
-        let formatter = ISO8601DateFormatter()
         var listed: [[String: Any]] = []
         listed.reserveCapacity(comments.count)
         for comment in comments where includeConsumed || comment.consumedAt == nil {
-            var entry = json(comment, formatter: formatter)
+            var entry = json(comment)
             if let consumedAt = comment.consumedAt {
                 entry["consumedAt"] = formatter.string(from: consumedAt)
             }

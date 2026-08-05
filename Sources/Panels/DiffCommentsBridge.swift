@@ -167,8 +167,8 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
                     registerPending(comment, repoRoot: repoRoot, workspaceId: workspace.id)
                 }
             }
-            let formatter = ISO8601DateFormatter()
-            return ["comments": comments.map { DiffCommentPayload.json($0, formatter: formatter) }]
+            let payload = DiffCommentPayload()
+            return ["comments": comments.map(payload.json)]
         case "comments.save":
             guard let commentParams = params["comment"] as? [String: Any],
                   let comment = Self.comment(fromJSON: commentParams) else {
@@ -178,7 +178,7 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             if let workspace = try? resolveWorkspace(for: webView) {
                 registerPending(saved, repoRoot: repoRoot, workspaceId: workspace.id)
             }
-            return ["comment": DiffCommentPayload.json(saved)]
+            return ["comment": DiffCommentPayload().json(saved)]
         case "comments.delete":
             guard let rawId = params["id"] as? String, let id = UUID(uuidString: rawId) else {
                 throw BridgeError.invalidRequest("Missing comment id")

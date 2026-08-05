@@ -21,7 +21,7 @@ extension TerminalController {
             )
         }
         let repoRoot = DiffCommentStore.canonicalRepoRoot(rawRepoRoot)
-        return .ok(DiffCommentPayload.list(
+        return .ok(DiffCommentPayload().list(
             comments: DiffCommentStore.shared.comments(repoRoot: repoRoot),
             repoRoot: repoRoot,
             includeConsumed: (params["include_consumed"] as? Bool) ?? false
