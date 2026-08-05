@@ -156,7 +156,7 @@ class JournalSubjectFilter:
 @dataclass(frozen=True)
 class JournalRegexFilter:
     pattern: str
-    field: Literal["kind", "subjects", "payload", "record"] = "record"
+    field: Literal["kind", "subjects", "payload", "record", "terminal_output"] = "record"
     case_sensitive: bool = True
 
 
@@ -173,6 +173,7 @@ class JournalFilter:
 class SessionJournalOptions:
     cursor: Optional[Cursor] = None
     start: Optional[Literal["tail", "beginning"]] = None
+    follow: Optional[bool] = None
     filter: Optional[JournalFilter] = None
 
 

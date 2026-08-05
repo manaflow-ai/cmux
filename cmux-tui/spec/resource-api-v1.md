@@ -332,6 +332,9 @@ stream queues remain bounded independently.
 
 `session.journal.subscribe` is the append-only feed. Omitting a cursor tails
 from the captured head; `start:"beginning"` replays retained history first.
+`follow:false` bounds replay to the head captured when the stream opens and
+ends it with reason `completed`; this is the primitive behind CLI `journal
+read`.
 Its cursor generation is the immutable session ID and its revision is the
 journal sequence. Structured and compiled-regex filters are server-side and
 never alter cursor order. Unix clients may read through `sensitive`; remote

@@ -878,6 +878,7 @@ pub enum JournalRegexField {
     Kind,
     Subjects,
     Payload,
+    TerminalOutput,
     #[default]
     Record,
 }
@@ -888,6 +889,7 @@ impl JournalRegexField {
             Self::Kind => "kind",
             Self::Subjects => "subjects",
             Self::Payload => "payload",
+            Self::TerminalOutput => "terminal_output",
             Self::Record => "record",
         }
     }
@@ -904,6 +906,7 @@ pub struct JournalRegexFilter {
 pub struct SessionJournalOptions {
     pub cursor: Option<Cursor>,
     pub start: Option<JournalStart>,
+    pub follow: Option<bool>,
     pub kinds: Vec<String>,
     pub classes: Vec<JournalClass>,
     pub subjects: Vec<JournalSubjectFilter>,

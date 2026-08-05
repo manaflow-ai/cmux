@@ -4792,6 +4792,7 @@ struct SessionJournalStreamStart {
     session_id: SessionPublicId,
     next_sequence: u64,
     last_sequence: u64,
+    through_sequence: Option<u64>,
     epoch: u64,
     filter: JournalStreamFilter,
     indexed_subjects: Option<Vec<JournalSubject>>,
@@ -7449,9 +7450,10 @@ fn handle_journal_extension_request(
                 request.fields["manifest"].clone(),
             )
             .map_err(|error| {
+                eprintln!("cmux-tui: invalid journal producer manifest: {error}");
                 ResourceError::validation_invalid(
                     Some("manifest"),
-                    format!("journal producer manifest is invalid: {error}"),
+                    "journal producer manifest is invalid",
                 )
             })?;
             let idempotency_key = request
@@ -7522,9 +7524,10 @@ fn handle_journal_extension_request(
                 request.fields["manifest"].clone(),
             )
             .map_err(|error| {
+                eprintln!("cmux-tui: invalid journal hook manifest: {error}");
                 ResourceError::validation_invalid(
                     Some("manifest"),
-                    format!("journal hook manifest is invalid: {error}"),
+                    "journal hook manifest is invalid",
                 )
             })?;
             let idempotency_key = request
@@ -7761,6 +7764,12 @@ fn prepare_session_journal_stream(
     } else {
         head_sequence
     };
+    let through_sequence = request
+        .fields
+        .get("follow")
+        .and_then(Value::as_bool)
+        .is_some_and(|follow| !follow)
+        .then_some(head_sequence);
     let reader = if shared_fanout && last_sequence < head_sequence {
         mux.session_journal_reader().map_err(|error| {
             eprintln!("cmux-tui: open session journal catch-up reader: {error:#}");
@@ -7826,6 +7835,7 @@ fn prepare_session_journal_stream(
             session_id,
             next_sequence: 0,
             last_sequence,
+            through_sequence,
             epoch,
             filter,
             indexed_subjects,
@@ -7877,6 +7887,9 @@ fn run_session_journal_stream(
 ) {
     'stream: loop {
         if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            break;
+        }
+        if complete_bounded_journal_replay(writer, &stream) {
             break;
         }
         loop {
@@ -7936,7 +7949,14 @@ fn run_session_journal_stream(
             let head_sequence = page.head_sequence;
             let scanned_through = page.scanned_through;
             if page.records.is_empty() {
-                stream.last_sequence = stream.last_sequence.max(scanned_through);
+                stream.last_sequence = stream.last_sequence.max(
+                    stream
+                        .through_sequence
+                        .map_or(scanned_through, |through| scanned_through.min(through)),
+                );
+                if complete_bounded_journal_replay(writer, &stream) {
+                    break 'stream;
+                }
                 if stream.last_sequence < head_sequence {
                     let end = resource_stream_end(
                         &stream.stream_id,
@@ -7956,6 +7976,15 @@ fn run_session_journal_stream(
             }
             for document in page.records {
                 let record_sequence = document.record.sequence;
+                if stream
+                    .through_sequence
+                    .is_some_and(|through_sequence| record_sequence > through_sequence)
+                {
+                    stream.last_sequence = stream.through_sequence.expect("presence checked");
+                    if complete_bounded_journal_replay(writer, &stream) {
+                        break 'stream;
+                    }
+                }
                 if stream.filter.matches(&document) {
                     let cursor = journal_cursor(&stream.session_id, record_sequence);
                     if stream.canceled.load(Ordering::Acquire)
@@ -7990,9 +8019,14 @@ fn run_session_journal_stream(
                     None,
                 );
                 let _ = writer.update_stream_overflow(&stream.outbound, &end);
+                if complete_bounded_journal_replay(writer, &stream) {
+                    break 'stream;
+                }
             }
             if scanned_through > stream.last_sequence {
-                stream.last_sequence = scanned_through;
+                stream.last_sequence = stream
+                    .through_sequence
+                    .map_or(scanned_through, |through| scanned_through.min(through));
                 let end = resource_stream_end(
                     &stream.stream_id,
                     "gap",
@@ -8001,6 +8035,9 @@ fn run_session_journal_stream(
                     None,
                 );
                 let _ = writer.update_stream_overflow(&stream.outbound, &end);
+                if complete_bounded_journal_replay(writer, &stream) {
+                    break 'stream;
+                }
             }
             if stream.last_sequence >= head_sequence {
                 if stream.shared_fanout && stream.reader.is_some() {
@@ -8026,6 +8063,27 @@ fn run_session_journal_stream(
         }
     }
     mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+fn complete_bounded_journal_replay(
+    writer: &MessageWriter,
+    stream: &SessionJournalStreamStart,
+) -> bool {
+    let Some(through_sequence) = stream.through_sequence else {
+        return false;
+    };
+    if stream.last_sequence < through_sequence {
+        return false;
+    }
+    let end = resource_stream_end(
+        &stream.stream_id,
+        "completed",
+        Some(journal_cursor(&stream.session_id, through_sequence)),
+        None,
+        None,
+    );
+    let _ = writer.send_terminal(&end, &stream.outbound);
+    true
 }
 
 fn send_resource_stream_item(
@@ -14356,6 +14414,104 @@ mod tests {
     }
 
     #[test]
+    fn bounded_session_journal_replay_completes_at_its_open_head() {
+        let mux = test_mux();
+        crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "journal-bounded-create",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"bounded",
+                    "initial_content":"empty",
+                }),
+                Some("journal-bounded-create"),
+            ),
+        )
+        .unwrap();
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_00000000000000000000000000000039";
+        let open = resource_request(
+            "journal-bounded-open",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+                "start":"beginning",
+                "follow":false,
+                "filter":{"kinds":["workspace.*"]},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+        assert_eq!(pop_json(&outbound)["item"]["kind"], "workspace.create");
+        let end = pop_json(&outbound);
+        assert_eq!(end["type"], "stream_end");
+        assert_eq!(end["reason"], "completed");
+        assert_eq!(end["stream_id"], stream_id);
+        assert!(end["cursor"]["revision"].as_str().is_some());
+
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
+    fn bounded_filtered_replay_advances_to_head_without_matching_items() {
+        let mux = test_mux();
+        crate::resource_router::handle_resource_message(
+            &mux,
+            &resource_request(
+                "journal-bounded-filter-create",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"bounded-filter",
+                    "initial_content":"empty",
+                }),
+                Some("journal-bounded-filter-create"),
+            ),
+        )
+        .unwrap();
+
+        let head = mux.session_journal_after(0, 1).unwrap().head_sequence;
+        assert!(head > 0);
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let stream_id = "stream_0000000000000000000000000000003a";
+        let open = resource_request(
+            "journal-bounded-filter-open",
+            "session.journal.subscribe",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "stream_id":stream_id,
+                "start":"beginning",
+                "follow":false,
+                "filter":{"kinds":["agent.*"]},
+            }),
+            None,
+        );
+        assert!(handle_connection_message(&mux, client, &open, &writer, &scheduler));
+        assert_eq!(pop_json(&outbound)["ok"], true);
+        let end = pop_json(&outbound);
+        assert_eq!(end["type"], "stream_end");
+        assert_eq!(end["reason"], "completed");
+        assert_eq!(end["cursor"]["revision"], head.to_string());
+
+        assert!(disconnect_client(&mux, client, false));
+    }
+
+    #[test]
     fn session_journal_stream_regex_matches_exact_terminal_output_bytes() {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-terminal-regex-{}-{}",
@@ -14514,6 +14670,39 @@ mod tests {
         drop(scheduler);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_journal_manifests_do_not_echo_private_field_names() {
+        let mux = test_mux();
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+
+        for (request_id, operation) in [
+            ("private-producer-manifest", "session.journal.producer.put"),
+            ("private-hook-manifest", "session.journal.hook.put"),
+        ] {
+            let request = resource_request(
+                request_id,
+                operation,
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "manifest":{"private-provider-token-name":true},
+                }),
+                Some(request_id),
+            );
+            assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
+            let response = pop_json(&outbound);
+            assert_eq!(response["ok"], false);
+            assert_eq!(response["error"]["code"], "validation.invalid");
+            assert_eq!(response["error"]["details"]["field"], "manifest");
+            assert!(!response.to_string().contains("private-provider-token-name"));
+        }
+
+        assert!(disconnect_client(&mux, client, false));
     }
 
     #[test]

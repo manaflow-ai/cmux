@@ -1059,6 +1059,7 @@ function journalOptionsFields(options: SessionJournalOptions): Record<string, un
   const fields: Record<string, unknown> = {};
   if (options.cursor !== undefined) fields.cursor = options.cursor;
   if (options.start !== undefined) fields.start = options.start;
+  if (options.follow !== undefined) fields.follow = options.follow;
   const filter: Record<string, unknown> = {};
   if (options.kinds !== undefined) filter.kinds = [...options.kinds];
   if (options.classes !== undefined) filter.classes = [...options.classes];

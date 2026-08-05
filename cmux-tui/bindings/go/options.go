@@ -99,6 +99,7 @@ type SessionJournalOptions struct {
 	StreamOptions
 	Cursor *Cursor
 	Start  *JournalStart
+	Follow *bool
 	Filter *JournalFilter
 }
 type SessionPingOptions struct{ ReadOptions }

@@ -1036,6 +1036,9 @@ Result<Json::Object> SessionJournalOptions::to_params() const {
             "start",
             Json(*start == JournalStart::tail ? "tail" : "beginning"));
     }
+    if (follow) {
+        params.emplace("follow", Json(*follow));
+    }
     Json::Object encoded_filter;
     if (!filter.kinds.empty()) {
         Json::Array values;
@@ -1085,6 +1088,7 @@ Result<Json::Object> SessionJournalOptions::to_params() const {
         if (filter.regex->field == JournalRegexField::kind) field = "kind";
         if (filter.regex->field == JournalRegexField::subjects) field = "subjects";
         if (filter.regex->field == JournalRegexField::payload) field = "payload";
+        if (filter.regex->field == JournalRegexField::terminal_output) field = "terminal_output";
         encoded_filter.emplace(
             "regex",
             Json(Json::Object{

@@ -9109,6 +9109,13 @@
               ]
             }
           },
+          "follow": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
           "filter": {
             "required": false,
             "type": {
@@ -9121,6 +9128,7 @@
         "constraints": [
           "cursor and start are mutually exclusive.",
           "Omitting both starts at the current head and delivers only later records.",
+          "follow defaults to true. When false, the stream completes after scanning through the head captured when it opened.",
           "This stream never delivers secret records, with or without filter; remote transports are capped at metadata.",
           "For this operation Cursor.generation is the immutable session ID and Cursor.revision is the journal sequence."
         ]

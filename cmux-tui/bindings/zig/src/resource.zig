@@ -862,6 +862,7 @@ pub const JournalRegexField = enum {
     subjects,
     payload,
     record,
+    terminal_output,
 };
 
 pub const JournalRegexFilter = struct {
@@ -881,6 +882,7 @@ pub const JournalFilter = struct {
 pub const SessionJournalOptions = struct {
     cursor: ?Cursor = null,
     start: ?JournalStart = null,
+    follow: ?bool = null,
     filter: JournalFilter = .{},
 };
 
@@ -5915,6 +5917,9 @@ fn encodeSessionJournalOptions(
     if (options.start) |start| {
         try params.putString("start", start.wireName());
     }
+    if (options.follow) |follow| {
+        try params.putValue("follow", .{ .bool = follow });
+    }
 
     const filter = options.filter;
     if (filter.kinds.len > 64 or
@@ -8927,7 +8932,7 @@ fn decodeFrontendProjectionSnapshot(
     try ensureOnlyFields(
         object,
         &.{
-            "id", "session_id", "frontend_id", "window_id", "generation",
+            "id",         "session_id",          "frontend_id", "window_id", "generation",
             "projection", "projection_revision", "extra",
         },
     );
@@ -17684,7 +17689,7 @@ test "terminal lifecycle and durable exit constraints are strict" {
     try std.testing.expectError(
         error.MissingField,
         decodeTerminalSnapshot(
-        decoded_arena.allocator(),
+            decoded_arena.allocator(),
             missing_attached_views.value,
         ),
     );
@@ -19587,11 +19592,17 @@ test "session journal encodes filters and decodes typed records" {
     );
     var stream = try client.session(session_id).journal(.{
         .start = .beginning,
+        .follow = false,
         .filter = .{
             .kinds = &.{ "workspace.*", "tab.focus" },
             .classes = &.{.state},
             .subjects = &.{.{ .kind = "workspace", .id = "ws_1" }},
             .max_sensitivity = .metadata,
+            .regex = .{
+                .pattern = "error|failed",
+                .field = .terminal_output,
+                .case_sensitive = false,
+            },
         },
     });
     defer stream.deinit();
@@ -19631,6 +19642,7 @@ test "session journal encodes filters and decodes typed records" {
         "beginning",
         try objectString(params, "start"),
     );
+    try std.testing.expectEqual(false, try objectBool(params, "follow"));
     const filter = try detailObject(
         params.get("filter") orelse return error.MissingField,
     );
@@ -19638,6 +19650,14 @@ test "session journal encodes filters and decodes typed records" {
         "metadata",
         try objectString(filter, "max_sensitivity"),
     );
+    const regex = try detailObject(
+        filter.get("regex") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "terminal_output",
+        try objectString(regex, "field"),
+    );
+    try std.testing.expectEqual(false, try objectBool(regex, "case_sensitive"));
 }
 
 test "cancel failures preserve their error fail closed and never resend" {

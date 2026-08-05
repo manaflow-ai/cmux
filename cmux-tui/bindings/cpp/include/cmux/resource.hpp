@@ -464,7 +464,7 @@ enum class JournalStart { tail, beginning };
 enum class JournalClass { state, observation, effect, checkpoint };
 enum class JournalReplayPolicy { required, advisory, never };
 enum class JournalSensitivity { public_, metadata, sensitive, secret };
-enum class JournalRegexField { kind, subjects, payload, record };
+enum class JournalRegexField { kind, subjects, payload, record, terminal_output };
 
 struct JournalSubjectFilter {
     std::optional<std::string> kind;
@@ -488,6 +488,7 @@ struct JournalFilter {
 struct SessionJournalOptions {
     std::optional<Cursor> cursor;
     std::optional<JournalStart> start;
+    std::optional<bool> follow;
     JournalFilter filter;
 
     [[nodiscard]] Result<Json::Object> to_params() const;

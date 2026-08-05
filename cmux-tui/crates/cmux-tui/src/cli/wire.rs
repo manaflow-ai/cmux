@@ -150,13 +150,10 @@ fn require_server_capability(
     if supported {
         return Ok(());
     }
-    let mut details = json!({
+    let details = json!({
         "capability":capability,
         "action":"restart_session"
     });
-    if let Some(session) = &global.session {
-        details["session"] = Value::String(session.clone());
-    }
     let error = json!({
         "code":"operation.unsupported",
         "message":"resident session does not support journal subscriptions; restart it with this cmux-tui binary",

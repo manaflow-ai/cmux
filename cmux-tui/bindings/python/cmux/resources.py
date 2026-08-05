@@ -248,6 +248,8 @@ def _journal_options(value: SessionJournalOptions) -> Dict[str, Any]:
         result["cursor"] = asdict(value.cursor)
     if value.start is not None:
         result["start"] = value.start
+    if value.follow is not None:
+        result["follow"] = value.follow
     if value.filter is None:
         return result
     filter_value: Dict[str, Any] = {}

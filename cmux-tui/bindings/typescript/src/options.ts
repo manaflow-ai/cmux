@@ -70,13 +70,14 @@ export interface JournalSubjectFilter {
 
 export interface JournalRegexFilter {
   readonly pattern: string;
-  readonly field?: "kind" | "subjects" | "payload" | "record";
+  readonly field?: "kind" | "subjects" | "payload" | "record" | "terminal_output";
   readonly caseSensitive?: boolean;
 }
 
 export interface SessionJournalOptions extends RequestOptions {
   readonly cursor?: Cursor;
   readonly start?: "tail" | "beginning";
+  readonly follow?: boolean;
   readonly kinds?: readonly string[];
   readonly classes?: readonly ("state" | "observation" | "effect" | "checkpoint")[];
   readonly subjects?: readonly JournalSubjectFilter[];

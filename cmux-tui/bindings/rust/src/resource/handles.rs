@@ -347,6 +347,9 @@ impl Session {
                 },
             );
         }
+        if let Some(follow) = options.follow {
+            params = params.boolean("follow", follow);
+        }
         let mut filter = Map::new();
         if !options.kinds.is_empty() {
             filter.insert("kinds".to_string(), serde_json::json!(options.kinds));

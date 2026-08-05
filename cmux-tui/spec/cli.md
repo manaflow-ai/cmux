@@ -155,6 +155,8 @@ session <selector> journal subscribe [--from tail|beginning]
   [--kinds <kind,...>] [--classes <class,...>] [--subjects <kind>:<id>,...]
   [--max-sensitivity public|metadata|sensitive]
   [--regex <pattern>] [--regex-field kind|subjects|payload|record|terminal_output] [--ignore-case]
+session <selector> journal read [--from beginning]
+  [--cursor-session <session-id> --sequence <sequence>] [FILTERS]
 session <selector> journal producer list
 session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
 session <selector> journal append --event-json <json> --idempotency-key <key>

@@ -309,7 +309,14 @@ fn parse_session(
             selectors.insert("session", "session", selector)?;
             let mut params = Map::new();
             add_stream_id(&mut params, flags)?;
-            add_journal_subscription(&mut params, flags)?;
+            add_journal_subscription(&mut params, flags, None, true)?;
+            request(ResourceOperation::SessionJournalSubscribe, selectors, flags, params)
+        }
+        [selector, "journal", "read"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut params = Map::new();
+            add_stream_id(&mut params, flags)?;
+            add_journal_subscription(&mut params, flags, Some("beginning"), false)?;
             request(ResourceOperation::SessionJournalSubscribe, selectors, flags, params)
         }
         [selector, "journal", "producer", "list"] => {
@@ -2042,20 +2049,22 @@ fn add_optional_cursor(
 fn add_journal_subscription(
     params: &mut Map<String, Value>,
     flags: &mut Flags,
+    default_start: Option<&str>,
+    follow: bool,
 ) -> Result<(), UsageError> {
-    let start = flags.take("from");
-    if let Some(start) = start.as_deref() {
+    let explicit_start = flags.take("from");
+    if let Some(start) = explicit_start.as_deref() {
         validate_one_of("--from", start, &["tail", "beginning"])?;
     }
     let session_id = flags.take("cursor-session");
     let sequence = flags.take("sequence");
     match (session_id, sequence) {
         (None, None) => {
-            if let Some(start) = start {
+            if let Some(start) = explicit_start.or_else(|| default_start.map(str::to_owned)) {
                 params.insert("start".into(), Value::String(start));
             }
         }
-        (Some(session_id), Some(sequence)) if start.is_none() => {
+        (Some(session_id), Some(sequence)) if explicit_start.is_none() => {
             validate_prefixed_id("session", "session", &session_id)?;
             validate_decimal("--sequence", &sequence)?;
             params.insert("cursor".into(), json!({"generation":session_id,"revision":sequence}));
@@ -2068,6 +2077,9 @@ fn add_journal_subscription(
                 "--cursor-session and --sequence must be supplied together",
             ));
         }
+    }
+    if !follow {
+        params.insert("follow".into(), Value::Bool(false));
     }
 
     let mut filter = Map::new();
@@ -2781,6 +2793,25 @@ mod tests {
         ]);
         assert_eq!(resumed.params["cursor"], json!({"generation":SESSION,"revision":"42"}));
         assert!(resumed.params.get("start").is_none());
+
+        let read = protocol(&["session", SESSION, "journal", "read", "--kinds", "agent.*"]);
+        assert_eq!(operation(&read), "session.journal.subscribe");
+        assert_eq!(read.params["start"], "beginning");
+        assert_eq!(read.params["follow"], false);
+        assert_eq!(read.params["filter"]["kinds"], json!(["agent.*"]));
+
+        let read_from_cursor = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "read",
+            "--cursor-session",
+            SESSION,
+            "--sequence",
+            "42",
+        ]);
+        assert!(read_from_cursor.params.get("start").is_none());
+        assert_eq!(read_from_cursor.params["follow"], false);
 
         for invalid in [
             vec!["--from", "beginning", "--cursor-session", SESSION, "--sequence", "1"],

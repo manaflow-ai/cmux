@@ -185,6 +185,9 @@ The CLI is the language-neutral hook boundary. Human output prints records;
 cursor before performing an external effect:
 
 ```bash
+cmux --session main --jsonl session current journal read
+cmux --session main --jsonl session current journal read \
+  --kinds 'agent.*' --regex 'approval|question' --regex-field payload --ignore-case
 cmux --session main --jsonl session current journal subscribe
 cmux --session main --jsonl session current journal subscribe \
   --from beginning --kinds 'agent.*,pane.*' --classes state,observation
@@ -196,8 +199,10 @@ cmux --session main --jsonl session current journal subscribe \
   --kinds terminal.output --regex 'error|failed' --regex-field terminal_output --ignore-case
 ```
 
-The first command tails new events. Add `--from beginning` to view retained
-history. Keep the final cursor from each JSONL item and resume with
+`journal read` prints retained history through the head captured when the
+command opens, then exits. `journal subscribe` tails new events; add
+`--from beginning` to replay retained history before following. Keep the final
+cursor from each JSONL item and resume with
 `--cursor-session <session-id> --sequence <sequence>`. A client connected to a
 resident process that predates journal capability negotiation receives
 `operation.unsupported` with an instruction to restart that named session,
@@ -554,7 +559,7 @@ markers.
 | Frontend focus, window geometry, and viewport target | Implemented as advisory observations |
 | Checkpoint terminal VT content references | Implemented with content-addressed gzip blobs |
 | Continuous terminal content chunks and geometry | Implemented with raw BLOBs and generation-local offsets |
-| Built-in lossless agent-hook ingress, semantic normalization, and indexed agent forest | Implemented in storage v1 |
+| Built-in lossless agent-hook ingress, semantic normalization, and indexed agent forest | Implemented in storage v1; explicit parent session IDs form cross-process ancestry without provider agent IDs |
 | Provider-specific agent hook installers and root leases | Pending |
 | Schema-validated producer manifests and ingress | Implemented in storage v1 |
 | Hook dispatcher and delivery projections | Implemented in storage v1 |

@@ -386,6 +386,9 @@ func (s *Session) Journal(ctx context.Context, options SessionJournalOptions) (*
 	if options.Start != nil {
 		input[wirev1.FieldStart] = *options.Start
 	}
+	if options.Follow != nil {
+		input["follow"] = *options.Follow
+	}
 	if options.Filter != nil {
 		input["filter"] = options.Filter
 	}

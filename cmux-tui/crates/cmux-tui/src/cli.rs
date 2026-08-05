@@ -298,6 +298,7 @@ USAGE
     [--kinds <kind[,kind...]>] [--classes <class[,class...]>]
     [--subjects <kind:id[,kind:id...]>] [--max-sensitivity public|metadata|sensitive]
     [--regex <pattern>] [--regex-field kind|subjects|payload|record|terminal_output] [--ignore-case]
+  cmux session <selector> journal read [--from beginning] [FILTERS]
   cmux session <selector> journal producer list
   cmux session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
   cmux session <selector> journal append --event-json <json> --idempotency-key <key>
