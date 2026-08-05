@@ -114,30 +114,35 @@ final class WorkspaceSidebarRenameUITests: XCTestCase {
         let row = firstWorkspaceRow(app: app)
         XCTAssertTrue(pollUntil(timeout: 10.0) { row.exists && row.isHittable }, "row visible")
 
-        print("DIAG-BASELINE-MENUS count=\(app.menus.count) menuBars=\(app.menuBars.count)")
-        let baselineRename = app.descendants(matching: .menuItem)
-            .matching(NSPredicate(format: "title BEGINSWITH %@", "Rename Workspace"))
-        print("DIAG-BASELINE-RENAME-MATCHES count=\(baselineRename.count)")
-        for i in 0..<baselineRename.count {
-            let e = baselineRename.element(boundBy: i)
-            print("DIAG-BASELINE-RENAME[\(i)] hittable=\(e.isHittable) frame=\(e.frame)")
+        func renameQuery() -> XCUIElementQuery {
+            app.descendants(matching: .menuItem)
+                .matching(NSPredicate(format: "title BEGINSWITH %@", "Rename Workspace"))
         }
+        func describe(_ label: String) -> String {
+            let q = renameQuery()
+            let n = q.count
+            var parts = ["\(label): menus=\(app.menus.count) windowMenus=\(app.windows.descendants(matching: .menu).count) renameMatches=\(n)"]
+            for i in 0..<min(n, 4) {
+                let e = q.element(boundBy: i)
+                parts.append("[\(i)] hittable=\(e.isHittable) frame=\(e.frame)")
+            }
+            return parts.joined(separator: " | ")
+        }
+
+        let baseline = describe("BASELINE")
 
         row.rightClick()
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        let afterRight = describe("AFTER-RIGHTCLICK")
 
-        print("DIAG-AFTER-RIGHTCLICK menus=\(app.menus.count)")
-        let afterRename = app.descendants(matching: .menuItem)
-            .matching(NSPredicate(format: "title BEGINSWITH %@", "Rename Workspace"))
-        print("DIAG-AFTER-RENAME-MATCHES count=\(afterRename.count)")
-        for i in 0..<afterRename.count {
-            let e = afterRename.element(boundBy: i)
-            print("DIAG-AFTER-RENAME[\(i)] hittable=\(e.isHittable) frame=\(e.frame)")
-        }
-        print("DIAG-WINDOW-MENUS count=\(app.windows.descendants(matching: .menu).count)")
-        print("DIAG-HIERARCHY-BEGIN")
-        print(app.debugDescription)
-        print("DIAG-HIERARCHY-END")
+        app.typeKey(.escape, modifierFlags: [])
+        RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+
+        XCUIElement.perform(withKeyModifiers: .control) { row.click() }
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        let afterControl = describe("AFTER-CONTROLCLICK")
+
+        XCTFail("DIAGNOSTIC >>> \(baseline) >>> \(afterRight) >>> \(afterControl)")
     }
 
     // MARK: Helpers
