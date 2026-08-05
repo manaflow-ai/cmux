@@ -876,7 +876,8 @@ struct SidebarAppKitRowCellTests {
         #expect(!policy.usesWindowLevelGlass)
         #expect(policy.material == .underWindowBackground)
         #expect(policy.blendingMode == .withinWindow)
-        #expect(policy.tintColor.hexString(includeAlpha: true) == "#8080802E")
+        #expect(policy.tintColor.hexString() == "#808080")
+        #expect(abs(policy.tintColor.alphaComponent - 0.18) < 0.01)
 
         let catalog = CmuxSettings.SettingCatalog()
         #expect(catalog.sidebarAppearance.material.defaultValue.rawValue == "liquidGlass")
