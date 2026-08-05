@@ -6245,6 +6245,9 @@ final class BrowserPanel: Panel, ObservableObject {
             validatedReadableFileURL: navigationURL,
             onNavigationStarted: pendingFileOnlyNavigation.onNavigationStarted
         )
+        if let identity = BrowserLocalFileIdentity(resolvedURL: navigationURL) {
+            rememberTerminalFileForReuse(navigationURL, identity: identity)
+        }
     }
 
     private func discardFileOnlyNavigation(id: UUID) {

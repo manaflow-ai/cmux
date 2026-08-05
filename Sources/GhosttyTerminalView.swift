@@ -4105,6 +4105,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if !isSameSurface {
             appliedColorScheme = nil
+            setWordPathHoverActive(false)
             invalidateWordPathHoverResolution(clearContainer: true)
             // Reset any OSC 22 mouse shape carried over from the previous surface.
             updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
