@@ -30,6 +30,36 @@ struct BrowserLocalFileReadAccessPolicyTests {
     }
 
     @Test
+    func fileOnlyCanonicalizationPreservesQueryAndFragment() throws {
+        let fixture = try BrowserLocalFileTestFixture()
+        defer { fixture.remove() }
+
+        let target = fixture.targetDirectory.appendingPathComponent("report.html")
+        let symlink = fixture.linkDirectory.appendingPathComponent("report.html")
+        try "<!doctype html><title>report</title>".write(
+            to: target,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: target)
+
+        var components = try #require(URLComponents(url: symlink, resolvingAgainstBaseURL: false))
+        components.percentEncodedQuery = "case=one%20two"
+        components.percentEncodedFragment = "section%202"
+        let decoratedSymlink = try #require(components.url)
+
+        let navigationURL = BrowserLocalFileReadAccessPolicy.fileOnly
+            .resolvedNavigationURL(for: decoratedSymlink)
+        let resolvedComponents = try #require(
+            URLComponents(url: navigationURL, resolvingAgainstBaseURL: false)
+        )
+
+        #expect(navigationURL.path == target.standardizedFileURL.resolvingSymlinksInPath().path)
+        #expect(resolvedComponents.percentEncodedQuery == "case=one%20two")
+        #expect(resolvedComponents.percentEncodedFragment == "section%202")
+    }
+
+    @Test
     func fileOnlyRejectsDirectories() throws {
         let fixture = try BrowserLocalFileTestFixture()
         defer { fixture.remove() }

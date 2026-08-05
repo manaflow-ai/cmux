@@ -301,10 +301,12 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(liveDirectoryQueries == 1)
     }
 
-    @Test("Dock link-open CWD fails closed when foreground inspection fails")
+    @Test("Dock link-open CWD falls back when foreground inspection fails")
     @MainActor
-    func dockLinkOpenCWDFailsClosedWithoutForegroundDirectory() throws {
+    func dockLinkOpenCWDFallsBackWithoutForegroundDirectory() throws {
         var liveDirectoryQueries = 0
+        let reportedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
@@ -324,10 +326,10 @@ struct TerminalLinkOpenCoordinatorTests {
         )
         let terminal = try #require(store.panels[terminalPanelId] as? TerminalPanel)
         terminal.surface.recordReportedWorkingDirectory(
-            FileManager.default.temporaryDirectory.path
+            reportedDirectory.path
         )
 
-        #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) == nil)
+        #expect(store.terminalLinkWorkingDirectory(for: terminalPanelId) == reportedDirectory.path)
         #expect(liveDirectoryQueries == 1)
     }
 
