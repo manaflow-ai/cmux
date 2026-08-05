@@ -575,7 +575,6 @@ await handlers.get("tool_execution_start")({
   toolName: "task",
   args: { task: "ordinary tool" }
 }, ctx);
-await waitForFeedEvent("PreToolUse", 2);
 await handlers.get("tool_execution_end")({
   toolCallId: "lowercase-task-call",
   toolName: "task",
@@ -995,11 +994,11 @@ await waitForCompletionHookCount(completionCount);
         bash_feed_events = [
             payload for payload in feed_events if payload.get("tool_name") == "bash"
         ]
-        if [payload.get("hook_event_name") for payload in bash_feed_events] != [
-            "PreToolUse",
-            "PostToolUse",
-        ]:
-            print(f"FAIL: Pi Feed bridge payloads were incomplete: {bash_feed_events!r}")
+        if [payload.get("hook_event_name") for payload in bash_feed_events] != ["PostToolUse"]:
+            print(
+                "FAIL: Pi ordinary tools must publish completion telemetry without "
+                f"approval-shaped PreToolUse events: {bash_feed_events!r}"
+            )
             return 1
         if {payload.get("turn_id") for payload in feed_events} != {prompt_turn_id}:
             print(f"FAIL: Pi Feed bridge did not use the active prompt turn id: {feed_events!r}")
@@ -1067,7 +1066,6 @@ await waitForCompletionHookCount(completionCount);
             if payload.get("tool_name") == "task"
         ]
         if [payload.get("hook_event_name") for payload in lowercase_task_events] != [
-            "PreToolUse",
             "PostToolUse",
         ]:
             print(f"FAIL: lowercase task was misclassified as a subagent: {lowercase_task_events!r}")
