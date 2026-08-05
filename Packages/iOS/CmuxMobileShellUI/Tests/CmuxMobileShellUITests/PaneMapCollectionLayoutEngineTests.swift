@@ -213,6 +213,92 @@ import UIKit
 
 #if os(iOS)
 @MainActor
+@Suite struct PaneMapColdOpenPrewarmTests {
+    /// A restored workspace mounts the map as a covered navigation-stack root:
+    /// UIKit never attaches it to a window or runs a layout pass, so without a
+    /// pre-warm the zoom's matched source cells don't exist when the first
+    /// terminal→map pop starts and the transition degrades to a hard cut.
+    @Test func detachedMapMaterializesZoomSourceCellsBeforeFirstPop() {
+        let panes = [
+            MobilePaneNode(
+                id: "alpha",
+                selectedSurfaceID: "surface-alpha",
+                surfaces: [
+                    MobilePaneSurface(id: "surface-alpha", type: .terminal, title: "alpha")
+                ]
+            ),
+            MobilePaneNode(
+                id: "beta",
+                selectedSurfaceID: "surface-beta",
+                surfaces: [
+                    MobilePaneSurface(id: "surface-beta", type: .terminal, title: "beta")
+                ]
+            ),
+        ]
+        let layout = MobilePaneLayout(
+            version: 1,
+            focusedPaneID: "alpha",
+            root: .split(MobilePaneSplit(
+                id: "root",
+                orientation: .horizontal,
+                ratio: 0.5,
+                first: .pane(panes[0]),
+                second: .pane(panes[1])
+            ))
+        )
+        let items = panes.enumerated().map { index, pane in
+            PaneMapCollectionItem(
+                pane: pane,
+                paneNumber: index + 1,
+                paneCount: panes.count,
+                isFocusedOnMac: pane.id == "alpha",
+                selectedSurfaceID: pane.selectedSurfaceID,
+                phoneSelectedSurfaceID: "surface-alpha",
+                preview: nil,
+                isLoadingPreview: false,
+                agentStateKind: nil
+            )
+        }
+        let representable = PaneMapCollectionView(
+            items: items,
+            layout: layout,
+            terminalTheme: .monokai,
+            zoomNamespace: Namespace().wrappedValue,
+            overflowLabels: PaneMapOverflowLabels(
+                leading: "leading",
+                trailing: "trailing",
+                top: "top",
+                bottom: "bottom"
+            ),
+            allowsReordering: true,
+            selectPreviewSurface: { _, _ in },
+            jumpToTerminal: { _ in },
+            reorderPanes: { _, _ in true }
+        )
+        let coordinator = PaneMapCollectionView.Coordinator(parent: representable)
+        let collectionView = UICollectionView(
+            frame: .zero,
+            collectionViewLayout: PaneMapCollectionLayout(paneLayout: layout)
+        )
+        collectionView.register(
+            UICollectionViewCell.self,
+            forCellWithReuseIdentifier: PaneMapCollectionView.Coordinator.cellReuseIdentifier
+        )
+        collectionView.dataSource = coordinator
+        collectionView.delegate = coordinator
+        let container = PaneMapCollectionContainerView(collectionView: collectionView)
+        container.frame = CGRect(x: 0, y: 0, width: 390, height: 700)
+        coordinator.attach(collectionView: collectionView, container: container)
+
+        coordinator.reconcile(items: items)
+
+        #expect(container.window == nil)
+        #expect(collectionView.numberOfItems(inSection: 0) == panes.count)
+        #expect(collectionView.visibleCells.count == panes.count)
+    }
+}
+
+@MainActor
 @Suite struct PaneZoomNavigationBackgroundBridgeTests {
     @Test func restoresOwnedAncestorBackgroundsWithoutClobberingNewOwners() {
         let originalRootColor = UIColor.red
