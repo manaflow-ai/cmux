@@ -1445,12 +1445,25 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     assert_eq!(screencast["params"]["maxWidth"], 100);
     assert_eq!(screencast["params"]["maxHeight"], 100);
 
-    wait_for(
-        || matches!(surface.browser_status(), Some(BrowserStatus::Live)).then_some(()),
-        Duration::from_secs(10),
+    let frame_seq = wait_for(
+        || {
+            matches!(surface.browser_status(), Some(BrowserStatus::Live))
+                .then(|| surface.browser_frame_seq())
+                .flatten()
+        },
+        test_duration(Duration::from_secs(10)),
     )
-    .expect("browser went live");
-    surface.browser_mouse_event("mousePressed", 5_000.0, 5_000.0, Some("left"), Some(1)).unwrap();
+    .expect("browser produced a pointer-authoritative frame");
+    surface
+        .browser_mouse_event_for_frame(
+            "mousePressed",
+            5_000.0,
+            5_000.0,
+            Some("left"),
+            Some(1),
+            Some(frame_seq),
+        )
+        .unwrap();
     let mouse = recv_method(&seen_rx, "Input.dispatchMouseEvent");
     assert_eq!(mouse["sessionId"], "session-1");
     assert_eq!(mouse["params"]["x"], 50.0);
@@ -1577,7 +1590,7 @@ fn browser_tab_creation_is_async_and_surfaces_bootstrap_failure() {
         .new_browser_tab("example.test".to_string(), None, Some((10, 5)))
         .expect("tab insertion should not wait for CDP bootstrap");
     assert!(
-        started.elapsed() < Duration::from_millis(500),
+        started.elapsed() < test_duration(Duration::from_millis(500)),
         "new_browser_tab blocked for {:?}",
         started.elapsed()
     );
