@@ -28,6 +28,13 @@ export default function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // OpenAI-compatible CodeRouter traffic is a machine endpoint, never a
+  // localized page. Keep this explicit in addition to the matcher exclusion
+  // so direct middleware tests and future matcher edits fail safely.
+  if (pathname === "/v1/responses") {
+    return NextResponse.next();
+  }
+
   // cmux consumes this marker before navigation. If an ordinary browser
   // reaches the server, canonicalize the URL while preserving every public
   // query parameter.
@@ -349,6 +356,6 @@ function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
 
 export const config = {
   matcher: [
-    "/((?!api|_next|_vercel|agent-page-variant|authorize|handler).*)",
+    "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler).*)",
   ],
 };
