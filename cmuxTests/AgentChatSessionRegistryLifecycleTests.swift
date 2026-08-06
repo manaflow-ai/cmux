@@ -353,7 +353,7 @@ struct AgentChatSessionRegistryLifecycleTests {
     }
 
     @MainActor
-    @Test func endedSessionWithMissingTranscriptIsNotListableForMobileChat() throws {
+    @Test func endedSessionWithMissingTranscriptIsNotListableForMobileChat() async throws {
         let home = try temporaryHomeDirectory()
         let service = AgentChatTranscriptService(
             registry: AgentChatSessionRegistry(),
@@ -376,7 +376,7 @@ struct AgentChatSessionRegistryLifecycleTests {
             pid: nil
         )
 
-        #expect(!service.hasBoundedReadableTranscript(record))
+        #expect(await service.hasBoundedReadableTranscript(record) == false)
 
         try FileManager.default.createDirectory(
             at: transcriptURL.deletingLastPathComponent(),
@@ -384,7 +384,7 @@ struct AgentChatSessionRegistryLifecycleTests {
         )
         try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
 
-        #expect(service.hasBoundedReadableTranscript(record))
+        #expect(await service.hasBoundedReadableTranscript(record))
         _ = service.noteHookEvent(WorkstreamEvent(
             sessionId: sessionID, hookEventName: .sessionEnd, source: "claude",
             workspaceId: record.workspaceID, surfaceId: record.surfaceID,
@@ -393,11 +393,11 @@ struct AgentChatSessionRegistryLifecycleTests {
         ))
         let cachedRecord = try #require(service.sessionRecord(sessionID: sessionID))
         #expect(cachedRecord.state == .ended)
-        #expect(service.shouldListEndedSession(cachedRecord))
+        #expect(await service.shouldListEndedSession(cachedRecord))
     }
 
     @MainActor
-    @Test func endedCodexSessionListabilityKeepsFallbackRowsWithoutScanningHistory() throws {
+    @Test func endedCodexSessionListabilityKeepsFallbackRowsWithoutScanningHistory() async throws {
         let home = try temporaryHomeDirectory()
         let service = AgentChatTranscriptService(
             registry: AgentChatSessionRegistry(),
@@ -425,12 +425,12 @@ struct AgentChatSessionRegistryLifecycleTests {
             pid: nil
         )
 
-        #expect(!service.hasBoundedReadableTranscript(record))
-        #expect(service.shouldListEndedSession(record))
+        #expect(await service.hasBoundedReadableTranscript(record) == false)
+        #expect(await service.shouldListEndedSession(record))
     }
 
     @MainActor
-    @Test func pendingClaudeAliasUsesRealHookSessionIDForFallbackTranscript() throws {
+    @Test func pendingClaudeAliasUsesRealHookSessionIDForFallbackTranscript() async throws {
         let home = try temporaryHomeDirectory()
         let service = AgentChatTranscriptService(
             registry: AgentChatSessionRegistry(),
@@ -461,7 +461,7 @@ struct AgentChatSessionRegistryLifecycleTests {
         )
         record.rememberHookStoreSessionID(realSessionID)
 
-        #expect(service.hasBoundedReadableTranscript(record))
+        #expect(await service.hasBoundedReadableTranscript(record))
     }
 
     @MainActor
