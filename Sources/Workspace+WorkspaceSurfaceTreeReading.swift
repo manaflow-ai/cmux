@@ -20,9 +20,7 @@ extension Workspace: WorkspaceSurfaceTreeReading {
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
-        return bonsplitController.allPaneIds.first { paneId in
-            bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId })
-        }
+        return bonsplitController.paneId(containing: tabId)
     }
 
     func indexInPane(forPanelId panelId: UUID) -> Int? {
