@@ -89,8 +89,11 @@ describe("localized pricing page", () => {
     expect(html).toContain(
       "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
     );
-    expect(html).toContain(
-      'px-3 py-1.5 text-xs bg-foreground transition-opacity hover:opacity-85',
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Pro/,
+    );
+    expect(html).toMatch(
+      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -150,6 +153,26 @@ describe("localized pricing page", () => {
     expect(html).toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain('href="?interval=');
     expect(html).toContain("mx-auto mt-6 flex w-fit");
+  });
+
+  test("honors an explicit monthly billing interval", async () => {
+    const element = await PricingPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ interval: "month" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("$30");
+    expect(html).toContain("$35");
+    expect(html).toContain(
+      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month",
+    );
+    expect(html).toContain(
+      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month",
+    );
+    expect(html).toContain(
+      '<button type="button" role="radio" aria-checked="true" tabindex="0" class="bg-foreground px-3 py-1.5 font-medium text-background">Monthly</button>',
+    );
   });
 });
 
