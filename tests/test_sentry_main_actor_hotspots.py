@@ -61,3 +61,10 @@ def test_sidebar_mutation_scheduler_uses_native_main_actor_task():
     assert "MainActor.assumeIsolated" not in scheduler
     assert "Task { @MainActor [self] in" in scheduler
     assert "await Task.yield()" in scheduler
+
+
+def test_sidebar_row_actions_have_reference_identity():
+    model = (ROOT / "Sources/Sidebar/AppKitList/Cells/SidebarWorkspaceRowModel.swift").read_text()
+
+    assert "final class SidebarAppKitRowActions" in model
+    assert "struct SidebarAppKitRowActions" not in model
