@@ -55,5 +55,6 @@ uds_windows.workspace = true
 windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
 
 [dev-dependencies]
+async-trait.workspace = true
 tempfile = "3"
 rusqlite.workspace = true

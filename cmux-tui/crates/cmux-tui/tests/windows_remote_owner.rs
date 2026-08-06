@@ -1,11 +1,23 @@
 #![cfg(windows)]
 
+use std::fs::OpenOptions;
 use std::io::{ErrorKind, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use base64::Engine as _;
+use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
+use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
+use cmux_remote::link::FrameLink;
+use cmux_remote::provider::{
+    CarrierEvidence, LengthDelimitedLink, LinkGroup, LinkRequest, ProviderCapabilities,
+    ProviderError,
+};
+use cmux_remote::session::SessionLimits;
+use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde_json::Value;
 
 fn wait_until(timeout: Duration, mut predicate: impl FnMut() -> bool) -> bool {
@@ -88,6 +100,57 @@ fn spawn_owner(executable: &str, session: &str, state_root: &Path) -> Child {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap()
+}
+
+struct WindowsStdioLinkGroup {
+    executable: PathBuf,
+    session: String,
+    state_root: PathBuf,
+    carrier_log: PathBuf,
+    evidence: CarrierEvidence,
+}
+
+#[async_trait]
+impl LinkGroup for WindowsStdioLinkGroup {
+    fn description(&self) -> &str {
+        "windows-stdio-regression"
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::STREAM
+    }
+
+    fn evidence(&self) -> &CarrierEvidence {
+        &self.evidence
+    }
+
+    async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+        let stderr = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.carrier_log)
+            .map_err(|error| ProviderError::Transport(error.to_string()))?;
+        let mut child = tokio::process::Command::new(&self.executable)
+            .args(["remote-link", "--stdio", "--session", &self.session, "--state-dir"])
+            .arg(&self.state_root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::from(stderr))
+            .spawn()
+            .map_err(|error| ProviderError::Transport(error.to_string()))?;
+        let stdin = child.stdin.take().ok_or_else(|| {
+            ProviderError::Transport("Windows carrier stdin was not piped".into())
+        })?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            ProviderError::Transport("Windows carrier stdout was not piped".into())
+        })?;
+
+        Ok(Box::new(LengthDelimitedLink::new("windows-stdio-regression", 65_535, stdout, stdin)))
+    }
+
+    async fn close(&self) -> Result<(), ProviderError> {
+        Ok(())
+    }
 }
 
 fn assert_process_stays_running(child: &mut Child, duration: Duration, label: &str) {
@@ -249,4 +312,72 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
         wait_for_exit(&mut replacement, Duration::from_secs(5)),
         "replacement owner did not exit"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn windows_remote_stdio_completes_authenticated_handshake() {
+    let executable = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .and_then(Path::parent)
+        .unwrap()
+        .join("cmux-tui.exe");
+    let state_root = tempfile::tempdir().unwrap();
+    let session = format!("stdio-handshake-{}", std::process::id());
+    let session_state = state_root.path().join("sessions").join(&session);
+    let mux_socket = session_state.join("mux.sock");
+    let link_socket = session_state.join("link.sock");
+    let carrier_log = state_root.path().join("carrier.log");
+    let mut owner = spawn_owner(executable.to_str().unwrap(), &session, state_root.path());
+    wait_for_mux_owner(&mut owner, &mux_socket);
+    assert!(
+        wait_until(Duration::from_secs(5), || link_socket.exists()),
+        "remote owner did not publish its carrier socket"
+    );
+
+    let group = Arc::new(WindowsStdioLinkGroup {
+        executable: executable.clone(),
+        session: session.clone(),
+        state_root: state_root.path().to_path_buf(),
+        carrier_log: carrier_log.clone(),
+        evidence: CarrierEvidence::Ssh { destination: "windows-stdio-regression".into() },
+    });
+    let config = ClientConnectionConfig {
+        identity: StaticIdentity::generate().unwrap(),
+        expected_daemon: None,
+        auth: ClientAuthMode::Carrier,
+        device_name: "windows-stdio-regression".into(),
+        session: SessionId([91; 16]),
+        lane_policy: LanePolicy::Single,
+        limits: SessionLimits::default(),
+        reconnect: ReconnectPolicy {
+            heartbeat_interval: None,
+            maximum_attempts: Some(1),
+            ..ReconnectPolicy::default()
+        },
+    };
+
+    let connected =
+        tokio::time::timeout(Duration::from_secs(5), ClientConnection::connect(group, config))
+            .await;
+    let failure = match connected {
+        Ok(Ok(client)) => tokio::time::timeout(Duration::from_secs(3), client.close())
+            .await
+            .map_err(|_| "client close timed out".to_owned())
+            .and_then(|result| result.map_err(|error| error.to_string()))
+            .err(),
+        Ok(Err(error)) => Some(format!("handshake failed: {error}")),
+        Err(_) => Some("handshake timed out".into()),
+    };
+
+    let stop = Command::new(&executable)
+        .args(["remote-stop", "--session", &session, "--state-dir"])
+        .arg(state_root.path())
+        .output()
+        .unwrap();
+    assert_cmux_success(&stop);
+    assert!(wait_for_exit(&mut owner, Duration::from_secs(5)), "remote owner did not exit");
+
+    let diagnostics = std::fs::read_to_string(carrier_log).unwrap_or_default();
+    assert!(failure.is_none(), "{}; carrier diagnostics: {diagnostics}", failure.unwrap());
 }
