@@ -169,3 +169,10 @@ def test_closed_panel_history_uses_read_only_terminal_capture():
     assert "allowTerminalVTExport: false" in close_history
     assert "allowTerminalVTExport: Bool = true" in session_snapshot
     assert "allowVTExport: allowTerminalVTExport" in session_snapshot
+
+
+def test_media_playback_message_handler_uses_webkit_ui_actor_directly():
+    handler = (ROOT / "Sources/Panels/BrowserMediaPlaybackMessageHandler.swift").read_text()
+
+    assert "MainActor.assumeIsolated" not in handler
+    assert "onReport(report)" in handler
