@@ -5,6 +5,53 @@ import Foundation
 private struct EventStreamLimitReached: Error {}
 private struct EventStreamSnapshotCaptured: Error {}
 
+struct EventCursorPersistenceBatch {
+    private let maximumPendingEvents: Int
+    private let maximumDelay: Duration
+    private let write: (Int64) throws -> Void
+
+    private var pendingSequence: Int64?
+    private var pendingEventCount = 0
+    private var batchStartedAt: ContinuousClock.Instant?
+
+    init(
+        maximumPendingEvents: Int = 128,
+        maximumDelay: Duration = .seconds(1),
+        write: @escaping (Int64) throws -> Void
+    ) {
+        precondition(maximumPendingEvents > 0)
+        precondition(maximumDelay > .zero)
+        self.maximumPendingEvents = maximumPendingEvents
+        self.maximumDelay = maximumDelay
+        self.write = write
+    }
+
+    mutating func record(_ sequence: Int64, now: ContinuousClock.Instant) throws {
+        if pendingSequence == nil {
+            batchStartedAt = now
+        }
+        pendingSequence = sequence
+        pendingEventCount += 1
+        try flushIfDue(now: now)
+    }
+
+    mutating func flushIfDue(now: ContinuousClock.Instant) throws {
+        guard pendingSequence != nil else { return }
+        let reachedEventLimit = pendingEventCount >= maximumPendingEvents
+        let reachedTimeLimit = batchStartedAt.map { $0.duration(to: now) >= maximumDelay } ?? false
+        guard reachedEventLimit || reachedTimeLimit else { return }
+        try flush(now: now)
+    }
+
+    mutating func flush(now _: ContinuousClock.Instant) throws {
+        guard let pendingSequence else { return }
+        try write(pendingSequence)
+        self.pendingSequence = nil
+        pendingEventCount = 0
+        batchStartedAt = nil
+    }
+}
+
 extension CMUXCLI {
     private struct EventsCommandOptions {
         var afterSeq: Int64?
@@ -31,6 +78,11 @@ extension CMUXCLI {
 
         var lastSeq = options.afterSeq
         var emittedEvents = 0
+        var cursorPersistence = options.cursorFile.map { cursorFile in
+            EventCursorPersistenceBatch { sequence in
+                try writeEventCursor(sequence, to: cursorFile)
+            }
+        }
         // The --timeout budget is measured on a MONOTONIC clock so a
         // wall-clock change (NTP step, timezone, manual set) can neither
         // expire the whole command instantly nor extend it indefinitely.
@@ -128,24 +180,24 @@ extension CMUXCLI {
                     }
 
                     if let eventSequence {
-                        if let cursorFile = options.cursorFile {
-                            try writeEventCursor(eventSequence, to: cursorFile)
-                        }
+                        try cursorPersistence?.record(eventSequence, now: budgetClock.now)
                         lastSeq = eventSequence
                         emittedEvents += 1
                         if let limit = options.limit, emittedEvents >= limit {
                             throw EventStreamLimitReached()
                         }
+                    } else {
+                        // Heartbeats bound cursor durability even when event traffic pauses
+                        // before a batch reaches its count threshold.
+                        try cursorPersistence?.flushIfDue(now: budgetClock.now)
                     }
                 }
-            } catch is EventStreamSnapshotCaptured {
-                client.close()
-                return
-            } catch is EventStreamLimitReached {
-                client.close()
-                return
             } catch {
                 client.close()
+                try cursorPersistence?.flush(now: budgetClock.now)
+                if error is EventStreamSnapshotCaptured || error is EventStreamLimitReached {
+                    return
+                }
                 if let remaining = remainingBudget(), remaining <= 0 {
                     throw timeoutError()
                 }

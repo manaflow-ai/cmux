@@ -22,6 +22,11 @@ Persist the latest processed `seq`, then reconnect with `after_seq` or use
 `cmux events --cursor-file`. If cmux restarts, `boot_id` changes and the server
 marks stale cursors as a resume gap.
 
+The CLI batches cursor-file checkpoints by a bounded event count or elapsed
+time and flushes before an orderly exit or reconnect. An unclean exit can
+replay the most recent batch, so consumers must deduplicate with the stable
+event `id`.
+
 Use the JSONL log for audit and catch-up tools. Use the socket stream for live
 delivery with bounded replay.
 
@@ -199,7 +204,7 @@ Options:
 | --- | --- |
 | `--after <seq>` | Start after a sequence number. |
 | `--after-seq <seq>` | Alias for `--after`. |
-| `--cursor-file <path>` | Read the starting sequence from a file and update it after each event. |
+| `--cursor-file <path>` | Read the starting sequence from a file and periodically checkpoint delivered events. |
 | `--name <event>` | Filter by event name. Repeatable. |
 | `--category <name>` | Filter by category. Repeatable. |
 | `--reconnect` | Reconnect forever and resume from the last received event. |

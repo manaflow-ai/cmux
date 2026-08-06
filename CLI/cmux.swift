@@ -15653,6 +15653,10 @@ struct CMUXCLI {
         case "ios":
             return iosSubcommandUsage()
         case "events":
+            let cursorFileDescription = String(
+                localized: "cli.events.help.cursorFile",
+                defaultValue: "Read the starting sequence and periodically checkpoint delivered events"
+            )
             let timeoutDescription = String(
                 localized: "cli.events.help.timeout",
                 defaultValue: "Exit unsuccessfully if no matching event arrives before the deadline"
@@ -15668,7 +15672,7 @@ struct CMUXCLI {
 
             Options:
               --after <seq>          Replay retained events after this sequence
-              --cursor-file <path>   Read the starting sequence from a file and update it after each event
+              --cursor-file <path>   \(cursorFileDescription)
               --name <event>         Filter by event name, repeatable
               --category <name>      Filter by category, repeatable
               --reconnect            Reconnect forever and resume from the last received sequence

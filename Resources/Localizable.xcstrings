@@ -36420,6 +36420,23 @@
         }
       }
     },
+    "cli.events.help.cursorFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read the starting sequence and periodically checkpoint delivered events"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始シーケンスを読み取り、配信されたイベントを定期的にチェックポイントへ保存"
+          }
+        }
+      }
+    },
     "cli.events.error.invalidTimeout": {
       "extractionState": "manual",
       "localizations": {
