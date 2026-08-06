@@ -188,6 +188,28 @@ import Testing
         #expect(scrubber.scrub("aside=note") == "aside=note")
     }
 
+    @Test func redactsSensitiveExactAliasesAtPunctuationBoundaries() {
+        #expect(
+            scrubber.scrub(#"{"connect.sid":"session-secret"}"#)
+                == #"{"connect.sid":"<redacted-secret>"}"#
+        )
+        #expect(
+            scrubber.scrub("x-sid=session-secret")
+                == "x-sid=<redacted-secret>"
+        )
+        #expect(
+            scrubber.scrubQueryString("x-sid=session-secret&inside=hallway")
+                == "x-sid=<redacted-secret>&inside=hallway"
+        )
+        let structured = scrubber.scrub(dictionary: [
+            "x-sid": "session-secret",
+            "x-inside": "hallway",
+        ])
+        #expect(structured["x-sid"] as? String == "<redacted-secret>")
+        #expect(structured["x-inside"] as? String == "hallway")
+        #expect(scrubber.scrub("x-inside=hallway") == "x-inside=hallway")
+    }
+
     @Test func sessionAndSidDictionaryKeysAreSensitiveWithoutOvermatching() {
         let input: [String: Any] = [
             "session": "abc",
