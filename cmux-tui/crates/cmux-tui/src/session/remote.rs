@@ -896,6 +896,59 @@ enum RequestDeadline {
     Fixed(Duration),
 }
 
+struct AttachResponseDeadline {
+    idle_timeout: Duration,
+    idle_deadline: Instant,
+    maximum_deadline: Instant,
+    observed_request_progress: u64,
+    observed_attach_progress: u64,
+}
+
+impl AttachResponseDeadline {
+    fn new(
+        started: Instant,
+        request_progress: u64,
+        attach_progress: u64,
+        idle_timeout: Duration,
+        maximum_timeout: Duration,
+    ) -> Self {
+        Self {
+            idle_timeout,
+            idle_deadline: started + idle_timeout,
+            maximum_deadline: started + maximum_timeout,
+            observed_request_progress: request_progress,
+            observed_attach_progress: attach_progress,
+        }
+    }
+
+    fn next_wait(
+        &mut self,
+        now: Instant,
+        request_progress: u64,
+        attach_progress: u64,
+    ) -> Option<Duration> {
+        if now >= self.maximum_deadline {
+            return None;
+        }
+        let progressed = if request_progress != self.observed_request_progress {
+            self.observed_request_progress = request_progress;
+            true
+        } else if self.observed_request_progress == 0
+            && attach_progress != self.observed_attach_progress
+        {
+            self.observed_attach_progress = attach_progress;
+            true
+        } else {
+            false
+        };
+        if progressed {
+            self.idle_deadline = now + self.idle_timeout;
+        }
+        let next_deadline = self.idle_deadline.min(self.maximum_deadline);
+        (now < next_deadline).then(|| next_deadline.saturating_duration_since(now))
+    }
+}
+
 struct PendingRemoteRequest {
     response: Sender<Value>,
     progress: Arc<AtomicU64>,
@@ -2482,17 +2535,23 @@ impl RemoteSession {
         }
 
         let started = Instant::now();
-        let maximum_deadline = started + REMOTE_ATTACH_MAX_TIMEOUT;
-        let mut idle_deadline = started + REMOTE_ATTACH_IDLE_TIMEOUT;
-        let mut observed_progress = progress.load(Ordering::Acquire);
-        let mut observed_attach_progress = attach_progress;
+        let mut deadline = AttachResponseDeadline::new(
+            started,
+            progress.load(Ordering::Acquire),
+            attach_progress.expect("attach response wait requires an attach progress epoch"),
+            REMOTE_ATTACH_IDLE_TIMEOUT,
+            REMOTE_ATTACH_MAX_TIMEOUT,
+        );
         loop {
+            let request_progress = progress.load(Ordering::Acquire);
+            let attach_progress = self.attach_progress.load(Ordering::Acquire);
+            // Capture the deadline origin after the progress snapshots so scheduler
+            // preemption cannot consume a newly granted idle window.
             let now = Instant::now();
-            if now >= maximum_deadline {
+            let Some(wait) = deadline.next_wait(now, request_progress, attach_progress) else {
                 return Err(RemoteRequestError::Timeout);
-            }
-            let next_deadline = idle_deadline.min(maximum_deadline);
-            match rx.recv_timeout(next_deadline.saturating_duration_since(now)) {
+            };
+            match rx.recv_timeout(wait) {
                 Ok(response) => return Ok(response),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
                     return Err(RemoteRequestError::Shutdown);
@@ -2502,25 +2561,6 @@ impl RemoteSession {
             }
             if self.shutdown.load(Ordering::Acquire) {
                 return Err(RemoteRequestError::Shutdown);
-            }
-            let current_progress = progress.load(Ordering::Acquire);
-            if current_progress != observed_progress {
-                observed_progress = current_progress;
-                idle_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT;
-                continue;
-            }
-            if observed_progress == 0
-                && let Some(observed) = observed_attach_progress.as_mut()
-            {
-                let current = self.attach_progress.load(Ordering::Acquire);
-                if current != *observed {
-                    *observed = current;
-                    idle_deadline = Instant::now() + REMOTE_ATTACH_IDLE_TIMEOUT;
-                    continue;
-                }
-            }
-            if Instant::now() >= idle_deadline {
-                return Err(RemoteRequestError::Timeout);
             }
         }
     }
@@ -5441,12 +5481,71 @@ mod tests {
         peer.join().unwrap();
     }
 
+    #[test]
+    fn attach_deadline_expires_without_progress() {
+        let started = Instant::now();
+        let idle = Duration::from_millis(10);
+        let mut deadline =
+            AttachResponseDeadline::new(started, 0, 3, idle, Duration::from_millis(100));
+
+        assert_eq!(deadline.next_wait(started, 0, 3), Some(idle));
+        assert_eq!(
+            deadline.next_wait(started + Duration::from_millis(9), 0, 3),
+            Some(Duration::from_millis(1))
+        );
+        assert_eq!(deadline.next_wait(started + idle, 0, 3), None);
+    }
+
+    #[test]
+    fn attach_deadline_extends_from_own_request_progress() {
+        let started = Instant::now();
+        let idle = Duration::from_millis(10);
+        let mut deadline =
+            AttachResponseDeadline::new(started, 0, 3, idle, Duration::from_millis(100));
+
+        assert_eq!(deadline.next_wait(started + Duration::from_millis(8), 1, 3), Some(idle));
+        assert_eq!(
+            deadline.next_wait(started + Duration::from_millis(10), 1, 3),
+            Some(Duration::from_millis(8))
+        );
+        assert_eq!(deadline.next_wait(started + Duration::from_millis(18), 1, 3), None);
+    }
+
+    #[test]
+    fn queued_attach_deadline_extends_from_connection_progress_until_own_progress() {
+        let started = Instant::now();
+        let idle = Duration::from_millis(10);
+        let mut deadline =
+            AttachResponseDeadline::new(started, 0, 3, idle, Duration::from_millis(100));
+
+        assert_eq!(deadline.next_wait(started + idle, 0, 4), Some(idle));
+        assert_eq!(deadline.next_wait(started + Duration::from_millis(20), 1, 5), Some(idle));
+        assert_eq!(deadline.next_wait(started + Duration::from_millis(30), 1, 6), None);
+    }
+
+    #[test]
+    fn attach_deadline_hard_maximum_wins_over_progress() {
+        let started = Instant::now();
+        let idle = Duration::from_millis(10);
+        let maximum = Duration::from_millis(25);
+        let mut deadline = AttachResponseDeadline::new(started, 0, 3, idle, maximum);
+
+        assert_eq!(deadline.next_wait(started + Duration::from_millis(9), 1, 3), Some(idle));
+        assert_eq!(
+            deadline.next_wait(started + Duration::from_millis(18), 2, 3),
+            Some(Duration::from_millis(7))
+        );
+        assert_eq!(deadline.next_wait(started + maximum, 3, 3), None);
+    }
+
     #[cfg(unix)]
     #[test]
-    fn queued_attach_waits_while_an_earlier_snapshot_is_progressing() {
+    fn queued_attach_preserves_two_request_wire_order() {
         let (client, server) = UnixStream::pair().unwrap();
         let (first_seen_tx, first_seen_rx) = channel();
-        let (release_tx, release_rx) = channel();
+        let (both_pending_tx, both_pending_rx) = channel();
+        let (release_responses_tx, release_responses_rx) = channel();
+        let (release_peer_tx, release_peer_rx) = channel();
         let peer = std::thread::spawn(move || {
             let mut peer = BufReader::new(server);
             for expected_command in ["identify", "set-client-info", "subscribe"] {
@@ -5471,39 +5570,38 @@ mod tests {
             peer.read_line(&mut first_line).unwrap();
             let first: Value = serde_json::from_str(&first_line).unwrap();
             assert_eq!(first["cmd"], "attach-surface");
+            assert_eq!(first["surface"], 7);
             first_seen_tx.send(()).unwrap();
 
             let mut second_line = String::new();
             peer.read_line(&mut second_line).unwrap();
             let second: Value = serde_json::from_str(&second_line).unwrap();
             assert_eq!(second["cmd"], "attach-surface");
+            assert_eq!(second["surface"], 8);
+            both_pending_tx.send(()).unwrap();
+            release_responses_rx.recv().unwrap();
 
-            let first_surface = first["surface"].as_u64().unwrap();
-            let event = format!(
-                "{{\"event\":\"vt-state\",\"surface\":{first_surface},\"cols\":80,\"rows\":24,\"data\":\"\",\"padding\":\"{}\"}}",
-                "x".repeat(768)
-            );
-            let splits = [64, 256, 512, event.len()];
-            let mut copied = 0;
-            for (index, end) in splits.into_iter().enumerate() {
-                peer.get_mut().write_all(&event.as_bytes()[copied..end]).unwrap();
-                peer.get_mut().flush().unwrap();
-                copied = end;
-                if index + 1 < splits.len() {
-                    std::thread::sleep(REMOTE_ATTACH_IDLE_TIMEOUT * 3 / 4);
-                }
-            }
-            peer.get_mut().write_all(b"\n").unwrap();
-            writeln!(peer.get_mut(), "{}", json!({"id": first["id"], "ok": true, "data": null}))
-                .unwrap();
-
-            let second_surface = second["surface"].as_u64().unwrap();
             writeln!(
                 peer.get_mut(),
                 "{}",
                 json!({
                     "event": "vt-state",
-                    "surface": second_surface,
+                    "surface": 7,
+                    "cols": 80,
+                    "rows": 24,
+                    "data": "",
+                })
+            )
+            .unwrap();
+            writeln!(peer.get_mut(), "{}", json!({"id": first["id"], "ok": true, "data": null}))
+                .unwrap();
+
+            writeln!(
+                peer.get_mut(),
+                "{}",
+                json!({
+                    "event": "vt-state",
+                    "surface": 8,
                     "cols": 80,
                     "rows": 24,
                     "data": "",
@@ -5512,7 +5610,7 @@ mod tests {
             .unwrap();
             writeln!(peer.get_mut(), "{}", json!({"id": second["id"], "ok": true, "data": null}))
                 .unwrap();
-            release_rx.recv().unwrap();
+            release_peer_rx.recv().unwrap();
         });
         let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
 
@@ -5526,10 +5624,30 @@ mod tests {
             second_session.try_ensure_surface_with_kind(8, SurfaceKind::Pty, None)
         });
 
+        both_pending_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let attach_progress = session.attach_progress.load(Ordering::Acquire);
+        session
+            .report_read_progress(br#"{"event":"vt-state","surface":7,"cols":80,"data":"partial"#);
+        assert_eq!(session.attach_progress.load(Ordering::Acquire), attach_progress + 1);
+        {
+            let pending = session.pending.lock().unwrap();
+            assert_eq!(pending.len(), 2);
+            let progress_for = |surface| {
+                pending
+                    .values()
+                    .find(|request| request.attach_surface == Some(surface))
+                    .unwrap()
+                    .progress
+                    .load(Ordering::Acquire)
+            };
+            assert_eq!(progress_for(7), 1);
+            assert_eq!(progress_for(8), 0);
+        }
+        release_responses_tx.send(()).unwrap();
         assert!(matches!(first.join().unwrap().unwrap(), RemoteSurfaceAttach::Attached(_)));
         assert!(matches!(second.join().unwrap().unwrap(), RemoteSurfaceAttach::Attached(_)));
         assert!(!session.shutdown.load(Ordering::Acquire));
-        release_tx.send(()).unwrap();
+        release_peer_tx.send(()).unwrap();
         peer.join().unwrap();
     }
 
