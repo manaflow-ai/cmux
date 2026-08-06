@@ -352,8 +352,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_test_leaf_state=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o state= \
           -p "$cmux_test_leaf_pid" 2>/dev/null || true)
         case "$cmux_test_leaf_state" in *T*) exit 94 ;; esac
+        cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR" || exit 93
         printf '%s\n' 1 > "$CMUX_TEST_SNAPSHOT_PERMISSION" || exit 93
-        cmux_ssh_terminate_owned_auth_group
+        cmux_test_reaper_attempt=0
+        while { /bin/kill -0 "$cmux_test_leaf_pid" >/dev/null 2>&1 || \
+          [ -d "$CMUX_SSH_AUTH_GROUP_DIR" ]; } && \
+          [ "$cmux_test_reaper_attempt" -lt 500 ]; do
+          /bin/sleep 0.01
+          cmux_test_reaper_attempt=$((cmux_test_reaper_attempt + 1))
+        done
         /usr/bin/env LC_ALL=C LANG=C /bin/ps -o pid=,ppid=,pgid=,state=,lstart= \
           -p "$(/bin/cat "$CMUX_TEST_LEAF_PID")" > "$CMUX_TEST_OBSERVED_PROCESS" 2>/dev/null || true
         trap - EXIT
@@ -393,6 +400,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             Darwin.kill(leafPID, 0) != 0,
             "Cleanup failure left: \((try? String(contentsOf: observedProcessFile, encoding: .utf8)) ?? "missing")"
         )
+        #expect(!fileManager.fileExists(atPath: groupDirectory.path))
     }
 
     @Test func cleanupDeadlineKillsOwnedProcessesBeforeReturning() throws {

@@ -22,12 +22,10 @@ extension SSHForegroundAuthenticationRetryPolicy {
             cmux_ssh_auth_deadline_millis - cmux_ssh_auth_snapshot_now
           ))
           if [ "$cmux_ssh_auth_snapshot_remaining" -le 0 ]; then return 1; fi
-          cmux_ssh_auth_snapshot_timeout=$(/usr/bin/awk \
-            -v cmux_millis="$cmux_ssh_auth_snapshot_remaining" \
-            'BEGIN { printf "%.3f\n", cmux_millis / 1000 }') || return 1
 
           /usr/bin/perl -MTime::HiRes=alarm -e '
-            $cmux_timeout = shift;
+            $cmux_timeout_millis = shift;
+            $cmux_timeout = $cmux_timeout_millis / 1000;
             $cmux_pid = fork();
             exit 1 if !defined $cmux_pid;
             if ($cmux_pid == 0) {
@@ -53,7 +51,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
             exit 124 if $cmux_timed_out;
             exit(128 + ($cmux_status & 127)) if $cmux_status & 127;
             exit($cmux_status >> 8);
-          ' "$cmux_ssh_auth_snapshot_timeout" \
+          ' "$cmux_ssh_auth_snapshot_remaining" \
             /usr/bin/env LC_ALL=C LANG=C /bin/ps -axo pid=,ppid=,pgid=,state=,lstart= \
             > "$1" 2>/dev/null
         }
@@ -311,14 +309,18 @@ extension SSHForegroundAuthenticationRetryPolicy {
         }
 
         cmux_ssh_auth_force_frozen_processes() {
-          if [ ! -s "$cmux_ssh_auth_frozen_processes" ]; then return 0; fi
+          cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" || return 1
+          cmux_ssh_auth_expand_owned_processes || return 1
+          cmux_ssh_auth_deadline_allows_work || return 1
           /usr/bin/awk '$1 ~ /^[0-9]+$/ && $1 != 0 && !cmux_seen[$1]++ { print $1 }' \
-            "$cmux_ssh_auth_frozen_processes" > "$cmux_ssh_auth_ordered_processes" || return 1
+            "$cmux_ssh_auth_owned_processes" > "$cmux_ssh_auth_ordered_processes" || return 1
           if [ ! -s "$cmux_ssh_auth_ordered_processes" ]; then return 0; fi
-          /usr/bin/xargs /bin/kill -KILL < "$cmux_ssh_auth_ordered_processes" \
-            >/dev/null 2>&1 || \
+          if ! /usr/bin/xargs /bin/kill -KILL < "$cmux_ssh_auth_ordered_processes" \
+            >/dev/null 2>&1; then
             /usr/bin/xargs /bin/kill -CONT < "$cmux_ssh_auth_ordered_processes" \
               >/dev/null 2>&1 || true
+            return 1
+          fi
         }
         """#
     }

@@ -17,8 +17,6 @@ enum SSHPTYAttachStartupCommandBuilder {
         requireExisting: Bool = true
     ) -> String {
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .attach)
-        let authGroupStateRemovalCommand = SSHForegroundAuthenticationRetryPolicy()
-            .processGroupStateRemovalShellCommand()
         var lines = [
             "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
@@ -46,7 +44,6 @@ enum SSHPTYAttachStartupCommandBuilder {
             "cmux_ssh_attach_auth_pid=",
             "CMUX_SSH_AUTH_GROUP_DIR=",
             "export CMUX_SSH_AUTH_GROUP_DIR",
-            "cmux_ssh_attach_remove_auth_group_dir() { if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(authGroupStateRemovalCommand); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; }",
             "cmux_ssh_attach_lifecycle_end() { if [ \"$cmux_ssh_attach_lifecycle_ended\" = 1 ]; then return; fi; cmux_ssh_attach_lifecycle_ended=1; cmux_ssh_attach_remove_auth_group_dir; \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-session-end --lifecycle-only --workspace \"$CMUX_WORKSPACE_ID\" --surface \"${CMUX_SURFACE_ID:-}\" --terminal-lifecycle-id \"${CMUX_TERMINAL_LIFECYCLE_ID:-}\" --session-id \"$cmux_ssh_attach_session_id\" --lifecycle-id \"$cmux_ssh_attach_lifecycle_id\" >/dev/null 2>&1 || true; }",
             "cmux_ssh_attach_signal_exit() { cmux_ssh_attach_signal_status=\"$1\"; cmux_ssh_attach_signal_name=\"$2\"; if [ -n \"${cmux_ssh_attach_auth_pid:-}\" ]; then cmux_ssh_terminate_auth_process_tree \"$cmux_ssh_attach_auth_pid\" \"$$\"; wait \"$cmux_ssh_attach_auth_pid\" 2>/dev/null || true; cmux_ssh_attach_auth_pid=; cmux_ssh_attach_remove_auth_group_dir; \(backoffBuilder.signalHandlerBranches) elif [ \"${cmux_ssh_attach_auth_launching:-0}\" = 1 ]; then cmux_ssh_attach_pending_signal=\"$cmux_ssh_attach_signal_status\"; cmux_ssh_attach_pending_signal_name=\"$cmux_ssh_attach_signal_name\"; return; fi; trap - EXIT HUP INT TERM; cmux_ssh_attach_lifecycle_end; exit \"$cmux_ssh_attach_signal_status\"; }",
             "trap 'cmux_ssh_attach_lifecycle_end' EXIT",

@@ -111,6 +111,25 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
         \#(ownedProcessGroupTerminationShellFunctions())
 
+        cmux_ssh_launch_owned_auth_group_reaper() {
+          cmux_ssh_auth_reaper_group_dir="$1"
+          if [ ! -s "$cmux_ssh_auth_reaper_group_dir/identity" ]; then return 0; fi
+          cmux_ssh_auth_reaper_lock="$cmux_ssh_auth_reaper_group_dir/reaper.lock"
+          /bin/mkdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || return 0
+          (
+            trap '' HUP INT TERM
+            CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_reaper_group_dir"
+            export CMUX_SSH_AUTH_GROUP_DIR
+            while [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; do
+              cmux_ssh_terminate_owned_auth_group
+              if [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then break; fi
+              /bin/sleep 0.1
+            done
+            /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+            /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true
+          ) </dev/null >/dev/null 2>&1 &
+        }
+
         cmux_ssh_terminate_owned_auth_group() (
           cmux_ssh_auth_group_dir="${CMUX_SSH_AUTH_GROUP_DIR:-}"
           if [ -z "$cmux_ssh_auth_group_dir" ]; then exit 0; fi
@@ -136,15 +155,24 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_remove_cancel=0
           cmux_ssh_auth_cleanup_started=0
           cmux_ssh_auth_cleanup_complete=0
+          cmux_ssh_auth_preserve_group_state=0
           cmux_ssh_auth_group_state_cleanup() {
             if [ "$cmux_ssh_auth_cleanup_started" = 1 ] && \
               [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
-              if ! cmux_ssh_auth_deadline_allows_work || \
-                ! cmux_ssh_auth_force_owned_processes >/dev/null 2>&1; then
-                cmux_ssh_auth_force_frozen_processes >/dev/null 2>&1 || true
+              if cmux_ssh_auth_deadline_allows_work && \
+                cmux_ssh_auth_force_owned_processes >/dev/null 2>&1; then
+                cmux_ssh_auth_cleanup_complete=1
+              else
+                cmux_ssh_auth_deadline_millis="$cmux_ssh_auth_hard_deadline_millis"
+                if cmux_ssh_auth_force_frozen_processes >/dev/null 2>&1; then
+                  cmux_ssh_auth_cleanup_complete=1
+                else
+                  cmux_ssh_auth_preserve_group_state=1
+                fi
                 cmux_ssh_auth_resume_signaled_processes
               fi
             fi
+            if [ "$cmux_ssh_auth_preserve_group_state" = 1 ]; then return; fi
             /bin/rm -f -- "$cmux_ssh_auth_group_file" "$cmux_ssh_auth_group_anchor_fifo" \
               "$cmux_ssh_auth_group_publish_file" "$cmux_ssh_auth_process_snapshot" \
               "$cmux_ssh_auth_poststop_snapshot" \
@@ -200,7 +228,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           : > "$cmux_ssh_auth_signaled_processes" || exit 0
           cmux_ssh_auth_cleanup_started_millis="$(cmux_ssh_auth_now_millis)" || exit 0
           case "$cmux_ssh_auth_cleanup_started_millis" in ''|*[!0-9]*) exit 0 ;; esac
-          cmux_ssh_auth_deadline_millis=$((cmux_ssh_auth_cleanup_started_millis + 2000))
+          cmux_ssh_auth_deadline_millis=$((cmux_ssh_auth_cleanup_started_millis + 500))
+          cmux_ssh_auth_hard_deadline_millis=$((cmux_ssh_auth_cleanup_started_millis + 2000))
           cmux_ssh_auth_cleanup_started=1
           cmux_ssh_auth_freeze_attempt=0
           while [ "$cmux_ssh_auth_freeze_attempt" -lt 4 ]; do
