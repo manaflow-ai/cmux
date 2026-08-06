@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, gt, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import {
   coderouterAccounts,
@@ -32,17 +32,32 @@ export function routeTokenHash(token: string): string {
 
 export async function issueRouteToken(
   teamId: string,
+  stackUserId: string,
   label = "cli",
 ): Promise<{ token: string; expiresAt: Date }> {
   const token = `crt_${randomBytes(32).toString("base64url")}`;
   const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
   await cloudDb().insert(coderouterRouteTokens).values({
     teamId,
+    stackUserId,
     tokenHash: routeTokenHash(token),
     label,
     expiresAt,
   });
   return { token, expiresAt };
+}
+
+export async function revokeRouteTokensForUser(
+  stackUserId: string,
+  now = new Date(),
+): Promise<void> {
+  await cloudDb()
+    .update(coderouterRouteTokens)
+    .set({ revokedAt: now })
+    .where(and(
+      eq(coderouterRouteTokens.stackUserId, stackUserId),
+      isNull(coderouterRouteTokens.revokedAt),
+    ));
 }
 
 export async function authenticateRouteToken(
@@ -55,6 +70,7 @@ export async function authenticateRouteToken(
     .set({ lastUsedAt: now })
     .where(and(
       eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
+      isNotNull(coderouterRouteTokens.stackUserId),
       gt(coderouterRouteTokens.expiresAt, now),
       isNull(coderouterRouteTokens.revokedAt),
     ))

@@ -18,7 +18,13 @@ const recordCheckoutCompletion = mock(async () => {
   if (recordCheckoutShouldFail) throw new Error("db down");
   return recordCheckoutCompletionResult;
 });
-const applySubscriptionUpdate = mock(async () => ({ stackUserId: "user_1", isActive: true }));
+let applySubscriptionUpdateResult: unknown = {
+  scope: "user",
+  stackUserId: "user_1",
+  isActive: true,
+};
+const applySubscriptionUpdate = mock(async () => applySubscriptionUpdateResult);
+const revokeCoderouterRouteTokens = mock(async () => {});
 const sendProSignupWelcome = mock(async () => {
   if (proWelcomeShouldFail) throw new Error("email provider unavailable");
 });
@@ -89,6 +95,7 @@ const POST = makeStripeWebhookHandler({
   recordCheckoutCompletion: recordCheckoutCompletion as never,
   applySubscriptionUpdate: applySubscriptionUpdate as never,
   sendProSignupWelcome,
+  revokeCoderouterRouteTokens,
 });
 
 describe("Stripe billing webhook route", () => {
@@ -115,9 +122,15 @@ describe("Stripe billing webhook route", () => {
       stackUserId: "user_1",
       subscriptionId: "sub_1",
     };
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: true,
+    };
     retrievedCheckoutSession = paidCheckoutSession;
     recordCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
+    revokeCoderouterRouteTokens.mockClear();
     sendProSignupWelcome.mockClear();
     retrieveSession.mockClear();
     retrieveSubscription.mockClear();
@@ -268,6 +281,11 @@ describe("Stripe billing webhook route", () => {
   });
 
   test("applies deleted subscription updates", async () => {
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: false,
+    };
     currentEvent = {
       id: "evt_1",
       type: "customer.subscription.deleted",
@@ -287,6 +305,31 @@ describe("Stripe billing webhook route", () => {
     expect(applySubscriptionUpdate).toHaveBeenCalledWith(
       (currentEvent.data as { object: unknown }).object,
     );
+    expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
+  });
+
+  test("revokes coderouter tokens for an inactive invoice subscription update", async () => {
+    currentEvent = {
+      id: "evt_invoice_failed",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_1",
+          subscription: "sub_1",
+        },
+      },
+    };
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: false,
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
+    expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
   });
 
   test("marks the event and returns 500 when processing fails", async () => {
