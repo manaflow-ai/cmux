@@ -485,6 +485,7 @@ struct ForkParentFallbackGeneralizationTests {
             ]
         )
         let probeCount = OSAllocatedUnfairLock(initialState: 0)
+        let descriptorPathCache = OpenCodeDatabaseDescriptorPathCache()
 
         for _ in 0..<2 {
             let detected = await RestorableAgentSessionIndex
@@ -493,6 +494,7 @@ struct ForkParentFallbackGeneralizationTests {
                 fileManager: fixture.fileManager,
                 processSnapshot: processSnapshot,
                 capturedAt: 42,
+                openCodeDatabaseDescriptorPathCache: descriptorPathCache,
                 processArgumentsProvider: { pid in
                     pid == processID ? processArguments : nil
                 },
@@ -514,6 +516,7 @@ struct ForkParentFallbackGeneralizationTests {
                 processSnapshot: processSnapshot,
                 capturedAt: 43,
                 reuseCompletedOpenCodeDatabasePaths: false,
+                openCodeDatabaseDescriptorPathCache: descriptorPathCache,
                 processArgumentsProvider: { pid in
                     pid == processID ? processArguments : nil
                 },

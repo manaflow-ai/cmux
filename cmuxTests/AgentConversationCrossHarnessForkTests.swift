@@ -2210,6 +2210,46 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func launcherJanitorHasRestartableOwnedLifecycle() {
+        let pruneCount = OSAllocatedUnfairLock(initialState: 0)
+        let janitor = OneShotTerminalLauncherJanitor(
+            cleanupInterval: .seconds(60),
+            pruneExpiredLaunchers: {
+                pruneCount.withLock { $0 += 1 }
+            }
+        )
+
+        janitor.start()
+        janitor.start()
+        #expect(pruneCount.withLock { $0 } == 1)
+
+        janitor.stop()
+        janitor.start()
+        #expect(pruneCount.withLock { $0 } == 2)
+        janitor.stop()
+    }
+
+    @Test
+    func stoppedOpenCodeDescriptorCacheRejectsNewProbes() async {
+        let didProbe = OSAllocatedUnfairLock(initialState: false)
+        let cache = OpenCodeDatabaseDescriptorPathCache()
+        await cache.stop()
+
+        let result = await cache.resolve(
+            processID: Int(ProcessInfo.processInfo.processIdentifier),
+            environment: ["HOME": "/tmp/stopped-opencode-cache"],
+            reuseCompletedResult: true,
+            probe: {
+                didProbe.withLock { $0 = true }
+                return "/tmp/should-not-run.db"
+            }
+        )
+
+        #expect(result == nil)
+        #expect(!didProbe.withLock { $0 })
+    }
+
+    @Test
     func expiredConversationTransferLauncherIsPrunedByNextSensitiveWrite() throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
