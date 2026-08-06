@@ -5892,13 +5892,14 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
             };
+            let (release_ack_tx, release_ack_rx) = std::sync::mpsc::channel();
             let resolver = {
                 let control_responses = control_responses.clone();
                 thread::spawn(move || {
                     let request =
                         read_required_frame(&mut host, "cell pixel size request").unwrap();
                     assert_eq!(request.kind, MessageKind::SetCellPixelSize);
-                    thread::sleep(Duration::from_millis(50));
+                    release_ack_rx.recv().unwrap();
                     let mut ack =
                         Frame::new(MessageKind::CellPixelSizeAck, request.payload.clone());
                     ack.request_id = request.request_id;
@@ -5914,6 +5915,7 @@ mod unix {
                 error.to_string().contains("late response will reconcile the mirror"),
                 "{error:#}"
             );
+            release_ack_tx.send(()).unwrap();
             let (request_id, expected, resolution) =
                 reconciled_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(request_id, 2);
