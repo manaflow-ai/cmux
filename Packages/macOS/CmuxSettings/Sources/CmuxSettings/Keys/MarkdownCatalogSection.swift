@@ -51,6 +51,15 @@ public struct MarkdownCatalogSection: SettingCatalogSection {
         userDefaultsKey: "markdown.wikiLinks"
     )
 
+    /// Which marker folder anchors the top of the note collection when
+    /// resolving `[[Wiki]]` links — an Obsidian vault (`.obsidian`) or a Git
+    /// repository (`.git`).
+    public let wikiLinkAnchor = DefaultsKey<MarkdownWikiLinkAnchor>(
+        id: "markdown.wikiLinkAnchor",
+        defaultValue: .obsidian,
+        userDefaultsKey: "markdown.wikiLinkAnchor"
+    )
+
     /// Creates the markdown settings section with its default keys.
     public init() {}
 }

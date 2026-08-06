@@ -105,7 +105,9 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   // ${t("exampleMarkdownMaxWidth")}
   //   "maxWidth": 980,
   //   // ${t("exampleMarkdownWikiLinks")}
-  //   "wikiLinks": false
+  //   "wikiLinks": false,
+  //   // ${t("exampleMarkdownWikiLinkAnchor")}
+  //   "wikiLinkAnchor": "obsidian"
   // },
 
   // "fileEditor": {

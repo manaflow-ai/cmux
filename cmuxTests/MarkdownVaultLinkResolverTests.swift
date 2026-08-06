@@ -120,4 +120,51 @@ struct MarkdownVaultLinkResolverTests {
         let source = vault.appendingPathComponent("Meeting Notes/2026/Standup.md").path
         #expect(MarkdownPanelFileLinkResolver.vaultRoot(forMarkdownFile: source) == vault.path)
     }
+
+    /// The anchor marker is selectable: a `.git` repository root works the same
+    /// way as an Obsidian vault, and `.obsidian` detection does not leak in.
+    @Test
+    func resolvesWithGitAnchorMarker() throws {
+        let root = try makeGitTree(dotGitIsFile: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("docs/Index.md").path
+
+        let resolved = MarkdownPanelFileLinkResolver.resolveVaultWikiLink(
+            rawPath: "Deep Note.md",
+            relativeToMarkdownFile: source,
+            anchorMarkerName: ".git"
+        )
+        #expect(canonical(resolved) == canonical(root.appendingPathComponent("notes/Deep Note.md").path))
+        // With the default `.obsidian` anchor there is no vault, so it declines.
+        #expect(MarkdownPanelFileLinkResolver.resolveVaultWikiLink(
+            rawPath: "Deep Note.md",
+            relativeToMarkdownFile: source
+        ) == nil)
+    }
+
+    /// `.git` is a file (not a directory) in worktrees and submodules; the
+    /// anchor still matches.
+    @Test
+    func gitAnchorMatchesWhenDotGitIsAFile() throws {
+        let root = try makeGitTree(dotGitIsFile: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("docs/Index.md").path
+        #expect(MarkdownPanelFileLinkResolver.vaultRoot(forMarkdownFile: source, markerName: ".git") == root.path)
+    }
+
+    private func makeGitTree(dotGitIsFile: Bool) throws -> URL {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-gitrepo-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root.appendingPathComponent("docs"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: root.appendingPathComponent("notes"), withIntermediateDirectories: true)
+        if dotGitIsFile {
+            try "gitdir: /elsewhere".write(to: root.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
+        } else {
+            try fm.createDirectory(at: root.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        }
+        try "# index".write(to: root.appendingPathComponent("docs/Index.md"), atomically: true, encoding: .utf8)
+        try "# deep".write(to: root.appendingPathComponent("notes/Deep Note.md"), atomically: true, encoding: .utf8)
+        return root.resolvingSymlinksInPath()
+    }
 }
