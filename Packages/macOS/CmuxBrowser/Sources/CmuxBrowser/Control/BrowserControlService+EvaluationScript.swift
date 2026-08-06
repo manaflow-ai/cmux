@@ -20,17 +20,42 @@ extension BrowserControlService {
         useEval: Bool,
         frameSelector: String?
     ) -> String {
+        let typeKey = jsonLiteral(evalEnvelope.typeKey)
+        let valueKey = jsonLiteral(evalEnvelope.valueKey)
+        let typeUndefined = jsonLiteral(evalEnvelope.typeUndefined)
+        let typeValue = jsonLiteral(evalEnvelope.typeValue)
+        let typeError = jsonLiteral(evalEnvelope.typeError)
+        let errorCodeKey = jsonLiteral(evalEnvelope.errorCodeKey)
+        let errorMessageKey = jsonLiteral(evalEnvelope.errorMessageKey)
+        let frameUnavailableCode = jsonLiteral("frame_unavailable")
+        let operationFailedMessage = jsonLiteral(String(
+            localized: "cli.browser.error.operationFailed",
+            defaultValue: "Browser operation failed"
+        ))
+
         let framePrelude: String
         if let frameSelector {
             let selectorLiteral = jsonLiteral(frameSelector)
             framePrelude = """
-            let __cmuxDoc = document;
+            let __cmuxDoc;
+            const __cmuxFrameUnavailable = () => ({
+              [\(typeKey)]: \(typeError),
+              [\(errorCodeKey)]: \(frameUnavailableCode),
+              [\(errorMessageKey)]: \(operationFailedMessage)
+            });
             try {
               const __cmuxFrame = document.querySelector(\(selectorLiteral));
-              if (__cmuxFrame && __cmuxFrame.contentDocument) {
-                __cmuxDoc = __cmuxFrame.contentDocument;
+              if (!__cmuxFrame || !('contentDocument' in __cmuxFrame)) {
+                return __cmuxFrameUnavailable();
               }
-            } catch (_) {}
+              const __cmuxFrameDocument = __cmuxFrame.contentDocument;
+              if (!__cmuxFrameDocument) {
+                return __cmuxFrameUnavailable();
+              }
+              __cmuxDoc = __cmuxFrameDocument;
+            } catch (_) {
+              return __cmuxFrameUnavailable();
+            }
             """
         } else {
             framePrelude = "const __cmuxDoc = document;"
@@ -39,20 +64,9 @@ extension BrowserControlService {
         let executionBlock = useEval
             ? "const __r = eval(\(jsonLiteral(script)));"
             : "const __r = \(script);"
-        let typeKey = jsonLiteral(evalEnvelope.typeKey)
-        let valueKey = jsonLiteral(evalEnvelope.valueKey)
-        let typeUndefined = jsonLiteral(evalEnvelope.typeUndefined)
-        let typeValue = jsonLiteral(evalEnvelope.typeValue)
-        let typeError = jsonLiteral(evalEnvelope.typeError)
-        let errorCodeKey = jsonLiteral(evalEnvelope.errorCodeKey)
-        let errorMessageKey = jsonLiteral(evalEnvelope.errorMessageKey)
         let circularReferenceCode = jsonLiteral(evalEnvelope.circularReferenceCode)
         let circularReferenceMessage = jsonLiteral(evalEnvelope.circularReferenceMessage)
         let resultTooComplexCode = jsonLiteral("result_too_complex")
-        let resultTooComplexMessage = jsonLiteral(String(
-            localized: "cli.browser.error.operationFailed",
-            defaultValue: "Browser operation failed"
-        ))
 
         return """
         \(framePrelude)
@@ -66,16 +80,22 @@ extension BrowserControlService {
 
         const __cmuxCircularReference = Symbol('cmux.circularReference');
         const __cmuxResultTooComplex = Symbol('cmux.resultTooComplex');
+        const __cmuxChargeText = (__text, __budget) => {
+          if (__text.length > __budget.remainingTextCodeUnits) {
+            throw __cmuxResultTooComplex;
+          }
+          __budget.remainingTextCodeUnits -= __text.length;
+        };
         const __cmuxBridgeSafeValue = (
           __value,
           __ancestors = new WeakSet(),
-          __budget = {remaining: 10000},
+          __budget = {remainingNodes: 10000, remainingTextCodeUnits: 1000000},
           __depth = 0
         ) => {
-          if (__budget.remaining <= 0 || __depth > 100) {
+          if (__budget.remainingNodes <= 0 || __depth > 100) {
             throw __cmuxResultTooComplex;
           }
-          __budget.remaining -= 1;
+          __budget.remainingNodes -= 1;
 
           if (__value === null) {
             return null;
@@ -90,8 +110,14 @@ extension BrowserControlService {
           if (__valueType === 'number') {
             return Number.isFinite(__value) ? __value : null;
           }
+          if (__valueType === 'string') {
+            __cmuxChargeText(__value, __budget);
+            return __value;
+          }
           if (__valueType === 'bigint' || __valueType === 'symbol') {
-            return String(__value);
+            const __stringValue = String(__value);
+            __cmuxChargeText(__stringValue, __budget);
+            return __stringValue;
           }
           if (__valueType !== 'object' && __valueType !== 'function') {
             return __value;
@@ -134,8 +160,16 @@ extension BrowserControlService {
             __ancestors.add(__value);
             try {
               const __copy = [];
-              for (const __item of __value) {
-                __copy.push(__cmuxBridgeSafeValue(__item, __ancestors, __budget, __depth + 1));
+              for (let __index = 0; __index < __value.length; __index += 1) {
+                if (__budget.remainingNodes <= 0) {
+                  throw __cmuxResultTooComplex;
+                }
+                __copy.push(__cmuxBridgeSafeValue(
+                  __value[__index],
+                  __ancestors,
+                  __budget,
+                  __depth + 1
+                ));
               }
               return __copy;
             } finally {
@@ -146,7 +180,16 @@ extension BrowserControlService {
           __ancestors.add(__value);
           try {
             const __copy = {};
-            for (const __key of Object.keys(__value)) {
+            let __enumeratedKeys = 0;
+            for (const __key in __value) {
+              __enumeratedKeys += 1;
+              if (__enumeratedKeys > 10000 || __budget.remainingNodes <= 0) {
+                throw __cmuxResultTooComplex;
+              }
+              if (!Object.prototype.hasOwnProperty.call(__value, __key)) {
+                continue;
+              }
+              __cmuxChargeText(__key, __budget);
               Object.defineProperty(__copy, __key, {
                 value: __cmuxBridgeSafeValue(
                   __value[__key],
@@ -184,7 +227,7 @@ extension BrowserControlService {
               return {
                 [\(typeKey)]: \(typeError),
                 [\(errorCodeKey)]: \(resultTooComplexCode),
-                [\(errorMessageKey)]: \(resultTooComplexMessage)
+                [\(errorMessageKey)]: \(operationFailedMessage)
               };
             }
             throw __error;
