@@ -187,6 +187,21 @@ public protocol ControlSurfaceContext: AnyObject {
         surfaceID: UUID?
     ) -> ControlSurfaceTriggerFlashResolution
 
+    // MARK: - overlay
+
+    /// The app-bundle-resolved messages for `surface.overlay.*` validation.
+    func controlSurfaceOverlayStrings() -> ControlSurfaceOverlayStrings
+
+    /// Reads or mutates the retained overlays for one terminal surface.
+    ///
+    /// This path never focuses a window, workspace, pane, or surface.
+    func controlSurfaceOverlay(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        action: ControlSurfaceOverlayAction
+    ) -> ControlSurfaceOverlayResolution
+
     /// The app-bundle-resolved localized terminal-input error strings, shared by
     /// `surface.send_text` and `surface.send_key`. The app resolves each
     /// `String(localized:)` so the package never binds them to the wrong bundle.

@@ -18,6 +18,13 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var reportGitResolution: ControlSurfaceReportGitBranchResolution = .recorded(surfaceID: UUID())
     var reportedGit: (workspaceID: UUID, requestedSurfaceID: UUID?, branch: String, isDirty: Bool?)?
     var clearedGit: (workspaceID: UUID, requestedSurfaceID: UUID?)?
+    var overlayResolution: ControlSurfaceOverlayResolution = .tabManagerUnavailable
+    var overlayInvocation: (
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        action: ControlSurfaceOverlayAction
+    )?
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -109,5 +116,15 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     ) -> ControlSurfaceReportGitBranchResolution {
         clearedGit = (workspaceID, requestedSurfaceID)
         return reportGitResolution
+    }
+
+    func controlSurfaceOverlay(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        action: ControlSurfaceOverlayAction
+    ) -> ControlSurfaceOverlayResolution {
+        overlayInvocation = (routing, surfaceID, hasSurfaceIDParam, action)
+        return overlayResolution
     }
 }

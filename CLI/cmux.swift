@@ -6987,6 +6987,14 @@ struct CMUXCLI {
                 idFormat: idFormat,
                 windowOverride: windowOverride
             )
+        case "overlay":
+            try runSurfaceOverlayCommand(
+                commandArgs: Array(commandArgs.dropFirst()),
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
         default:
             throw CLIError(message: "Unsupported surface subcommand: \(subcommand)")
         }
@@ -7008,7 +7016,7 @@ struct CMUXCLI {
                 optionNames: Self.surfaceResumeSetValueOptions,
                 context: "surface resume set"
             )
-            let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
+            let target = try surfaceCommandTarget(rest, client: client, windowOverride: windowOverride)
             var params = target.params
             let splitRemaining = splitAtArgumentTerminator(target.remaining)
             let (name, rem1) = parseOption(splitRemaining.options, name: "--name")
@@ -7063,7 +7071,7 @@ struct CMUXCLI {
                 optionNames: Self.surfaceResumeTargetValueOptions,
                 context: "surface resume \(subcommand)"
             )
-            let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
+            let params = try surfaceCommandTarget(rest, client: client, windowOverride: windowOverride).params
             let payload = try client.sendV2(method: "surface.resume.get", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -7081,7 +7089,7 @@ struct CMUXCLI {
                 optionNames: Self.surfaceResumeClearValueOptions,
                 context: "surface resume clear"
             )
-            let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
+            let target = try surfaceCommandTarget(rest, client: client, windowOverride: windowOverride)
             var params = target.params
             let (checkpoint, rem1) = parseOption(target.remaining, name: "--checkpoint")
             let (checkpointID, rem2) = parseOption(rem1, name: "--checkpoint-id")
@@ -7208,7 +7216,7 @@ struct CMUXCLI {
         }
     }
 
-    private struct SurfaceResumeTarget {
+    struct SurfaceCommandTarget {
         var params: [String: Any]
         var remaining: [String]
     }
@@ -7221,11 +7229,11 @@ struct CMUXCLI {
         return (Array(args[..<delimiterIndex]), Array(args[argvStart...]))
     }
 
-    private func surfaceResumeTarget(
+    func surfaceCommandTarget(
         _ args: [String],
         client: SocketClient,
         windowOverride: String?
-    ) throws -> SurfaceResumeTarget {
+    ) throws -> SurfaceCommandTarget {
         let splitArgs = splitAtArgumentTerminator(args)
         let (workspaceOpt, rem1) = parseOption(splitArgs.options, name: "--workspace")
         let (surfaceOpt, rem2) = parseOption(rem1, name: "--surface")
@@ -7253,7 +7261,7 @@ struct CMUXCLI {
         )
         if let surfaceId { params["surface_id"] = surfaceId }
         let remainingWithArgv = remaining + (splitArgs.argv.map { ["--"] + $0 } ?? [])
-        return SurfaceResumeTarget(params: params, remaining: remainingWithArgv)
+        return SurfaceCommandTarget(params: params, remaining: remainingWithArgv)
     }
 
     private func cliShellQuote(_ value: String) -> String {
@@ -16805,6 +16813,8 @@ struct CMUXCLI {
             """
         case "surface", "surface-resume":
             return """
+            \(Self.surfaceOverlayCommandHelp)
+
             Usage: cmux surface resume set [flags] -- <argv...>
                    cmux surface resume set [flags] --shell <command>
                    cmux surface resume show [--json] [flags]
@@ -31718,6 +31728,24 @@ export default CMUXSessionRestore;
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
+            // The prompt strip describes accepted user input, not the duration
+            // of the agent turn. Publish it before lifecycle/socket work so a
+            // fast Stop cannot race the strip out of existence.
+            if !suppressVisibleMutations,
+               !incomingCodexTurnIsTerminal,
+               def.name == "codex",
+               let prompt = feedPromptText(from: input.rawObject ?? input.object) {
+                do {
+                    try publishLatestCodexUserMessageOverlay(
+                        prompt,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        client: client
+                    )
+                } catch {
+                    telemetry.breadcrumb("codex-hook.prompt-submit.overlay-failed")
+                }
+            }
             if !suppressVisibleMutations && !incomingCodexTurnIsTerminal {
                 if codexPromptTurnWentTerminal() {
                     stopStaleCodexPromptSubmit()
@@ -32824,7 +32852,7 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func feedPromptText(from object: [String: Any]?) -> String? {
+    func feedPromptText(from object: [String: Any]?) -> String? {
         guard let object else { return nil }
         if let direct = firstString(in: object, keys: ["prompt", "text", "message", "body"]) {
             return direct
@@ -36225,6 +36253,7 @@ export default CMUXSessionRestore;
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
           tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
+          \(Self.surfaceOverlayCommandUsageLine)
           surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
           rename-tab [--workspace <id|ref|index>] [--tab <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <title>
           drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]

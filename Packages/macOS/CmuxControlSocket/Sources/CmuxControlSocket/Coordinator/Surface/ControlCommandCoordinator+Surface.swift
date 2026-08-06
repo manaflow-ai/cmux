@@ -69,6 +69,14 @@ extension ControlCommandCoordinator {
         // dispatched app-side, not through this @MainActor coordinator.
         case "surface.trigger_flash":
             return surfaceTriggerFlash(request.params)
+        case "surface.overlay.list":
+            return surfaceOverlay(request.params, action: .list)
+        case "surface.overlay.set":
+            return surfaceOverlaySet(request.params)
+        case "surface.overlay.remove":
+            return surfaceOverlayRemove(request.params)
+        case "surface.overlay.clear":
+            return surfaceOverlay(request.params, action: .clear)
         case "debug.terminals":
             return debugTerminals(request.params)
         default:

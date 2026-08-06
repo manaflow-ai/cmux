@@ -238,6 +238,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The pane container view hosting this surface (concrete view injected
     /// through ``TerminalSurfaceViewProviding``).
     public let paneHost: any TerminalSurfacePaneHosting
+    /// Surface-scoped overlay resources. Mutated only through the main-actor
+    /// methods in `TerminalSurface+Overlay.swift`.
+    var terminalOverlayStore = TerminalOverlayStore()
     let surfaceView: any TerminalSurfaceNativeViewing
     var lastPixelWidth: UInt32 = 0
     var lastPixelHeight: UInt32 = 0

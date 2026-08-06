@@ -35246,6 +35246,176 @@
         }
       }
     },
+    "cli.surfaceOverlay.error.missingSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay requires set, list, remove, or clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay には set、list、remove、または clear が必要です"
+          }
+        }
+      }
+    },
+    "cli.surfaceOverlay.error.removeExtraArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay remove accepts one id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay remove には 1 つの ID を指定できます"
+          }
+        }
+      }
+    },
+    "cli.surfaceOverlay.error.removeRequiresID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay remove requires an id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay remove には ID が必要です"
+          }
+        }
+      }
+    },
+    "cli.surfaceOverlay.error.setRequiresID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay set requires an id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay set には ID が必要です"
+          }
+        }
+      }
+    },
+    "cli.surfaceOverlay.error.setRequiresText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay set requires text or '-' for standard input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay set にはテキスト、または標準入力を表す '-' が必要です"
+          }
+        }
+      }
+    },
+    "cli.surfaceOverlay.error.unexpectedArgumentFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay %@: unexpected argument '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay %@: 予期しない引数 '%@'"
+          }
+        }
+      }
+    },
+    "cli.surfaceOverlay.error.unknownFlagFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay: unknown flag '%@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay: 不明なフラグ '%@'"
+          }
+        }
+      }
+    },
+    "cli.surfaceOverlay.error.unsupportedSubcommandFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported surface overlay subcommand: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応の surface overlay サブコマンド: %@"
+          }
+        }
+      }
+    },
+    "cli.surfaceOverlay.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux surface overlay set <id> <text> [--anchor <viewport|scrollback|sticky>] [--position <left|center|right>] [target flags]\n       cmux surface overlay list [target flags]\n       cmux surface overlay remove <id> [target flags]\n       cmux surface overlay clear [target flags]\n\nRender passive one-row strips over a terminal without taking keyboard or mouse input.\nViewport stays at the visible top. Scrollback stays at the captured top row.\nSticky follows the captured row, then pins when that row reaches the viewport top.\n\nTarget flags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Terminal context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n\nSet flags:\n  --anchor <viewport|scrollback|sticky>   Vertical anchor (default: viewport)\n  --position <left|center|right>   Text alignment (default: center)\n\nUse '-' as text to read the overlay from standard input.\n\nExamples:\n  cmux surface overlay set latest-message \"check the auth error\"\n  printf 'build\\npassed' | cmux surface overlay set build-status - --position right\n  cmux surface overlay set review-note \"inspect this output\" --anchor scrollback --position left\n  cmux surface overlay set latest-message \"keep this visible\" --anchor sticky --position left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux surface overlay set <id> <text> [--anchor <viewport|scrollback|sticky>] [--position <left|center|right>] [対象フラグ]\n          cmux surface overlay list [対象フラグ]\n          cmux surface overlay remove <id> [対象フラグ]\n          cmux surface overlay clear [対象フラグ]\n\nキーボードやマウス入力を奪わず、ターミナル上に受動的な1行ストリップを表示します。\nviewport は表示領域の上端に残ります。scrollback は取得した上端行に残ります。\nsticky は取得した行を追従し、その行が表示領域の上端に達すると固定されます。\n\n対象フラグ:\n  --workspace <id|ref|index>   ワークスペース (既定: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     ターミナル (既定: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・インデックスに使うウインドウ\n\nset フラグ:\n  --anchor <viewport|scrollback|sticky>   垂直アンカー (既定: viewport)\n  --position <left|center|right>   テキスト配置 (既定: center)\n\nテキストに '-' を指定すると標準入力から読み取ります。\n\n例:\n  cmux surface overlay set latest-message \"check the auth error\"\n  printf 'build\\npassed' | cmux surface overlay set build-status - --position right\n  cmux surface overlay set review-note \"inspect this output\" --anchor scrollback --position left\n  cmux surface overlay set latest-message \"keep this visible\" --anchor sticky --position left"
+          }
+        }
+      }
+    },
+    "cli.surfaceOverlay.usageLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay <set|list|remove|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface overlay <set|list|remove|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+          }
+        }
+      }
+    },
     "cli.surface.error.handleBlank": {
       "extractionState": "manual",
       "localizations": {
@@ -231029,6 +231199,193 @@
           "stringUnit": {
             "state": "translated",
             "value": "選択するにはサイドバー名が必要です。"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.emptyText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overlay text cannot be empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーバーレイのテキストを空にはできません"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.invalidAnchorFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown overlay anchor '%@'; use viewport, scrollback, or sticky"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なオーバーレイアンカー '%@' です。viewport、scrollback、または sticky を使用してください"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.invalidIdentifier": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overlay id must start with a letter or number and use at most 128 letters, numbers, dots, dashes, underscores, or colons"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーバーレイ ID は英数字で始め、128 文字以内の英数字、ピリオド、ダッシュ、アンダースコア、またはコロンを使用してください"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.invalidPositionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown overlay position '%@'; use left, center, or right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なオーバーレイ位置 '%@' です。left、center、または right を使用してください"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.noFocusedSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No focused surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のサーフェスがありません"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.scrollbackUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrollback geometry is not available yet; retry after the terminal renders"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクロールバックの配置情報をまだ利用できません。ターミナルの描画後に再試行してください"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスが見つかりません"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.surfaceNotTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface is not a terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスはターミナルではありません"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.textTooLongFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overlay text cannot exceed %lld UTF-8 bytes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーバーレイのテキストは %lld UTF-8 バイト以下にしてください"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.windowUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux window is not available. Reopen the window and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ウインドウを利用できません。ウインドウを開き直して再試行してください。"
+          }
+        }
+      }
+    },
+    "socket.surfaceOverlay.error.workspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースが見つかりません"
           }
         }
       }

@@ -8197,8 +8197,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     private var sharedBackdropCutoutView: NSView?
     private let backgroundView: TerminalPaneBackgroundView
-    private let scrollView: GhosttyScrollView
-    private let documentView: NSView
+    let scrollView: GhosttyScrollView
+    let documentView: NSView
     let surfaceView: GhosttyNSView
     private let mobileViewportBorderOverlayView = TerminalViewportBorderOverlayView(frame: .zero)
     private let inactiveOverlayView: GhosttyFlashOverlayView
@@ -8236,6 +8236,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
+    var terminalOverlayViews: [String: TerminalOverlayLineView] = [:]
+    var renderedTerminalOverlays: [TerminalOverlay] = []
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private var activeImageTransferOperation: TerminalImageTransferOperation?
@@ -8790,6 +8792,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.synchronizeScrollView()
+            self?.synchronizeTerminalOverlays()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -9000,6 +9003,7 @@ final class GhosttySurfaceScrollView: NSView {
         updateFlashAppearance(style: lastFlashStyle)
         synchronizeScrollView()
         synchronizeSurfaceView()
+        synchronizeTerminalOverlays()
         let didCoreSurfaceChange = synchronizeCoreSurface()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
@@ -9011,7 +9015,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
     }
 
-    private var sessionContentFrame: CGRect {
+    var sessionContentFrame: CGRect {
         sessionContentWidthPresentation.contentFrame(in: bounds)
     }
 
@@ -11598,6 +11602,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         synchronizeScrollView()
+        synchronizeTerminalOverlays()
         restorePendingNotificationScrollPositionAfterScrollbarUpdate()
     }
 
@@ -11645,7 +11650,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
     }
 
-    private func documentHeight() -> CGFloat {
+    func documentHeight() -> CGFloat {
         let contentHeight = scrollView.contentSize.height
         let cellHeight = surfaceView.cellSize.height
         if cellHeight > 0, let scrollbar = surfaceView.scrollbar {

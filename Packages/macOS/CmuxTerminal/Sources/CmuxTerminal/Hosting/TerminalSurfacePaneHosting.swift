@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxTerminalCore
 
 /// The pane container view that hosts a ``TerminalSurface``'s native view
 /// (scrollbar, overlays, focus bookkeeping).
@@ -36,4 +37,15 @@ public protocol TerminalSurfacePaneHosting: NSView {
     ///   - drawRight: Whether the cap shrinks the width (right border).
     ///   - drawBottom: Whether the cap shrinks the height (bottom border).
     func setMobileViewportBorder(size: CGSize?, drawRight: Bool, drawBottom: Bool)
+
+    /// Captures the first visible Ghostty row in the current absolute row space.
+    ///
+    /// Returns `nil` until the runtime has established authoritative scrollback
+    /// geometry. Viewport-sticky overlays do not require this capture.
+    func captureTerminalOverlayScrollbackAnchor(
+        sticksToViewportTop: Bool
+    ) -> TerminalOverlayAnchor?
+
+    /// Applies the complete retained overlay snapshot for this surface.
+    func setTerminalOverlays(_ overlays: [TerminalOverlay])
 }
