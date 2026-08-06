@@ -599,6 +599,47 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func endedPersistentRemotePanelRestoresAsRemoteInsteadOfLocalShell() throws {
+        let fixture = try makeRelayedFixture()
+        let suiteName = "cmux-ended-remote-resume-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.set(false, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let socketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(socketPath) }
+
+        let firstRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let firstIDs = firstRestore.restoreSessionSnapshot(fixture.snapshot)
+        let firstSurfaceID = try #require(firstIDs[fixture.surfaceID])
+        let ended = firstRestore.markRemotePTYAttachEnded(
+            surfaceId: firstSurfaceID,
+            sessionID: fixture.remotePTYSessionID
+        )
+        #expect(ended.clearedRemotePTYSession)
+        firstRestore.markPersistentRemotePTYAttachFailed(surfaceId: firstSurfaceID)
+
+        let endedSnapshot = firstRestore.sessionSnapshot(includeScrollback: false)
+        let endedTerminal = try #require(
+            endedSnapshot.panels.first { $0.id == firstSurfaceID }?.terminal
+        )
+        #expect(endedTerminal.isRemoteTerminal == true)
+        #expect(endedTerminal.remotePTYSessionID == fixture.remotePTYSessionID)
+
+        let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let secondIDs = secondRestore.restoreSessionSnapshot(endedSnapshot)
+        let secondSurfaceID = try #require(secondIDs[firstSurfaceID])
+        let secondPanel = try #require(secondRestore.terminalPanel(for: secondSurfaceID))
+        let startupCommand = try #require(secondPanel.surface.debugInitialCommand())
+
+        #expect(startupCommand.contains("ssh-pty-attach"), "\(startupCommand)")
+        #expect(startupCommand.contains("--require-existing"), "\(startupCommand)")
+        #expect(secondPanel.requestedWorkingDirectory == nil)
+        #expect(secondPanel.surface.debugWaitAfterCommand())
+        #expect(secondPanel.surface.debugInitialInputForTesting() == nil)
+    }
+
+    @Test
     func mismatchedRemoteBindingNeverFallsBackToLocalExecution() throws {
         let fixture = try makeRelayedFixture()
         let mismatchedSnapshot = try snapshotByReplacingRemoteContext(
