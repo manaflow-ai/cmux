@@ -148,8 +148,8 @@ jobs:
           # otherwise-correct build; the guarded regression (events serialized
           # behind a 100ms read poll) inflates far past this bound anyway.
           CMUX_TEST_WS_LATENCY_BUDGET_MS: "2000"
-          # Scale only test-harness observation windows under instrumentation;
-          # the production deadlines exercised inside them remain strict.
+          # Scale test-fixture deadlines and their observation windows together
+          # under instrumentation. Production defaults and normal CI remain strict.
           CMUX_TEST_TIMEOUT_SCALE: "4"
           # Retain the full 128 MiB fairness workload under Valgrind with
           # explicit instrumentation-only bounds. Normal CI stays strict.
