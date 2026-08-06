@@ -24,6 +24,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var rows: [SidebarWorkspaceTableRowConfiguration] = []
     private var actions: SidebarWorkspaceTableActions?
     private var deferredRowClick: DeferredRowClick?
+    /// SwiftUI-side wake-up for a parked click. A deferred click only lands
+    /// through the next authoritative apply, and applies only happen when
+    /// the deliberately Equatable-gated sidebar body re-evaluates. The park
+    /// itself mutates no SwiftUI-tracked state, so without requesting an
+    /// apply an idle app never re-arms the rows and the click waits on
+    /// unrelated invalidation — historically an app deactivate/reactivate
+    /// (issue #9690).
+    var onDeferredRowClickAwaitingApply: (() -> Void)?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
