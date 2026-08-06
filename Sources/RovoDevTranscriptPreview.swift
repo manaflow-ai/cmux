@@ -118,7 +118,10 @@ enum RovoDevTranscriptPreview {
             guard let object = message as? [String: Any] else {
                 continue
             }
-            let messageTurns = parseMessageObject(object)
+            let messageTurns = parseMessageObject(
+                object,
+                dialogueOnly: dialogueOnly
+            )
             for turn in messageTurns {
                 guard latest || turns.count < limit else {
                     didHitLimit = true
@@ -164,13 +167,16 @@ enum RovoDevTranscriptPreview {
         return turns
     }
 
-    private static func parseMessageObject(_ object: [String: Any]) -> [RovoDevTranscriptPreviewTurn] {
+    private static func parseMessageObject(
+        _ object: [String: Any],
+        dialogueOnly: Bool
+    ) -> [RovoDevTranscriptPreviewTurn] {
         if object["parts"] != nil {
-            return parseRovoDevParts(object)
+            return parseRovoDevParts(object, dialogueOnly: dialogueOnly)
         }
 
         for candidate in candidateMessages(from: object) {
-            if let turn = parseCandidate(candidate) {
+            if let turn = parseCandidate(candidate, dialogueOnly: dialogueOnly) {
                 return [turn]
             }
         }
@@ -187,7 +193,10 @@ enum RovoDevTranscriptPreview {
         return candidates
     }
 
-    private static func parseCandidate(_ object: [String: Any]) -> RovoDevTranscriptPreviewTurn? {
+    private static func parseCandidate(
+        _ object: [String: Any],
+        dialogueOnly: Bool
+    ) -> RovoDevTranscriptPreviewTurn? {
         guard let role = normalizedRole(
             object["role"] as? String
                 ?? object["kind"] as? String
@@ -206,7 +215,7 @@ enum RovoDevTranscriptPreview {
             ?? object["blocks"]
             ?? object["output"]
             ?? object["result"]
-        let text = textFragments(from: content)
+        let text = textFragments(from: content, dialogueOnly: dialogueOnly)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
@@ -230,7 +239,10 @@ enum RovoDevTranscriptPreview {
         }
     }
 
-    private static func parseRovoDevParts(_ object: [String: Any]) -> [RovoDevTranscriptPreviewTurn] {
+    private static func parseRovoDevParts(
+        _ object: [String: Any],
+        dialogueOnly: Bool
+    ) -> [RovoDevTranscriptPreviewTurn] {
         guard let parts = object["parts"] as? [Any] else { return [] }
         let messageRole = normalizedRole(
             object["role"] as? String
@@ -240,21 +252,29 @@ enum RovoDevTranscriptPreview {
 
         return parts.compactMap { part in
             guard let partObject = part as? [String: Any] else {
-                let text = textFragments(from: part)
+                let text = textFragments(from: part, dialogueOnly: dialogueOnly)
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty }
                     .joined(separator: "\n\n")
                 guard !text.isEmpty else { return nil }
                 return RovoDevTranscriptPreviewTurn(role: messageRole, text: text)
             }
-            return parseRovoDevPart(partObject, messageRole: messageRole)
+            return parseRovoDevPart(
+                partObject,
+                messageRole: messageRole,
+                dialogueOnly: dialogueOnly
+            )
         }
     }
 
     private static func parseRovoDevPart(
         _ object: [String: Any],
-        messageRole: String
+        messageRole: String,
+        dialogueOnly: Bool
     ) -> RovoDevTranscriptPreviewTurn? {
+        guard !dialogueOnly || !isNonDialogueContentObject(object) else {
+            return nil
+        }
         let kind = (object["part_kind"] as? String ?? object["type"] as? String)?.lowercased()
         let role: String
         let fragments: [String]
@@ -262,7 +282,10 @@ enum RovoDevTranscriptPreview {
         switch kind {
         case "text", "user-prompt", "retry-prompt":
             role = messageRole == "event" && kind != "text" ? "user" : messageRole
-            fragments = textFragments(from: object["content"] ?? object["text"])
+            fragments = textFragments(
+                from: object["content"] ?? object["text"],
+                dialogueOnly: dialogueOnly
+            )
         case "system-prompt":
             return nil
         case "tool-call", "tool_call", "tool-use", "tool_use", "function_call":
@@ -271,7 +294,7 @@ enum RovoDevTranscriptPreview {
         case "tool-result", "tool_result", "tool-return", "tool_return", "function_call_output":
             role = "tool"
             let primary = object["content"] ?? object["output"] ?? object["result"]
-            fragments = textFragments(from: primary)
+            fragments = textFragments(from: primary, dialogueOnly: dialogueOnly)
         default:
             role = messageRole
             fragments = textFragments(
@@ -279,7 +302,8 @@ enum RovoDevTranscriptPreview {
                     ?? object["text"]
                     ?? object["message"]
                     ?? object["output"]
-                    ?? object["result"]
+                    ?? object["result"],
+                dialogueOnly: dialogueOnly
             )
         }
 
@@ -291,15 +315,23 @@ enum RovoDevTranscriptPreview {
         return RovoDevTranscriptPreviewTurn(role: role, text: text)
     }
 
-    private static func textFragments(from value: Any?) -> [String] {
+    private static func textFragments(
+        from value: Any?,
+        dialogueOnly: Bool
+    ) -> [String] {
         guard let value else { return [] }
         if let string = value as? String {
             return [string]
         }
         if let array = value as? [Any] {
-            return array.flatMap { textFragments(from: $0) }
+            return array.flatMap {
+                textFragments(from: $0, dialogueOnly: dialogueOnly)
+            }
         }
         guard let object = value as? [String: Any] else {
+            return []
+        }
+        guard !dialogueOnly || !isNonDialogueContentObject(object) else {
             return []
         }
 
@@ -311,7 +343,10 @@ enum RovoDevTranscriptPreview {
         case "tool_use", "tool-call", "tool_call", "function_call":
             return toolCallFragments(from: object)
         case "tool_result", "tool-result", "tool_return", "function_call_output":
-            let fragments = textFragments(from: object["content"] ?? object["output"] ?? object["result"])
+            let fragments = textFragments(
+                from: object["content"] ?? object["output"] ?? object["result"],
+                dialogueOnly: dialogueOnly
+            )
             if !fragments.isEmpty {
                 return fragments
             }
@@ -329,7 +364,10 @@ enum RovoDevTranscriptPreview {
         case "tool-use", "tool_use", "tool-call", "tool_call":
             return toolCallFragments(from: object)
         case "tool-result", "tool_result", "tool-return", "tool_return":
-            let fragments = textFragments(from: object["content"] ?? object["output"] ?? object["result"])
+            let fragments = textFragments(
+                from: object["content"] ?? object["output"] ?? object["result"],
+                dialogueOnly: dialogueOnly
+            )
             if !fragments.isEmpty {
                 return fragments
             }
@@ -338,12 +376,52 @@ enum RovoDevTranscriptPreview {
         }
 
         for key in ["text", "content", "parts", "blocks", "output", "result", "message"] {
-            let fragments = textFragments(from: object[key])
+            let fragments = textFragments(
+                from: object[key],
+                dialogueOnly: dialogueOnly
+            )
             if !fragments.isEmpty {
                 return fragments
             }
         }
         return []
+    }
+
+    /// Dialogue-only transfers keep natural-language user and assistant text,
+    /// even when Rovo nests content blocks inside a role-based message. A
+    /// nested block's own type or role takes precedence over its parent role.
+    private static func isNonDialogueContentObject(_ object: [String: Any]) -> Bool {
+        for key in ["role", "speaker", "sender", "author"] {
+            guard let rawRole = object[key] as? String,
+                  let role = normalizedRole(rawRole) else {
+                continue
+            }
+            if role != "user", role != "assistant" {
+                return true
+            }
+        }
+
+        for key in ["type", "part_kind", "kind"] {
+            guard let rawMarker = object[key] as? String else { continue }
+            let marker = rawMarker
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .replacingOccurrences(of: "_", with: "-")
+            if marker == "system"
+                || marker == "developer"
+                || marker == "system-prompt"
+                || marker == "tool"
+                || marker.hasPrefix("tool-")
+                || marker == "function-call"
+                || marker.hasPrefix("function-call-")
+                || marker == "function-result"
+                || marker.hasPrefix("function-result-")
+                || marker == "function-output"
+                || marker.hasPrefix("function-output-") {
+                return true
+            }
+        }
+        return false
     }
 
     private static func toolCallFragments(from object: [String: Any]) -> [String] {

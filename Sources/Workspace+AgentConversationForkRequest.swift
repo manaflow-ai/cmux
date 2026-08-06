@@ -14,7 +14,8 @@ extension Workspace {
         snapshot: SessionRestorableAgentSnapshot,
         request: AgentConversationForkRequest,
         exportService: AgentConversationExportService = .live,
-        liveAgentIndex: SharedLiveAgentIndex = .shared
+        liveAgentIndex: SharedLiveAgentIndex = .shared,
+        launcherTemporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) async -> Bool {
         guard let sourcePanel = panels[panelId] as? TerminalPanel else {
             return false
@@ -107,6 +108,7 @@ extension Workspace {
         let preparedStartupInput = startupCommandOverride.flatMap {
             snapshot.preparedCustomStartupInput(
                 command: $0,
+                temporaryDirectory: launcherTemporaryDirectory,
                 allowLauncherScript: !sourceIsRemote,
                 allowOversizedInlineInput: sourceIsRemote
             )

@@ -1235,6 +1235,8 @@ struct AgentConversationCrossHarnessForkTests {
 
     @Test
     func cancelledCrossHarnessForkRemovesPrivateLauncher() async throws {
+        let launcherRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: launcherRoot) }
         let sessionID = "cancel-\(UUID().uuidString)"
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
@@ -1257,22 +1259,9 @@ struct AgentConversationCrossHarnessForkTests {
             root: FileManager.default.temporaryDirectory
         )
 
-        let launcherDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-agent-resume", isDirectory: true)
-        let launcherNamePrefix = "codex-\(sessionID.prefix(12))-"
-        let launcherURLsBefore = launcherScripts(
-            in: launcherDirectory,
-            namePrefix: launcherNamePrefix
-        )
-        defer {
-            let launcherURLsAfter = launcherScripts(
-                in: launcherDirectory,
-                namePrefix: launcherNamePrefix
-            )
-            for url in launcherURLsAfter.subtracting(launcherURLsBefore) {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
+        let launcherDirectory = launcherRoot
+            .appendingPathComponent("cmux-r", isDirectory: true)
+        let launcherURLsBefore = launcherScripts(in: launcherDirectory)
 
         let forkTask = Task { @MainActor in
             await workspace.forkAgentConversation(
@@ -1280,7 +1269,8 @@ struct AgentConversationCrossHarnessForkTests {
                 snapshot: snapshot,
                 request: .init(targetHarness: .claude, destination: .right),
                 exportService: exportService,
-                liveAgentIndex: liveAgentIndex
+                liveAgentIndex: liveAgentIndex,
+                launcherTemporaryDirectory: launcherRoot
             )
         }
         await transcriptGate.waitUntilReadStarts()
@@ -1289,10 +1279,7 @@ struct AgentConversationCrossHarnessForkTests {
 
         #expect(await forkTask.value == false)
         #expect(workspace.bonsplitController.allPaneIds.count == 1)
-        #expect(
-            launcherScripts(in: launcherDirectory, namePrefix: launcherNamePrefix)
-                == launcherURLsBefore
-        )
+        #expect(launcherScripts(in: launcherDirectory) == launcherURLsBefore)
     }
 
     @Test
@@ -1405,37 +1392,22 @@ struct AgentConversationCrossHarnessForkTests {
             root: fixture
         )
 
-        let launcherDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-agent-resume", isDirectory: true)
-        let safeSessionPrefix = String(sessionID.prefix(12))
-        let launcherNamePrefix = "codex-\(safeSessionPrefix)-"
-        let launcherURLsBefore = launcherScripts(
-            in: launcherDirectory,
-            namePrefix: launcherNamePrefix
-        )
-        defer {
-            let launcherURLsAfter = launcherScripts(
-                in: launcherDirectory,
-                namePrefix: launcherNamePrefix
-            )
-            for url in launcherURLsAfter.subtracting(launcherURLsBefore) {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
+        let launcherDirectory = fixture
+            .appendingPathComponent("cmux-r", isDirectory: true)
+        let launcherURLsBefore = launcherScripts(in: launcherDirectory)
 
         workspace.removeSurfaceMapping(forSurfaceId: sourceSurfaceID)
         let didFork = await workspace.forkAgentConversation(
             fromPanelId: sourcePanelID,
             snapshot: snapshot,
             request: .init(targetHarness: .claude, destination: .newTab),
-            liveAgentIndex: liveAgentIndex
+            liveAgentIndex: liveAgentIndex,
+            launcherTemporaryDirectory: fixture
         )
 
-        let launcherURLsAfter = launcherScripts(
-            in: launcherDirectory,
-            namePrefix: launcherNamePrefix
-        )
+        let launcherURLsAfter = launcherScripts(in: launcherDirectory)
         #expect(!didFork)
+        #expect(FileManager.default.fileExists(atPath: launcherDirectory.path))
         #expect(launcherURLsAfter == launcherURLsBefore)
     }
 
@@ -1643,12 +1615,14 @@ struct AgentConversationCrossHarnessForkTests {
         }
     }
 
-    private func launcherScripts(in directory: URL, namePrefix: String) -> Set<URL> {
+    private func launcherScripts(in directory: URL) -> Set<URL> {
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil
         )) ?? []
-        return Set(urls.filter { $0.lastPathComponent.hasPrefix(namePrefix) })
+        return Set(urls.filter {
+            $0.pathExtension == "zsh" && $0.lastPathComponent.hasPrefix("r")
+        })
     }
 
     private func launcherScript(
