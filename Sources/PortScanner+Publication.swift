@@ -59,7 +59,7 @@ extension PortScanner {
         }
     }
 
-    private func nextPublicationBatch() async -> PortScanPublicationBatch? {
+    private func nextPublicationBatch() async -> PortScanPublicationDeliveryBatch? {
         await withCheckedContinuation { continuation in
             queue.async { [self] in
                 continuation.resume(returning: publicationBuffer.takePendingBatch())
