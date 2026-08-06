@@ -2789,7 +2789,7 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testTerminalComposerShowsSendingAndFailureSettlement() async throws {
         let server = try MobileSyncMockHostServer(
-            terminalSendResponseDelay: 1,
+            holdsTerminalPasteResponse: true,
             rejectsTerminalPaste: true
         )
         let port = try await server.start()
@@ -2804,14 +2804,16 @@ final class cmuxUITests: XCTestCase {
         let send = app.buttons["MobileComposerSend"]
         XCTAssertTrue(send.waitForExistence(timeout: 3))
         send.tap()
+        await server.awaitTerminalPasteRequestReached()
 
         let sending = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label == %@", "Sending"),
             object: send
         )
-        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 0.8), .completed)
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 2), .completed)
         XCTAssertFalse(send.isEnabled)
 
+        server.releaseTerminalPasteResponse()
         let failure = app.staticTexts["MobileComposerSendFailure"]
         XCTAssertTrue(failure.waitForExistence(timeout: 4))
         XCTAssertEqual(send.label, "Send failed")
@@ -7216,7 +7218,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let createdWorkspaceTerminalDelay: TimeInterval?
     private let supportsManualAttachTicket: Bool
     private let workspaceCreateSelectsCreatedWorkspace: Bool
-    private let terminalSendResponseDelay: TimeInterval?
+    private let holdsTerminalPasteResponse: Bool
     private let rejectsTerminalPaste: Bool
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
@@ -7227,6 +7229,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var replayCounts: [String: Int] = [:]
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
+    private var terminalPasteRequestReached = false
+    private var terminalPasteRequestReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var heldTerminalPasteResponse: (() -> Void)?
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -7282,7 +7287,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
-        terminalSendResponseDelay: TimeInterval? = nil,
+        holdsTerminalPasteResponse: Bool = false,
         rejectsTerminalPaste: Bool = false,
         macInstanceTag: String = mockHostInstanceTag()
     ) throws {
@@ -7290,7 +7295,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
-        self.terminalSendResponseDelay = terminalSendResponseDelay
+        self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
@@ -7531,8 +7536,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         do {
             let responseFrame = try makeResponseFrame(for: payload)
             if Self.requestMethod(in: payload) == "terminal.paste",
-               let terminalSendResponseDelay {
-                queue.asyncAfter(deadline: .now() + terminalSendResponseDelay) { [weak self, weak connection] in
+               holdsTerminalPasteResponse {
+                terminalPasteRequestReached = true
+                let waiters = terminalPasteRequestReachedWaiters
+                terminalPasteRequestReachedWaiters = []
+                for waiter in waiters { waiter.resume() }
+                heldTerminalPasteResponse = { [weak self, weak connection] in
                     guard let self, let connection else { return }
                     self.sendResponse(
                         responseFrame,
@@ -7549,6 +7558,30 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             }
         } catch {
             connection.cancel()
+        }
+    }
+
+    func awaitTerminalPasteRequestReached() async {
+        await withCheckedContinuation { continuation in
+            queue.async { [weak self] in
+                guard let self else {
+                    continuation.resume()
+                    return
+                }
+                if terminalPasteRequestReached {
+                    continuation.resume()
+                } else {
+                    terminalPasteRequestReachedWaiters.append(continuation)
+                }
+            }
+        }
+    }
+
+    func releaseTerminalPasteResponse() {
+        queue.async { [weak self] in
+            let response = self?.heldTerminalPasteResponse
+            self?.heldTerminalPasteResponse = nil
+            response?()
         }
     }
 

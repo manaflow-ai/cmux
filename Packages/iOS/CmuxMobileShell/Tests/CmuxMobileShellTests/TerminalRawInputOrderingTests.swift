@@ -50,6 +50,35 @@ import Testing
     }
 
     @MainActor
+    @Test func secondQueuedReturnOwnsItsFailureSettlement() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalInput(true)
+        await router.setRejectTerminalInput(at: 1)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        store.sendTerminalRawInput(
+            Data("first\r".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+        await router.awaitFirstTerminalInputReached()
+        store.sendTerminalRawInput(
+            Data("second\r".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+
+        await router.releaseFirstTerminalInput()
+        #expect(await waitForTerminalSendStatus(
+            .failed,
+            store: store,
+            terminalID: RoutingHostRouter.terminalA
+        ))
+        #expect(
+            await router.recordedTerminalInputs().map(\.text)
+                == ["first\r", "second\r"]
+        )
+    }
+
+    @MainActor
     @Test func orderedIrohFallbackPipelinesAtMostFourRequests() async throws {
         let router = RoutingHostRouter()
         await router.setHoldAllTerminalInputs(true)
@@ -525,7 +554,9 @@ private func waitForTerminalSendStatus(
     store: MobileShellComposite,
     terminalID: String
 ) async -> Bool {
-    for _ in 0..<200 {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(2))
+    while clock.now < deadline {
         if store.terminalSendStatus(forTerminalID: terminalID) == expected {
             return true
         }

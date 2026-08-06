@@ -7381,10 +7381,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// send fails (no connection, or an older host that does not implement
     /// `terminal.paste` and answers `method_not_found`), the composed text is
     /// kept so the user can retry instead of silently losing the message.
-    public func submitComposerInput() async {
+    @discardableResult
+    public func submitComposerInput() async -> Bool {
         guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else { return }
-        await submitComposerInput(workspaceID: workspaceID, terminalID: terminalID)
+              let terminalID = selectedTerminalID else { return false }
+        return await submitComposerInput(
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
     }
 
     /// Submit the composer's text to an explicitly captured terminal. Used by
@@ -7643,18 +7647,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
-        prepareTerminalSendStatusForRawInput(
+        let sendStatusOperationID = prepareTerminalSendStatusForRawInput(
             text,
             terminalID: terminalID.rawValue
         )
         let enqueueResult = rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
-            terminalID: terminalID
+            terminalID: terminalID,
+            sendStatusOperationID: sendStatusOperationID
         )
-        if enqueueResult == .rejected, Self.containsTerminalSubmission(text) {
+        if enqueueResult == .rejected {
             finishRawTerminalSend(
-                terminalSendOperationIDsByTerminalID[terminalID.rawValue],
+                sendStatusOperationID,
                 forTerminalID: terminalID.rawValue,
                 succeeded: false
             )
@@ -7668,15 +7673,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
-        prepareTerminalSendStatusForRawInput(text, terminalID: surfaceID)
+        let sendStatusOperationID = prepareTerminalSendStatusForRawInput(
+            text,
+            terminalID: surfaceID
+        )
         let enqueueResult = rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
-            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
+            terminalID: MobileTerminalPreview.ID(rawValue: surfaceID),
+            sendStatusOperationID: sendStatusOperationID
         )
-        if enqueueResult == .rejected, Self.containsTerminalSubmission(text) {
+        if enqueueResult == .rejected {
             finishRawTerminalSend(
-                terminalSendOperationIDsByTerminalID[surfaceID],
+                sendStatusOperationID,
                 forTerminalID: surfaceID,
                 succeeded: false
             )
@@ -7702,13 +7711,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func prepareTerminalSendStatusForRawInput(
         _ text: String,
         terminalID: String
-    ) {
+    ) -> UUID? {
         if Self.containsTerminalSubmission(text) {
-            rawTerminalSendOperationIDsByTerminalID[terminalID] = beginTerminalSend(
+            let operationID = beginTerminalSend(
                 forTerminalID: terminalID
             )
+            rawTerminalSendOperationIDsByTerminalID[terminalID] = operationID
+            return operationID
         } else {
             clearSettledTerminalSendStatus(forTerminalID: terminalID)
+            return nil
         }
     }
 
@@ -7809,9 +7821,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 workspaceID: chunk.workspaceID,
                 terminalID: chunk.terminalID,
                 latencyBatchNumber: latencyBatchNumberForSend,
-                sendStatusOperationID: Self.containsTerminalSubmission(chunk.text)
-                    ? rawTerminalSendOperationIDsByTerminalID[chunk.terminalID.rawValue]
-                    : nil
+                sendStatusOperationID: chunk.sendStatusOperationID
             )
         }
     }
