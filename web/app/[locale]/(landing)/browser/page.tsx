@@ -62,7 +62,7 @@ export default async function BrowserPage() {
       cta: common("downloadForMac"),
       href: BROWSER_MACOS_NIGHTLY_DOWNLOAD.primary.url,
       available: BROWSER_MACOS_NIGHTLY_AVAILABLE,
-      requirements: "macOS · Universal 2",
+      requirements: null,
     },
     {
       platform: "windows" as const,
@@ -121,7 +121,9 @@ export default async function BrowserPage() {
                 <PlatformIcon name={card.platform} size={20} />
                 <h2 className="text-base font-medium">{card.name}</h2>
               </div>
-              <p className="mt-3 text-sm text-muted">{card.requirements}</p>
+              {card.requirements && (
+                <p className="mt-3 text-sm text-muted">{card.requirements}</p>
+              )}
               {!card.available && (
                 <p className="mt-4 text-xs text-muted">
                   {waitlist("calloutText")}
