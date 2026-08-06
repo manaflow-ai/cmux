@@ -233,6 +233,43 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
+    func installedTargetDiscoveryDoesNotExecuteCandidates() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("codebuddy")
+        let invocationMarker = root.appendingPathComponent("invoked")
+        let script = """
+        #!/bin/zsh
+        /usr/bin/touch \(TerminalStartupShellQuoting.singleQuoted(invocationMarker.path))
+        /usr/bin/printf 'CodeBuddy 1.2.3\\n'
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+
+        let targets = await AgentConversationForkTargetDiscoverer(
+            environment: ["HOME": root.path, "PATH": root.path],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [:],
+            includeStandardSearchDirectories: false
+        ).discover()
+
+        #expect(targets.map(\.harness.rawValue) == ["codebuddy"])
+        #expect(!FileManager.default.fileExists(atPath: invocationMarker.path))
+    }
+
+    @Test
+    func versionProbeDoesNotUseExecutablePathAsHarnessIdentity() {
+        #expect(!AgentConversationForkTargetHarness.factory.versionProbeMatches(
+            output: "unrelated-cli 9.9.9",
+            resolvedExecutablePath: "/tmp/droid"
+        ))
+    }
+
+    @Test
     func installedTargetDiscoveryRejectsExecutableAliasWithoutHarnessIdentity() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -284,7 +321,7 @@ struct AgentConversationTransferSourceTests {
         #expect(target.executablePath == validExecutable.path)
     }
 
-    @Test(arguments: ["qodercli", "kimi"])
+    @Test(arguments: ["qodercli"])
     func installedTargetDiscoveryOmitsHarnessWithoutInteractiveSeed(
         executableName: String
     ) async throws {
@@ -306,6 +343,30 @@ struct AgentConversationTransferSourceTests {
         ).discover()
 
         #expect(targets.isEmpty)
+    }
+
+    @Test
+    func installedTargetDiscoveryIncludesCampfireAndKimi() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeVersionExecutable(
+            root.appendingPathComponent("campfire"),
+            output: "0.78.1"
+        )
+        try writeVersionExecutable(
+            root.appendingPathComponent("kimi"),
+            output: "kimi, version 1.37.0"
+        )
+
+        let targets = await AgentConversationForkTargetDiscoverer(
+            environment: ["HOME": root.path, "PATH": root.path],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [:],
+            includeStandardSearchDirectories: false
+        ).discover()
+
+        #expect(Set(targets.map(\.harness.rawValue)) == ["campfire", "kimi"])
     }
 
     @Test

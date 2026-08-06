@@ -147,6 +147,58 @@ struct SQLiteDatabaseSnapshotServiceTests {
         }
     }
 
+    @Test("Counts live WAL bytes toward the aggregate snapshot limit")
+    func rejectsLargeWALAboveAggregateLimit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        var database: OpaquePointer?
+        try #require(sqlite3_open(source.path, &database) == SQLITE_OK)
+        let openedDatabase = try #require(database)
+        defer { sqlite3_close(openedDatabase) }
+        try #require(sqlite3_exec(
+            openedDatabase,
+            """
+            PRAGMA journal_mode = WAL;
+            PRAGMA wal_autocheckpoint = 0;
+            CREATE TABLE records (id INTEGER PRIMARY KEY, value BLOB);
+            INSERT INTO records VALUES (1, randomblob(4096));
+            """,
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK)
+        for _ in 0..<64 {
+            try #require(sqlite3_exec(
+                openedDatabase,
+                "UPDATE records SET value = randomblob(4096) WHERE id = 1;",
+                nil,
+                nil,
+                nil
+            ) == SQLITE_OK)
+        }
+        let maximumBytes = 64 * 1_024
+        let walSize = try #require(
+            FileManager.default.attributesOfItem(atPath: source.path + "-wal")[.size] as? NSNumber
+        ).intValue
+        #expect(walSize > maximumBytes)
+
+        #expect(
+            throws: SQLiteDatabaseSnapshotError.snapshotTooLarge(
+                maximumBytes: maximumBytes
+            )
+        ) {
+            try SQLiteDatabaseSnapshotService().copyDatabase(
+                from: source.path,
+                to: destination.path,
+                maximumBytes: maximumBytes
+            )
+        }
+    }
+
     private func makeDatabase(at url: URL) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
