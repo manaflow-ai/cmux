@@ -579,10 +579,9 @@ struct SidebarAppKitRowCellTests {
             NSColor.linkColor.usingColorSpace(.sRGB),
             "linkColor must resolve in sRGB"
         )
-        let toExpected = try Self.minimumDistance(in: raster, to: expected, excluding: selectionBackground)
-        let toSystemLink = try Self.minimumDistance(in: raster, to: systemLink, excluding: selectionBackground)
-        #expect(toExpected < 0.05)
-        #expect(toSystemLink > 0.15)
+        let glyphColor = try Self.mostVisibleGlyphColor(in: raster, excluding: selectionBackground)
+        #expect(Self.distance(glyphColor, expected) < 0.05)
+        #expect(Self.distance(glyphColor, systemLink) > 0.15)
     }
 
     @Test
@@ -651,12 +650,9 @@ struct SidebarAppKitRowCellTests {
             #expect(renderedSRGB == expected)
             let raster = try Self.raster(of: textView, background: selectionBackground)
             let systemLink = try #require(NSColor.linkColor.usingColorSpace(.sRGB))
-            let toSystemLink = try Self.minimumDistance(
-                in: raster,
-                to: systemLink,
-                excluding: selectionBackground
-            )
-            #expect(toSystemLink > 0.15)
+            let glyphColor = try Self.mostVisibleGlyphColor(in: raster, excluding: selectionBackground)
+            #expect(Self.distance(glyphColor, expected) < 0.05)
+            #expect(Self.distance(glyphColor, systemLink) > 0.15)
         } else {
             #expect(rendered == NSColor.linkColor)
         }
@@ -729,29 +725,28 @@ struct SidebarAppKitRowCellTests {
         return rep
     }
 
-    /// Closest glyph pixel to `color`. Pixels still showing `background` are
-    /// skipped: the row's selection fill is itself a blue close to
-    /// `NSColor.linkColor`, so scanning the whole bitmap would measure the
-    /// background instead of the text and prove nothing about the link.
-    private static func minimumDistance(
+    /// Highest-coverage glyph pixel, selected as the pixel farthest from the
+    /// row background. Comparing this one pixel to both candidate colors keeps
+    /// antialiased edge blends from masquerading as a system-link-color glyph.
+    private static func mostVisibleGlyphColor(
         in raster: NSBitmapImageRep,
-        to color: NSColor,
         excluding background: NSColor
-    ) throws -> CGFloat {
-        let target = try #require(color.usingColorSpace(.sRGB))
+    ) throws -> NSColor {
         let ignored = try #require(background.usingColorSpace(.sRGB))
-        var best = CGFloat.greatestFiniteMagnitude
-        var glyphPixels = 0
+        var mostVisible: NSColor?
+        var greatestDistance = CGFloat.zero
         for y in 0 ..< raster.pixelsHigh {
             for x in 0 ..< raster.pixelsWide {
                 guard let pixel = raster.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                guard distance(pixel, ignored) > 0.02 else { continue }
-                glyphPixels += 1
-                best = min(best, distance(pixel, target))
+                let backgroundDistance = distance(pixel, ignored)
+                if backgroundDistance > greatestDistance {
+                    greatestDistance = backgroundDistance
+                    mostVisible = pixel
+                }
             }
         }
-        #expect(glyphPixels > 0, "raster contained no text pixels")
-        return best
+        #expect(greatestDistance > 0.02, "raster contained no visible text pixels")
+        return try #require(mostVisible)
     }
 
     private static func distance(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
