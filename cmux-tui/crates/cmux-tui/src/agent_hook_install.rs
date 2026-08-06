@@ -1087,7 +1087,7 @@ mod tests {
             serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
                 .unwrap();
         let command = root["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(command.len() <= 128, "hook command is {} bytes: {command}", command.len());
+        assert!(command.len() <= 90, "hook command is {} bytes: {command}", command.len());
         assert!(!command.contains("CMUX_TUI_SOCKET"));
         assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
 
@@ -1112,6 +1112,21 @@ mod tests {
         assert!(output.status.success());
         assert_eq!(output.stdout, b"{}\n");
         assert_eq!(fs::read_to_string(capture).unwrap(), "codex Stop\n");
+    }
+
+    #[test]
+    fn every_command_hook_fits_in_one_hundred_bytes() {
+        for provider in PROVIDERS {
+            for event in provider.events {
+                let command = hook_command(provider.id, event);
+                assert!(
+                    command.len() <= 100,
+                    "{} {event} hook command is {} bytes: {command}",
+                    provider.id,
+                    command.len()
+                );
+            }
+        }
     }
 
     #[test]
