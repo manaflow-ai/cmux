@@ -692,6 +692,149 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(responseSession["runtimeStatus"] as? String, "running")
     }
 
+    // https://github.com/manaflow-ai/cmux/issues/9315
+    //
+    // Cursor's beforeShellExecution hook runs before Cursor evaluates its own
+    // allowlist and exposes no native "approval required" field. The one
+    // reliable distinction in the shipped protocol is whether the command is
+    // already sandboxed. cmux asks Cursor to show its native approval prompt
+    // for an unsandboxed command and surfaces that real wait through the shared
+    // generic-agent notification path. Sandboxed commands remain telemetry.
+    func testCursorShellApprovalDistinguishesUnsandboxedAndSandboxedPayloads() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("cursor-shell-approval")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cursor-shell-approval-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "cursor-session-9315"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runCursorHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startAgentHookMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                surfaceId: surfaceId,
+                connectionCount: 4
+            )
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "cursor", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let start = runCursorHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeSubmitPrompt"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(start.stdout, "{}\n")
+
+        let approvalCommand = "rm -rf build-output"
+        let approvalCommandStart = state.snapshot().count
+        let approval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(approvalCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(approval.timedOut, approval.stderr)
+        XCTAssertEqual(approval.status, 0, approval.stderr)
+        XCTAssertEqual(approval.stdout, #"{"permission":"ask"}"# + "\n")
+
+        let approvalCommands = Array(state.snapshot().dropFirst(approvalCommandStart))
+        XCTAssertEqual(
+            approvalCommands.filter {
+                $0.contains(
+                    "notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|\(approvalCommand)"
+                )
+            }.count,
+            1,
+            "Expected exactly one Cursor approval notification for the owning surface, saw \(approvalCommands)"
+        )
+        XCTAssertTrue(
+            approvalCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle cursor needsInput --tab=\(workspaceId)")
+                    && $0.contains("--panel=\(surfaceId)")
+            },
+            "Expected Cursor approval to mark the owning pane Needs input, saw \(approvalCommands)"
+        )
+        XCTAssertTrue(
+            approvalCommands.contains {
+                $0.hasPrefix("set_status cursor ")
+                    && $0.contains("--icon=bell.fill")
+                    && $0.contains("--panel=\(surfaceId)")
+            },
+            "Expected Cursor approval to publish the notification-ring status, saw \(approvalCommands)"
+        )
+
+        let responseCommandStart = state.snapshot().count
+        let response = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(approvalCommand)","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(response.timedOut, response.stderr)
+        XCTAssertEqual(response.status, 0, response.stderr)
+        XCTAssertEqual(response.stdout, "{}\n")
+
+        let responseCommands = Array(state.snapshot().dropFirst(responseCommandStart))
+        XCTAssertTrue(
+            responseCommands.contains {
+                $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+            },
+            "Expected Cursor's paired completion hook to clear the approval notification, saw \(responseCommands)"
+        )
+        XCTAssertTrue(
+            responseCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle cursor running --tab=\(workspaceId)")
+                    && $0.contains("--panel=\(surfaceId)")
+            },
+            "Expected Cursor's paired completion hook to restore Running, saw \(responseCommands)"
+        )
+
+        let sandboxedCommandStart = state.snapshot().count
+        let sandboxed = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"git status --short","sandbox":true}"#
+        )
+        XCTAssertFalse(sandboxed.timedOut, sandboxed.stderr)
+        XCTAssertEqual(sandboxed.status, 0, sandboxed.stderr)
+        XCTAssertEqual(sandboxed.stdout, "{}\n")
+
+        let sandboxedCommands = Array(state.snapshot().dropFirst(sandboxedCommandStart))
+        XCTAssertFalse(
+            sandboxedCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Sandboxed Cursor shell starts must not generate approval notifications, saw \(sandboxedCommands)"
+        )
+        XCTAssertFalse(
+            sandboxedCommands.contains { $0.contains("set_agent_lifecycle cursor needsInput") },
+            "Sandboxed Cursor shell starts must remain non-actionable, saw \(sandboxedCommands)"
+        )
+    }
+
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
         // Hermes fires the `on_session_end` plugin hook once per conversation turn
         // (end of every run_conversation()), not at the true session boundary, and a
