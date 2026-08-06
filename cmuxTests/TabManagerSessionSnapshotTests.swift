@@ -26,6 +26,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         TerminalController.shared.stop()
         let requestedPath = "/tmp/cmux-restore-\(UUID().uuidString).sock"
         let reservedPath = TerminalController.shared.reserveStartupSocketPath(requestedPath)
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: reservedPath,
+            accessMode: .allowAll
+        )
         XCTAssertEqual(TerminalController.shared.currentSocketPathForRemoteRestore(), reservedPath)
         return reservedPath
     }
