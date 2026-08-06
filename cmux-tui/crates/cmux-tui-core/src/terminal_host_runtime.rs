@@ -4356,11 +4356,9 @@ mod unix {
     }
 
     fn authenticate_client(host: &HostShared, hello: &ClientHello) -> anyhow::Result<HostHello> {
-        if hello.terminal_id != host.terminal_id {
-            anyhow::bail!("terminal-host capability denied");
-        }
         if constant_time_equal(hello.token.as_bytes(), host.owner_token.as_bytes()) {
-            if hello.role != ClientRole::Admin
+            if hello.terminal_id != host.terminal_id
+                || hello.role != ClientRole::Admin
                 || hello.requested_rights.is_empty()
                 || !CapabilityRights::ADMIN.contains(hello.requested_rights)
                 || hello.min_version > PROTOCOL_VERSION
@@ -4375,8 +4373,21 @@ mod unix {
                 incarnation: host.incarnation,
             });
         }
+
+        // Public resource identities deliberately do not expose the private
+        // UUID of the independently adoptable host process. A renderer grant
+        // is already terminal-bound and exists in this host's one-use store,
+        // so an unspecified hint can be resolved only after token matching.
+        // An explicit wrong identity remains a denial, and CapabilityStore
+        // consumes the matching token before that check.
+        let mut renderer_hello = *hello;
+        if renderer_hello.role == ClientRole::Renderer
+            && renderer_hello.terminal_id.is_unspecified()
+        {
+            renderer_hello.terminal_id = host.terminal_id;
+        }
         Ok(host.capabilities.accept(
-            hello,
+            &renderer_hello,
             PROTOCOL_VERSION..=PROTOCOL_VERSION,
             host.incarnation,
         )?)
@@ -5042,6 +5053,55 @@ mod unix {
             });
             HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
             host
+        }
+
+        #[test]
+        fn public_renderer_grant_authenticates_without_private_host_identity() {
+            let host = test_host_shared();
+            let token = host
+                .capabilities
+                .mint(host.terminal_id, CapabilityRights::RENDERER, Duration::from_secs(60))
+                .unwrap();
+            let hello = ClientHello {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                role: ClientRole::Renderer,
+                requested_rights: CapabilityRights::RENDERER,
+                terminal_id: TerminalId::UNSPECIFIED,
+                token,
+            };
+
+            let response = authenticate_client(&host, &hello)
+                .expect("a terminal-bound public grant must not require the private host id");
+
+            assert_eq!(response.terminal_id, host.terminal_id);
+            assert_eq!(response.incarnation, host.incarnation);
+            assert_eq!(response.granted_rights, CapabilityRights::RENDERER);
+        }
+
+        #[test]
+        fn rejected_renderer_identity_still_consumes_the_matching_grant() {
+            let host = test_host_shared();
+            let token = host
+                .capabilities
+                .mint(host.terminal_id, CapabilityRights::READ, Duration::from_secs(60))
+                .unwrap();
+            let wrong_terminal = ClientHello {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                role: ClientRole::Renderer,
+                requested_rights: CapabilityRights::READ,
+                terminal_id: TerminalId::random().unwrap(),
+                token,
+            };
+
+            assert!(authenticate_client(&host, &wrong_terminal).is_err());
+
+            let corrected = ClientHello { terminal_id: host.terminal_id, ..wrong_terminal };
+            assert!(
+                authenticate_client(&host, &corrected).is_err(),
+                "a matching one-use token must be consumed before identity rejection"
+            );
         }
 
         fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
