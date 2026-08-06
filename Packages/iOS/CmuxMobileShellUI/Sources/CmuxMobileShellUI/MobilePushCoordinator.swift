@@ -853,5 +853,60 @@ public final class MobilePushCoordinator {
         guard !trimmed.isEmpty else { return }
         await deliveredNotificationClearer.removeDelivered(ids: trimmed)
     }
+
+#if DEBUG
+    /// Schedules a LOCAL notification carrying the same reply category and
+    /// `cmux` userInfo schema as a Mac-forwarded APNs push, addressed at the
+    /// currently selected workspace/terminal. The notification-center response
+    /// path cannot tell local from remote, so the inline-reply UX and its full
+    /// handling chain (action routing, reply parking, `terminal.input` RPC back
+    /// to the Mac) are verifiable on a device without any APNs transport — dev
+    /// web deployments have no push service configured. Fires after a short
+    /// delay so the tester can lock the phone or background the app first.
+    /// In this same file so it reaches the private `store` without widening
+    /// production visibility for a debug affordance.
+    public func debugScheduleLocalReplyNotification() async -> Bool {
+        guard let store,
+              let workspace = store.selectedWorkspace,
+              let surfaceId = store.selectedTerminalID?.rawValue else {
+            mobilePushLog.info("debug local reply skipped: no selected workspace/terminal")
+            return false
+        }
+        let content = UNMutableNotificationContent()
+        content.title = String(
+            localized: "mobile.push.debugReply.title",
+            defaultValue: "cmux reply test",
+            bundle: .module
+        )
+        content.subtitle = workspace.name
+        content.body = String(
+            localized: "mobile.push.debugReply.body",
+            defaultValue: "Reply here; the text is typed into the selected Mac terminal.",
+            bundle: .module
+        )
+        content.categoryIdentifier = Self.replyCategoryIdentifier
+        var cmux: [String: Any] = [
+            "workspaceId": workspace.rpcWorkspaceID.rawValue,
+            "surfaceId": surfaceId,
+            "retargetsToLiveSurfaceOwner": true,
+        ]
+        if let macDeviceId = workspace.macDeviceID, !macDeviceId.isEmpty {
+            cmux["macDeviceId"] = macDeviceId
+        }
+        content.userInfo = ["cmux": cmux]
+        let request = UNNotificationRequest(
+            identifier: "cmux.debug.reply.\(UUID().uuidString)",
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
+        )
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            return true
+        } catch {
+            mobilePushLog.error("debug local reply schedule failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+#endif
 }
 #endif
