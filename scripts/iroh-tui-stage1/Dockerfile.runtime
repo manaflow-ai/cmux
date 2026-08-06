@@ -1,0 +1,22 @@
+FROM debian:bookworm-slim
+
+ARG CMUX_TUI_BUILD_COMMIT=iroh-stage1-sol
+LABEL dev.cmux.purpose="iroh-tui-stage1-sol" \
+    dev.cmux.build-commit="${CMUX_TUI_BUILD_COMMIT}"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates socat \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 1000 --shell /bin/sh cmux \
+    && mkdir -p /state /run/cmux \
+    && chown -R cmux:cmux /state /run/cmux
+
+COPY bin/ /usr/local/bin/
+COPY lib/ /usr/local/lib/
+COPY container-entrypoint.sh /usr/local/bin/container-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/container-entrypoint.sh \
+    && ldconfig
+
+USER cmux
+VOLUME ["/state"]
+ENTRYPOINT ["/usr/local/bin/container-entrypoint.sh"]

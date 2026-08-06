@@ -1,0 +1,6 @@
+**
+!ghostty/
+!ghostty/build.zig.zon
+!scripts/
+!scripts/ghostty-zig-version.sh
+!scripts/install-zig-ci.sh
