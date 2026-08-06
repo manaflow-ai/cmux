@@ -125,3 +125,83 @@ fn write_socket(
 fn report_failure(direction: &str, error: &io::Error) {
     eprintln!("cmux-tui: Windows local socket {direction} failed: {error}");
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    use tokio::io::AsyncWriteExt as _;
+
+    use super::*;
+
+    #[test]
+    fn windows_dropping_a_saturated_bridge_releases_its_blocking_workers() {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "windows_socket::tests::windows_dropping_a_saturated_bridge_fixture",
+                "--nocapture",
+            ])
+            .env("CMUX_TEST_WINDOWS_SATURATED_BRIDGE", "1")
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break Some(status);
+            }
+            if Instant::now() >= deadline {
+                break None;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        let Some(status) = status else {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("dropping a saturated Windows socket bridge stranded a blocking worker");
+        };
+
+        assert!(status.success(), "saturated Windows bridge fixture failed: {status}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn windows_dropping_a_saturated_bridge_fixture() {
+        if std::env::var_os("CMUX_TEST_WINDOWS_SATURATED_BRIDGE").is_none() {
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let socket_path = directory.path().join("bridge.sock");
+        let listener = uds_windows::UnixListener::bind(&socket_path).unwrap();
+        let accept = std::thread::spawn(move || listener.accept().unwrap().0);
+        let client = uds_windows::UnixStream::connect(&socket_path).unwrap();
+        let server = accept.join().unwrap();
+        let mut bridge = bridge(client).unwrap();
+        let completed_writes = Arc::new(AtomicUsize::new(0));
+        let writer_progress = completed_writes.clone();
+        let writer = tokio::spawn(async move {
+            let chunk = vec![0_u8; BRIDGE_CHUNK_BYTES];
+            loop {
+                bridge.write_all(&chunk).await.unwrap();
+                writer_progress.fetch_add(1, Ordering::Release);
+            }
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut previous = 0;
+        let mut unchanged_samples = 0;
+        while unchanged_samples < 4 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let current = completed_writes.load(Ordering::Acquire);
+            unchanged_samples =
+                if current > 0 && current == previous { unchanged_samples + 1 } else { 0 };
+            previous = current;
+            assert!(Instant::now() < deadline, "Windows socket writer never reached backpressure");
+        }
+
+        writer.abort();
+        let _ = writer.await;
+        std::mem::forget(server);
+    }
+}
