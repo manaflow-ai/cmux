@@ -1054,6 +1054,27 @@ mod tests {
             .unwrap();
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_windows_probe_does_not_block_first_resident_owner_upgrade() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        fs::write(
+            &script,
+            "#!/bin/sh\ncase \"$*\" in\n  *\"~/.local/bin/cmux-tui remote-probe --json\"*) printf \"'~' is not recognized as an internal or external command\" >&2; exit 1 ;;\n  *\"remote-probe --json\"*) printf '%s' 'legacy Windows probe' >&2; exit 2 ;;\n  *\"remote-stop --session main\"*) printf '%s' 'cmux-tui: remote-stop is not implemented on Windows yet' >&2; exit 1 ;;\nesac\nexit 2\n",
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults("windows-host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        let bootstrap = SshBootstrapper::new(config).unwrap();
+
+        bootstrap.stop_daemon("main", Some(r"%LOCALAPPDATA%\cmux\state")).await.unwrap();
+    }
+
     #[test]
     fn option_like_destination_is_rejected_by_bootstrap_config() {
         let Err(error) =
