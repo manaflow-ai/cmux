@@ -11628,7 +11628,10 @@ final class Workspace: Identifiable, ObservableObject {
         if let forkedPanel,
            remoteStartupCommand != nil,
            let workingDirectory {
-            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+            updateRemotePanelDirectoryWithMetadata(
+                panelId: forkedPanel.id,
+                directory: workingDirectory
+            )
         }
         if forkedPanel == nil, let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
@@ -11695,7 +11698,10 @@ final class Workspace: Identifiable, ObservableObject {
         if let forkedPanel {
             _ = reorderSurface(panelId: forkedPanel.id, toIndex: targetIndex)
             if remoteStartupCommand != nil, let workingDirectory {
-                updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+                updateRemotePanelDirectoryWithMetadata(
+                    panelId: forkedPanel.id,
+                    directory: workingDirectory
+                )
             }
         } else if let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
