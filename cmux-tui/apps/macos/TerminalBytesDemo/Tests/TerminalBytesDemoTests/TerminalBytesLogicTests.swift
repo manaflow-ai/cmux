@@ -366,6 +366,20 @@ struct TerminalBytesLogicTests {
     }
 
     @Test
+    func outputInsertedExactlyAtSelectionEndDoesNotExtendSelection() {
+        let selections = terminalSelections(
+            preserving: [NSValue(range: NSRange(location: 2, length: 3))],
+            applying: TerminalTextEdit(
+                range: NSRange(location: 5, length: 0),
+                replacement: "new output"
+            ),
+            utf16Length: 15
+        )
+
+        #expect(selections.map(\.rangeValue) == [NSRange(location: 2, length: 3)])
+    }
+
+    @Test
     func terminalTextUpdatesReplaceOnlyTheChangedUTF16Range() throws {
         let changed = try #require(terminalTextEdit(from: "a😀oldz", to: "a😀newz"))
         #expect(changed.range == NSRange(location: 3, length: 3))
