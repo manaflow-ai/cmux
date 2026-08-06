@@ -1477,10 +1477,7 @@ mod tests {
             .find(|candidate| candidate["id"] == screen_id)
             .unwrap();
         assert_eq!(created_screen["layout"]["root"]["kind"], "viewport");
-        assert_eq!(
-            created_screen["layout"]["root"]["columns"][1]["width"],
-            0.5
-        );
+        assert_eq!(created_screen["layout"]["root"]["columns"][1]["width"], 0.5);
     }
 
     #[test]

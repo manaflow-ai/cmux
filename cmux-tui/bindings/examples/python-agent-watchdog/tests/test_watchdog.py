@@ -48,7 +48,7 @@ def send_frame(connection: socket.socket, value: Dict[str, Any]) -> None:
 
 def response(request: Dict[str, Any], result: Any) -> Dict[str, Any]:
     return {
-        "protocol": "cmux.protocol/1",
+        "protocol": "cmux.protocol/2",
         "type": "response",
         "id": request["id"],
         "ok": True,
@@ -226,7 +226,7 @@ class FakeCmuxServer:
                         send_frame(
                             connection,
                             {
-                                "protocol": "cmux.protocol/1",
+                                "protocol": "cmux.protocol/2",
                                 "type": "stream_item",
                                 "stream_id": request["params"]["stream_id"],
                                 "sequence": "1",
@@ -315,7 +315,7 @@ class FakeCmuxServer:
                     send_frame(
                         connection,
                         {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "response",
                             "id": request["id"],
                             "ok": False,

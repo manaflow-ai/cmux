@@ -7920,7 +7920,7 @@ impl Mux {
                 updated_at_ms: now,
             },
         };
-        let digest = Sha256::digest(format!("cmux.protocol/1/agent/{terminal_id}").as_bytes());
+        let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
         let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
         let agent_id =
             AgentPublicId::parse(format!("agent_{payload}")).map_err(anyhow::Error::new)?;
@@ -15923,7 +15923,7 @@ mod tests {
         idempotency_key: Option<&str>,
     ) -> Value {
         let mut request = serde_json::json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":id,
             "operation":operation,

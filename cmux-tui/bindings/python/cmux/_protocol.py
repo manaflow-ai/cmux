@@ -37,7 +37,7 @@ from .models import Cursor, StreamEnd, StreamItem
 from .transport import JsonLineConnection
 
 
-PROTOCOL = "cmux.protocol/1"
+PROTOCOL = "cmux.protocol/2"
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_STREAM_MESSAGES = 256

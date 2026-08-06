@@ -320,10 +320,7 @@ pub(crate) fn validate_ratio(value: f64) -> Result<()> {
 }
 
 fn validate_viewport_width(direction: Direction, value: f64) -> Result<()> {
-    if direction != Direction::Right
-        || !value.is_finite()
-        || !(0.1..=1.0).contains(&value)
-    {
+    if direction != Direction::Right || !value.is_finite() || !(0.1..=1.0).contains(&value) {
         return Err(Error::InvalidArgument(
             "viewport width requires a right split and a finite value between 0.1 and 1"
                 .to_string(),

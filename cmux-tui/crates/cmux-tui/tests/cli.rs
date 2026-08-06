@@ -794,6 +794,32 @@ fn noun_first_ratio_commands_reject_nonfinite_values_before_connecting() {
     }
 }
 
+#[test]
+fn noun_first_viewport_width_rejects_invalid_values_before_connecting() {
+    const PANE: &str = "pane_11111111111111111111111111111111";
+    for (args, expected) in [
+        (
+            ["pane", PANE, "split", "--right", "--viewport-width", "NaN"].as_slice(),
+            "--viewport-width must be from 0.1 through 1",
+        ),
+        (
+            ["pane", PANE, "split", "--right", "--viewport-width", "0.09"].as_slice(),
+            "--viewport-width must be from 0.1 through 1",
+        ),
+        (
+            ["pane", PANE, "split", "--down", "--viewport-width", "0.5"].as_slice(),
+            "--viewport-width requires --right",
+        ),
+    ] {
+        let output = Command::new(bin()).args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.starts_with("cmux: "), "{stderr}");
+        assert!(stderr.contains(expected), "{stderr}");
+        assert!(!stderr.contains("cmux-tui"), "{stderr}");
+    }
+}
+
 #[cfg(unix)]
 struct PtyChild {
     child: Box<dyn cmux_pty::Child + Send + Sync>,
@@ -866,6 +892,22 @@ fn spawn_pty_child(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> cmux_pty:
 }
 
 #[cfg(unix)]
+fn plain_tui_is_ready(server: &HeadlessServer) -> bool {
+    let clients = json_cli(server, &["client", "list"]);
+    if !clients.status.success()
+        || !json_output(&clients).as_array().is_some_and(|clients| {
+            clients.iter().any(|client| client["client_kind"].as_str() == Some("tui"))
+        })
+    {
+        return false;
+    }
+
+    let terminals = json_cli(server, &["terminal", "list"]);
+    terminals.status.success()
+        && json_output(&terminals).as_array().is_some_and(|terminals| !terminals.is_empty())
+}
+
+#[cfg(unix)]
 impl Drop for DisconnectablePtyChild {
     fn drop(&mut self) {
         self.master.take();
@@ -930,22 +972,13 @@ fn plain_launch_attaches_to_existing_local_session() {
         if let Some(status) = tui.child.try_wait().unwrap() {
             panic!("plain launch exited instead of attaching: {status}");
         }
-        let clients = json_cli(&server, &["client", "list"]);
-        if clients.status.success() {
-            let clients = json_output(&clients);
-            if clients
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|client| client["client_kind"].as_str() == Some("tui"))
-            {
-                return;
-            }
+        if plain_tui_is_ready(&server) {
+            return;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    panic!("plain launch never attached as a TUI client");
+    panic!("plain launch never attached to its committed initial terminal");
 }
 
 #[cfg(unix)]
@@ -960,22 +993,13 @@ fn host_terminal_disconnect_exits_frontend_without_stopping_server() {
         if let Some(status) = tui.child.try_wait().unwrap() {
             panic!("plain launch exited before host disconnect: {status}");
         }
-        let clients = json_cli(&server, &["client", "list"]);
-        if clients.status.success() {
-            let clients = json_output(&clients);
-            if clients
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|client| client["client_kind"].as_str() == Some("tui"))
-            {
-                attached = true;
-                break;
-            }
+        if plain_tui_is_ready(&server) {
+            attached = true;
+            break;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(attached, "plain launch never attached before host disconnect");
+    assert!(attached, "plain launch never attached to its committed terminal before disconnect");
 
     tui.disconnect_host_terminal();
     let exit_deadline = Instant::now() + Duration::from_secs(5);

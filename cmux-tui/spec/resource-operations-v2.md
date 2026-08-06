@@ -1,12 +1,12 @@
 # Public operation inventory
 
-[`resource-operations-v1.json`](resource-operations-v1.json) is normative.
+[`resource-operations-v2.json`](resource-operations-v2.json) is normative.
 This page is a compact index; it does not replace the catalog's exact
 selectors, fields, results, errors, constraints, or stream types.
 
 ## Transported operations
 
-`cmux.protocol/1` transports 124 operations for exactly one local mux
+`cmux.protocol/2` transports 124 operations for exactly one local mux
 session. Cross-machine aggregation and provider lifecycle require a later
 broker protocol.
 

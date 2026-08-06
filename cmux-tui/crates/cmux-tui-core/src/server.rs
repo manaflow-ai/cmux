@@ -5826,7 +5826,7 @@ pub(crate) fn public_client_id(
     client: u64,
 ) -> Result<ClientPublicId, ResourceError> {
     let mut digest = Sha256::new();
-    digest.update(b"cmux.protocol/1/client/");
+    digest.update(b"cmux.protocol/2/client/");
     digest.update(session_id.as_str().as_bytes());
     digest.update(b"/");
     digest.update(client.to_be_bytes());
@@ -6716,7 +6716,7 @@ fn send_resource_uncursored_stream_item(
     writer
         .send_stream_backpressured(
             &json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"stream_item",
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
@@ -8264,7 +8264,7 @@ fn send_resource_stream_item(
     writer
         .send_stream_backpressured(
             &json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"stream_item",
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
@@ -8340,7 +8340,7 @@ fn resource_stream_end(
     error: Option<(ResourceOperation, ResourceError)>,
 ) -> Value {
     let mut end = json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"stream_end",
         "stream_id":stream_id,
         "reason":reason,
@@ -8669,15 +8669,11 @@ fn create_surface_with_receipt(
     );
     anyhow::ensure!(
         idempotency_key.is_none()
-            || mux
-                .control_clients
-                .supports_capability(client, CREATION_ATTEMPT_KEYS_CAPABILITY),
+            || mux.control_clients.supports_capability(client, CREATION_ATTEMPT_KEYS_CAPABILITY),
         "client did not negotiate {CREATION_ATTEMPT_KEYS_CAPABILITY}"
     );
-    let mutation = WorkspaceMutation::new(
-        idempotency_key.unwrap_or_else(|| receipt.clone()),
-        origin,
-    )?;
+    let mutation =
+        WorkspaceMutation::new(idempotency_key.unwrap_or_else(|| receipt.clone()), origin)?;
     let size = paired_surface_size("create-surface-with-receipt", cols, rows)?;
     let mut fields = serde_json::Map::new();
     if let Some((cols, rows)) = size {
@@ -9835,17 +9831,14 @@ struct RenderClientState {
     graphics_placement_revision: u64,
     graphics_image_generations: Arc<[(u32, u64)]>,
     graphics_image_generations_match_snapshot: bool,
+    #[cfg(test)]
+    image_generation_scan_count: usize,
 }
-
-#[cfg(test)]
-static RENDER_CLIENT_IMAGE_SCAN_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 fn render_client_image_delta(
     previous: &[(u32, u64)],
     next: &[(u32, u64)],
 ) -> (HashSet<u32>, Vec<u32>) {
-    #[cfg(test)]
-    RENDER_CLIENT_IMAGE_SCAN_COUNT.fetch_add(previous.len().max(next.len()), Ordering::Relaxed);
     let mut changed = HashSet::new();
     let mut removed = Vec::new();
     let (mut previous_index, mut next_index) = (0, 0);
@@ -9905,6 +9898,8 @@ impl RenderClientState {
             graphics_placement_revision: graphics_delta.placement_revision,
             graphics_image_generations,
             graphics_image_generations_match_snapshot,
+            #[cfg(test)]
+            image_generation_scan_count: 0,
         }
     }
 
@@ -9961,6 +9956,13 @@ impl RenderClientState {
                     (HashSet::new(), Vec::new())
                 }
             } else {
+                #[cfg(test)]
+                {
+                    self.image_generation_scan_count += self
+                        .graphics_image_generations
+                        .len()
+                        .max(graphics_delta.image_generations.len());
+                }
                 render_client_image_delta(
                     &self.graphics_image_generations,
                     &graphics_delta.image_generations,
@@ -13087,7 +13089,6 @@ mod tests {
         let mut frame = render_protocol_frame(&mut terminal, &mut render_state);
         let placement_revision = frame.frame.kitty_graphics_delta.placement_revision;
         let mut client = RenderClientState::new(Arc::new(RenderService::new()), &frame);
-        RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
 
         replace_render_image(&mut frame, 41, [0, 0, 255]);
         let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
@@ -13100,8 +13101,7 @@ mod tests {
             1
         );
         assert_eq!(
-            RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
-            0,
+            client.image_generation_scan_count, 0,
             "pixel-only animation rebuilt the complete image-generation map"
         );
         assert_eq!(
@@ -13122,15 +13122,13 @@ mod tests {
         replace_render_image(&mut skipped, 41, [0, 0, 255]);
         let mut latest = skipped;
         replace_render_image(&mut latest, 42, [255, 255, 0]);
-        RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
 
         let delta = serde_json::to_value(client.delta_message(1, &latest)).unwrap();
         let images = delta["graphics"]["images"].as_array().unwrap();
 
         assert_eq!(images.len(), 2, "{delta:#}");
         assert_eq!(
-            RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
-            2,
+            client.image_generation_scan_count, 2,
             "a skipped frame did not use one bounded linear image diff"
         );
         assert!(delta["graphics"].get("placements").is_none(), "{delta:#}");
@@ -13273,7 +13271,7 @@ mod tests {
         idempotency_key: Option<&str>,
     ) -> String {
         let mut request = json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":id,
             "operation":operation,
@@ -13294,7 +13292,7 @@ mod tests {
     fn resource_protocol_responses_are_identical_for_unix_and_websocket_clients() {
         let mux = test_mux();
         let request = serde_json::to_string(&json!({
-            "protocol":"cmux.protocol/1",
+            "protocol":"cmux.protocol/2",
             "type":"request",
             "id":"transport-parity",
             "operation":"session.ping",
@@ -13314,7 +13312,7 @@ mod tests {
 
         assert_eq!(responses[0], responses[1]);
         let response: Value = serde_json::from_str(&responses[0]).unwrap();
-        assert_eq!(response["protocol"], "cmux.protocol/1");
+        assert_eq!(response["protocol"], "cmux.protocol/2");
         assert_eq!(response["type"], "response");
         assert_eq!(response["id"], "transport-parity");
         assert_eq!(response["ok"], true);
@@ -13429,6 +13427,62 @@ mod tests {
         let snapshot = mux.browser_provider_snapshot().unwrap();
         assert_eq!(snapshot.clients, 1);
         assert_eq!(snapshot.targets.len(), 1);
+    }
+
+    #[test]
+    fn protocol_v1_is_rejected_before_returning_a_zero_view_terminal_snapshot() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("exiting".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.surface_exited(surface.id);
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let current_request = serde_json::to_string(&json!({
+            "protocol":crate::resource::PROTOCOL,
+            "type":"request",
+            "id":"current-zero-view-snapshot",
+            "operation":"session.snapshot",
+            "params":{"machine":"current","session":"current"},
+        }))
+        .unwrap();
+
+        assert!(handle_connection_message(&mux, client, &current_request, &writer, &scheduler));
+        let current_response = pop_json(&outbound);
+        assert_eq!(current_response["ok"], true);
+        let terminal = current_response["result"]["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("the actual response contains the durable exit receipt");
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+
+        let legacy_request = serde_json::to_string(&json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":"legacy-zero-view-snapshot",
+            "operation":"session.snapshot",
+            "params":{"machine":"current","session":"current"},
+        }))
+        .unwrap();
+
+        assert!(handle_connection_message(&mux, client, &legacy_request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+
+        assert_eq!(response["protocol"], crate::resource::PROTOCOL);
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "legacy-zero-view-snapshot");
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "validation.invalid");
+        assert_eq!(response["error"]["details"]["field"], "protocol");
+        assert!(response.get("result").is_none());
+
+        disconnect_client(&mux, client, false);
+        mux.shutdown();
     }
 
     #[test]
@@ -16018,7 +16072,7 @@ mod tests {
     #[test]
     fn connection_handler_owns_every_router_connection_operation() {
         let catalog: Value =
-            serde_json::from_str(include_str!("../../../spec/resource-operations-v1.json"))
+            serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
                 .unwrap();
         let mut connection_operations = 0usize;
         for name in catalog["operations"].as_object().unwrap().keys() {
@@ -18229,11 +18283,7 @@ mod tests {
             &legacy_writer,
         )
         .unwrap_err();
-        assert!(
-            capability_error
-                .to_string()
-                .contains(CREATION_ATTEMPT_KEYS_CAPABILITY)
-        );
+        assert!(capability_error.to_string().contains(CREATION_ATTEMPT_KEYS_CAPABILITY));
         assert!(disconnect_client(&mux, legacy_client, true));
 
         let first_writer = test_writer();

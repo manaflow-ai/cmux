@@ -1269,9 +1269,7 @@ fn require_creation_preconditions(
     if let Some(expected) = expected_generation
         && expected != generation
     {
-        anyhow::bail!(
-            "resource generation conflict: expected {expected}, current {generation}"
-        );
+        anyhow::bail!("resource generation conflict: expected {expected}, current {generation}");
     }
     let revision = transaction_resource_revision(transaction)?;
     if let Some(expected) = expected_revision
@@ -2015,10 +2013,7 @@ mod tests {
         );
         registry
             .connection
-            .execute(
-                "UPDATE meta SET value = '1' WHERE key = 'resource_revision'",
-                [],
-            )
+            .execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", [])
             .unwrap();
 
         let stale = registry
@@ -2033,10 +2028,7 @@ mod tests {
                 Some(0),
             )
             .unwrap_err();
-        assert_eq!(
-            stale.to_string(),
-            "resource revision conflict: expected 0, current 1"
-        );
+        assert_eq!(stale.to_string(), "resource revision conflict: expected 0, current 1");
         assert_eq!(
             registry.resolve_resource_creation("correlation").unwrap()["recovery"],
             "retry_same_idempotency_key"

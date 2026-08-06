@@ -1,4 +1,4 @@
-"""Deterministic cmux.protocol/1 server for the offline example and tests."""
+"""Deterministic cmux.protocol/2 server for the offline example and tests."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 
-PROTOCOL = "cmux.protocol/1"
+PROTOCOL = "cmux.protocol/2"
 MACHINE_A = "machine_" + "a" * 32
 SESSION_A = "session_" + "b" * 32
 MACHINE_B = "machine_" + "c" * 32

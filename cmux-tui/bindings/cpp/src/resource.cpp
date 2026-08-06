@@ -463,11 +463,11 @@ void inject_routing(
             std::string(context) + " must be an object");
     }
     auto protocol = require_string(response, "protocol");
-    if (!protocol || protocol.value() != "cmux.protocol/1") {
+    if (!protocol || protocol.value() != "cmux.protocol/2") {
         return make_error(
             ErrorCode::protocol,
             std::string(context) +
-                " protocol must be cmux.protocol/1");
+                " protocol must be cmux.protocol/2");
     }
     auto type = require_string(response, "type");
     if (!type || type.value() != "response") {
@@ -1308,11 +1308,11 @@ public:
             auto protocol = require_string(parsed.value(), "protocol");
             auto type = require_string(parsed.value(), "type");
             auto response_id = require_string(parsed.value(), "id");
-            if (!protocol || protocol.value() != "cmux.protocol/1" ||
+            if (!protocol || protocol.value() != "cmux.protocol/2" ||
                 !type || type.value() != "response" || !response_id) {
                 return make_error(
                     ErrorCode::protocol,
-                    "request cleanup requires a cmux.protocol/1 response");
+                    "request cleanup requires a cmux.protocol/2 response");
             }
             if (response_id.value() == target_request_id) {
                 if (target_seen) {
@@ -1578,7 +1578,7 @@ public:
         Timeout timeout = std::chrono::seconds(10),
         JsonLimits limits = {}) {
         Json::Object envelope{
-            {"protocol", Json("cmux.protocol/1")},
+            {"protocol", Json("cmux.protocol/2")},
             {"type", Json("request")},
             {"id", Json(std::string(request_id))},
             {"operation", Json(std::string(operation_name(operation)))},
@@ -3128,10 +3128,10 @@ namespace {
         return std::move(exact).error();
     }
     auto protocol = require_string(envelope, "protocol");
-    if (!protocol || protocol.value() != "cmux.protocol/1") {
+    if (!protocol || protocol.value() != "cmux.protocol/2") {
         return make_error(
             ErrorCode::protocol,
-            "stream end protocol must be cmux.protocol/1");
+            "stream end protocol must be cmux.protocol/2");
     }
     auto type = require_string(envelope, "type");
     if (!type || type.value() != "stream_end") {
@@ -3211,10 +3211,10 @@ namespace {
         return std::move(exact).error();
     }
     auto protocol = require_string(envelope, "protocol");
-    if (!protocol || protocol.value() != "cmux.protocol/1") {
+    if (!protocol || protocol.value() != "cmux.protocol/2") {
         return make_error(
             ErrorCode::protocol,
-            "stream item protocol must be cmux.protocol/1");
+            "stream item protocol must be cmux.protocol/2");
     }
     auto type = require_string(envelope, "type");
     if (!type || type.value() != "stream_item") {
@@ -3289,10 +3289,10 @@ template <typename T>
 
 [[nodiscard]] Result<std::string> envelope_type(const Json& envelope) {
     auto protocol = require_string(envelope, "protocol");
-    if (!protocol || protocol.value() != "cmux.protocol/1") {
+    if (!protocol || protocol.value() != "cmux.protocol/2") {
         return make_error(
             ErrorCode::protocol,
-            "server protocol must be cmux.protocol/1");
+            "server protocol must be cmux.protocol/2");
     }
     return require_string(envelope, "type");
 }

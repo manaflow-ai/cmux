@@ -101,7 +101,7 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
 fn append(socket: &Path, event: Value) -> anyhow::Result<()> {
     let (request_id, idempotency_key) = random_identifiers()?;
     let request = json!({
-        "protocol":"cmux.protocol/1",
+        "protocol":"cmux.protocol/2",
         "type":"request",
         "id":request_id,
         "operation":"session.journal.append",
@@ -195,7 +195,7 @@ fn append_once(
     }
     let response: Value = serde_json::from_slice(&response)
         .map_err(|error| AppendAttemptError::Fatal(error.into()))?;
-    if response.get("protocol").and_then(Value::as_str) != Some("cmux.protocol/1")
+    if response.get("protocol").and_then(Value::as_str) != Some("cmux.protocol/2")
         || response.get("type").and_then(Value::as_str) != Some("response")
     {
         return Err(AppendAttemptError::Fatal(anyhow!(

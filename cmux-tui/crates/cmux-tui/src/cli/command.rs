@@ -684,13 +684,21 @@ fn parse_pane_strings(
         [selector, "split"] => {
             selectors.insert("pane", "pane", selector)?;
             let mut params = Map::new();
-            let direction = take_direction_switch(flags)?;
-            params.insert(
-                "direction".into(),
-                Value::String(direction.unwrap_or_else(|| "right".into())),
-            );
+            let direction = take_direction_switch(flags)?.unwrap_or_else(|| "right".into());
+            params.insert("direction".into(), Value::String(direction.clone()));
             if let Some(ratio) = flags.take("ratio") {
                 insert_ratio(&mut params, "ratio", "--ratio", ratio)?;
+            }
+            if let Some(viewport_width) = flags.take("viewport-width") {
+                if direction != "right" {
+                    return Err(UsageError::new("--viewport-width requires --right"));
+                }
+                insert_viewport_width(
+                    &mut params,
+                    "viewport_width",
+                    "--viewport-width",
+                    viewport_width,
+                )?;
             }
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             add_size(&mut params, flags)?;
@@ -1707,7 +1715,16 @@ fn requires_session_route(operation: ResourceOperation) -> bool {
 }
 
 fn supports_expected_revision(operation: ResourceOperation) -> bool {
-    operation.class() == OperationClass::Mutation && operation != ResourceOperation::WorkspaceCreate
+    operation.class() == OperationClass::Mutation
+        && !matches!(
+            operation,
+            ResourceOperation::FrontendProjectionPut
+                | ResourceOperation::SessionJournalAppend
+                | ResourceOperation::SessionJournalCheckpointCreate
+                | ResourceOperation::SessionJournalHookPut
+                | ResourceOperation::SessionJournalProducerPut
+                | ResourceOperation::SessionJournalSegmentSeal
+        )
 }
 
 fn validate_one_of(flag: &str, value: &str, allowed: &[&str]) -> Result<(), UsageError> {
@@ -2395,6 +2412,22 @@ fn insert_ratio(
     Ok(())
 }
 
+fn insert_viewport_width(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite() && (0.1..=1.0).contains(number))
+        .and_then(Number::from_f64)
+        .ok_or_else(|| UsageError::new(format!("{flag} must be from 0.1 through 1")))?;
+    params.insert(field.into(), Value::Number(number));
+    Ok(())
+}
+
 fn map_with(name: &str, value: Value) -> Map<String, Value> {
     let mut map = Map::new();
     map.insert(name.into(), value);
@@ -2600,7 +2633,7 @@ mod tests {
     fn operation_catalog() -> Value {
         serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../spec/resource-operations-v1.json"
+            "/../../spec/resource-operations-v2.json"
         )))
         .expect("canonical operation catalog")
     }
@@ -3641,6 +3674,8 @@ mod tests {
                     "split",
                     "--right",
                     "--ratio",
+                    "0.5",
+                    "--viewport-width",
                     "0.5",
                     "--cwd",
                     "/tmp",

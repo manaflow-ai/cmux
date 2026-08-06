@@ -1,4 +1,4 @@
-# cmux resource API v1
+# cmux resource API v2
 
 Status: normative, prelaunch, incompatible with every earlier control API.
 
@@ -31,7 +31,7 @@ without closing the terminal. `terminal.project` adds another view, and only
 single-view tab content. Sidebar extensions are session-scoped auxiliary
 resources and cannot become tabs.
 
-One `cmux.protocol/1` endpoint describes exactly one local mux session. Its
+One `cmux.protocol/2` endpoint describes exactly one local mux session. Its
 machine and session resources provide stable routing handles for that local
 session. Cross-machine discovery, aggregation, and provider lifecycle are
 reserved for a later broker protocol.
@@ -61,8 +61,8 @@ lowercase hexadecimal entropy:
 
 IDs are immutable and never reused. A durable session stores IDs with the
 logical resource and restores every ID for every resource that remains alive
-after daemon restart. Mux implementation indexes are private and cannot appear in a v1
-request, response, event, error, CLI value, or high-level SDK.
+after daemon restart. Mux implementation indexes are private and cannot appear
+in a v2 request, response, event, error, CLI value, or high-level SDK.
 
 Names are labels. They are preserved byte-for-byte, may be empty, and need
 not be unique.
@@ -117,7 +117,7 @@ Request:
 
 ```json
 {
-  "protocol": "cmux.protocol/1",
+  "protocol": "cmux.protocol/2",
   "type": "request",
   "id": "request-owned-bounded-string",
   "operation": "workspace.list",
@@ -132,7 +132,7 @@ Success:
 
 ```json
 {
-  "protocol": "cmux.protocol/1",
+  "protocol": "cmux.protocol/2",
   "type": "response",
   "id": "request-owned-bounded-string",
   "ok": true,
@@ -144,7 +144,7 @@ Failure:
 
 ```json
 {
-  "protocol": "cmux.protocol/1",
+  "protocol": "cmux.protocol/2",
   "type": "response",
   "id": "request-owned-bounded-string",
   "ok": false,
@@ -301,7 +301,7 @@ Stream items use decimal strings for sequences and cursors:
 
 ```json
 {
-  "protocol": "cmux.protocol/1",
+  "protocol": "cmux.protocol/2",
   "type": "stream_item",
   "stream_id": "stream_…",
   "sequence": "42",
@@ -383,9 +383,9 @@ cursor and recovery instructions.
 
 ## Typed operation catalog
 
-`resource-operations-v1.json` is normative for every transported operation's
+`resource-operations-v2.json` is normative for every transported operation's
 class, flat selector scopes, parameter fields and requiredness, result type,
-structured errors, and stream item/end types. `resource-operations-v1.schema.json`
+structured errors, and stream item/end types. `resource-operations-v2.schema.json`
 defines the catalog format. Unknown parameter and result fields are rejected.
 
 | Class | Semantics |

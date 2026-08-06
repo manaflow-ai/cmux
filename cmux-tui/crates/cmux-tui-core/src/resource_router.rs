@@ -1,4 +1,4 @@
-//! Shared `cmux.protocol/1` request parsing and dispatch.
+//! Shared `cmux.protocol/2` request parsing and dispatch.
 //!
 //! Unix sockets and WebSockets both call this module. The operation catalog is
 //! embedded as the one validation source so transport handlers cannot drift.
@@ -24,7 +24,7 @@ use crate::resource_api::{ResourceMachineRequest, operation_failed, public_sessi
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 
-const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v1.json");
+const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
 
 /// Resolve a live terminal path or an unscoped durable terminal receipt.
 /// Nested selectors keep normal topology containment, so a detached receipt
@@ -1740,7 +1740,7 @@ mod tests {
 
     fn request(id: &str, operation: &str, params: Value, idempotency_key: Option<&str>) -> String {
         let mut envelope = json!({
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "request",
             "id": id,
             "operation": operation,
@@ -1841,8 +1841,11 @@ mod tests {
                 Some("create-conflicting-workspace"),
             ),
         )
-        .unwrap_err();
-        assert_eq!(conflict.code, "revision.conflict");
+        .unwrap();
+        assert_eq!(conflict["ok"], false);
+        assert_eq!(conflict["error"]["code"], "revision.conflict");
+        assert_eq!(conflict["error"]["details"]["expected"], "0");
+        assert_eq!(conflict["error"]["details"]["actual"], "1");
 
         let renamed = handle_resource_message(
             &mux,
@@ -1974,7 +1977,7 @@ mod tests {
         ] {
             let error = split(direction, width, id).unwrap_err();
             assert_eq!(error.code, "validation.invalid");
-            assert_eq!(error.details["path"], "pane.split.viewport_width");
+            assert_eq!(error.details["field"], "pane.split.viewport_width");
         }
     }
 }

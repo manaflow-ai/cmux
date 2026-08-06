@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev1"
+	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev2"
 )
 
 type StreamItem[T any] struct {
@@ -212,7 +212,7 @@ func (c *Client) cancelStream(ctx context.Context, params map[string]any) error 
 	var raw json.RawMessage
 	if err := c.do(
 		ctx,
-		wirev1.StreamCancel,
+		wirev2.StreamCancel,
 		copyParams(params),
 		"",
 		&raw,
@@ -358,7 +358,7 @@ func (s *Stream[T]) consumeCancelMessage(
 func openStream[T any](
 	ctx context.Context,
 	client *Client,
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	params map[string]any,
 	decode func(json.RawMessage) (T, error),
 ) (*Stream[T], error) {
@@ -374,7 +374,7 @@ func openStream[T any](
 func openDecodedStream[T any](
 	ctx context.Context,
 	client *Client,
-	operation wirev1.Operation,
+	operation wirev2.Operation,
 	params map[string]any,
 	decode func(json.RawMessage, *Cursor) (T, error),
 ) (*Stream[T], error) {
@@ -396,14 +396,14 @@ func openDecodedStream[T any](
 	client.mu.Unlock()
 	params = copyParams(params)
 	cancelParams := make(map[string]any, 3)
-	for _, key := range []string{wirev1.FieldMachine, wirev1.FieldSession} {
+	for _, key := range []string{wirev2.FieldMachine, wirev2.FieldSession} {
 		if value, ok := params[key]; ok {
 			cancelParams[key] = value
 		}
 	}
 	cancelParams["stream"] = id
 	route.cancelParams = cancelParams
-	params[wirev1.FieldStreamID] = id
+	params[wirev2.FieldStreamID] = id
 	failOpen := func(openError error) (*Stream[T], error) {
 		client.cleanupFailedStreamOpen(id, route, openError)
 		return nil, openError
@@ -433,7 +433,7 @@ func openDecodedStream[T any](
 	}
 	openedID := StreamID("")
 	attachmentLease := ""
-	if operation.Name == wirev1.TerminalAttach.Name || operation.Name == wirev1.BrowserAttach.Name {
+	if operation.Name == wirev2.TerminalAttach.Name || operation.Name == wirev2.BrowserAttach.Name {
 		opened, decodeErr := decodeValue[ViewAttachmentStreamOpened](raw, operation.Name+" result")
 		if decodeErr != nil {
 			return failOpen(decodeErr)
@@ -517,7 +517,7 @@ func (c *Client) cleanupFailedStreamOpen(
 	var raw json.RawMessage
 	cleanupErr := c.do(
 		ctx,
-		wirev1.StreamCancel,
+		wirev2.StreamCancel,
 		copyParams(route.cancelParams),
 		"",
 		&raw,
@@ -535,7 +535,7 @@ func (c *Client) cleanupFailedStreamOpen(
 	c.mu.Unlock()
 	if cleanupErr != nil {
 		c.fail(&TransportError{
-			Operation: wirev1.StreamCancel.Name,
+			Operation: wirev2.StreamCancel.Name,
 			Err:       cleanupErr,
 		})
 	}
