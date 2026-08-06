@@ -319,7 +319,7 @@ export async function withVaultLease<T>(
       .from(coderouterVaultLeases)
       .where(eq(coderouterVaultLeases.teamId, teamId))
       .limit(1);
-    if (active) throw new CodeRouterLeaseBusy("Stack vault is busy");
+    if (active) throw new CodeRouterLeaseBusy("coderouter vault is busy");
     await tx.insert(coderouterVaultLeases).values({
       teamId,
       leaseId,

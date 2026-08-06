@@ -1,10 +1,16 @@
 import { listAccounts, markAccountCooldown } from "./repository";
 import { freshCredential } from "./refresh";
+import { readTeamVault } from "./vault";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 
 export async function accountsWithUsage(teamId: string) {
-  const accounts = await listAccounts(teamId);
+  // The account list and encrypted credential snapshot are independent.
+  // Fetch each exactly once and overlap their network round trips.
+  const [accounts, vault] = await Promise.all([
+    listAccounts(teamId),
+    readTeamVault(teamId).catch(() => null),
+  ]);
   return await Promise.all(accounts.map(async (account) => {
     if (account.provider !== "codex" || account.state !== "active") {
       return account;
@@ -14,6 +20,7 @@ export async function accountsWithUsage(teamId: string) {
         teamId,
         accountId: account.id,
         expectedRevision: 0,
+        known: vault?.accounts[account.id],
       });
       if (credential.provider !== "codex") return account;
       const response = await fetch(CODEX_USAGE_URL, {

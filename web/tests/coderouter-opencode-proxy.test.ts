@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { __test } from "../services/coderouter/opencodeProxy";
 
-describe("CodeRouter OpenCode Go proxy", () => {
+describe("coderouter OpenCode Go proxy", () => {
   test("rewrites provider traffic through coderouter.dev without upstream secrets", () => {
     const rewritten = __test.rewriteProviders({
       go: {
