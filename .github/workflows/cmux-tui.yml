@@ -45,14 +45,14 @@ jobs:
   valgrind-leak-check-shard:
     name: valgrind-leak-check (${{ matrix.shard }})
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # The core and remote suites are intentionally serialized under
-    # instrumentation. Isolate them so neither can consume the other test
-    # binaries' runtime budget.
+    # The core, remote, and application suites are intentionally serialized
+    # under instrumentation. Isolate them so none can consume another test
+    # binary group's runtime budget.
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        shard: [core, remote, remainder]
+        shard: [core, remote, tui, remainder]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -95,7 +95,7 @@ jobs:
           import sys
 
           shard = os.environ["VALGRIND_SHARD"]
-          known_shards = {"core", "remote", "remainder"}
+          known_shards = {"core", "remote", "tui", "remainder"}
           if shard not in known_shards:
               raise SystemExit(f"unknown Valgrind shard: {shard}")
 
@@ -105,6 +105,8 @@ jobs:
                   return "core"
               if re.fullmatch(r"cmux_remote-[0-9a-f]+", name):
                   return "remote"
+              if re.fullmatch(r"cmux_tui-[0-9a-f]+", name):
+                  return "tui"
               return "remainder"
 
           seen = set()
@@ -171,7 +173,7 @@ jobs:
             valgrind_args=(--track-origins=yes)
             test_args=()
             case "$(basename "$bin")" in
-              pty-*|cmux_tui_core-*)
+              pty-*|cmux_tui_core-*|cmux_tui-[[:xdigit:]]*)
                 # These tests own bounded worker pools, PTYs, sockets, and
                 # deadline-sensitive readers. Valgrind serializes their CPU
                 # work internally, so test-harness parallelism only creates
