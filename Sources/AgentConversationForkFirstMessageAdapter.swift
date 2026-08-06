@@ -31,6 +31,7 @@ struct AgentConversationForkFirstMessageAdapter {
         set cmux_confirmation_prompt [encoding convertfrom utf-8 [binary format H* {\(encodedConfirmationPrompt)}]]
         set cmux_sent 0
         set cmux_abandoned 0
+        set cmux_blocked 0
         set cmux_confirmation_pending 0
         set cmux_user_eof 0
         set cmux_ready_timer ""
@@ -67,9 +68,9 @@ struct AgentConversationForkFirstMessageAdapter {
         }
 
         proc cmux_request_confirmation {} {
-          global cmux_abandoned cmux_confirmation_pending cmux_confirmation_prompt
+          global cmux_abandoned cmux_blocked cmux_confirmation_pending cmux_confirmation_prompt
           global cmux_sent cmux_user_eof
-          if {$cmux_sent || $cmux_abandoned || $cmux_confirmation_pending} { return }
+          if {$cmux_sent || $cmux_abandoned || $cmux_blocked || $cmux_confirmation_pending} { return }
           cmux_cancel_confirmation
           cmux_cancel_fallback
           if {$cmux_user_eof} {
@@ -81,9 +82,9 @@ struct AgentConversationForkFirstMessageAdapter {
         }
 
         proc cmux_submit_message {} {
-          global cmux_abandoned cmux_confirmation_pending cmux_deadline_timer
+          global cmux_abandoned cmux_blocked cmux_confirmation_pending cmux_deadline_timer
           global cmux_message cmux_sent spawn_id
-          if {$cmux_sent || $cmux_abandoned || !$cmux_confirmation_pending} { return }
+          if {$cmux_sent || $cmux_abandoned || $cmux_blocked || !$cmux_confirmation_pending} { return }
           cmux_cancel_confirmation
           cmux_cancel_fallback
           set cmux_sent 1
@@ -97,22 +98,25 @@ struct AgentConversationForkFirstMessageAdapter {
         }
 
         proc cmux_schedule_confirmation {} {
-          global cmux_abandoned cmux_confirmation_pending cmux_ready_timer cmux_sent
+          global cmux_abandoned cmux_blocked cmux_confirmation_pending cmux_ready_timer cmux_sent
           if {$cmux_sent || $cmux_abandoned || $cmux_confirmation_pending} { return }
+          set cmux_blocked 0
           cmux_cancel_confirmation
           set cmux_ready_timer [after 750 cmux_request_confirmation]
         }
 
         proc cmux_schedule_fallback {} {
-          global cmux_abandoned cmux_confirmation_pending cmux_fallback_timer cmux_sent
-          if {$cmux_sent || $cmux_abandoned || $cmux_confirmation_pending} { return }
+          global cmux_abandoned cmux_blocked cmux_confirmation_pending cmux_fallback_timer cmux_sent
+          if {$cmux_sent || $cmux_abandoned || $cmux_blocked || $cmux_confirmation_pending} { return }
           cmux_cancel_fallback
           set cmux_fallback_timer [after 2500 cmux_request_confirmation]
         }
 
         proc cmux_blocking_prompt {} {
+          global cmux_blocked
+          set cmux_blocked 1
           cmux_cancel_confirmation
-          cmux_schedule_fallback
+          cmux_cancel_fallback
         }
 
         proc cmux_deadline_reached {} {
