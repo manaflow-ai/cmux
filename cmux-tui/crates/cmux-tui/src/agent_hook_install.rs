@@ -1092,6 +1092,9 @@ mod tests {
             serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
                 .unwrap();
         let command = root["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(command.len() <= 128, "hook command is {} bytes: {command}", command.len());
+        assert!(!command.contains("CMUX_TUI_SOCKET"));
+        assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
 
         let output = Command::new("/bin/sh")
             .args(["-c", command])
@@ -1106,7 +1109,7 @@ mod tests {
 
         let output = Command::new("/bin/sh")
             .args(["-c", command])
-            .env("CMUX_TUI_SOCKET", "/tmp/cmux-test.sock")
+            .env_remove("CMUX_TUI_SOCKET")
             .env("CMUX_TUI_HOOK", context.installed_helper())
             .env("CAPTURE", &capture)
             .output()
