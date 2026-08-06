@@ -271,3 +271,10 @@ jobs:
       - name: cargo build cmux-tui for Windows GNU
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
+
+      - name: Verify native Windows remote probe
+        shell: bash
+        run: |
+          output="$(cmux-tui/target/x86_64-pc-windows-gnu/debug/cmux-tui.exe remote-probe --json)"
+          printf '%s\n' "$output"
+          python -c 'import json,sys; probe=json.load(sys.stdin); assert probe["app"] == "cmux-tui"; assert probe["os"] == "windows"' <<<"$output"

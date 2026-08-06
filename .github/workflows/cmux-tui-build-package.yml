@@ -378,16 +378,12 @@ jobs:
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target x86_64-pc-windows-gnu
 
-      - name: Verify remote commands fail clearly on Windows
+      - name: Verify native Windows remote probe
         shell: bash
         run: |
-          set +e
-          output="$(cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-probe --json 2>&1)"
-          status=$?
-          set -e
+          output="$(cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-probe --json)"
           printf '%s\n' "$output"
-          test "$status" -eq 1
-          grep -F "remote daemon commands require Unix sockets" <<<"$output"
+          python -c 'import json,sys; probe=json.load(sys.stdin); assert probe["app"] == "cmux-tui"; assert probe["os"] == "windows"' <<<"$output"
 
       - name: Stage binary
         shell: bash
