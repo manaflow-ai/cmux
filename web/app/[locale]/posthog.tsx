@@ -3,7 +3,7 @@
 import { PostHogProvider as PHProvider } from "posthog-js/react";
 import { useUser } from "@stackframe/stack";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useLayoutEffect, Suspense } from "react";
+import { useLayoutEffect, useRef, Suspense } from "react";
 import { posthog } from "../lib/posthog-client";
 import {
   STACK_IDENTITY_STORAGE_KEY,
@@ -14,6 +14,7 @@ import {
 function PageviewTracker({ authRevision }: { authRevision?: string }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const lastCapturedUrl = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     if (!pathname || !posthog) return;
@@ -37,10 +38,22 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
       let url = window.origin + pathname;
       const search = searchParams.toString();
       if (search) url += "?" + search;
+      if (lastCapturedUrl.current === url) return;
+      lastCapturedUrl.current = url;
       posthog.capture("$pageview", { $current_url: url });
     };
     const clearUnresolvedIdentity = () => {
       syncStackAnalyticsIdentity(posthog, identityStorage, null);
+    };
+    const finishPendingPageview = () => {
+      if (!pageviewPending) return;
+      pageviewPending = false;
+      capturePageview();
+    };
+    const recoverAsAnonymous = () => {
+      clearUnresolvedIdentity();
+      posthog.set_config({ before_send: (event) => event });
+      finishPendingPageview();
     };
 
     const resolveIdentity = async () => {
@@ -48,6 +61,10 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
       activeController?.abort();
       const controller = new AbortController();
       activeController = controller;
+      const requestSignal = AbortSignal.any([
+        controller.signal,
+        AbortSignal.timeout(5_000),
+      ]);
       // Drop every event while auth is unresolved. This covers autocapture and
       // captures from other components, not only the pending pageview.
       posthog.set_config({ before_send: () => null });
@@ -56,11 +73,11 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
         const response = await fetch("/api/analytics/identity", {
           cache: "no-store",
           credentials: "same-origin",
-          signal: controller.signal,
+          signal: requestSignal,
         });
         if (controller.signal.aborted || currentGeneration !== generation) return;
         if (!response.ok) {
-          clearUnresolvedIdentity();
+          recoverAsAnonymous();
           return;
         }
         const payload = await response.json() as {
@@ -76,28 +93,29 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
             typeof payload.user?.id !== "string"
             || (plan !== "free" && plan !== "pro" && plan !== "team")
           ) {
-            clearUnresolvedIdentity();
+            recoverAsAnonymous();
             return;
           }
           identity = { id: payload.user.id, plan };
         }
         posthog.set_config({ before_send: (event) => event });
         syncStackAnalyticsIdentity(posthog, identityStorage, identity);
-        if (pageviewPending) {
-          pageviewPending = false;
-          capturePageview();
-        }
+        finishPendingPageview();
       } catch {
         // Fail closed: an unresolved auth state must not attribute this route
         // or later autocapture to an identity retained from before a logout.
         if (!controller.signal.aborted && currentGeneration === generation) {
-          clearUnresolvedIdentity();
+          recoverAsAnonymous();
         }
+      } finally {
+        if (currentGeneration === generation) activeController = null;
       }
     };
 
     const revalidateVisibleIdentity = () => {
-      if (document.visibilityState === "visible") void resolveIdentity();
+      if (document.visibilityState === "visible" && !activeController) {
+        void resolveIdentity();
+      }
     };
     const revalidateCrossTabIdentity = (event: StorageEvent) => {
       if (event.key === STACK_IDENTITY_STORAGE_KEY) void resolveIdentity();
