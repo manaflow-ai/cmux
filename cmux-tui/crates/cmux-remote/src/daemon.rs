@@ -1871,6 +1871,7 @@ mod tests {
     use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 
     use super::*;
+    #[cfg(unix)]
     use crate::unix_socket::TestFileDescriptorExhaustion;
 
     #[cfg(unix)]
