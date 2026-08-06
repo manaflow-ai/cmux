@@ -471,20 +471,25 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	}
 }
 
-func TestTerminalSnapshotsRejectMalformedViewIdentities(t *testing.T) {
+func TestTerminalSnapshotsRejectMalformedTabIdentities(t *testing.T) {
+	const tabID = "tab_00000000000000000000000000000006"
 	tests := []struct {
-		name   string
-		fields map[string]any
+		name       string
+		selected   any
+		projected  []any
+		omitTabID  bool
+		omitTabIDs bool
 	}{
-		{name: "missing tab_ids", fields: map[string]any{}},
-		{name: "empty projected identity", fields: map[string]any{"tab_ids": []any{""}}},
-		{name: "null tab_ids", fields: map[string]any{"tab_ids": nil}},
+		{name: "missing legacy and multiview identities", omitTabID: true, omitTabIDs: true},
+		{name: "missing compatibility alias", projected: []any{}, omitTabID: true},
+		{name: "empty legacy compatibility alias", selected: "", omitTabIDs: true},
+		{name: "empty selected identity", selected: "", projected: []any{""}},
+		{name: "empty projected identity", selected: tabID, projected: []any{tabID, ""}},
+		{name: "null multiview identities", selected: tabID, projected: nil},
 		{
 			name: "inconsistent legacy alias",
-			fields: map[string]any{
-				"tab_id":  "tab_11111111111111111111111111111111",
-				"tab_ids": []any{"tab_00000000000000000000000000000006"},
-			},
+			selected:  "tab_11111111111111111111111111111111",
+			projected: []any{tabID},
 		},
 	}
 	for _, test := range tests {
@@ -497,8 +502,11 @@ func TestTerminalSnapshotsRejectMalformedViewIdentities(t *testing.T) {
 				"running":   true,
 				"lifecycle": "running",
 			}
-			for key, value := range test.fields {
-				fields[key] = value
+			if !test.omitTabID {
+				fields["tab_id"] = test.selected
+			}
+			if !test.omitTabIDs {
+				fields["tab_ids"] = test.projected
 			}
 			raw, err := json.Marshal(fields)
 			if err != nil {

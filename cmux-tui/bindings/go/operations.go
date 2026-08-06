@@ -923,9 +923,30 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 			return fmt.Errorf("tab snapshot ids must be present")
 		}
 	case *TerminalSnapshot:
+		var terminalFields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &terminalFields); err != nil {
+			return err
+		}
+		if _, hasTabID := terminalFields["tab_id"]; !hasTabID {
+			return fmt.Errorf("omitted required field tab_id")
+		}
+		if _, hasTabIDs := terminalFields["tab_ids"]; !hasTabIDs {
+			if decoded.TabID == nil {
+				decoded.TabIDs = []TabID{}
+			} else {
+				decoded.TabIDs = []TabID{*decoded.TabID}
+			}
+		}
 		if decoded.ID == "" || decoded.TabIDs == nil ||
 			decoded.Cols == 0 || decoded.Rows == 0 {
 			return fmt.Errorf("terminal snapshot ids and dimensions must be present")
+		}
+		if len(decoded.TabIDs) == 0 {
+			if decoded.TabID != nil {
+				return fmt.Errorf("terminal tab_id must be null when tab_ids is empty")
+			}
+		} else if decoded.TabID == nil || *decoded.TabID != decoded.TabIDs[0] {
+			return fmt.Errorf("terminal tab_id must be the first tab_ids item")
 		}
 		switch decoded.Lifecycle {
 		case TerminalLifecycleLaunching, TerminalLifecycleRunning,

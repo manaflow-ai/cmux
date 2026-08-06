@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BROWSER_MACOS_NIGHTLY_AVAILABLE,
+  BROWSER_MACOS_NIGHTLY_DOWNLOAD,
+  BROWSER_NIGHTLY_PAGE,
   BROWSER_NIGHTLY_RELEASE_URL,
   BROWSER_RELEASE_REPOSITORY_URL,
   DOWNLOAD_PLATFORMS,
@@ -23,6 +26,12 @@ const PLATFORM_PAGE_SOURCE = fileURLToPath(
     import.meta.url,
   ),
 );
+const BROWSER_PAGE_SOURCE = fileURLToPath(
+  new URL("../app/[locale]/(landing)/browser/page.tsx", import.meta.url),
+);
+const DOWNLOAD_BUTTON_SOURCE = fileURLToPath(
+  new URL("../app/[locale]/components/download-button.tsx", import.meta.url),
+);
 
 describe("Windows and Linux downloads", () => {
   test("publishes Linux without leaking the private product repository", () => {
@@ -41,6 +50,14 @@ describe("Windows and Linux downloads", () => {
     expect(PLATFORM_DOWNLOADS.linux.secondary.url).toBe(
       "/api/download/browser-nightly/linux-x64/deb",
     );
+    expect(BROWSER_NIGHTLY_PAGE).toBe("/browser");
+    expect(BROWSER_MACOS_NIGHTLY_AVAILABLE).toBe(false);
+    expect(BROWSER_MACOS_NIGHTLY_DOWNLOAD.primary.url).toBe(
+      "/api/download/browser-nightly/mac-arm64/dmg",
+    );
+    expect(BROWSER_MACOS_NIGHTLY_DOWNLOAD.secondary.url).toBe(
+      "/api/download/browser-nightly/mac-arm64/zip",
+    );
     expect(BROWSER_RELEASE_REPOSITORY_URL).toBe(
       "https://github.com/manaflow-ai/cmux-v2",
     );
@@ -48,6 +65,9 @@ describe("Windows and Linux downloads", () => {
       "https://github.com/manaflow-ai/cmux-v2/releases/tag/nightly",
     );
     expect(JSON.stringify(PLATFORM_DOWNLOADS)).not.toContain("cmux-browser");
+    expect(JSON.stringify(BROWSER_MACOS_NIGHTLY_DOWNLOAD)).not.toContain(
+      "cmux-browser",
+    );
   });
 
   test("keeps direct links and waitlists coherent for every release state", () => {
@@ -124,6 +144,11 @@ describe("Windows and Linux downloads", () => {
   test("publishes Linux and keeps unavailable Windows out of the sitemap", () => {
     expect(
       sitemap().filter((entry) =>
+        new URL(entry.url).pathname.endsWith(BROWSER_NIGHTLY_PAGE),
+      ),
+    ).toHaveLength(locales.length);
+    expect(
+      sitemap().filter((entry) =>
         new URL(entry.url).pathname.endsWith("/windows"),
       ),
     ).toEqual([]);
@@ -132,6 +157,21 @@ describe("Windows and Linux downloads", () => {
         new URL(entry.url).pathname.endsWith("/linux"),
       ),
     ).toHaveLength(locales.length);
+  });
+
+  test("makes Browser downloads discoverable without enabling unsigned platforms", async () => {
+    const [browserPage, downloadButton] = await Promise.all([
+      readFile(BROWSER_PAGE_SOURCE, "utf8"),
+      readFile(DOWNLOAD_BUTTON_SOURCE, "utf8"),
+    ]);
+
+    expect(browserPage).toContain("BROWSER_MACOS_NIGHTLY_AVAILABLE");
+    expect(browserPage).toContain("PLATFORM_DOWNLOAD_AVAILABILITY.windows");
+    expect(browserPage).toContain("PLATFORM_DOWNLOAD_AVAILABILITY.linux");
+    expect(browserPage).toContain('getTranslations("waitlist")');
+    expect(browserPage).not.toContain('getTranslations("vault.detail")');
+    expect(downloadButton).toContain("BROWSER_NIGHTLY_PAGE");
+    expect(downloadButton).toContain("cmux_browser_nightly_page_clicked");
   });
 
   test("wraps long localized installer labels on narrow screens", async () => {
