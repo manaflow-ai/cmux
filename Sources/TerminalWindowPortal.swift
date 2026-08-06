@@ -74,7 +74,6 @@ final class WindowTerminalHostView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        invalidateSplitDividerRegionCache()
         let regions = splitDividerRegions()
         let expansion = PortalSplitDividerRegion.dividerHitExpansion
         for region in regions {
