@@ -34,11 +34,43 @@ if [ -n "${CFFIXED_USER_HOME:-}" ]; then
   unset SSH_AUTH_SOCK
 fi
 
+prepare_app_host_home_for_console_user() {
+  local console_user="$1"
+  [ -n "${CFFIXED_USER_HOME:-}" ] || return 0
+
+  if [ -z "${RUNNER_TEMP:-}" ]; then
+    echo "FAIL: app-host isolation requires a runner temporary directory" >&2
+    return 1
+  fi
+
+  local app_host_home runner_temp
+  app_host_home="$(cd "$CFFIXED_USER_HOME" 2>/dev/null && pwd -P)" || {
+    echo "FAIL: app-host isolation directory is unavailable" >&2
+    return 1
+  }
+  runner_temp="$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P)" || {
+    echo "FAIL: runner temporary directory is unavailable" >&2
+    return 1
+  }
+
+  case "$app_host_home" in
+    "$runner_temp"/*) ;;
+    *)
+      echo "FAIL: app-host isolation directory is outside the runner temporary directory" >&2
+      return 1
+      ;;
+  esac
+
+  sudo -n chown -R "$console_user" "$app_host_home"
+  sudo -n chmod -R u+rwX,go-rwx "$app_host_home"
+}
+
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
 if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   && console_uid="$(id -u "$console_user" 2>/dev/null)" && sudo -n true 2>/dev/null; then
   console_home="$( (dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
   [ -n "$console_home" ] || console_home="$HOME"
+  prepare_app_host_home_for_console_user "$console_user"
 
   # Forward only environment variables that are actually set, with their real
   # values, so we mirror the current environment exactly. Never inject an empty

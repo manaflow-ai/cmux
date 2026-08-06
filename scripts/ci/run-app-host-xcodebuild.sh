@@ -78,21 +78,37 @@ validate_app_host_config_paths() {
   local log_path="$1"
   [ -n "$app_host_home" ] || return 0
 
+  if [ ! -r "$log_path" ]; then
+    echo "FAIL: app-host configuration log could not be scanned" >&2
+    return 1
+  fi
+
   local expected_root="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty"
-  local line
+  local matches scan_status line
+  if matches="$(grep -E '\[(config|default)\].*path=.*Library/Application Support/com\.mitchellh\.ghostty' "$log_path")"; then
+    scan_status=0
+  else
+    scan_status=$?
+  fi
+
+  if [ "$scan_status" -eq 1 ]; then
+    return 0
+  fi
+  if [ "$scan_status" -gt 1 ]; then
+    echo "FAIL: app-host configuration log could not be scanned" >&2
+    return 1
+  fi
+
   while IFS= read -r line; do
     case "$line" in
-      *"path=$expected_root"*) ;;
+      *"path=$expected_root/"*) ;;
       *)
         echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
         echo "$line" >&2
         return 1
         ;;
     esac
-  done < <(
-    grep -E '\[(config|default)\].*path=.*Library/Application Support/com\.mitchellh\.ghostty' \
-      "$log_path" || true
-  )
+  done <<< "$matches"
 }
 
 attempt=1
