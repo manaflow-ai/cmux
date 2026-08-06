@@ -696,7 +696,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
             let snapshot = rpc(
                 &socket_path,
                 json!({
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "request",
                     "id": "popup-public-snapshot",
                     "operation": "session.snapshot",

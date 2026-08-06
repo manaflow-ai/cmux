@@ -1,11 +1,11 @@
-// Package wirev1 centralizes the resource API's wire vocabulary.
+// Package wirev2 centralizes the resource API's wire vocabulary.
 //
 // It is internal so the public facade can evolve without exposing protocol
 // spelling as API. The raw protocol package remains available separately at
 // github.com/manaflow-ai/cmux/cmux-tui/bindings/go/raw.
-package wirev1
+package wirev2
 
-const Protocol = "cmux.protocol/1"
+const Protocol = "cmux.protocol/2"
 
 type Class uint8
 
