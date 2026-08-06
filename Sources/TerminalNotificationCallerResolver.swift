@@ -160,8 +160,9 @@ extension TerminalController {
 
         if let preferredWorkspaceId,
            let workspace = workspace(id: preferredWorkspaceId, tabManagers: managers) {
-            if let preferredSurfaceId, workspace.panels[preferredSurfaceId] != nil {
-                return TerminalCallerTarget(workspace: workspace, surfaceId: preferredSurfaceId)
+            if let preferredSurfaceId,
+               let target = workspace.surfaceOwnershipTarget(for: preferredSurfaceId) {
+                return TerminalCallerTarget(workspace: workspace, surfaceId: target.surfaceID)
             }
             // Moved pane (issue #7939): the explicit surface identity outranks
             // the stale spawn-time workspace claim — follow the surface to the
@@ -172,7 +173,10 @@ extension TerminalController {
                 return surfaceTarget
             }
             if let ttyTarget, ttyTarget.workspace.id == workspace.id { return ttyTarget }
-            return TerminalCallerTarget(workspace: workspace, surfaceId: workspace.focusedPanelId)
+            let focusedSurfaceID = workspace.focusedPanelId.flatMap {
+                workspace.surfaceOwnershipTarget(for: $0)?.surfaceID
+            }
+            return TerminalCallerTarget(workspace: workspace, surfaceId: focusedSurfaceID)
         }
 
         if let ttyTarget { return ttyTarget }
@@ -182,11 +186,14 @@ extension TerminalController {
         }
         if let preferredSurfaceId,
            let selected = selectedWorkspace(in: managers),
-           selected.panels[preferredSurfaceId] != nil {
-            return TerminalCallerTarget(workspace: selected, surfaceId: preferredSurfaceId)
+           let target = selected.surfaceOwnershipTarget(for: preferredSurfaceId) {
+            return TerminalCallerTarget(workspace: selected, surfaceId: target.surfaceID)
         }
         guard let selected = selectedWorkspace(in: managers) else { return nil }
-        return TerminalCallerTarget(workspace: selected, surfaceId: selected.focusedPanelId)
+        let focusedSurfaceID = selected.focusedPanelId.flatMap {
+            selected.surfaceOwnershipTarget(for: $0)?.surfaceID
+        }
+        return TerminalCallerTarget(workspace: selected, surfaceId: focusedSurfaceID)
     }
 
     private static func candidateManagers(
@@ -303,8 +310,11 @@ extension TerminalController {
         tabManagers: [TabManager]
     ) -> TerminalCallerTarget? {
         for manager in tabManagers {
-            for workspace in manager.tabs where workspace.panels[surfaceId] != nil {
-                return TerminalCallerTarget(workspace: workspace, surfaceId: surfaceId)
+            for workspace in manager.tabs {
+                guard let target = workspace.surfaceOwnershipTarget(for: surfaceId) else {
+                    continue
+                }
+                return TerminalCallerTarget(workspace: workspace, surfaceId: target.surfaceID)
             }
         }
         return nil

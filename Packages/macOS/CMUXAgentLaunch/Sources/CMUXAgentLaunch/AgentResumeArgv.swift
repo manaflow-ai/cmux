@@ -121,13 +121,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// Wraps a rendered claude resume/fork command so it parses in any login shell.
     ///
     /// ``claudeWrapperShellExecutableToken`` is POSIX-only syntax, but the rendered
-    /// command is not always parsed by a POSIX shell: the restore launcher dispatches it
-    /// through the user's `$SHELL` (`TerminalStartupReturnShellScript` runs
-    /// `"$_cmux_resume_shell" -c <command>` for its `csh|tcsh` and `*` branches), and the
-    /// session-index resume command is typed into — and copy-pasted into — the user's
-    /// interactive shell. fish rejects `${…}` outright and csh/tcsh have no `:-` modifier,
-    /// so the raw token turns claude resume into a hard parse error there, even though the
-    /// pre-token command was valid in those shells.
+    /// command is not always parsed by a POSIX shell: the session-index resume command is
+    /// typed into — and copy-pasted into — the user's interactive shell. fish rejects `${…}`
+    /// outright and csh/tcsh have no `:-` modifier, so the raw token turns claude resume
+    /// into a hard parse error there, even though the pre-token command was valid in those
+    /// shells.
     ///
     /// `/bin/sh -c '<command>'` is the one spelling every dispatching shell parses
     /// identically (plain words plus single-quote escaping, which zsh, bash, fish, csh,

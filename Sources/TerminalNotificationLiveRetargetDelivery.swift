@@ -121,6 +121,7 @@ extension TerminalNotificationStore {
             surfaceId: target.surfaceId,
             panelId: request.panelId,
             retargetsToLiveSurfaceOwner: true,
+            correlationKey: request.correlationKey,
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,

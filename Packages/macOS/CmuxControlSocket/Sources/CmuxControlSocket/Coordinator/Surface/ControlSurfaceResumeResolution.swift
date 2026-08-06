@@ -16,6 +16,9 @@ public enum ControlSurfaceResumeResolution: Sendable, Equatable {
     /// `resume.set` rejected an empty resume command (legacy `invalid_params` /
     /// "Resume command is empty").
     case emptyResumeCommand
+    /// Approval data is still loading, so the caller should retry without
+    /// treating the request as invalid.
+    case approvalPending(message: String)
     /// `resume.set`'s store call failed for any other reason (legacy
     /// `internal_error` / "Failed to set resume binding").
     case setFailed

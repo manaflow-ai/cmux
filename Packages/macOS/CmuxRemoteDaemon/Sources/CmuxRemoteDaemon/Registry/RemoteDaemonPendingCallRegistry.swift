@@ -5,10 +5,10 @@ public import Foundation
 /// `WorkspaceRemoteDaemonPendingCallRegistry`).
 ///
 /// Isolation design (queue + semaphore, deliberately not an actor):
-/// - **Who mutates:** `register`/`resolve`/`failAll`/`remove`/`reset` run from
-///   arbitrary caller threads and from the RPC client's state queue; every
-///   mutation of `nextRequestID` and `pendingCalls` hops through the private
-///   serial `queue` via `queue.sync`.
+/// - **Who mutates:** `register`/`registerIfIdle`/`resolve`/`failAll`/`remove`/
+///   `reset` run from arbitrary caller threads and from the RPC client's state
+///   queue; every mutation of `nextRequestID` and `pendingCalls` hops through
+///   the private serial `queue` via `queue.sync`.
 /// - **Who reads:** the caller of ``wait(for:timeout:)`` blocks its own thread
 ///   on the call's `DispatchSemaphore` (it cannot await; the daemon RPC
 ///   surface is synchronous by contract), then re-enters `queue` to consume
@@ -78,10 +78,17 @@ public final class RemoteDaemonPendingCallRegistry: @unchecked Sendable {
     /// Allocates the next request id and registers a call for it.
     public func register() -> PendingCall {
         queue.sync {
-            let call = PendingCall(id: nextRequestID)
-            nextRequestID += 1
-            pendingCalls[call.id] = call
-            return call
+            registerLocked()
+        }
+    }
+
+    /// Allocates and registers a call only when no other RPC is awaiting a
+    /// response. Used by transport probes so ordinary RPC timeouts remain the
+    /// sole liveness owner while application work is in flight.
+    public func registerIfIdle() -> PendingCall? {
+        queue.sync {
+            guard pendingCalls.isEmpty else { return nil }
+            return registerLocked()
         }
     }
 
@@ -146,5 +153,12 @@ public final class RemoteDaemonPendingCallRegistry: @unchecked Sendable {
             }
             return .response(response)
         }
+    }
+
+    private func registerLocked() -> PendingCall {
+        let call = PendingCall(id: nextRequestID)
+        nextRequestID += 1
+        pendingCalls[call.id] = call
+        return call
     }
 }

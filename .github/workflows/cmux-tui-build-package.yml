@@ -35,6 +35,9 @@ on:
 
 permissions: {}
 
+env:
+  RUST_TOOLCHAIN: "1.95.0"
+
 jobs:
   build:
     name: build ${{ matrix.target }}
@@ -47,21 +50,29 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
+            build_target: aarch64-apple-darwin
             runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
             cross: false
             ext: ""
+            compatibility_target: ""
           - target: x86_64-apple-darwin
+            build_target: x86_64-apple-darwin
             runner: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
             cross: true
             ext: ""
-          - target: x86_64-unknown-linux-gnu
-            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-            cross: false
-            ext: ""
-          - target: aarch64-unknown-linux-gnu
+            compatibility_target: ""
+          - target: x86_64-unknown-linux-musl
+            build_target: x86_64-unknown-linux-musl
             runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
             cross: true
             ext: ""
+            compatibility_target: x86_64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
+            build_target: aarch64-unknown-linux-musl
+            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            cross: true
+            ext: ""
+            compatibility_target: aarch64-unknown-linux-gnu
     steps:
       - name: Checkout caller ref
         if: inputs.checkout_ref == ''
@@ -83,24 +94,41 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          sudo apt-get install -y binutils clang libclang-dev musl-tools pkg-config
+
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        shell: bash
+        run: |
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.15.2
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: Install Rust target
         shell: bash
         run: rustup target add ${{ matrix.target }}
 
       - name: Install cargo-zigbuild
-        if: matrix.cross == true
+        if: matrix.cross == true && runner.os == 'Linux'
         shell: bash
         run: cargo install --locked cargo-zigbuild@0.20.0
 
       - name: Build cmux-tui (native)
         if: matrix.cross == false
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
+          PACKAGE_NPM: ${{ inputs.package_npm }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -109,11 +137,19 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
-          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
-          cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
+            export CMUX_TUI_NPM_BOOTSTRAP_VERSION
+          fi
+          cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
 
-      - name: Build cmux-tui (cross)
-        if: matrix.cross == true
+      - name: Build cmux-tui (Linux cross)
+        if: matrix.cross == true && runner.os == 'Linux'
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
+          PACKAGE_NPM: ${{ inputs.package_npm }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -122,29 +158,161 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
-          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
-          cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.target }}
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
+            export CMUX_TUI_NPM_BOOTSTRAP_VERSION
+          fi
+          cargo zigbuild -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+          cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
+
+      - name: Build cmux-tui (macOS cross)
+        if: matrix.cross == true && runner.os == 'macOS'
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
+          PACKAGE_NPM: ${{ inputs.package_npm }}
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          # Xcode's macOS SDK natively supports cross-architecture builds.
+          # cargo-zigbuild cannot resolve SDK frameworks when the host is arm64.
+          unset CMUX_GHOSTTY_SRC
+          CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
+            export CMUX_TUI_NPM_BOOTSTRAP_VERSION
+          fi
+          cargo build -p cmux-tui --bin cmux-tui --release --locked --target ${{ matrix.build_target }}
+          cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
 
       - name: Stage binary
         shell: bash
         run: |
           mkdir -p dist
-          cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
+          binary="dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
+          relay_binary="dist/cmux-relay-${{ matrix.target }}${{ matrix.ext }}"
+          cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
+          cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
+          if [[ -n "${{ matrix.compatibility_target }}" ]]; then
+            cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+            cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+          fi
           ls -la dist
+
+      - name: Verify non-npm binaries disable SSH auto-install
+        if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-musl' && inputs.package_npm == false
+        shell: bash
+        run: |
+          CMUX_TUI_PROBE="$(dist/cmux-tui-${{ matrix.target }} remote-probe --json)"
+          CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
+          export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
+          python3 - <<'PY'
+          import json
+          import os
+
+          probe = json.loads(os.environ["CMUX_TUI_PROBE"])
+          expected_identity = os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"]
+          if probe.get("build_identity") != expected_identity:
+              raise SystemExit(
+                  f"binary build identity {probe.get('build_identity')!r} "
+                  f"!= {expected_identity!r}"
+              )
+          if probe.get("npm_bootstrap_version") is not None:
+              raise SystemExit(
+                  "non-npm binary unexpectedly advertises npm bootstrap version "
+                  f"{probe.get('npm_bootstrap_version')!r}"
+              )
+          PY
+
+      - name: Smoke-test release remote sessions
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        shell: bash
+        run: cmux-tui/scripts/smoke-remote-release.sh "dist/cmux-tui-${{ matrix.target }}"
+
+      - name: Test release remote sequence rollback
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        working-directory: cmux-tui
+        shell: bash
+        run: >-
+          cargo test --release --locked --target ${{ matrix.target }}
+          -p cmux-remote queue_admission_failure_rolls_back_sequence_and_replay
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-tui-${{ matrix.target }}
-          path: dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}
+          path: dist/cmux-tui-*${{ matrix.ext }}
           if-no-files-found: error
+
+      - name: Upload relay binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-relay-${{ matrix.target }}
+          path: dist/cmux-relay-*${{ matrix.ext }}
+          if-no-files-found: error
+
+  cloudflare-relay:
+    name: Cloudflare Durable Object relay
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    env:
+      RUSTUP_TOOLCHAIN: "1.91.0"
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: cmux-tui/relays/cloudflare-do
+    steps:
+      - name: Checkout caller ref
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          cache: npm
+          cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
+
+      - name: Install pinned Rust toolchain and Worker builder
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component clippy --target wasm32-unknown-unknown
+          cargo install --locked worker-build@0.8.5
+
+      - name: Install pinned npm dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Test and lint relay
+        run: |
+          python3 tests/validate_wrangler_config.py
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+      - name: Build Worker
+        run: npm run build
+
+      - name: Validate Wrangler deployment bundle
+        run: npx --no-install wrangler deploy --dry-run --outdir "$RUNNER_TEMP/cmux-cloudflare-relay"
 
   build-windows:
     name: build x86_64-pc-windows-gnu
     if: inputs.include_windows
     runs-on: ${{ vars.WINDOWS_RUNNER || 'windows-latest' }}
     timeout-minutes: 60
-    continue-on-error: true
     permissions:
       contents: read
     steps:
@@ -164,10 +332,24 @@ jobs:
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
 
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        shell: bash
+        run: |
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.15.2
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: Install Rust target
         shell: bash
@@ -176,6 +358,9 @@ jobs:
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
       - name: Build libghostty-vt + cmux-tui (Windows GNU)
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: ${{ inputs.version }}
+          PACKAGE_NPM: ${{ inputs.package_npm }}
         shell: bash
         run: |
           # Keep the manual Zig build and Cargo's build script on the same
@@ -183,11 +368,26 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git rev-parse HEAD)"
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty rev-parse HEAD)"
-          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
+            export CMUX_TUI_NPM_BOOTSTRAP_VERSION
+          fi
           cd ghostty
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target x86_64-pc-windows-gnu
+
+      - name: Verify remote commands fail clearly on Windows
+        shell: bash
+        run: |
+          set +e
+          output="$(cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-probe --json 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -eq 1
+          grep -F "remote daemon commands require Unix sockets" <<<"$output"
 
       - name: Stage binary
         shell: bash
@@ -243,13 +443,13 @@ jobs:
       - name: Download linux x64 binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-tui-x86_64-unknown-linux-gnu
+          name: cmux-tui-x86_64-unknown-linux-musl
           path: dist/binaries
 
       - name: Download linux arm64 binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-tui-aarch64-unknown-linux-gnu
+          name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
       - name: Build npm package directories
@@ -302,9 +502,33 @@ jobs:
               if not binary.stat().st_mode & stat.S_IXUSR:
                   raise SystemExit(f"{binary} is not executable")
           PY
-          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-gnu
-          dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --version >/tmp/cmux-tui-version.txt 2>&1 || \
-            dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --help >/tmp/cmux-tui-version.txt 2>&1
+          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
+          dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
+            dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
+          CMUX_TUI_PROBE="$(dist/binaries/cmux-tui-x86_64-unknown-linux-musl remote-probe --json)"
+          CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
+          export CMUX_TUI_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
+          python3 - <<'PY'
+          import json
+          import os
+
+          probe = json.loads(os.environ["CMUX_TUI_PROBE"])
+          expected = os.environ["NPM_VERSION"]
+          expected_identity = os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"]
+          if probe.get("build_identity") != expected_identity:
+              raise SystemExit(
+                  f"binary build identity {probe.get('build_identity')!r} "
+                  f"!= {expected_identity!r}"
+              )
+          if probe.get("distribution_version") != expected:
+              raise SystemExit(
+                  f"binary distribution version {probe.get('distribution_version')!r} != {expected!r}"
+              )
+          if probe.get("npm_bootstrap_version") != expected:
+              raise SystemExit(
+                  f"binary npm bootstrap version {probe.get('npm_bootstrap_version')!r} != {expected!r}"
+              )
+          PY
 
       - name: Archive npm package directories with executable modes
         if: inputs.package_npm
@@ -320,9 +544,9 @@ jobs:
           for wheel in dist/pypi-wheels/*.whl; do
             python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
           done
-          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-gnu
-          dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --version >/tmp/cmux-tui-version.txt 2>&1 || \
-            dist/binaries/cmux-tui-x86_64-unknown-linux-gnu --help >/tmp/cmux-tui-version.txt 2>&1
+          chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
+          dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \
+            dist/binaries/cmux-tui-x86_64-unknown-linux-musl --help >/tmp/cmux-tui-version.txt 2>&1
           python3 -m venv /tmp/cmux-tui-wheel-smoke
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
           /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
@@ -343,3 +567,76 @@ jobs:
           name: pypi-wheels
           path: dist/pypi-wheels/*.whl
           if-no-files-found: error
+
+  verify-linux-packages:
+    name: verify Linux package entrypoints (${{ matrix.architecture }})
+    needs: package
+    if: ${{ inputs.package_npm || inputs.package_pypi }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+          # Run ARM64 containers on native hardware. QEMU registration is not
+          # persistent on every third-party x64 runner and can disappear
+          # between setup and the package smoke test.
+          - architecture: arm64
+            runner: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }} # github-hosted-required: package smoke tests need native ARM64 execution
+    env:
+      PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
+    steps:
+      - name: Checkout caller ref
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout requested ref
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Download npm package archive
+        if: inputs.package_npm
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: npm-packages
+          path: dist
+
+      - name: Restore npm package directories
+        if: inputs.package_npm
+        run: |
+          python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
+            --archive dist/npm-packages.tar.gz \
+            --out dist
+
+      - name: Download PyPI wheels
+        if: inputs.package_pypi
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pypi-wheels
+          path: dist/pypi-wheels
+
+      - name: Test Linux distributions
+        env:
+          PACKAGE_NPM: ${{ inputs.package_npm }}
+          PACKAGE_PYPI: ${{ inputs.package_pypi }}
+        run: |
+          set -euo pipefail
+          args=(--version "$PYPI_VERSION")
+          if [[ "$PACKAGE_NPM" == "true" ]]; then
+            args+=(--npm-packages dist/npm-packages)
+          fi
+          if [[ "$PACKAGE_PYPI" == "true" ]]; then
+            args+=(--pypi-wheels dist/pypi-wheels)
+          fi
+          python3 cmux-tui/dist/scripts/test_linux_packages.py \
+            --architecture "${{ matrix.architecture }}" \
+            "${args[@]}"

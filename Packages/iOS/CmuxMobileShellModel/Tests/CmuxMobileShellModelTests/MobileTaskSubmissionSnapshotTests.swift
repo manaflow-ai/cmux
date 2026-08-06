@@ -118,6 +118,27 @@ import Testing
         expectIdentityRotated(from: before, to: after)
     }
 
+    @Test func customWorkspaceNameChangesEffectiveRequest() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let generated = snapshot(template: template, workspaceName: "")
+        let custom = snapshot(template: template, workspaceName: "Release checklist")
+
+        #expect(generated.workspaceTitle == generated.composition.title)
+        #expect(custom.workspaceTitle == "Release checklist")
+        #expect(!generated.isRequestEquivalent(to: custom))
+        expectIdentityRotated(from: generated, to: custom)
+    }
+
+    @Test func workspaceNameUsesTrimmedWireValue() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let padded = snapshot(template: template, workspaceName: "  Release checklist  ")
+        let trimmed = snapshot(template: template, workspaceName: "Release checklist")
+
+        #expect(padded.workspaceTitle == "Release checklist")
+        #expect(padded.isRequestEquivalent(to: trimmed))
+        expectIdentityPreserved(from: padded, to: trimmed)
+    }
+
     @Test func selectedTemplateChangeWithDifferentCompositionChangesRequest() {
         let before = snapshot(template: MobileTaskTemplate(
             name: "Codex",
@@ -312,6 +333,98 @@ import Testing
         #expect(rebound.trimmedDirectory == original.trimmedDirectory)
     }
 
+    @Test func selectedModelFlowsThroughCompositionRebindingAndDraft() {
+        let operationID = UUID()
+        let snapshot = MobileTaskSubmissionSnapshot(
+            template: MobileTaskTemplate(
+                name: "Claude",
+                icon: "agent:claude",
+                command: "claude -- \"$CMUX_TASK_PROMPT\""
+            ),
+            prompt: "Ship it",
+            modelID: "claude-opus-4-8",
+            macDeviceID: "mac-a",
+            directory: "~/cmux",
+            didEditDirectory: false,
+            operationID: operationID
+        )
+        let rebound = snapshot.withOperationID(UUID())
+
+        #expect(
+            snapshot.composition.initialCommand
+                == "claude --model 'claude-opus-4-8' -- \"$CMUX_TASK_PROMPT\""
+        )
+        #expect(rebound.modelID == "claude-opus-4-8")
+        #expect(rebound.composition == snapshot.composition)
+        #expect(rebound.operationID != operationID)
+        #expect(snapshot.draft.modelID == "claude-opus-4-8")
+    }
+
+    @Test func selectedModelChangesRequestEquivalence() {
+        let template = MobileTaskTemplate(
+            name: "Claude",
+            icon: "agent:claude",
+            command: "claude -- \"$CMUX_TASK_PROMPT\""
+        )
+        let defaultModel = snapshot(template: template)
+        let selectedModel = snapshot(template: template, modelID: "claude-opus-4-8")
+
+        #expect(!defaultModel.isRequestEquivalent(to: selectedModel))
+    }
+
+    @Test func attachmentChangesRotateRequestIdentity() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let uploadID = UUID()
+        let withoutAttachment = snapshot(template: template)
+        let withAttachment = snapshot(
+            template: template,
+            attachments: [
+                MobileTaskSubmissionAttachment(uploadID: uploadID, byteCount: 42),
+            ]
+        )
+        let changedBytes = snapshot(
+            template: template,
+            attachments: [
+                MobileTaskSubmissionAttachment(uploadID: uploadID, byteCount: 43),
+            ]
+        )
+
+        #expect(!withoutAttachment.isRequestEquivalent(to: withAttachment))
+        #expect(!withAttachment.isRequestEquivalent(to: changedBytes))
+        expectIdentityRotated(from: withoutAttachment, to: withAttachment)
+    }
+
+    @Test func identicalAttachmentListsPreserveRequestIdentity() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let attachments = [
+            MobileTaskSubmissionAttachment(uploadID: UUID(), byteCount: 42),
+            MobileTaskSubmissionAttachment(uploadID: UUID(), byteCount: 99),
+        ]
+        let before = snapshot(template: template, attachments: attachments)
+        let after = snapshot(template: template, attachments: attachments)
+
+        #expect(before.isRequestEquivalent(to: after))
+        expectIdentityPreserved(from: before, to: after)
+    }
+
+    @Test(arguments: [
+        (0, 3, [0..<0]),
+        (6, 3, [0..<3, 3..<6]),
+        (7, 3, [0..<3, 3..<6, 6..<7]),
+    ])
+    func attachmentChunkPlanBoundaries(
+        totalBytes: Int,
+        chunkBytes: Int,
+        expected: [Range<Int>]
+    ) {
+        let plan = MobileTaskAttachmentChunkPlan(
+            totalByteCount: totalBytes,
+            chunkByteCount: chunkBytes
+        )
+
+        #expect(plan.ranges == expected)
+    }
+
     private func expectIdentityPreserved(
         from before: MobileTaskSubmissionSnapshot?,
         to after: MobileTaskSubmissionSnapshot?
@@ -338,18 +451,76 @@ import Testing
         #expect(identity.id != originalID)
     }
 
+    @Test func differentInstanceTagsChangeRequestIdentity() {
+        let template = MobileTaskTemplate(
+            id: UUID(),
+            name: "Codex",
+            icon: "agent:codex",
+            command: "codex"
+        )
+        let nightly = snapshot(template: template, macInstanceTag: "nightly")
+        let stable = snapshot(template: template, macInstanceTag: "stable")
+        let legacy = snapshot(template: template, macInstanceTag: nil)
+
+        #expect(!nightly.isRequestEquivalent(to: stable))
+        #expect(!nightly.isRequestEquivalent(to: legacy))
+        #expect(nightly.isRequestEquivalent(to: snapshot(template: template, macInstanceTag: "nightly")))
+    }
+
+    @Test func instanceTagSurvivesOperationRebindAndDraftRoundTrip() throws {
+        let template = MobileTaskTemplate(
+            id: UUID(),
+            name: "Codex",
+            icon: "agent:codex",
+            command: "codex"
+        )
+        let captured = snapshot(template: template, macInstanceTag: "nightly")
+
+        let rebound = captured.withOperationID(UUID())
+        #expect(rebound.macInstanceTag == "nightly")
+
+        let draft = captured.draft
+        #expect(draft.macInstanceTag == "nightly")
+
+        let decoded = try JSONDecoder().decode(
+            MobileTaskComposerDraft.self,
+            from: JSONEncoder().encode(draft)
+        )
+        #expect(decoded.macInstanceTag == "nightly")
+    }
+
+    @Test func legacyDraftPayloadDecodesWithoutInstanceTag() throws {
+        let legacyJSON = """
+        {"prompt":"ship it","macDeviceID":"mac-a","directory":"~","didEditDirectory":false}
+        """
+        let decoded = try JSONDecoder().decode(
+            MobileTaskComposerDraft.self,
+            from: Data(legacyJSON.utf8)
+        )
+        #expect(decoded.macInstanceTag == nil)
+        #expect(decoded.macDeviceID == "mac-a")
+    }
+
     private func snapshot(
         template: MobileTaskTemplate,
         prompt: String = "ship it",
         macDeviceID: String = "mac-a",
-        directory: String = "~/cmux"
+        macInstanceTag: String? = nil,
+        directory: String = "~/cmux",
+        workspaceName: String = "",
+        modelID: String? = nil,
+        attachments: [MobileTaskSubmissionAttachment] = []
     ) -> MobileTaskSubmissionSnapshot {
         MobileTaskSubmissionSnapshot(
             template: template,
             prompt: prompt,
+            modelID: modelID,
             macDeviceID: macDeviceID,
+            macInstanceTag: macInstanceTag,
             directory: directory,
+            workspaceName: workspaceName,
             didEditDirectory: false,
+            attachments: attachments,
             operationID: UUID()
         )
     }

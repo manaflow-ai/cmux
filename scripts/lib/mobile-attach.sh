@@ -91,6 +91,47 @@ cmux_attach_mac_bundle_id() {
   printf 'com.cmuxterm.app.debug.%s' "$(cmux_attach__bundle_seg "$1")"
 }
 
+# Unsigned Simulator apps have no application-identifier entitlement, so iOS
+# rejects their Keychain reads. Produce a deterministic per-bundle UUID for the
+# simulator-only authoritative identity store. The launcher passes it directly
+# into the app process; writing the external defaults domain as well keeps the
+# value inspectable from simctl. Recreated isolated simulators for the same tag
+# reuse one broker device slot instead of leaking a slot on every verification.
+cmux_attach_seed_simulator_device_id() {
+  local simulator_id="${1:?simulator id is required}"
+  local bundle_id="${2:?bundle id is required}"
+  local device_id
+  device_id="$(CMUX_SIMULATOR_BUNDLE_ID="$bundle_id" /usr/bin/python3 - <<'PY'
+import os
+import uuid
+
+bundle_id = os.environ["CMUX_SIMULATOR_BUNDLE_ID"]
+print(uuid.uuid5(uuid.NAMESPACE_URL, f"cmux-ios-simulator-device:{bundle_id}"))
+PY
+)"
+  xcrun simctl spawn "$simulator_id" defaults write \
+    "$bundle_id" cmux.deviceRegistry.iosDeviceID -string "$device_id"
+  printf '%s' "$device_id"
+}
+
+# Deterministic client identity for one dogfood bundle on one concrete target.
+# The launch script injects it into the DEBUG app and uses the same value to
+# reject readiness events emitted by a different phone or simulator.
+cmux_attach_dogfood_client_id() {
+  local bundle_id="${1:?bundle id is required}"
+  local target_id="${2:?target id is required}"
+  CMUX_DOGFOOD_BUNDLE_ID="$bundle_id" \
+  CMUX_DOGFOOD_TARGET_ID="$target_id" \
+    /usr/bin/python3 - <<'PY'
+import os
+import uuid
+
+bundle_id = os.environ["CMUX_DOGFOOD_BUNDLE_ID"]
+target_id = os.environ["CMUX_DOGFOOD_TARGET_ID"]
+print(uuid.uuid5(uuid.NAMESPACE_URL, f"cmux-ios-dogfood-client:{bundle_id}:{target_id}"))
+PY
+}
+
 # The tagged Mac app's debug socket path.
 cmux_attach_socket_path() {
   printf '/tmp/cmux-debug-%s.sock' "$(cmux_attach__slug "$1")"
@@ -143,16 +184,200 @@ cmux_attach_mac_socket_ready() {
   [[ -S "$sock" ]]
 }
 
+# Opens the tagged Mac's event stream. The stream itself is the readiness
+# contract, so launch tooling does not infer connection state from diagnostics.
+cmux_attach_events() {
+  local tag="$1" repo_root="$2" slug
+  shift 2
+  slug="$(cmux_attach__slug "$tag")"
+  CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" events "$@"
+}
+
+# Captures the event sequence before launch. A subsequent wait can replay usable
+# session readiness that raced between launch and event-stream subscription.
+cmux_attach_readiness_cursor() {
+  local tag="$1" repo_root="$2" snapshot cursor
+  snapshot="$(cmux_attach_events "$tag" "$repo_root" --snapshot --no-heartbeat)" || return 1
+  cursor="$(printf '%s\n' "$snapshot" | /usr/bin/python3 -c '
+import json
+import sys
+
+for line in sys.stdin:
+    try:
+        frame = json.loads(line)
+    except (json.JSONDecodeError, TypeError):
+        continue
+    resume = frame.get("resume")
+    latest = resume.get("latest_seq") if isinstance(resume, dict) else None
+    if isinstance(latest, int) and not isinstance(latest, bool) and latest >= 0:
+        print(latest)
+        break
+')"
+  [[ -n "$cursor" ]] || {
+    echo "error: tagged Mac did not return an event-stream cursor" >&2
+    return 1
+  }
+  printf '%s' "$cursor"
+}
+
+# Waits on the host's explicit usable-RPC event after the launch baseline.
+# Args: <tag> <repo_root> <baseline_event_sequence> <timeout_seconds>
+#       <expected_client_id>.
+cmux_attach_wait_for_usable_session() {
+  local tag="$1" repo_root="$2" baseline="$3" timeout="$4"
+  local expected_client_id="$5" event event_client_id event_sequence
+  local started_ms deadline_ms remaining_ms remaining_seconds cursor
+  started_ms="$(cmux_attach_monotonic_milliseconds)"
+  deadline_ms="$((started_ms + timeout * 1000))"
+  cursor="$baseline"
+  while true; do
+    remaining_ms="$((deadline_ms - $(cmux_attach_monotonic_milliseconds)))"
+    (( remaining_ms > 0 )) || break
+    remaining_seconds="$(((remaining_ms + 999) / 1000))"
+    if ! event="$(cmux_attach_events \
+      "$tag" \
+      "$repo_root" \
+      --after "$cursor" \
+      --name mobile.rpc.ready \
+      --limit 1 \
+      --timeout "$remaining_seconds" \
+      --no-ack \
+      --no-heartbeat)"; then
+      break
+    fi
+    event_client_id="$(printf '%s' "$event" | /usr/bin/python3 -c '
+import json
+import sys
+frame = json.load(sys.stdin)
+payload = frame.get("payload")
+value = payload.get("client_id") if isinstance(payload, dict) else None
+print(value if isinstance(value, str) else "")
+')"
+    if [[ "$event_client_id" == "$expected_client_id" ]]; then
+      printf '%s\n' "$event"
+      return 0
+    fi
+    event_sequence="$(printf '%s' "$event" | /usr/bin/python3 -c '
+import json
+import sys
+value = json.load(sys.stdin).get("seq")
+if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+    print(value)
+')"
+    [[ -n "$event_sequence" ]] || break
+    cursor="$event_sequence"
+  done
+  echo "error: mobile app launched but did not establish a usable RPC session with tagged Mac '$tag' before the readiness deadline" >&2
+  echo "error: dogfood setup is not ready; inspect phone RPC and subscription diagnostics before handoff" >&2
+  return 1
+}
+
+# Writes the durable, secret-free proof consumed by dogfood automation. The
+# event arrives on stdin to Python so even an unexpectedly sensitive field
+# never appears in argv or the process environment; only the explicit
+# readiness identity fields are copied into the receipt.
+cmux_attach_write_readiness_receipt() {
+  local path="$1" git_sha="$2" tag="$3" bundle_id="$4"
+  local target="$5" target_id="$6" mac_tag="$7" socket_path="$8"
+  local readiness_latency_ms="$9" attempt_count="${10}" event_json="${11}"
+  if [[ ! "$readiness_latency_ms" =~ ^[0-9]+$ ]] \
+      || [[ ! "$attempt_count" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: readiness receipt timing and attempt count must be integers" >&2
+    return 2
+  fi
+  printf '%s' "$event_json" | /usr/bin/python3 -c '
+import json
+import os
+import stat
+import sys
+import tempfile
+
+(
+    path,
+    git_sha,
+    tag,
+    bundle_id,
+    target,
+    target_id,
+    mac_tag,
+    socket_path,
+    readiness_latency_ms,
+    attempt_count,
+) = sys.argv[1:]
+event = json.load(sys.stdin)
+payload = event.get("payload")
+if event.get("name") != "mobile.rpc.ready" or not isinstance(payload, dict):
+    raise SystemExit("invalid mobile.rpc.ready event")
+
+required_strings = ("connection_id", "client_id", "stream_id", "transport")
+for key in required_strings:
+    if not isinstance(payload.get(key), str) or not payload[key]:
+        raise SystemExit(f"missing readiness field: {key}")
+workspace_count = payload.get("workspace_count")
+if isinstance(workspace_count, bool) or not isinstance(workspace_count, int) or workspace_count < 1:
+    raise SystemExit("invalid readiness field: workspace_count")
+
+receipt = {
+    "schema": "cmux-ios-dogfood-readiness-v1",
+    "git_sha": git_sha,
+    "tag": tag,
+    "bundle_id": bundle_id,
+    "target": target,
+    "target_id": target_id,
+    "mac_tag": mac_tag,
+    "socket_path": socket_path,
+    "readiness_latency_ms": int(readiness_latency_ms),
+    "attempt_count": int(attempt_count),
+    "connection_id": payload["connection_id"],
+    "client_id": payload["client_id"],
+    "workspace_count": workspace_count,
+    "stream_id": payload["stream_id"],
+    "transport": payload["transport"],
+}
+parent = os.path.dirname(path) or "."
+os.makedirs(parent, mode=0o700, exist_ok=True)
+parent_status = os.lstat(parent)
+if not stat.S_ISDIR(parent_status.st_mode) or parent_status.st_uid != os.getuid():
+    raise SystemExit("readiness receipt directory is not a private owned directory")
+if parent != ".":
+    os.chmod(parent, 0o700)
+descriptor, temporary_path = tempfile.mkstemp(prefix=".cmux-ready-", dir=parent)
+try:
+    os.fchmod(descriptor, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        json.dump(receipt, output, sort_keys=True)
+        output.write("\n")
+    os.replace(temporary_path, path)
+except BaseException:
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
+    try:
+        os.unlink(temporary_path)
+    except OSError:
+        pass
+    raise
+' "$path" "$git_sha" "$tag" "$bundle_id" "$target" "$target_id" \
+    "$mac_tag" "$socket_path" "$readiness_latency_ms" "$attempt_count"
+}
+
+cmux_attach_monotonic_milliseconds() {
+  /usr/bin/python3 -c '
+import time
+
+print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
+'
+}
+
 # Ensure the tagged Mac app is running AND its iOS pairing listener
 # is actually bound, so a ticket can be minted. Enables the pairing host, then:
 #   - socket down  -> launch the local tagged build and wait for the socket.
 #   - socket up    -> the pairing default is only read at launch, so a live
 #                     socket does NOT prove the listener is bound. Probe by
-#                     minting; if it already works, done. If not, a tagged app is
-#                     already running — by default DO NOT disturb it (degrade to
-#                     signed-in-only with guidance to relaunch). Set
-#                     CMUX_ATTACH_ALLOW_RELAUNCH=1 to opt into auto-relaunching
-#                     the tagged app so it binds the listener.
+#                     minting; if it already works, done. If not, relaunch only
+#                     this exact tagged app so the startup-only pairing setting
+#                     takes effect. Calling ensure-mac is the explicit opt-in.
 # Args: <tag> [<repo_root>] [<target>] (repo_root enables the mint readiness
 # probe). Returns
 # 0 if the Mac is ready to mint a usable target-specific ticket, 1 otherwise.
@@ -170,21 +395,15 @@ cmux_attach_ensure_mac() {
       return 0
     fi
     # A tagged app is running but its pairing listener is not ready (launched
-    # before the default was set, prompt pending, or briefly busy). Protect the
-    # running instance: do NOT force-kill it unless explicitly opted in.
-    if [[ "${CMUX_ATTACH_ALLOW_RELAUNCH:-0}" != "1" ]]; then
-      if [[ "$target" == "physical_device" ]]; then
-        echo "warning: tagged Mac app for '$tag' cannot mint a trusted physical-device ticket (an encrypted Iroh route may still be starting). Relaunch it to retry, or re-run with CMUX_ATTACH_ALLOW_RELAUNCH=1." >&2
-      else
-        echo "warning: tagged Mac app for '$tag' is running but its iOS pairing listener is not ready (it was likely launched before pairing was enabled, or the macOS Local Network prompt is pending). Relaunch it to enable auto-pair, or re-run with CMUX_ATTACH_ALLOW_RELAUNCH=1." >&2
-      fi
-      return 1
-    fi
+    # before the startup-only default was set, prompt pending, or briefly
+    # busy). `cmux_attach_ensure_mac` is itself the explicit authorization to
+    # relaunch this tag. The process match includes the sanitized app basename,
+    # so stable cmux and every other DEV tag remain untouched.
     if [[ ! -d "$app" ]]; then
-      echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable (signing in only). Re-run without --attach for an intentionally unpaired launch." >&2
+      echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable. Re-run without --attach for an intentionally unpaired launch." >&2
       return 1
     fi
-    echo "==> relaunching tagged Mac app to bind the pairing listener ($tag) [CMUX_ATTACH_ALLOW_RELAUNCH=1]" >&2
+    echo "==> relaunching exact tagged Mac app to bind the pairing listener ($tag)" >&2
     # Scoped to this tag's executable only (never the stable app or other tags).
     pkill -f "cmux DEV ${slug}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
     for _i in $(seq 1 25); do [[ -S "$sock" ]] || break; sleep 0.2; done

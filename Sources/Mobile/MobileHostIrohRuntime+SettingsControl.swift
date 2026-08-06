@@ -4,6 +4,27 @@ import Foundation
 
 @MainActor
 extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
+    func setIrohPathPreference(_ preference: CmxIrohPathPreference) async throws {
+        let hadStoredChange = CmxIrohPathPreference.stored(in: .standard) != preference
+        let hadEffectiveChange = transportVerificationMode != preference.transportVerificationMode
+        UserDefaults.standard.set(
+            preference.rawValue,
+            forKey: CmxIrohPathPreference.defaultsKey
+        )
+        #if DEBUG
+        UserDefaults.standard.removeObject(
+            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
+        )
+        UserDefaults.standard.removeObject(forKey: Self.debugRelayOnlyDefaultsKey)
+        #endif
+        guard hadStoredChange || hadEffectiveChange else { return }
+        publishIrohSettingsUpdate()
+        await scheduleReconcile(
+            eraseAccountState: false,
+            restartActiveRuntime: true
+        ).value
+    }
+
     func irohSettingsUpdates() -> AsyncStream<CmxIrohSettingsSnapshot> {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -236,7 +257,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         accountID: String,
         endpointID: CmxIrohPeerIdentity,
         trustRoot: CmxIrohRelayPolicyTrustRoot?,
-        revision: UInt64
+        revision: UInt64,
+        refreshImmediately: Bool
     ) {
         relayPolicyRefreshTask?.cancel()
         guard let service, let trustRoot else {
@@ -247,6 +269,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             var retryAt: Date?
             var failureCount = 0
             var relayAuthorityExpired = false
+            var shouldRefreshImmediately = refreshImmediately
             while !Task.isCancelled {
                 guard let self,
                       revision == self.lifecycleRevision,
@@ -254,13 +277,19 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                       self.relayPolicyService === service else { return }
                 let snapshot = await service.diagnosticsSnapshot()
                 let current = Date()
-                let attemptAt = Self.relayPolicyRefreshAttemptDate(
-                    policyExpiresAt: relayAuthorityExpired
-                        ? nil
-                        : snapshot.policyExpiresAt,
-                    retryAt: retryAt,
-                    now: current
-                )
+                let attemptAt: Date
+                if shouldRefreshImmediately {
+                    attemptAt = current
+                    shouldRefreshImmediately = false
+                } else {
+                    attemptAt = Self.relayPolicyRefreshAttemptDate(
+                        policyExpiresAt: relayAuthorityExpired
+                            ? nil
+                            : snapshot.policyExpiresAt,
+                        retryAt: retryAt,
+                        now: current
+                    )
+                }
                 let delay = attemptAt.timeIntervalSince(current)
                 if delay > 0 {
                     do {
@@ -323,11 +352,13 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                         self.relayPolicyDiagnostics = await service.diagnosticsSnapshot()
                         self.publishIrohSettingsUpdate()
                     }
-                    let retryDelay = CmxIrohRetrySchedule().delay(
+                    let retryDelay = CmxIrohRetrySchedule.relayPolicy(
+                        for: Self.diagnosticFailureKind(for: error)
+                    ).delay(
                         failureCount: failureCount,
                         retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                             .retryAfterSeconds,
-                        jitterUnitInterval: Double.random(in: 0 ... 1)
+                        jitterUnitInterval: self.relayPolicyRetryJitter()
                     )
                     failureCount = min(failureCount + 1, 20)
                     retryAt = failureDate.addingTimeInterval(retryDelay)
