@@ -8736,6 +8736,7 @@ fn decodeTerminalSnapshot(
         object,
         &.{
             "id",
+            "tab_id",
             "tab_ids",
             "title",
             "cwd",
@@ -8760,18 +8761,39 @@ fn decodeTerminalSnapshot(
     {
         return error.InvalidTerminalState;
     }
-    const raw_tab_ids = switch (object.get("tab_ids") orelse
-        return error.MissingField) {
-        .array => |items| items.items,
-        else => return error.ExpectedArray,
-    };
-    const tab_ids = try allocator.alloc(TabId, raw_tab_ids.len);
+    const legacy_field = object.get("tab_id");
+    const legacy_tab_id: ?TabId = if (legacy_field != null)
+        try requiredNullableId(TabId, object, "tab_id")
+    else
+        null;
+    const raw_tab_ids: ?[]const raw.wire.Value = if (object.get("tab_ids")) |raw_value|
+        switch (raw_value) {
+            .array => |items| items.items,
+            else => return error.ExpectedArray,
+        }
+    else
+        null;
+    if (legacy_field == null and raw_tab_ids == null) return error.MissingField;
+    const tab_ids = try allocator.alloc(
+        TabId,
+        if (raw_tab_ids) |items| items.len else if (legacy_tab_id != null) 1 else 0,
+    );
     errdefer allocator.free(tab_ids);
-    for (raw_tab_ids, 0..) |item, index| {
-        tab_ids[index] = switch (item) {
-            .string => |text| try TabId.parse(text),
-            else => return error.ExpectedString,
-        };
+    if (raw_tab_ids) |items| {
+        for (items, 0..) |item, index| {
+            tab_ids[index] = switch (item) {
+                .string => |text| try TabId.parse(text),
+                else => return error.ExpectedString,
+            };
+        }
+    } else if (legacy_tab_id) |tab_id| {
+        tab_ids[0] = tab_id;
+    }
+    if (legacy_field != null and
+        ((legacy_tab_id == null) != (tab_ids.len == 0) or
+            (legacy_tab_id != null and !std.meta.eql(legacy_tab_id.?, tab_ids[0]))))
+    {
+        return error.InvalidTerminalPlacement;
     }
     return .{
         .id = try parseRequiredId(TerminalId, object, "id"),
@@ -17657,36 +17679,65 @@ test "terminal lifecycle and durable exit constraints are strict" {
     );
     try std.testing.expect(running_snapshot.exit == null);
 
-    var missing_attached_views = try raw.wire.parse(
+    var legacy_attached = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
             "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
             "\"running\":true,\"lifecycle\":\"running\"}",
         .{},
     );
-    defer missing_attached_views.deinit();
-    try std.testing.expectError(
-        error.MissingField,
-        decodeTerminalSnapshot(
-            decoded_arena.allocator(),
-            missing_attached_views.value,
-        ),
+    defer legacy_attached.deinit();
+    const legacy_attached_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        legacy_attached.value,
     );
+    try std.testing.expectEqual(@as(usize, 1), legacy_attached_snapshot.tab_ids.len);
 
-    var legacy_alias = try raw.wire.parse(
+    var legacy_detached = try raw.wire.parse(
         std.testing.allocator,
-        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
-            "\"tab_id\":null,\"tab_ids\":[]," ++
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\",\"tab_id\":null," ++
             "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
             "\"running\":true,\"lifecycle\":\"running\"}",
         .{},
     );
-    defer legacy_alias.deinit();
+    defer legacy_detached.deinit();
+    const legacy_detached_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        legacy_detached.value,
+    );
+    try std.testing.expectEqual(@as(usize, 0), legacy_detached_snapshot.tab_ids.len);
+
+    var consistent_alias = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer consistent_alias.deinit();
+    const consistent_alias_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        consistent_alias.value,
+    );
+    try std.testing.expectEqual(@as(usize, 1), consistent_alias_snapshot.tab_ids.len);
+
+    var inconsistent_alias = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":\"tab_77777777777777777777777777777777\",\"tab_ids\":[]," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer inconsistent_alias.deinit();
     try std.testing.expectError(
-        error.UnexpectedField,
+        error.InvalidTerminalPlacement,
         decodeTerminalSnapshot(
             decoded_arena.allocator(),
-            legacy_alias.value,
+            inconsistent_alias.value,
         ),
     );
 

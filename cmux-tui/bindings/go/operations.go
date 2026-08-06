@@ -788,7 +788,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		}
 	case *TerminalSnapshot:
 		required = []string{
-			"id", "tab_ids", "title", "cols", "rows", "running", "lifecycle",
+			"id", "title", "cols", "rows", "running", "lifecycle",
 		}
 	case *BrowserSnapshot:
 		required = []string{

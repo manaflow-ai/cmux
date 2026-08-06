@@ -1452,12 +1452,32 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
     CHECK(!missing_attached_views);
     CHECK_EQ(missing_attached_views.error().code, cmux::ErrorCode::decode);
 
-    auto legacy_alias = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+    auto legacy_attached = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"tab_ids":[],"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
-    CHECK(!legacy_alias);
-    CHECK_EQ(legacy_alias.error().code, cmux::ErrorCode::decode);
+    CHECK(legacy_attached);
+    CHECK_EQ(legacy_attached.value().tab_ids.size(), 1U);
+
+    auto legacy_detached = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(legacy_detached);
+    CHECK(legacy_detached.value().tab_ids.empty());
+
+    auto consistent_dual = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(consistent_dual);
+
+    auto inconsistent_dual = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(!inconsistent_dual);
+    CHECK_EQ(inconsistent_dual.error().code, cmux::ErrorCode::decode);
 
     auto exited = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(

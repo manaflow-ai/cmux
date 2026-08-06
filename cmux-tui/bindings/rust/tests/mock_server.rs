@@ -2400,18 +2400,30 @@ fn terminal_snapshot_lifecycle_invariants_are_strict() {
 }
 
 #[test]
-fn terminal_snapshot_requires_complete_view_ownership() {
+fn terminal_snapshot_accepts_protocol_one_tab_id_alias() {
     let mut attached = terminal_snapshot();
     attached.as_object_mut().unwrap().remove("tab_ids");
-    assert!(serde_json::from_value::<TerminalSnapshot>(attached).is_err());
+    attached["tab_id"] = json!(TAB);
+    let attached: TerminalSnapshot = serde_json::from_value(attached).unwrap();
+    assert_eq!(attached.tab_ids, vec![TabId::parse(TAB).unwrap()]);
 
     let mut detached = terminal_snapshot();
     detached.as_object_mut().unwrap().remove("tab_ids");
-    assert!(serde_json::from_value::<TerminalSnapshot>(detached).is_err());
+    detached["tab_id"] = Value::Null;
+    let detached: TerminalSnapshot = serde_json::from_value(detached).unwrap();
+    assert!(detached.tab_ids.is_empty());
 
     let mut legacy_alias = terminal_snapshot();
     legacy_alias["tab_id"] = json!(TAB);
-    assert!(serde_json::from_value::<TerminalSnapshot>(legacy_alias).is_err());
+    assert!(serde_json::from_value::<TerminalSnapshot>(legacy_alias).is_ok());
+
+    let mut missing = terminal_snapshot();
+    missing.as_object_mut().unwrap().remove("tab_ids");
+    assert!(serde_json::from_value::<TerminalSnapshot>(missing).is_err());
+
+    let mut inconsistent = terminal_snapshot();
+    inconsistent["tab_id"] = json!("tab_11111111111111111111111111111111");
+    assert!(serde_json::from_value::<TerminalSnapshot>(inconsistent).is_err());
 }
 
 #[test]

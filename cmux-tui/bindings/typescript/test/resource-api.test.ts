@@ -2004,7 +2004,7 @@ test("terminal snapshots expose lifecycle and durable exit details", async () =>
   client.close();
 });
 
-test("terminal snapshots require complete view ownership", async () => {
+test("terminal snapshots accept the protocol-one tab_id alias", async () => {
   let refreshes = 0;
   const transport = new FakeTransport((request, current) => {
     const value: Record<string, unknown> = {
@@ -2015,17 +2015,34 @@ test("terminal snapshots require complete view ownership", async () => {
       running: true,
       lifecycle: "running",
     };
-    if (refreshes++ > 0) {
+    if (refreshes === 0) {
+      value.tab_id = TAB;
+    } else if (refreshes === 1) {
       value.tab_id = null;
+    } else if (refreshes === 2) {
+      value.tab_id = TAB;
+      value.tab_ids = [TAB];
+    } else if (refreshes === 4) {
+      value.tab_id = TAB;
       value.tab_ids = [];
     }
+    refreshes += 1;
     current.ok(request, value);
   });
   const client = new Client({ transport });
   const terminal = client.session(SESSION).terminal(TERMINAL);
 
-  await assert.rejects(() => terminal.refresh(), /tab_ids must be an array/);
-  await assert.rejects(() => terminal.refresh(), /unknown field "tab_id"/);
+  assert.deepEqual((await terminal.refresh()).tabIds, [TAB]);
+  assert.deepEqual((await terminal.refresh()).tabIds, []);
+  assert.deepEqual((await terminal.refresh()).tabIds, [TAB]);
+  await assert.rejects(
+    () => terminal.refresh(),
+    /requires tab_ids or tab_id/,
+  );
+  await assert.rejects(
+    () => terminal.refresh(),
+    /tab_id must be the first tab_ids item/,
+  );
   client.close();
 });
 

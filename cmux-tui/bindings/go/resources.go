@@ -432,6 +432,62 @@ type TerminalSnapshot struct {
 	Extra     map[string]JSONValue `json:"extra,omitempty"`
 }
 
+func (s *TerminalSnapshot) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		ID        TerminalID           `json:"id"`
+		TabID     json.RawMessage      `json:"tab_id"`
+		TabIDs    json.RawMessage      `json:"tab_ids"`
+		Title     string               `json:"title"`
+		CWD       *string              `json:"cwd,omitempty"`
+		Cols      uint16               `json:"cols"`
+		Rows      uint16               `json:"rows"`
+		Running   bool                 `json:"running"`
+		Lifecycle TerminalLifecycle    `json:"lifecycle"`
+		Exit      *TerminalExit        `json:"exit,omitempty"`
+		Extra     map[string]JSONValue `json:"extra,omitempty"`
+	}
+	if err := strictDecode(data, &wire); err != nil {
+		return err
+	}
+	hasTabID := len(wire.TabID) > 0
+	hasTabIDs := len(wire.TabIDs) > 0
+	if !hasTabID && !hasTabIDs {
+		return fmt.Errorf("terminal snapshot requires tab_ids or tab_id")
+	}
+	var legacyTabID *TabID
+	if hasTabID && !bytes.Equal(bytes.TrimSpace(wire.TabID), []byte("null")) {
+		var value TabID
+		if err := strictDecode(wire.TabID, &value); err != nil {
+			return fmt.Errorf("terminal tab_id: %w", err)
+		}
+		legacyTabID = &value
+	}
+	var tabIDs []TabID
+	if hasTabIDs {
+		if bytes.Equal(bytes.TrimSpace(wire.TabIDs), []byte("null")) {
+			return fmt.Errorf("terminal tab_ids must be an array")
+		}
+		if err := strictDecode(wire.TabIDs, &tabIDs); err != nil {
+			return fmt.Errorf("terminal tab_ids: %w", err)
+		}
+	} else if legacyTabID == nil {
+		tabIDs = []TabID{}
+	} else {
+		tabIDs = []TabID{*legacyTabID}
+	}
+	if hasTabID &&
+		((legacyTabID == nil) != (len(tabIDs) == 0) ||
+			(legacyTabID != nil && *legacyTabID != tabIDs[0])) {
+		return fmt.Errorf("terminal tab_id must be the first tab_ids item")
+	}
+	*s = TerminalSnapshot{
+		ID: wire.ID, TabIDs: tabIDs, Title: wire.Title, CWD: wire.CWD,
+		Cols: wire.Cols, Rows: wire.Rows, Running: wire.Running,
+		Lifecycle: wire.Lifecycle, Exit: wire.Exit, Extra: wire.Extra,
+	}
+	return nil
+}
+
 type Size struct {
 	Cols uint16 `json:"cols"`
 	Rows uint16 `json:"rows"`

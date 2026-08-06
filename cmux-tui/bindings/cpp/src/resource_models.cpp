@@ -961,6 +961,7 @@ TerminalSnapshot parse_terminal(const Json& value) {
         value,
         {
             "id",
+            "tab_id",
             "tab_ids",
             "title",
             "cwd",
@@ -973,7 +974,6 @@ TerminalSnapshot parse_terminal(const Json& value) {
         },
         {
             "id",
-            "tab_ids",
             "title",
             "cols",
             "rows",
@@ -999,12 +999,35 @@ TerminalSnapshot parse_terminal(const Json& value) {
         exit.has_value() != (lifecycle == TerminalLifecycle::exited)) {
         fail("terminal running, lifecycle, and exit fields are inconsistent");
     }
-    auto tab_ids = array_value<TabId>(
-        field(object, "tab_ids", "terminal"),
-        "terminal tab_ids",
-        [](const Json& item) {
-            return id_value<TabId>(item, "terminal tab_id");
-        });
+    const auto legacy_field = object.find("tab_id");
+    const bool has_legacy_tab_id = legacy_field != object.end();
+    std::optional<TabId> legacy_tab_id;
+    if (has_legacy_tab_id && !legacy_field->second.is_null()) {
+        legacy_tab_id = id_value<TabId>(
+            legacy_field->second, "terminal tab_id");
+    }
+    const auto tab_ids_field = object.find("tab_ids");
+    std::vector<TabId> tab_ids;
+    if (tab_ids_field != object.end()) {
+        tab_ids = array_value<TabId>(
+            tab_ids_field->second,
+            "terminal tab_ids",
+            [](const Json& item) {
+                return id_value<TabId>(item, "terminal tab_id");
+            });
+    } else if (has_legacy_tab_id) {
+        if (legacy_tab_id.has_value()) {
+            tab_ids.push_back(legacy_tab_id.value());
+        }
+    } else {
+        fail("terminal snapshot requires tab_ids or tab_id");
+    }
+    if (has_legacy_tab_id &&
+        (legacy_tab_id.has_value() != !tab_ids.empty() ||
+         (legacy_tab_id.has_value() &&
+          legacy_tab_id.value() != tab_ids.front()))) {
+        fail("terminal tab_id must be the first tab_ids item");
+    }
     return {
         id_value<TerminalId>(
             field(object, "id", "terminal"), "terminal id"),
