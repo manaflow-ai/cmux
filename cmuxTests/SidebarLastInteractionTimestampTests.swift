@@ -44,6 +44,15 @@ struct SidebarLastInteractionTimestampTests {
         }
     }
 
+    @Test func absoluteLabelDistinguishesSecondsWithinTheSameMinute() {
+        let base = Date(timeIntervalSinceReferenceDate: 700_000_000)
+        let oneSecondLater = base.addingTimeInterval(1)
+        #expect(
+            SidebarLastInteractionTimeFormatter.absoluteLabel(for: base)
+                != SidebarLastInteractionTimeFormatter.absoluteLabel(for: oneSecondLater)
+        )
+    }
+
     // MARK: Row cell
 
     private static func makeSettings(

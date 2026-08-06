@@ -46,8 +46,10 @@ enum SidebarLastInteractionTimeFormatter {
         return max(next, now.addingTimeInterval(1))
     }
 
-    /// Absolute-time tooltip counterpart for the relative label.
+    /// Absolute-time tooltip counterpart for the relative label. Includes
+    /// seconds so two prompts submitted within the same minute (e.g. a
+    /// copy-paste relay between sessions) can still be ordered.
     static func absoluteLabel(for interactionDate: Date) -> String {
-        interactionDate.formatted(date: .abbreviated, time: .shortened)
+        interactionDate.formatted(date: .abbreviated, time: .standard)
     }
 }
