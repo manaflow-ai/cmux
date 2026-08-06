@@ -328,16 +328,19 @@ public final class SocketControlServer {
         listenerStateSnapshot().socketPath
     }
 
-    /// The socket path remote-session restore should reconnect through, or
-    /// `nil` when no listener is active or reserved.
+    /// The socket path remote-session restore can safely reconnect through,
+    /// or `nil` until a running accept loop still owns the published pathname.
     public nonisolated func currentSocketPathForRemoteRestore() -> String? {
         let snapshot = listenerStateSnapshot()
-        if snapshot.isRunning || snapshot.acceptLoopAlive || snapshot.listenerStartInProgress
-            || snapshot.pendingStartupRetry
-            || snapshot.serverSocket >= 0 {
-            return snapshot.socketPath
+        guard snapshot.isRunning,
+              snapshot.acceptLoopAlive,
+              snapshot.serverSocket >= 0,
+              snapshot.socketPathLockHeld,
+              let boundIdentity = snapshot.boundSocketPathIdentity,
+              transport.pathIdentity(at: snapshot.socketPath) == boundIdentity else {
+            return nil
         }
-        return snapshot.reservedStartupSocketPath
+        return snapshot.socketPath
     }
 
     /// The path the listener is using (when active in any phase), the

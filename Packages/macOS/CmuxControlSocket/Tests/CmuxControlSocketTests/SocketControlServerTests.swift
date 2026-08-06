@@ -425,7 +425,7 @@ struct SocketControlServerLifecycleTests {
         #expect(!server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         #expect(harness.recorder.failures.isEmpty)
         #expect(harness.recorder.breadcrumbs.contains("socket.listener.start.retry_scheduled"))
-        #expect(server.currentSocketPathForRemoteRestore() == harness.socketPath)
+        #expect(server.currentSocketPathForRemoteRestore() == nil)
         #expect(
             server.activeSocketPath(preferredPath: "\(harness.socketPath).preferred")
                 == harness.socketPath
@@ -517,7 +517,7 @@ struct SocketControlServerStartupRecoveryTests {
 
         #expect(!harness.server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         #expect(harness.recorder.failures.isEmpty)
-        #expect(harness.server.currentSocketPathForRemoteRestore() == harness.socketPath)
+        #expect(harness.server.currentSocketPathForRemoteRestore() == nil)
         #expect(harness.recorder.breadcrumbs == ["socket.listener.start.retry_scheduled"])
 
         var starts = harness.recorder.listenerStarts.makeAsyncIterator()
@@ -542,7 +542,7 @@ struct SocketControlServerStartupRecoveryTests {
 
         #expect(!harness.server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         #expect(FileManager.default.fileExists(atPath: harness.socketPath))
-        #expect(harness.server.currentSocketPathForRemoteRestore() == harness.socketPath)
+        #expect(harness.server.currentSocketPathForRemoteRestore() == nil)
 
         var starts = harness.recorder.listenerStarts.makeAsyncIterator()
         clock.advance()
@@ -693,7 +693,7 @@ struct SocketControlServerStartupRecoveryTests {
         #expect(!harness.server.isRunning)
         #expect(harness.server.accessMode == .automation)
         #expect(!FileManager.default.fileExists(atPath: harness.socketPath))
-        #expect(harness.server.currentSocketPathForRemoteRestore() == harness.socketPath)
+        #expect(harness.server.currentSocketPathForRemoteRestore() == nil)
         #expect(await waitForAsyncCondition { clock.pendingSleepCount == 1 })
 
         clock.advance()
@@ -871,7 +871,7 @@ struct SocketControlServerReservationTests {
 
         let reserved = server.reserveStartupSocketPath(harness.socketPath)
         #expect(reserved == harness.socketPath)
-        #expect(server.currentSocketPathForRemoteRestore() == harness.socketPath)
+        #expect(server.currentSocketPathForRemoteRestore() == nil)
         #expect(server.activeSocketPath(preferredPath: "/tmp/pref.sock") == harness.socketPath)
 
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
