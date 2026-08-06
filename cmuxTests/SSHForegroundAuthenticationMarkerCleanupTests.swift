@@ -22,11 +22,12 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 token: "foreground-auth-token"
             )
         )
+        let decodedCommand = command.replacingOccurrences(of: "'\"'\"'", with: "'")
         let cleanupDefinition = try #require(
-            command.range(of: "cmux_ssh_attach_remove_auth_group_dir()")
+            decodedCommand.range(of: "cmux_ssh_attach_remove_auth_group_dir()")
         )
         let firstSignalTrap = try #require(
-            command.range(of: "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP")
+            decodedCommand.range(of: "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP")
         )
 
         #expect(cleanupDefinition.lowerBound < firstSignalTrap.lowerBound)
@@ -73,7 +74,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 identityFile: nil,
                 sshOptions: ["ControlMaster=no"],
                 token: "foreground-auth-token"
-            )
+            ),
+            sshExecutable: fakeSSH.path
         )
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -175,7 +177,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 identityFile: nil,
                 sshOptions: ["ControlMaster=no"],
                 token: "foreground-auth-token"
-            )
+            ),
+            sshExecutable: fakeSSH.path
         )
         let result = try Self.runProcess(command: command, environment: environment)
 
@@ -271,7 +274,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 identityFile: nil,
                 sshOptions: sshOptions,
                 token: "foreground-auth-token"
-            )
+            ),
+            sshExecutable: fakeSSH.path
         )
         let result = try Self.runProcess(command: command, environment: environment)
 
@@ -338,7 +342,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                     identityFile: nil,
                     sshOptions: ["ControlMaster=no"],
                     token: "foreground-auth-token"
-                )
+                ),
+                sshExecutable: fakeSSH.path
             ),
             environment: environment
         )
