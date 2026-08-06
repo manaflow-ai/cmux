@@ -1712,6 +1712,91 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(!fileManager.fileExists(atPath: groupDirectory.path))
     }
 
+    @Test func cancellationDuringGroupPublicationReapsAuthenticationSubtree() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-publishing-cancel-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let pendingIdentity = groupDirectory.appendingPathComponent("identity.new")
+        let processSnapshot = root.appendingPathComponent("processes")
+        let ownedPIDs = root.appendingPathComponent("owned-pids")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        #expect(Darwin.mkfifo(pendingIdentity.path, 0o600) == 0)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: "while :; do /bin/sleep 30; done"
+        )
+        let command = """
+        \(policy.processTreeTerminationShellFunction())
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        cmux_test_publish_attempt=0
+        while { [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" ] || \
+          [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; } && \
+          [ "$cmux_test_publish_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_publish_attempt=$((cmux_test_publish_attempt + 1))
+        done
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher.new" || exit 99
+        test ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 98
+        /usr/bin/env LC_ALL=C LANG=C /bin/ps -axo pid=,ppid=,state= \
+          > "$CMUX_TEST_PROCESS_SNAPSHOT" || exit 97
+        /usr/bin/awk -v cmux_root="$cmux_test_auth_root" '
+          NF >= 3 && $3 !~ /Z/ {
+            cmux_process[$1] = 1
+            cmux_next_sibling[$1] = cmux_first_child[$2]
+            cmux_first_child[$2] = $1
+          }
+          END {
+            if (!(cmux_root in cmux_process)) exit 1
+            cmux_owned[cmux_root] = 1
+            cmux_queue[++cmux_queue_tail] = cmux_root
+            for (cmux_queue_head = 1; cmux_queue_head <= cmux_queue_tail; cmux_queue_head += 1) {
+              cmux_parent = cmux_queue[cmux_queue_head]
+              for (cmux_child = cmux_first_child[cmux_parent];
+                   cmux_child != "";
+                   cmux_child = cmux_next_sibling[cmux_child]) {
+                if (!(cmux_child in cmux_owned)) {
+                  cmux_owned[cmux_child] = 1
+                  cmux_queue[++cmux_queue_tail] = cmux_child
+                }
+              }
+            }
+            for (cmux_pid in cmux_owned) print cmux_pid
+          }
+        ' "$CMUX_TEST_PROCESS_SNAPSHOT" | /usr/bin/sort -n \
+          > "$CMUX_TEST_OWNED_PIDS" || exit 96
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_OWNED_PIDS" | /usr/bin/tr -d '[:space:]')" \
+          -ge 3 || exit 95
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+            "CMUX_TEST_OWNED_PIDS": ownedPIDs.path,
+            "CMUX_TEST_PROCESS_SNAPSHOT": processSnapshot.path,
+        ])
+        let pids = try String(contentsOf: ownedPIDs, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { Int32($0) }
+        defer {
+            for pid in pids {
+                Darwin.kill(pid, SIGKILL)
+            }
+        }
+        let exitDeadline = Date.now.addingTimeInterval(1)
+        while pids.contains(where: { Darwin.kill($0, 0) == 0 }), Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+        #expect(pids.allSatisfy { Darwin.kill($0, 0) != 0 })
+    }
+
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
