@@ -958,9 +958,12 @@ struct BrowserPanelView: View {
     }
 
     private var focusFlashOverlayView: some View {
-        RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-            .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
-            .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
+        let presentation = WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
+        let color = Color(nsColor: presentation.accent.strokeColor)
+
+        return RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
+            .stroke(color.opacity(focusFlashOpacity), lineWidth: 3)
+            .shadow(color: color.opacity(focusFlashOpacity * 0.35), radius: 10)
             .padding(FocusFlashPattern.ringInset)
             .allowsHitTesting(false)
     }
