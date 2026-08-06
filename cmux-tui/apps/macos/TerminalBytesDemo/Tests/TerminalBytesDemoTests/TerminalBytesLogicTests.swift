@@ -139,6 +139,29 @@ private final class LockedUpdateRegistration: @unchecked Sendable {
     }
 }
 
+private final class TestTerminalClock: TerminalClock, @unchecked Sendable {
+    private let stream: AsyncStream<Void>
+    private let continuation: AsyncStream<Void>.Continuation
+
+    init() {
+        let wake = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        stream = wake.stream
+        continuation = wake.continuation
+    }
+
+    func sleep(for duration: Duration) async throws {
+        for await _ in stream {
+            try Task.checkCancellation()
+            return
+        }
+        throw CancellationError()
+    }
+
+    func advance() {
+        continuation.yield()
+    }
+}
+
 @MainActor
 private func makeBlockingInputHarness() -> (
     model: TerminalModel,
@@ -380,6 +403,20 @@ struct TerminalBytesLogicTests {
     }
 
     @Test
+    func selectionRemovedInsideReplacementCollapsesToEditStart() {
+        let selections = terminalSelections(
+            preserving: [NSValue(range: NSRange(location: 4, length: 2))],
+            applying: TerminalTextEdit(
+                range: NSRange(location: 3, length: 5),
+                replacement: "replacement"
+            ),
+            utf16Length: 17
+        )
+
+        #expect(selections.map(\.rangeValue) == [NSRange(location: 3, length: 0)])
+    }
+
+    @Test
     func terminalTextUpdatesReplaceOnlyTheChangedUTF16Range() throws {
         let changed = try #require(terminalTextEdit(from: "a😀oldz", to: "a😀newz"))
         #expect(changed.range == NSRange(location: 3, length: 3))
@@ -527,6 +564,49 @@ struct TerminalBytesLogicTests {
         updates.notify()
         #expect(await waitUntil { transport.requests.count == 2 })
         #expect(transport.requests.map(\.geometry) == [first, second])
+        model.shutdown()
+    }
+
+    @Test @MainActor
+    func lostResizeAcknowledgementRequeuesLatestGeometryAfterDeadline() async throws {
+        let transport = LockedResizeTransport()
+        let clock = TestTerminalClock()
+        let handle = TerminalClientHandle(
+            rawAddress: 6,
+            attachClient: { _, _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            setUpdateCallback: { _, _, _ in },
+            resizeClient: { _, cols, rows, requestID in
+                transport.submit(cols: cols, rows: rows, requestID: requestID)
+            },
+            resizeAcknowledgementClient: { _, _, _, _, _ in false },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, _, _ in 0 },
+            hasExitedClient: { _ in false }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle,
+            initiallyConnected: true,
+            resizeClock: clock,
+            resizeAcknowledgementTimeout: .seconds(1)
+        )
+        let first = TerminalGeometry(cols: 100, rows: 30)
+        let latest = TerminalGeometry(cols: 120, rows: 40)
+
+        model.resize(to: first)
+        #expect(await waitUntil { transport.requests.count == 1 })
+        model.resize(to: latest)
+        clock.advance()
+
+        #expect(await waitUntil { transport.requests.count == 2 })
+        #expect(transport.requests.map(\.geometry) == [first, latest])
+        #expect(model.errorMessage.contains("resize is pending"))
         model.shutdown()
     }
 
