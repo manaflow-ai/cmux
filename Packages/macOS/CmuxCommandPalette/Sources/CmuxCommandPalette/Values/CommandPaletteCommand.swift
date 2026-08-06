@@ -19,10 +19,23 @@ public struct CommandPaletteCommand: Identifiable {
     public let keywords: [String]
     /// Whether activating the command dismisses the palette.
     public let dismissOnRun: Bool
-    /// The action executed on activation.
-    public let action: () -> Void
+    /// Finite-choice values collected interactively before running.
+    public let choiceArguments: [CommandPaletteChoiceArgument]
+    /// The single execution path used after optional argument collection.
+    private let execution: ([String: String]) -> Void
 
-    /// Creates a command.
+    /// Creates a command that does not consume finite-choice values.
+    /// - Parameters:
+    ///   - id: Stable command identifier.
+    ///   - rank: Tie-break rank used when search scores match.
+    ///   - title: Display title.
+    ///   - subtitle: Display subtitle.
+    ///   - shortcutHint: Optional trailing keyboard-shortcut hint.
+    ///   - kindLabel: Optional trailing kind label.
+    ///   - keywords: Additional search keywords.
+    ///   - dismissOnRun: Whether activation dismisses the palette.
+    ///   - choiceArguments: Ordered finite choices presented before the action runs.
+    ///   - action: Action executed after argument collection, ignoring collected values.
     public init(
         id: String,
         rank: Int,
@@ -32,6 +45,7 @@ public struct CommandPaletteCommand: Identifiable {
         kindLabel: String?,
         keywords: [String],
         dismissOnRun: Bool,
+        choiceArguments: [CommandPaletteChoiceArgument] = [],
         action: @escaping () -> Void
     ) {
         self.id = id
@@ -42,7 +56,50 @@ public struct CommandPaletteCommand: Identifiable {
         self.kindLabel = kindLabel
         self.keywords = keywords
         self.dismissOnRun = dismissOnRun
-        self.action = action
+        self.choiceArguments = choiceArguments
+        execution = { _ in action() }
+    }
+
+    /// Creates a command whose action consumes collected argument values.
+    /// - Parameters:
+    ///   - id: Stable command identifier.
+    ///   - rank: Tie-break rank used when search scores match.
+    ///   - title: Display title.
+    ///   - subtitle: Display subtitle.
+    ///   - shortcutHint: Optional trailing keyboard-shortcut hint.
+    ///   - kindLabel: Optional trailing kind label.
+    ///   - keywords: Additional search keywords.
+    ///   - dismissOnRun: Whether activation dismisses the palette.
+    ///   - choiceArguments: Ordered finite-choice values collected before execution.
+    ///   - argumentAction: Action receiving collected values keyed by argument name.
+    public init(
+        id: String,
+        rank: Int,
+        title: String,
+        subtitle: String,
+        shortcutHint: String?,
+        kindLabel: String?,
+        keywords: [String],
+        dismissOnRun: Bool,
+        choiceArguments: [CommandPaletteChoiceArgument],
+        argumentAction: @escaping ([String: String]) -> Void
+    ) {
+        self.id = id
+        self.rank = rank
+        self.title = title
+        self.subtitle = subtitle
+        self.shortcutHint = shortcutHint
+        self.kindLabel = kindLabel
+        self.keywords = keywords
+        self.dismissOnRun = dismissOnRun
+        self.choiceArguments = choiceArguments
+        execution = argumentAction
+    }
+
+    /// Runs the command with values collected by the palette.
+    /// - Parameter arguments: Collected values keyed by declared argument name.
+    public func run(arguments: [String: String] = [:]) {
+        execution(arguments)
     }
 
     /// Texts the search corpus indexes for this command.

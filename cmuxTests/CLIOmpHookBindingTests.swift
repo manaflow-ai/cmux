@@ -64,7 +64,8 @@ struct CLIOmpHookBindingTests {
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
             surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
-            pidTarget: nil
+            pidTarget: nil,
+            surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId]
         )
         let launchPath = "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
         var environment = Harness.hookEnvironment(context: context)

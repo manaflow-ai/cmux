@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxSettings
 import Darwin
 import Foundation
@@ -37,6 +38,253 @@ import Testing
                 + "timedOut=\(timedOut) stdout=\(stdout.isEmpty ? "<empty>" : stdout) "
                 + "stderr=\(stderr.isEmpty ? "<empty>" : stderr)"
         }
+    }
+
+    @Test
+    func hermesHookCapturesDefaultHomeWithoutReplayingIt() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-default-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let socketPath = "/tmp/cmux-hermes-home-\(UUID().uuidString.prefix(8)).sock"
+        let response = """
+        {"ok":true,"result":{"workspaces":[{"id":"\(workspaceID)"}],"surfaces":[{"id":"\(surfaceID)","workspace_id":"\(workspaceID)"}]}}
+        """
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        let launchArguments = ["/opt/homebrew/bin/hermes", "--tui"]
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["HOME"] = root.path
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PWD"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "hermes-agent"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = launchArguments[0]
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Data(
+            launchArguments.joined(separator: "\0").utf8
+        ).base64EncodedString()
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "hermes-agent", "session-start"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let storeURL = root.appendingPathComponent(
+            "hermes-agent-hook-sessions.json",
+            isDirectory: false
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try #require(object["sessions"] as? [String: Any])
+        let session = try #require(sessions[surfaceID] as? [String: Any])
+        let launchCommandObject = try #require(session["launchCommand"] as? [String: Any])
+        let capturedEnvironment = try #require(
+            launchCommandObject["environment"] as? [String: String]
+        )
+
+        #expect(capturedEnvironment["HOME"] == root.path)
+        #expect(capturedEnvironment["HERMES_HOME"] == nil)
+
+        let launchCommandData = try JSONSerialization.data(withJSONObject: launchCommandObject)
+        let launchCommand = try JSONDecoder().decode(
+            AgentLaunchCommandSnapshot.self,
+            from: launchCommandData
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: surfaceID,
+            launchCommand: launchCommand
+        )
+        #expect(AgentConversationSource(snapshot: snapshot).hasDeterministicTranscriptSource)
+        let resumeCommand = try #require(snapshot.resumeCommand)
+        #expect(!resumeCommand.contains("HOME="))
+    }
+
+    @Test
+    func hermesHookResolvesTildeHomeAgainstCapturedHome() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hermes-tilde-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let socketPath = "/tmp/cmux-hermes-tilde-\(UUID().uuidString.prefix(8)).sock"
+        let response = """
+        {"ok":true,"result":{"workspaces":[{"id":"\(workspaceID)"}],"surfaces":[{"id":"\(surfaceID)","workspace_id":"\(workspaceID)"}]}}
+        """
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        let launchArguments = ["/opt/homebrew/bin/hermes", "--tui"]
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["HOME"] = root.path
+        environment["HERMES_HOME"] = "~/.custom-hermes"
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PWD"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "hermes-agent"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = launchArguments[0]
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Data(
+            launchArguments.joined(separator: "\0").utf8
+        ).base64EncodedString()
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "hermes-agent", "session-start"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let storeURL = root.appendingPathComponent(
+            "hermes-agent-hook-sessions.json",
+            isDirectory: false
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try #require(object["sessions"] as? [String: Any])
+        let session = try #require(sessions[surfaceID] as? [String: Any])
+        let launchCommandObject = try #require(session["launchCommand"] as? [String: Any])
+        let capturedEnvironment = try #require(
+            launchCommandObject["environment"] as? [String: String]
+        )
+        let resolvedHermesHome = root.appendingPathComponent(
+            ".custom-hermes",
+            isDirectory: true
+        ).path
+
+        #expect(capturedEnvironment["HERMES_HOME"] == resolvedHermesHome)
+        #expect(capturedEnvironment["HOME"] == nil)
+
+        let launchCommandData = try JSONSerialization.data(withJSONObject: launchCommandObject)
+        let launchCommand = try JSONDecoder().decode(
+            AgentLaunchCommandSnapshot.self,
+            from: launchCommandData
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: surfaceID,
+            launchCommand: launchCommand
+        )
+        #expect(
+            AgentConversationSource(snapshot: snapshot).hermesStateDatabaseURL?.path
+                == root.appendingPathComponent(".custom-hermes/state.db").path
+        )
+        let resumeCommand = try #require(snapshot.resumeCommand)
+        #expect(resumeCommand.contains(resolvedHermesHome))
+    }
+
+    @Test
+    func openCodeHookCapturesStorageEnvironmentWithoutAssumingDatabasePath() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-storage-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let dataHome = root.appendingPathComponent("custom data", isDirectory: true)
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let socketPath = "/tmp/cmux-opencode-storage-\(UUID().uuidString.prefix(8)).sock"
+        let response = """
+        {"ok":true,"result":{"workspaces":[{"id":"\(workspaceID)"}],"surfaces":[{"id":"\(surfaceID)","workspace_id":"\(workspaceID)"}]}}
+        """
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        let launchArguments = ["/opt/homebrew/bin/opencode"]
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["HOME"] = root.path
+        environment["XDG_DATA_HOME"] = dataHome.path
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PWD"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "opencode"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = launchArguments[0]
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Data(
+            launchArguments.joined(separator: "\0").utf8
+        ).base64EncodedString()
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "opencode", "session-start"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status == 0, Comment(rawValue: result.stdout))
+        let storeURL = root.appendingPathComponent(
+            "opencode-hook-sessions.json",
+            isDirectory: false
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try #require(object["sessions"] as? [String: Any])
+        let session = try #require(sessions[surfaceID] as? [String: Any])
+        let launchCommandObject = try #require(session["launchCommand"] as? [String: Any])
+        let capturedEnvironment = try #require(
+            launchCommandObject["environment"] as? [String: String]
+        )
+
+        #expect(capturedEnvironment["HOME"] == root.path)
+        #expect(capturedEnvironment["XDG_DATA_HOME"] == dataHome.path)
+
+        let launchCommandData = try JSONSerialization.data(withJSONObject: launchCommandObject)
+        let launchCommand = try JSONDecoder().decode(
+            AgentLaunchCommandSnapshot.self,
+            from: launchCommandData
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: surfaceID,
+            launchCommand: launchCommand,
+            sessionIDProvenance: .authoritative
+        )
+        let source = AgentConversationSource(snapshot: snapshot)
+        #expect(source.openCodeDatabasePath == nil)
+        let resumeCommand = try #require(snapshot.resumeCommand)
+        #expect(!resumeCommand.contains("HOME="))
+        #expect(!resumeCommand.contains("XDG_DATA_HOME="))
     }
 
     @Test func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {

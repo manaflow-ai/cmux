@@ -103,6 +103,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "KIRO_LOG_NO_COLOR",
         "KIMI_SHARE_DIR",
         "NODE_OPTIONS",
+        "OPENCODE_DB",
+        "OPENCODE_DISABLE_CHANNEL_DB",
         "OPENCODE_CONFIG_DIR",
         "OLLAMA_EDITOR",
         "OLLAMA_HOST",
@@ -144,6 +146,18 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         if normalizedKind == "campfire" {
             for key in Self.campfireManagedEnvironmentKeys {
                 result.removeValue(forKey: key)
+            }
+        }
+        if normalizedKind == "opencode",
+           let configuredDatabase = normalizedValue(env["OPENCODE_DB"]),
+           configuredDatabase != ":memory:" {
+            if let stableDatabasePath = stableOpenCodeDatabasePath(
+                configuredDatabase: configuredDatabase,
+                env: env
+            ) {
+                result["OPENCODE_DB"] = stableDatabasePath
+            } else {
+                result.removeValue(forKey: "OPENCODE_DB")
             }
         }
         return result
@@ -244,6 +258,46 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             return nil
         }
         return trimmed
+    }
+
+    private func stableOpenCodeDatabasePath(
+        configuredDatabase: String,
+        env: [String: String]
+    ) -> String? {
+        if let capturedPath = normalizedValue(
+            env[OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey]
+        ),
+        isAbsoluteFilePath(capturedPath) {
+            return capturedPath
+        }
+        if isAbsoluteFilePath(configuredDatabase) {
+            return configuredDatabase
+        }
+        let home = normalizedValue(env["HOME"])
+        let xdgDataHome = normalizedValue(env["XDG_DATA_HOME"])
+        let absoluteHome = home.flatMap {
+            isAbsoluteFilePath($0)
+                ? ($0 as NSString).standardizingPath
+                : nil
+        }
+        if let xdgDataHome {
+            if xdgDataHome == "~" || xdgDataHome.hasPrefix("~/") {
+                guard absoluteHome != nil else { return nil }
+            } else if !isAbsoluteFilePath(xdgDataHome) {
+                return nil
+            }
+        } else {
+            guard absoluteHome != nil else { return nil }
+        }
+        let resolved = OpenCodeSessionResolver(
+            defaultHomeDirectory: absoluteHome ?? "/"
+        ).databasePath(env: env)
+        guard isAbsoluteFilePath(resolved) else { return nil }
+        return (resolved as NSString).standardizingPath
+    }
+
+    private func isAbsoluteFilePath(_ path: String) -> Bool {
+        path.hasPrefix("/") && (path as NSString).isAbsolutePath
     }
 
     private func isRequireOption(_ token: String) -> Bool {

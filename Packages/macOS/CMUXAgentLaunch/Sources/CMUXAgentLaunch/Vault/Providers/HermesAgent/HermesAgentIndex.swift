@@ -51,21 +51,9 @@ public struct HermesAgentTranscriptTurn: Equatable, Sendable {
 
 public enum HermesAgentIndexError: Error, Equatable, Sendable {
     case missingDatabase
+    /// The database and sidecars exceed the caller's aggregate snapshot limit.
+    case snapshotTooLarge(maximumBytes: Int)
     case sqlite(String)
-}
-
-private struct HermesAgentDatabaseSnapshot {
-    let databaseURL: URL
-    private let directoryURL: URL
-
-    init(databaseURL: URL, directoryURL: URL) {
-        self.databaseURL = databaseURL
-        self.directoryURL = directoryURL
-    }
-
-    func remove() {
-        try? FileManager.default.removeItem(at: directoryURL)
-    }
 }
 
 public enum HermesAgentIndex {
@@ -103,7 +91,10 @@ public enum HermesAgentIndex {
 
         let snapshot: HermesAgentDatabaseSnapshot
         do {
-            guard let madeSnapshot = try makeSnapshot(stateDBPath: stateDBPath, prefix: "cmux-hermes-agent-search") else {
+            guard let madeSnapshot = try HermesAgentDatabaseSnapshotService().make(
+                stateDBPath: stateDBPath,
+                prefix: "cmux-hermes-agent-search"
+            ) else {
                 return HermesAgentIndexResult(sessions: [], errors: [])
             }
             snapshot = madeSnapshot
@@ -127,19 +118,90 @@ public enum HermesAgentIndex {
         }
     }
 
+    /// Loads one session transcript in chronological order.
+    /// - Parameters:
+    ///   - sessionId: Native Hermes session identifier.
+    ///   - limit: Maximum number of turns to return.
+    ///   - latest: Whether the limit selects the newest suffix instead of the oldest prefix.
+    ///   - preservingOpeningUser: Whether a latest suffix reserves one slot for the opening user request.
+    ///   - dialogueOnly: Whether the limit counts only user and assistant text, excluding tool rows and tool calls.
+    ///   - stateDBPath: Hermes state database to snapshot and query.
+    ///   - maximumSnapshotBytes: Optional aggregate byte limit for the database, WAL, and SHM snapshot.
+    /// - Returns: At most `limit` turns ordered from oldest to newest.
+    /// - Throws: ``HermesAgentIndexError`` when the database cannot be read.
     public static func loadTranscript(
         sessionId: String,
         limit: Int,
-        stateDBPath: String = Self.defaultStateDBPath()
+        latest: Bool = false,
+        preservingOpeningUser: Bool = false,
+        dialogueOnly: Bool = false,
+        stateDBPath: String = Self.defaultStateDBPath(),
+        maximumSnapshotBytes: Int? = nil
     ) throws -> [HermesAgentTranscriptTurn] {
         guard limit > 0 else { return [] }
-        guard let snapshot = try makeSnapshot(stateDBPath: stateDBPath, prefix: "cmux-hermes-agent-preview") else {
+        guard let snapshot = try HermesAgentDatabaseSnapshotService().make(
+            stateDBPath: stateDBPath,
+            prefix: "cmux-hermes-agent-preview",
+            maximumTotalBytes: maximumSnapshotBytes
+        ) else {
             throw HermesAgentIndexError.missingDatabase
         }
         defer { snapshot.remove() }
+        try Task.checkCancellation()
 
         return try withDatabase(snapshot.databaseURL.path) { db in
-            try loadTranscript(db: db, sessionId: sessionId, limit: limit)
+            func openingUserTurn() throws -> HermesAgentTranscriptTurn? {
+                try Task.checkCancellation()
+                let dialogueFilter = dialogueOnly
+                    ? "AND COALESCE(tool_name, '') = ''"
+                    : ""
+                let sql = """
+                    SELECT role, content, tool_name, tool_calls
+                    FROM messages
+                    WHERE session_id = ? AND role = 'user' AND COALESCE(content, '') <> ''
+                      \(dialogueFilter)
+                    ORDER BY timestamp, id
+                    LIMIT 1
+                    """
+                var stmt: OpaquePointer?
+                guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+                    sqlite3_finalize(stmt)
+                    throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "prepare failed")
+                }
+                defer { sqlite3_finalize(stmt) }
+
+                try Task.checkCancellation()
+                let destructor = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+                guard sqlite3_bind_text(stmt, 1, sessionId, -1, destructor) == SQLITE_OK else {
+                    throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "bind failed")
+                }
+                let stepResult = sqlite3_step(stmt)
+                if stepResult == SQLITE_DONE { return nil }
+                guard stepResult == SQLITE_ROW else {
+                    throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "step failed")
+                }
+                let content = decodedContentText(sqliteText(stmt, 1))
+                guard let text = normalized(content) else { return nil }
+                return HermesAgentTranscriptTurn(
+                    role: sqliteText(stmt, 0) ?? "user",
+                    content: text,
+                    toolName: nil
+                )
+            }
+
+            let turns = try loadTranscript(
+                db: db,
+                sessionId: sessionId,
+                limit: limit,
+                latest: latest,
+                dialogueOnly: dialogueOnly
+            )
+            guard latest, preservingOpeningUser,
+                  let openingUser = try openingUserTurn(),
+                  !turns.contains(openingUser) else {
+                return turns
+            }
+            return [openingUser] + turns.suffix(max(0, limit - 1))
         }
     }
 
@@ -247,15 +309,41 @@ public enum HermesAgentIndex {
     private static func loadTranscript(
         db: OpaquePointer,
         sessionId: String,
-        limit: Int
+        limit: Int,
+        latest: Bool,
+        dialogueOnly: Bool
     ) throws -> [HermesAgentTranscriptTurn] {
-        let sql = """
-            SELECT role, content, tool_name, tool_calls
-            FROM messages
-            WHERE session_id = ?
-            ORDER BY timestamp, id
-            LIMIT \(limit)
+        let dialogueFilter = dialogueOnly
+            ? """
+              AND role IN ('user', 'assistant')
+              AND COALESCE(tool_name, '') = ''
+              AND COALESCE(content, '') <> ''
             """
+            : ""
+        let sql: String
+        if latest {
+            sql = """
+                SELECT role, content, tool_name, tool_calls
+                FROM (
+                  SELECT role, content, tool_name, tool_calls, timestamp, id
+                  FROM messages
+                  WHERE session_id = ?
+                  \(dialogueFilter)
+                  ORDER BY timestamp DESC, id DESC
+                  LIMIT \(limit)
+                )
+                ORDER BY timestamp, id
+                """
+        } else {
+            sql = """
+                SELECT role, content, tool_name, tool_calls
+                FROM messages
+                WHERE session_id = ?
+                \(dialogueFilter)
+                ORDER BY timestamp, id
+                LIMIT \(limit)
+                """
+        }
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
             sqlite3_finalize(stmt)
@@ -271,10 +359,11 @@ public enum HermesAgentIndex {
         var turns: [HermesAgentTranscriptTurn] = []
         var stepResult = sqlite3_step(stmt)
         while stepResult == SQLITE_ROW {
+            try Task.checkCancellation()
             let role = sqliteText(stmt, 0) ?? "event"
             let content = decodedContentText(sqliteText(stmt, 1))
-            let toolName = sqliteText(stmt, 2)
-            let toolCalls = decodedContentText(sqliteText(stmt, 3))
+            let toolName = dialogueOnly ? nil : sqliteText(stmt, 2)
+            let toolCalls = dialogueOnly ? nil : decodedContentText(sqliteText(stmt, 3))
             let text = [content, toolCalls]
                 .compactMap { normalized($0) }
                 .joined(separator: "\n\n")
@@ -288,31 +377,6 @@ public enum HermesAgentIndex {
             throw HermesAgentIndexError.sqlite(sqliteMessage(db) ?? "step failed")
         }
         return turns
-    }
-
-    private static func makeSnapshot(stateDBPath: String, prefix: String) throws -> HermesAgentDatabaseSnapshot? {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: stateDBPath) else { return nil }
-
-        let snapshotDir = fileManager.temporaryDirectory
-            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
-
-        let snapshotDB = snapshotDir.appendingPathComponent("state.db", isDirectory: false)
-        do {
-            try fileManager.copyItem(atPath: stateDBPath, toPath: snapshotDB.path)
-            for sidecar in ["-wal", "-shm"] {
-                let source = stateDBPath + sidecar
-                let destination = snapshotDB.path + sidecar
-                if fileManager.fileExists(atPath: source) {
-                    try fileManager.copyItem(atPath: source, toPath: destination)
-                }
-            }
-        } catch {
-            try? fileManager.removeItem(at: snapshotDir)
-            throw error
-        }
-        return HermesAgentDatabaseSnapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
     }
 
     private static func withDatabase<T>(_ path: String, _ body: (OpaquePointer) throws -> T) throws -> T {
@@ -388,6 +452,8 @@ public enum HermesAgentIndex {
             switch error {
             case .missingDatabase:
                 return "missing database"
+            case .snapshotTooLarge(let maximumBytes):
+                return "snapshot exceeds \(maximumBytes) bytes"
             case let .sqlite(message):
                 return message
             }

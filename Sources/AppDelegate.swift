@@ -806,6 +806,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
+    private let oneShotTerminalLauncherJanitor = OneShotTerminalLauncherJanitor()
     struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -1361,6 +1362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // closedPanelHistoryEntry.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+            oneShotTerminalLauncherJanitor.start()
         }
 
         claimAuthCallbackURLSchemes()
@@ -1877,6 +1879,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidBecomeActive(_ notification: Notification) {
         PortScanner.shared.setTrackedAgentScanningPaused(false)
+        tabManager?.agentConversationForkTargetCatalog.refreshIfNeeded()
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -2161,6 +2164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         connectivityInvalidationSubscriberCoordinator.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
+        oneShotTerminalLauncherJanitor.stop()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         MobileHostService.shared.stop()
@@ -2200,6 +2204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         auth: MacAuthComposition
     ) {
         self.tabManager = tabManager
+        tabManager.agentConversationForkTargetCatalog.refreshIfNeeded(force: true)
         // SwiftUI constructs the initial TabManager before this delegate is
         // available; adopt its coordinator so every later window shares it.
         pullRequestProbeService = tabManager.pullRequestProbeService
@@ -8943,7 +8948,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            agentConversationForkTargetCatalog: self.tabManager?.agentConversationForkTargetCatalog
+                ?? AgentConversationForkTargetCatalog()
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

@@ -25,10 +25,17 @@ enum TerminalStartupShellQuoting {
     }
 
     private static func asciiPrintfCommandSubstitution(for value: String) -> String {
-        let octalBytes = value.utf8
-            .map { String(format: #"\%03o"#, Int($0)) }
-            .joined()
-        return #""$(printf '"# + octalBytes + #"')""#
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(value.utf8.count * 4 + 16)
+        bytes.append(contentsOf: #""$(printf '"#.utf8)
+        for byte in value.utf8 {
+            bytes.append(0x5C)
+            bytes.append(0x30 + ((byte >> 6) & 0x07))
+            bytes.append(0x30 + ((byte >> 3) & 0x07))
+            bytes.append(0x30 + (byte & 0x07))
+        }
+        bytes.append(contentsOf: #"')""#.utf8)
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
 
@@ -780,6 +787,12 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var launchCommand: AgentLaunchCommandSnapshot?
     var registration: CmuxVaultAgentRegistration? = nil
+    /// Source-owned transcript path when the harness exposes one. Database-backed
+    /// harnesses leave this nil and resolve through a conversation reader adapter.
+    var transcriptPath: String? = nil
+    /// Whether the session identifier is panel-specific enough to authorize
+    /// database-backed conversation export. Missing legacy provenance fails closed.
+    var sessionIDProvenance: AgentSessionIDProvenance? = .authoritative
     /// Last hook-observed permission mode; re-applied as `--permission-mode` on
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
@@ -838,29 +851,98 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         )
     }
 
+    /// Applies the native fork input-size policy to a cross-harness launch command.
+    func customStartupInput(
+        command: String,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false
+    ) -> String? {
+        preparedCustomStartupInput(
+            command: command,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript,
+            allowOversizedInlineInput: allowOversizedInlineInput
+        )?.text
+    }
+
+    /// Prepares cross-harness startup input and tracks any private script until
+    /// the destination terminal takes ownership of it.
+    func preparedCustomStartupInput(
+        command: String,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false
+    ) -> PreparedAgentStartupInput? {
+        preparedStartupInput(
+            command: command,
+            workingDirectory: nil,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript,
+            allowOversizedInlineInput: allowOversizedInlineInput,
+            requireLauncherScript: true
+        )
+    }
+
     private func startupInput(
         command: String?,
         workingDirectory: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        allowLauncherScript: Bool = true
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false,
+        requireLauncherScript: Bool = false
     ) -> String? {
+        preparedStartupInput(
+            command: command,
+            workingDirectory: workingDirectory,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory,
+            allowLauncherScript: allowLauncherScript,
+            allowOversizedInlineInput: allowOversizedInlineInput,
+            requireLauncherScript: requireLauncherScript
+        )?.text
+    }
+
+    private func preparedStartupInput(
+        command: String?,
+        workingDirectory: String?,
+        fileManager: FileManager,
+        temporaryDirectory: URL,
+        allowLauncherScript: Bool = true,
+        allowOversizedInlineInput: Bool = false,
+        requireLauncherScript: Bool = false
+    ) -> PreparedAgentStartupInput? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
-        guard inlineInput.utf8.count > Self.maxInlineForkInputBytes else {
-            return inlineInput
+        guard requireLauncherScript || inlineInput.utf8.count > Self.maxInlineForkInputBytes else {
+            return PreparedAgentStartupInput(text: inlineInput)
+        }
+        guard requireLauncherScript || !allowOversizedInlineInput else {
+            return PreparedAgentStartupInput(text: inlineInput)
         }
         guard allowLauncherScript else { return nil }
-        guard let scriptInput = OneShotTerminalLauncherStore(
+        guard let scriptURL = OneShotTerminalLauncherStore(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory
-        ).writeInvocationInput(
+        ).writeLauncherScript(
             command: command,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            retention: requireLauncherScript ? .sensitive : .standard
         ) else {
             return nil
         }
-        return scriptInput.utf8.count <= Self.maxInlineForkInputBytes ? scriptInput : nil
+
+        let scriptInput = " /bin/zsh \(TerminalStartupShellQuoting.singleQuoted(scriptURL.path))\n"
+        guard scriptInput.utf8.count <= Self.maxInlineForkInputBytes else {
+            try? fileManager.removeItem(at: scriptURL)
+            return nil
+        }
+        return PreparedAgentStartupInput(text: scriptInput, launcherScriptURL: scriptURL)
     }
 
     private func resumeWorkingDirectory(preferred: String?) -> String? {
@@ -953,8 +1035,16 @@ struct RestorableAgentSessionIndex: Sendable {
     private let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
+    func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+    }
+
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
+        exactEntry(workspaceId: workspaceId, panelId: panelId) ?? entriesByPanelId[panelId]
+    }
+
+    func exactSnapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        exactEntry(workspaceId: workspaceId, panelId: panelId)?.snapshot
     }
 
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -1099,8 +1189,12 @@ struct RestorableAgentSessionIndex: Sendable {
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
-        }
+        },
+        restrictToPanelKey: PanelKey? = nil
     ) -> RestorableAgentSessionIndex {
+        let detectedSnapshots = restrictToPanelKey.map { requestedKey in
+            detectedSnapshots.filter { key, _ in key == requestedKey }
+        } ?? detectedSnapshots
         let decoder = JSONDecoder()
         var resolved: [PanelKey: Entry] = [:]
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
@@ -1130,6 +1224,15 @@ struct RestorableAgentSessionIndex: Sendable {
             }
 
             for record in state.sessions.values {
+                if let restrictToPanelKey {
+                    // Session restore can rotate the workspace UUID while
+                    // preserving the surface UUID. Keep every same-surface
+                    // record so the existing ambiguity checks remain intact.
+                    guard UUID(uuidString: record.surfaceId)
+                            == restrictToPanelKey.panelId else {
+                        continue
+                    }
+                }
                 var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(
                         record,
@@ -1170,6 +1273,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration,
+                    transcriptPath: normalizedNonEmptyValue(effectiveRecord.transcriptPath),
                     permissionMode: effectiveRecord.lastPermissionMode
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
@@ -1315,7 +1419,25 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
 
-        for (key, detected) in detectedSnapshots {
+        for (key, rawDetected) in detectedSnapshots {
+            var detectedSnapshot = rawDetected.snapshot
+            detectedSnapshot.sessionIDProvenance = switch rawDetected.sessionIDSource {
+            case .explicit:
+                .authoritative
+            case .inferredLatestSessionFile:
+                .inferredLatestSessionFile
+            case .forkParentFallback:
+                .forkParentFallback
+            case .relaunchOnly:
+                .relaunchOnly
+            }
+            let detected: ProcessDetectedSnapshotEntry = (
+                snapshot: detectedSnapshot,
+                updatedAt: rawDetected.updatedAt,
+                processIDs: rawDetected.processIDs,
+                agentProcessIDs: rawDetected.agentProcessIDs,
+                sessionIDSource: rawDetected.sessionIDSource
+            )
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]
@@ -1384,6 +1506,11 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
+        if let restrictToPanelKey {
+            resolved = resolved.filter { key, _ in
+                key == restrictToPanelKey
+            }
+        }
         return RestorableAgentSessionIndex(entriesByPanel: resolved)
     }
 

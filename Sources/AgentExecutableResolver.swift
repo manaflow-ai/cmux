@@ -26,37 +26,114 @@ struct AgentExecutableResolver {
     }
 
     func resolve(_ provider: AgentSessionProviderID) throws -> AgentSessionLaunchPlan {
-        let executableName = provider.executableName
         let searchDirectories = resolvedSearchDirectories()
-        if let configuredURL = resolvedConfiguredExecutableURL(for: provider) {
-            return launchPlan(provider: provider, executableURL: configuredURL, searchDirectories: searchDirectories)
-        }
+        return try resolve(provider, searchDirectories: searchDirectories)
+    }
 
-        for directory in searchDirectories {
-            guard !shouldSkipSearchDirectory(directory) else { continue }
-            let candidateURL = URL(fileURLWithPath: directory, isDirectory: true)
-                .appendingPathComponent(executableName, isDirectory: false)
-                .standardizedFileURL
-            let candidatePath = candidateURL.path
-            // `isExecutableFile(atPath:)` is true for directories, so a directory named
-            // like the provider binary earlier on PATH would shadow the real executable
-            // and fail at launch (#8743).
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: candidatePath, isDirectory: &isDirectory),
-                  !isDirectory.boolValue,
-                  fileManager.isExecutableFile(atPath: candidatePath) else { continue }
-            guard !isBundledProviderExecutable(candidateURL) else { continue }
-            guard !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider) else { continue }
-            guard !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else { continue }
-
-            return launchPlan(provider: provider, executableURL: candidateURL, searchDirectories: searchDirectories)
+    /// Resolves a provider against an already-computed search path. Callers that
+    /// resolve several providers can enumerate version-manager directories once.
+    func resolve(
+        _ provider: AgentSessionProviderID,
+        searchDirectories: [String],
+        executableNames: [String]? = nil
+    ) throws -> AgentSessionLaunchPlan {
+        let executableNames = executableNames ?? [provider.executableName]
+        if let plan = resolveCandidates(
+            provider,
+            searchDirectories: searchDirectories,
+            executableNames: executableNames
+        ).first {
+            return plan
         }
 
         throw AgentExecutableResolverError.missing(
             displayName: provider.displayName,
-            executableName: executableName,
+            executableName: executableNames.first ?? provider.executableName,
             searchedDirectories: searchDirectories
         )
+    }
+
+    /// Enumerates every valid provider executable in priority order. Discovery
+    /// can probe later candidates when an earlier generic alias belongs to a
+    /// different tool.
+    func resolveCandidates(
+        _ provider: AgentSessionProviderID,
+        searchDirectories: [String],
+        executableNames: [String]? = nil
+    ) -> [AgentSessionLaunchPlan] {
+        let executableNames = executableNames ?? [provider.executableName]
+        var candidates: [URL] = []
+        var seenPaths: Set<String> = []
+        if let configuredURL = resolvedConfiguredExecutableURL(for: provider) {
+            candidates.append(configuredURL)
+            seenPaths.insert(configuredURL.path)
+        }
+
+        for directory in searchDirectories {
+            guard !shouldSkipSearchDirectory(directory) else { continue }
+            for executableName in executableNames {
+                let candidateURL = URL(fileURLWithPath: directory, isDirectory: true)
+                    .appendingPathComponent(executableName, isDirectory: false)
+                    .standardizedFileURL
+                let candidatePath = candidateURL.path
+                // `isExecutableFile(atPath:)` is true for directories, so a directory named
+                // like the provider binary earlier on PATH would shadow the real executable
+                // and fail at launch (#8743).
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: candidatePath, isDirectory: &isDirectory),
+                      !isDirectory.boolValue,
+                      fileManager.isExecutableFile(atPath: candidatePath) else { continue }
+                guard !isBundledProviderExecutable(candidateURL) else { continue }
+                guard !isKnownCmuxCommandShim(candidateURL, provider: provider) else { continue }
+                guard !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else { continue }
+                guard seenPaths.insert(candidatePath).inserted else { continue }
+                candidates.append(candidateURL)
+            }
+        }
+        return candidates.map {
+            launchPlan(
+                provider: provider,
+                executableURL: $0,
+                searchDirectories: searchDirectories
+            )
+        }
+    }
+
+    /// Finds the first executable alias using the resolved search path.
+    func resolveExecutable(
+        named executableNames: [String],
+        searchDirectories: [String]
+    ) -> URL? {
+        resolveExecutables(
+            named: executableNames,
+            searchDirectories: searchDirectories
+        ).first
+    }
+
+    /// Enumerates executable aliases in search priority order.
+    func resolveExecutables(
+        named executableNames: [String],
+        searchDirectories: [String]
+    ) -> [URL] {
+        var candidates: [URL] = []
+        var seenPaths: Set<String> = []
+        for directory in searchDirectories {
+            guard !shouldSkipSearchDirectory(directory) else { continue }
+            for executableName in executableNames {
+                let candidateURL = URL(fileURLWithPath: directory, isDirectory: true)
+                    .appendingPathComponent(executableName, isDirectory: false)
+                    .standardizedFileURL
+                var isDirectory: ObjCBool = false
+                guard fileManager.fileExists(atPath: candidateURL.path, isDirectory: &isDirectory),
+                      !isDirectory.boolValue,
+                      fileManager.isExecutableFile(atPath: candidateURL.path) else {
+                    continue
+                }
+                guard seenPaths.insert(candidateURL.path).inserted else { continue }
+                candidates.append(candidateURL)
+            }
+        }
+        return candidates
     }
 
     static func cmuxConfiguredExecutablePaths(defaults: UserDefaults = .standard) -> [AgentSessionProviderID: String] {
@@ -144,7 +221,7 @@ struct AgentExecutableResolver {
         return lhs.path > rhs.path
     }
 
-    private func runtimeSearchPath(
+    func runtimeSearchPath(
         searchDirectories: [String],
         includingExecutableAt executableURL: URL
     ) -> String {
@@ -187,7 +264,7 @@ struct AgentExecutableResolver {
               !isDirectory.boolValue,
               fileManager.isExecutableFile(atPath: candidateURL.path),
               !isBundledProviderExecutable(candidateURL),
-              !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider),
+              !isKnownCmuxCommandShim(candidateURL, provider: provider),
               !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else {
             return nil
         }
@@ -209,17 +286,28 @@ struct AgentExecutableResolver {
         return false
     }
 
-    private func isKnownCmuxClaudeCommandShim(_ url: URL, provider: AgentSessionProviderID) -> Bool {
-        guard provider == .claude else { return false }
+    private func isKnownCmuxCommandShim(_ url: URL, provider: AgentSessionProviderID) -> Bool {
+        let shimEnvironmentKey: String
+        let shimRootEnvironmentKey: String
+        switch provider {
+        case .claude:
+            shimEnvironmentKey = "CMUX_CLAUDE_WRAPPER_SHIM"
+            shimRootEnvironmentKey = "CMUX_CLAUDE_WRAPPER_SHIM_ROOT"
+        case .codex:
+            shimEnvironmentKey = "CMUX_CODEX_WRAPPER_SHIM"
+            shimRootEnvironmentKey = "CMUX_CODEX_WRAPPER_SHIM_ROOT"
+        case .opencode:
+            return false
+        }
         let candidatePath = url.standardizedFileURL.path
-        if let shimPath = environment["CMUX_CLAUDE_WRAPPER_SHIM"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let shimPath = environment[shimEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !shimPath.isEmpty,
            candidatePath == URL(fileURLWithPath: shimPath, isDirectory: false).standardizedFileURL.path {
             return true
         }
 
         let shimRoots: [String?] = [
-            environment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"],
+            environment[shimRootEnvironmentKey],
             URL(fileURLWithPath: environment["TMPDIR"] ?? NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("cmux-cli-shims", isDirectory: true)
                 .standardizedFileURL

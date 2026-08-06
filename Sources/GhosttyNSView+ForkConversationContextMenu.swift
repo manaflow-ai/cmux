@@ -11,10 +11,15 @@ extension GhosttyNSView {
 
     @discardableResult
     func appendForkCurrentAgentConversationMenuItems(to menu: NSMenu) -> Bool {
-        let availability = currentAgentConversationForkAvailability()
-        guard availability.isAvailable || availability == .agentIndexRefreshing else { return false }
+        let nativeAvailability = currentAgentConversationForkAvailability()
+        let transferTargets = availableForkTargets()
+        guard nativeAvailability.isAvailable
+            || nativeAvailability == .agentIndexRefreshing
+            || !transferTargets.isEmpty else {
+            return false
+        }
 
-        if availability == .agentIndexRefreshing {
+        if nativeAvailability == .agentIndexRefreshing, transferTargets.isEmpty {
             let item = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.forkConversation", defaultValue: "Fork Conversation"),
                 action: nil,
@@ -25,23 +30,62 @@ extension GhosttyNSView {
             return true
         }
 
-        let defaultDestination = AgentConversationForkDefaultSettings.current()
-        let primaryItem = menu.addItem(
-            withTitle: String(localized: "terminalContextMenu.forkConversation", defaultValue: "Fork Conversation"),
-            action: #selector(forkCurrentAgentConversation(_:)),
-            keyEquivalent: ""
-        )
-        primaryItem.target = self
-        primaryItem.representedObject = defaultDestination.rawValue
-        primaryItem.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
+        if nativeAvailability.isAvailable {
+            let defaultDestination = AgentConversationForkDefaultSettings.current()
+            let primaryItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.forkConversation", defaultValue: "Fork Conversation"),
+                action: #selector(forkCurrentAgentConversation(_:)),
+                keyEquivalent: ""
+            )
+            primaryItem.target = self
+            primaryItem.representedObject = defaultDestination.rawValue
+            primaryItem.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
 
-        let submenuItem = NSMenuItem(
-            title: String(localized: "terminalContextMenu.forkConversationTo", defaultValue: "Fork Conversation To"),
-            action: nil,
-            keyEquivalent: ""
-        )
-        submenuItem.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
-        let submenu = NSMenu()
+            let submenuItem = NSMenuItem(
+                title: String(localized: "terminalContextMenu.forkConversationTo", defaultValue: "Fork Conversation To"),
+                action: nil,
+                keyEquivalent: ""
+            )
+            submenuItem.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
+            submenuItem.submenu = makeForkDestinationSubmenu(selectedDestination: defaultDestination) {
+                $0.rawValue
+            }
+            menu.addItem(submenuItem)
+        }
+
+        if !transferTargets.isEmpty {
+            let harnessItem = NSMenuItem(
+                title: String(
+                    localized: "terminalContextMenu.forkConversationWith",
+                    defaultValue: "Fork Conversation with"
+                ),
+                action: nil,
+                keyEquivalent: ""
+            )
+            harnessItem.image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: nil)
+            let harnessMenu = NSMenu()
+            for target in transferTargets {
+                let targetItem = NSMenuItem(title: target.title, action: nil, keyEquivalent: "")
+                targetItem.submenu = makeForkDestinationSubmenu { destination in
+                    AgentConversationForkRequest(
+                        target: target,
+                        destination: destination
+                    )
+                }
+                harnessMenu.addItem(targetItem)
+            }
+            harnessItem.submenu = harnessMenu
+            menu.addItem(harnessItem)
+        }
+
+        return true
+    }
+
+    private func makeForkDestinationSubmenu(
+        selectedDestination: AgentConversationForkDestination? = nil,
+        representedObject: (AgentConversationForkDestination) -> Any
+    ) -> NSMenu {
+        let menu = NSMenu()
         for destination in AgentConversationForkDestination.allCases {
             let item = NSMenuItem(
                 title: destination.settingsTitle,
@@ -49,14 +93,19 @@ extension GhosttyNSView {
                 keyEquivalent: ""
             )
             item.target = self
-            item.representedObject = destination.rawValue
-            item.state = destination == defaultDestination ? .on : .off
-            submenu.addItem(item)
+            item.representedObject = representedObject(destination)
+            item.state = destination == selectedDestination ? .on : .off
+            menu.addItem(item)
         }
-        submenuItem.submenu = submenu
-        menu.addItem(submenuItem)
+        return menu
+    }
 
-        return true
+    private func availableForkTargets() -> [AgentConversationForkTarget] {
+        guard let panelId = terminalSurface?.id,
+              let workspace = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId)?.workspace else {
+            return []
+        }
+        return workspace.actionableAgentConversationForkTargets(forPanelId: panelId)
     }
 
     private func currentAgentConversationForkAvailability() -> WorkspaceForkAgentConversationAvailability {
@@ -97,19 +146,24 @@ extension GhosttyNSView {
         }
         let workspace = located.workspace
 
-        let destination: AgentConversationForkDestination
+        let request: AgentConversationForkRequest
         if let item = sender as? NSMenuItem,
+           let representedRequest = item.representedObject as? AgentConversationForkRequest {
+            request = representedRequest
+        } else if let item = sender as? NSMenuItem,
            let rawDestination = item.representedObject as? String,
            let representedDestination = AgentConversationForkDestination(rawValue: rawDestination) {
-            destination = representedDestination
+            request = .sameHarness(destination: representedDestination)
         } else {
-            destination = AgentConversationForkDefaultSettings.current()
+            request = .sameHarness(
+                destination: AgentConversationForkDefaultSettings.current()
+            )
         }
 
         Task { @MainActor in
             guard await workspace.forkAgentConversationFromContextMenu(
                 fromPanelId: panelId,
-                destination: destination
+                request: request
             ) else {
                 NSSound.beep()
                 return

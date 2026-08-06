@@ -17009,6 +17009,40 @@
         }
       }
     },
+    "alert.forkConversation.failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn’t read and transfer the source conversation. The original conversation was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の会話を読み込んで転送できませんでした。元の会話は変更されていません。"
+          }
+        }
+      }
+    },
+    "alert.forkConversation.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Fork Conversation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話をフォークできませんでした"
+          }
+        }
+      }
+    },
     "alert.invalidColor.emptyMessage": {
       "extractionState": "manual",
       "localizations": {
@@ -60579,6 +60613,23 @@
         }
       }
     },
+    "command.forkAgentConversation.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation with…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のエージェントで会話をフォーク…"
+          }
+        }
+      }
+    },
     "command.forkAgentConversationBottom.title": {
       "extractionState": "manual",
       "localizations": {
@@ -70445,6 +70496,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースのステータス: 自動"
+          }
+        }
+      }
+    },
+    "commandPalette.argument.instruction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose %1$@ (%2$lld of %3$lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@を選択（%2$lld/%3$lld）"
           }
         }
       }
@@ -116409,6 +116477,104 @@
             "value": "右鍵點按 Fork Conversation 會在目前窗格上方建立分割。"
           }
         }
+      }
+    },
+    "forkConversation.argument.destination": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Destination" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーク先" } }
+      }
+    },
+    "forkConversation.argument.harness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Harness" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント" } }
+      }
+    },
+    "forkConversation.transfer.confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux: The running harness was launched from %@ and may load other code from that installation. Press Control-] to send the transferred conversation, or Control-X to continue without it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux：実行中のエージェントは %@ から起動され、そのインストール先の他のコードを読み込む場合があります。転送した会話を送信するには Control-] を押し、送信せずに続行するには Control-X を押してください。" } }
+      }
+    },
+    "forkConversation.handoff.compacted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Conversation compacted: %1$lld earlier turns omitted, %2$lld long turns shortened." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "会話を圧縮しました：以前の%1$lldターンを省略し、長い%2$lldターンを短縮しました。" } }
+      }
+    },
+    "forkConversation.handoff.introduction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The following conversation was transferred from %@. Continue the latest unfinished request using this context." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "以下の会話は%@から引き継がれました。このコンテキストを使って最新の未完了リクエストを続行してください。" } }
+      }
+    },
+    "forkConversation.handoff.role.assistant": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Assistant" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アシスタント" } }
+      }
+    },
+    "forkConversation.handoff.role.event": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Event" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "イベント" } }
+      }
+    },
+    "forkConversation.handoff.role.system": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "System" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "システム" } }
+      }
+    },
+    "forkConversation.handoff.role.tool": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tool" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ツール" } }
+      }
+    },
+    "forkConversation.handoff.role.user": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "User" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ユーザー" } }
+      }
+    },
+    "forkConversation.harness.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Claude Code" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Claude Code" } }
+      }
+    },
+    "forkConversation.harness.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codex" } }
+      }
+    },
+    "forkConversation.harness.current": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Current Harness" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在のエージェント" } }
+      }
+    },
+    "forkConversation.harness.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OpenCode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OpenCode" } }
       }
     },
     "ghostty.copy-mode.indicator": {
@@ -239228,6 +239394,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "대화 포크"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.forkConversationWith": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation with"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のエージェントで会話をフォーク"
           }
         }
       }

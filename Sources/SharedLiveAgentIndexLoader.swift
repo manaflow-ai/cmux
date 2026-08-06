@@ -14,9 +14,10 @@ struct SharedLiveAgentIndexLoader {
     private let registry: CmuxVaultAgentRegistry?
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
     private let capturedAtProvider: () -> TimeInterval
-    private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    private let processArgumentsProvider: @Sendable (Int) -> CmuxTopProcessArguments?
     private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator
+    private let openCodeDatabaseDescriptorPathCache: OpenCodeDatabaseDescriptorPathCache
 
     init(
         homeDirectory: String = NSHomeDirectory(),
@@ -28,14 +29,15 @@ struct SharedLiveAgentIndexLoader {
         capturedAtProvider: @escaping () -> TimeInterval = {
             Date().timeIntervalSince1970
         },
-        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
+        processArgumentsProvider: @escaping @Sendable (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
         processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
         },
-        cachedAgentProcessValidator: CachedAgentProcessIdentityValidator = CachedAgentProcessIdentityValidator()
+        cachedAgentProcessValidator: CachedAgentProcessIdentityValidator = CachedAgentProcessIdentityValidator(),
+        openCodeDatabaseDescriptorPathCache: OpenCodeDatabaseDescriptorPathCache? = nil
     ) {
         self.homeDirectory = homeDirectory
         self.fileManager = fileManager
@@ -45,6 +47,9 @@ struct SharedLiveAgentIndexLoader {
         self.processArgumentsProvider = processArgumentsProvider
         self.processIdentityProvider = processIdentityProvider
         self.cachedAgentProcessValidator = cachedAgentProcessValidator
+        self.openCodeDatabaseDescriptorPathCache =
+            openCodeDatabaseDescriptorPathCache
+            ?? OpenCodeDatabaseDescriptorPathCache()
     }
 
     func loadSynchronously() -> RestorableAgentSessionIndex {
@@ -62,13 +67,76 @@ struct SharedLiveAgentIndexLoader {
             capturedAt: capturedAtProvider(),
             processArgumentsProvider: processArgumentsProvider
         )
+        return makeLoadResult(
+            registry: resolvedRegistry,
+            processSnapshot: processSnapshot,
+            detectedSnapshots: detectedSnapshots
+        )
+    }
+
+    func loadResult(
+        reuseCompletedOpenCodeDatabasePaths: Bool = true
+    ) async -> LoadResult {
+        await loadResult(
+            restrictedTo: nil,
+            reuseCompletedOpenCodeDatabasePaths: reuseCompletedOpenCodeDatabasePaths
+        )
+    }
+
+    /// Revalidates one panel without resolving process metadata or provider
+    /// storage for every other live agent in the app.
+    func loadResult(
+        for panelKey: RestorableAgentSessionIndex.PanelKey,
+        reuseCompletedOpenCodeDatabasePaths: Bool = true
+    ) async -> LoadResult {
+        await loadResult(
+            restrictedTo: panelKey,
+            reuseCompletedOpenCodeDatabasePaths: reuseCompletedOpenCodeDatabasePaths
+        )
+    }
+
+    private func loadResult(
+        restrictedTo panelKey: RestorableAgentSessionIndex.PanelKey?,
+        reuseCompletedOpenCodeDatabasePaths: Bool
+    ) async -> LoadResult {
+        let resolvedRegistry = registry
+            ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let capturedProcessSnapshot = processSnapshotProvider()
+        let processSnapshot = panelKey.map {
+            Self.processSnapshot(capturedProcessSnapshot, restrictedTo: $0)
+        } ?? capturedProcessSnapshot
+        let detectedSnapshots = await RestorableAgentSessionIndex
+            .processDetectedSnapshotsCachingOpenCodeDatabasePaths(
+                registry: resolvedRegistry,
+                fileManager: fileManager,
+                processSnapshot: processSnapshot,
+                capturedAt: capturedAtProvider(),
+                reuseCompletedOpenCodeDatabasePaths: reuseCompletedOpenCodeDatabasePaths,
+                openCodeDatabaseDescriptorPathCache: openCodeDatabaseDescriptorPathCache,
+                processArgumentsProvider: processArgumentsProvider
+            )
+        return makeLoadResult(
+            registry: resolvedRegistry,
+            processSnapshot: processSnapshot,
+            detectedSnapshots: detectedSnapshots,
+            restrictToPanelKey: panelKey
+        )
+    }
+
+    private func makeLoadResult(
+        registry: CmuxVaultAgentRegistry,
+        processSnapshot: CmuxTopProcessSnapshot,
+        detectedSnapshots: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry],
+        restrictToPanelKey: RestorableAgentSessionIndex.PanelKey? = nil
+    ) -> LoadResult {
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
-            registry: resolvedRegistry,
+            registry: registry,
             detectedSnapshots: detectedSnapshots,
             processArgumentsProvider: processArgumentsProvider,
-            processIdentityProvider: processIdentityProvider
+            processIdentityProvider: processIdentityProvider,
+            restrictToPanelKey: restrictToPanelKey
         )
         return (
             index: index,
@@ -80,6 +148,20 @@ struct SharedLiveAgentIndexLoader {
                 processIdentityProvider: processIdentityProvider,
                 validator: cachedAgentProcessValidator
             )
+        )
+    }
+
+    private static func processSnapshot(
+        _ snapshot: CmuxTopProcessSnapshot,
+        restrictedTo panelKey: RestorableAgentSessionIndex.PanelKey
+    ) -> CmuxTopProcessSnapshot {
+        CmuxTopProcessSnapshot(
+            processes: snapshot.processesByPID.values.filter { process in
+                process.cmuxWorkspaceID == panelKey.workspaceId
+                    && process.cmuxSurfaceID == panelKey.panelId
+            },
+            sampledAt: snapshot.sampledAt,
+            includesProcessDetails: true
         )
     }
 

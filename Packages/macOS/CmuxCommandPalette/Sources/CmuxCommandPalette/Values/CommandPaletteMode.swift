@@ -9,6 +9,8 @@ public enum CommandPaletteMode {
     case renameInput(CommandPaletteRenameTarget)
     /// Rename confirmation for `target` with the user's `proposedName`.
     case renameConfirm(CommandPaletteRenameTarget, proposedName: String)
+    /// Finite-choice arguments are being collected for one command.
+    case choiceArguments(CommandPaletteArgumentCollection)
     /// Workspace-description editor is open for the target workspace.
     case workspaceDescriptionInput(CommandPaletteWorkspaceDescriptionTarget)
 }

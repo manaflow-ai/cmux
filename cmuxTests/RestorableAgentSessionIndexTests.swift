@@ -871,6 +871,32 @@ struct RestorableAgentSessionIndexTests {
         }
 
         XCTAssertEqual(restoredSessionIds, sessionIds)
+
+        for offset in panels.indices {
+            let requestedKey = RestorableAgentSessionIndex.PanelKey(
+                workspaceId: restoredWorkspaceIds[offset],
+                panelId: panels[offset]
+            )
+            let focusedIndex = RestorableAgentSessionIndex.load(
+                homeDirectory: root.path,
+                fileManager: fm,
+                registry: registry,
+                detectedSnapshots: detectedSnapshots,
+                processArgumentsProvider: { _ in nil },
+                restrictToPanelKey: requestedKey
+            )
+            XCTAssertEqual(
+                focusedIndex.snapshot(
+                    workspaceId: requestedKey.workspaceId,
+                    panelId: requestedKey.panelId
+                )?.sessionId,
+                sessionIds[offset]
+            )
+            XCTAssertNil(focusedIndex.exactSnapshot(
+                workspaceId: oldWorkspaceIds[offset],
+                panelId: requestedKey.panelId
+            ))
+        }
     }
 
     @Test

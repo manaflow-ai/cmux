@@ -87,4 +87,73 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
         #expect(selectedOmp["PI_PACKAGE_DIR"] == "/nix/store/pi-package")
     }
+
+    @Test("Preserves OpenCode storage settings without replaying captured provenance")
+    func preservesOpenCodeStorageSettingsWithoutCapturedProvenance() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "OPENCODE_DB": "custom.db",
+                "OPENCODE_DISABLE_CHANNEL_DB": "1",
+                OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey: "/tmp/opencode-dev.db",
+            ],
+            kind: "opencode"
+        )
+
+        #expect(selected == [
+            "OPENCODE_DB": "/tmp/opencode-dev.db",
+            "OPENCODE_DISABLE_CHANNEL_DB": "1",
+        ])
+    }
+
+    @Test("Makes relative OpenCode storage replay independent of captured roots")
+    func makesRelativeOpenCodeStorageReplayAbsolute() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "HOME": "/tmp/source-home",
+                "XDG_DATA_HOME": "~/custom-data",
+                "OPENCODE_DB": "custom.db",
+            ],
+            kind: "opencode"
+        )
+
+        #expect(selected == [
+            "OPENCODE_DB": "/tmp/source-home/custom-data/opencode/custom.db",
+        ])
+    }
+
+    @Test("Drops relative OpenCode storage replay without captured roots")
+    func dropsRelativeOpenCodeStorageReplayWithoutCapturedRoots() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["OPENCODE_DB": "custom.db"],
+            kind: "opencode"
+        )
+
+        #expect(selected.isEmpty)
+    }
+
+    @Test("Drops relative OpenCode storage replay with a relative XDG root")
+    func dropsRelativeOpenCodeStorageReplayWithRelativeXDGRoot() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "XDG_DATA_HOME": "relative-data",
+                "OPENCODE_DB": "custom.db",
+            ],
+            kind: "opencode"
+        )
+
+        #expect(selected.isEmpty)
+    }
+
+    @Test("Drops tilde OpenCode storage replay without a captured home")
+    func dropsTildeOpenCodeStorageReplayWithoutCapturedHome() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "XDG_DATA_HOME": "~/custom-data",
+                "OPENCODE_DB": "custom.db",
+            ],
+            kind: "opencode"
+        )
+
+        #expect(selected.isEmpty)
+    }
 }

@@ -1042,6 +1042,12 @@ enum SessionTranscriptLoader {
     private static let maxPreviewTurns = 500
     private static let maxTurnTextCharacters = 40_000
     private static let newlineByte: UInt8 = 10
+    private static let latestTranscriptPageBytes = 4 * 1024 * 1024
+    private static let latestTranscriptMaximumPageCount = 8
+    private static let openingTranscriptByteLimit = 4 * 1024 * 1024
+    private static let openCodeRowsPerRetainedTurn = 4
+    private static let openCodeOpeningRowLimit = 512
+    private static let transferDatabaseSnapshotByteLimit = 128 * 1_024 * 1_024
 
     // Wrapping `Data(string.utf8)` in a helper keeps large needle array literals
     // cheap to type-check. The Xcode 27 / Swift 6.4 expression solver otherwise
@@ -1126,58 +1132,143 @@ enum SessionTranscriptLoader {
         + grokSystemRoleNeedles
         + grokToolRoleNeedles
 
-    static func load(entry: SessionEntry) async throws -> [SessionTranscriptTurn] {
-        if entry.agent == .opencode {
-            let sessionId = entry.sessionId
+    static func load(
+        entry: SessionEntry,
+        retention: SessionTranscriptRetention = .prefix(maxPreviewTurns)
+    ) async throws -> [SessionTranscriptTurn] {
+        try await load(source: SessionTranscriptSource(
+            agent: entry.agent,
+            sessionId: entry.sessionId,
+            fileURL: entry.fileURL,
+            usesGrokTranscriptLayout: entry.usesGrokTranscriptLayout,
+            retention: retention
+        ))
+    }
+
+    static func load(source: SessionTranscriptSource) async throws -> [SessionTranscriptTurn] {
+        if source.agent == .opencode {
+            let sessionId = source.sessionId
+            let databasePath = source.openCodeDatabasePath
+            let expectedStorageGeneration = source.expectedStorageGeneration
             // OpenCode is SQLite-backed. Keep its synchronous query work off
             // the main actor so presenting the popover only flips UI state.
-            return try await Task.detached(priority: .userInitiated) {
-                try loadOpenCodeSynchronously(sessionId: sessionId)
-            }.value
+            return try await performSynchronousLoad {
+                try loadOpenCodeSynchronously(
+                    sessionId: sessionId,
+                    databasePath: databasePath,
+                    expectedStorageGeneration: expectedStorageGeneration,
+                    retention: source.retention
+                )
+            }
         }
-        if entry.agent == .hermesAgent {
-            let sessionId = entry.sessionId
-            return try await Task.detached(priority: .userInitiated) {
-                try loadHermesAgentSynchronously(sessionId: sessionId)
-            }.value
+        if source.agent == .hermesAgent {
+            let sessionId = source.sessionId
+            let stateDatabaseURL = source.hermesStateDatabaseURL
+            let expectedStorageGeneration = source.expectedStorageGeneration
+            return try await performSynchronousLoad {
+                try loadHermesAgentSynchronously(
+                    sessionId: sessionId,
+                    stateDatabaseURL: stateDatabaseURL,
+                    expectedStorageGeneration: expectedStorageGeneration,
+                    retention: source.retention
+                )
+            }
         }
-        guard let url = entry.fileURL else {
+        guard let url = source.fileURL else {
             throw SessionTranscriptLoadError.missingFile
         }
-        let agent = entry.agent
-        let sessionId = entry.sessionId
+        let agent = source.agent
+        let sessionId = source.sessionId
+        let expectedStorageGeneration = source.expectedStorageGeneration
         if agent.id == "antigravity" {
-            return try await Task.detached(priority: .userInitiated) {
-                try loadAntigravityHistorySynchronously(from: url, sessionId: sessionId)
-            }.value
+            return try await performSynchronousLoad {
+                try loadAntigravityHistorySynchronously(
+                    from: url,
+                    sessionId: sessionId,
+                    expectedStorageGeneration: expectedStorageGeneration,
+                    retention: source.retention
+                )
+            }
         }
-        let usesGrokTranscriptLayout = entry.usesGrokTranscriptLayout
-        return try await Task.detached(priority: .userInitiated) {
+        let usesGrokTranscriptLayout = source.usesGrokTranscriptLayout
+        return try await performSynchronousLoad {
             try loadSynchronously(
                 from: url,
                 agent: agent,
-                usesGrokTranscriptLayout: usesGrokTranscriptLayout
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                expectedStorageGeneration: expectedStorageGeneration,
+                retention: source.retention
             )
-        }.value
+        }
+    }
+
+    /// Runs blocking transcript I/O in a structured child so cancellation reaches the loader.
+    private static func performSynchronousLoad<T: Sendable>(
+        _ operation: @Sendable @escaping () throws -> T
+    ) async throws -> T {
+        try Task.checkCancellation()
+        return try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask(priority: .userInitiated) {
+                try Task.checkCancellation()
+                let value = try operation()
+                try Task.checkCancellation()
+                return value
+            }
+            guard let value = try await group.next() else {
+                throw CancellationError()
+            }
+            return value
+        }
     }
 
     private static func loadSynchronously(
         from url: URL,
         agent: SessionAgent,
-        usesGrokTranscriptLayout: Bool
+        usesGrokTranscriptLayout: Bool,
+        expectedStorageGeneration: AgentConversationStorageGeneration?,
+        retention: SessionTranscriptRetention
     ) throws -> [SessionTranscriptTurn] {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw SessionTranscriptLoadError.missingFile
         }
         if agent == .rovodev {
-            guard let preview = try RovoDevTranscriptPreview.load(from: url, limit: maxPreviewTurns) else { throw SessionTranscriptLoadError.missingFile }
-            return coalesce(preview.enumerated().map { index, turn in
+            guard let preview = try RovoDevTranscriptPreview.load(
+                from: url,
+                limit: retention.limit,
+                latest: retention.keepsLatestTurns,
+                preservingOpeningUser: retention.keepsLatestTurns,
+                dialogueOnly: retention.requiresCompleteLatestScan,
+                expectedStorageGeneration: expectedStorageGeneration
+            ) else {
+                throw SessionTranscriptLoadError.missingFile
+            }
+            let mapped = preview.enumerated().map { index, turn in
                 let role = transcriptRole(from: turn.role) ?? .event
-                return SessionTranscriptTurn(id: index, role: role, text: truncatedText(turn.text, role: role))
-            })
+                return SessionTranscriptTurn(
+                    id: index,
+                    role: role,
+                    text: retainedText(turn.text, role: role, retention: retention)
+                )
+            }
+            return coalesce(mapped, retention: retention)
+        }
+        if retention.keepsLatestTurns {
+            return try loadLatestSynchronously(
+                from: url,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                expectedStorageGeneration: expectedStorageGeneration,
+                retention: retention
+            )
         }
 
-        let handle = try FileHandle(forReadingFrom: url)
+        guard let snapshot = AgentConversationStorageGeneration.openRegularFile(
+            at: url,
+            matching: expectedStorageGeneration
+        ) else {
+            throw SessionTranscriptLoadError.missingFile
+        }
+        let handle = snapshot.handle
         defer { try? handle.close() }
 
         var turns: [SessionTranscriptTurn] = []
@@ -1195,27 +1286,34 @@ enum SessionTranscriptLoader {
                 isSkippingOversizedLine = false
                 oversizedPreviewRole = nil
             }
-            guard turns.count < maxPreviewTurns else {
+            guard turns.count < retention.limit else {
                 didHitTurnLimit = true
                 return
             }
             guard !isSkippingOversizedLine else {
                 if let oversizedPreviewRole {
-                    turns.append(largeRecordTurn(id: lineIndex, role: oversizedPreviewRole))
+                    let turn = largeRecordTurn(id: lineIndex, role: oversizedPreviewRole)
+                    turns.append(turn)
                 }
-                didHitTurnLimit = turns.count >= maxPreviewTurns
+                didHitTurnLimit = turns.count >= retention.limit
                 return
             }
-            guard let parsed = parseLineData(
+            let parsed = parseLineData(
                 lineData,
                 agent: agent,
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
-                id: lineIndex
-            ) else {
+                id: lineIndex,
+                retention: retention
+            )
+            guard !parsed.isEmpty else {
                 return
             }
-            turns.append(parsed)
-            didHitTurnLimit = turns.count >= maxPreviewTurns
+            let remainingTurnCount = retention.limit - turns.count
+            turns.append(contentsOf: parsed.prefix(remainingTurnCount))
+            if parsed.count > remainingTurnCount {
+                didHitTurnLimit = true
+            }
+            didHitTurnLimit = turns.count >= retention.limit
         }
 
         func appendSegment(_ segment: Data.SubSequence) {
@@ -1272,47 +1370,275 @@ enum SessionTranscriptLoader {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
 
-        return coalesce(turns)
+        return coalesce(turns, retention: retention)
+    }
+
+    private static func loadLatestSynchronously(
+        from url: URL,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
+        expectedStorageGeneration: AgentConversationStorageGeneration?,
+        retention: SessionTranscriptRetention
+    ) throws -> [SessionTranscriptTurn] {
+        let reader = SessionIndexJSONLReader(maximumRecordBytes: maxPreviewRecordBytes)
+        var newestFirst: [SessionTranscriptTurn] = []
+        var retainedTextBytes = 0
+        var didSatisfyLatestRetention = false
+        var openingUser: SessionTranscriptTurn?
+        guard let scan = reader.withFileSnapshot(
+            url: url,
+            expectedStorageGeneration: expectedStorageGeneration,
+            body: { handle, fileEndOffset in
+            let latestMetrics = reader.fromTailPages(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maxBytesPerPage: latestTranscriptPageBytes,
+                maximumPageCount: latestTranscriptMaximumPageCount
+            ) { object in
+                guard !Task.isCancelled else { return true }
+                let parsedTurns = parseLine(
+                    object,
+                    agent: agent,
+                    usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                    id: -(newestFirst.count + 1),
+                    retention: retention
+                )
+                for turn in parsedTurns.reversed() {
+                    guard retention.includes(turn.role) else { continue }
+                    let boundedTurn = retention.bounded(turn)
+                    newestFirst.append(boundedTurn)
+                    let byteTotal = retainedTextBytes.addingReportingOverflow(
+                        retention.retainedByteCost(of: boundedTurn)
+                    )
+                    retainedTextBytes = byteTotal.overflow ? .max : byteTotal.partialValue
+                    if newestFirst.count >= retention.limit {
+                        didSatisfyLatestRetention = true
+                        return true
+                    }
+                    if retention.textByteLimit.map({ retainedTextBytes >= $0 }) == true {
+                        didSatisfyLatestRetention = true
+                        return true
+                    }
+                }
+                return false
+            }
+            let openingMetrics = reader.fromStart(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maxBytes: openingTranscriptByteLimit
+            ) { object in
+                guard !Task.isCancelled else { return true }
+                let parsedTurns = parseLine(
+                    object,
+                    agent: agent,
+                    usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                    id: .min,
+                    retention: retention
+                )
+                for turn in parsedTurns {
+                    guard retention.includes(turn.role), turn.role == .user else { continue }
+                    openingUser = retention.bounded(turn)
+                    return true
+                }
+                return false
+            }
+            return (latest: latestMetrics, opening: openingMetrics)
+            }
+        ) else {
+            throw SessionTranscriptLoadError.missingFile
+        }
+        try Task.checkCancellation()
+        try validateLatestTransferScan(
+            scan.latest,
+            didSatisfyRetention: didSatisfyLatestRetention,
+            retention: retention
+        )
+        try validateOpeningTransferScan(
+            scan.opening,
+            openingUser: openingUser,
+            hasLatestTurns: !newestFirst.isEmpty,
+            retention: retention
+        )
+
+        var turns = Array(newestFirst.reversed())
+        if let openingUser,
+           !turns.contains(where: {
+               $0.role == openingUser.role && $0.text == openingUser.text
+           }) {
+            turns = [openingUser] + Array(turns.suffix(max(0, retention.limit - 1)))
+        }
+        return coalesce(turns, retention: retention)
     }
 
     private static func loadAntigravityHistorySynchronously(
         from url: URL,
-        sessionId: String
+        sessionId: String,
+        expectedStorageGeneration: AgentConversationStorageGeneration?,
+        retention: SessionTranscriptRetention
     ) throws -> [SessionTranscriptTurn] {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw SessionTranscriptLoadError.missingFile
         }
 
         var turns: [SessionTranscriptTurn] = []
+        var openingUser: SessionTranscriptTurn?
         var lineIndex = 0
         var didHitTurnLimit = false
+        var retainedTextBytes = 0
+        var didSatisfyLatestRetention = false
         let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
-        let metrics = SessionIndexJSONLReader().fromTailPages(
-            url: url,
-            maxBytesPerPage: SessionIndexStore.antigravityHistoryByteCap,
-            maximumPageCount: SessionIndexStore.antigravityHistoryPreviewPageLimit
-        ) { object in
+        let reader = SessionIndexJSONLReader()
+        let visitLatest: ([String: Any]) -> Bool = { object in
             defer { lineIndex += 1 }
             if Task.isCancelled { return true }
-            guard turns.count < maxPreviewTurns else {
+            guard turns.count < retention.limit else {
                 didHitTurnLimit = true
                 return true
             }
             guard antigravityHistorySessionID(in: object) == sessionId else {
                 return false
             }
-            let content = object["display"] ?? object["prompt"] ?? object["text"] ?? object["message"]
-            guard let text = normalizedText(from: content, role: .user, agent: agent) else {
+            guard let turn = antigravityHistoryTurn(
+                in: object,
+                id: lineIndex,
+                agent: agent,
+                retention: retention
+            ) else {
                 return false
             }
-            turns.append(SessionTranscriptTurn(id: lineIndex, role: .user, text: text))
+            turns.append(turn)
+            if retention.keepsLatestTurns {
+                let byteTotal = retainedTextBytes.addingReportingOverflow(
+                    retention.retainedByteCost(of: retention.bounded(turn))
+                )
+                retainedTextBytes = byteTotal.overflow ? .max : byteTotal.partialValue
+                if turns.count >= retention.limit
+                    || retention.textByteLimit.map({ retainedTextBytes >= $0 }) == true {
+                    didSatisfyLatestRetention = true
+                    return true
+                }
+            }
             return false
         }
-        if didHitTurnLimit || !metrics.didReachStart {
+        let metrics: SessionIndexJSONLReadMetrics
+        var openingMetrics = SessionIndexJSONLReadMetrics(
+            bytesRead: 0,
+            recordsVisited: 0
+        )
+        if retention.keepsLatestTurns {
+            guard let scan = reader.withFileSnapshot(
+                url: url,
+                expectedStorageGeneration: expectedStorageGeneration,
+                body: { handle, fileEndOffset in
+                let latestMetrics = reader.fromTailPages(
+                    fileHandle: handle,
+                    fileEndOffset: fileEndOffset,
+                    maxBytesPerPage: SessionIndexStore.antigravityHistoryByteCap,
+                    maximumPageCount: SessionIndexStore.antigravityHistoryPreviewPageLimit,
+                    body: visitLatest
+                )
+                let firstMetrics = reader.fromStart(
+                    fileHandle: handle,
+                    fileEndOffset: fileEndOffset,
+                    maxBytes: openingTranscriptByteLimit
+                ) { object in
+                    guard !Task.isCancelled else { return true }
+                    guard antigravityHistorySessionID(in: object) == sessionId,
+                          let turn = antigravityHistoryTurn(
+                              in: object,
+                              id: Int.min,
+                              agent: agent,
+                              retention: retention
+                          ) else {
+                        return false
+                    }
+                    openingUser = turn
+                    return true
+                }
+                return (latest: latestMetrics, opening: firstMetrics)
+                }
+            ) else {
+                throw SessionTranscriptLoadError.missingFile
+            }
+            metrics = scan.latest
+            openingMetrics = scan.opening
+        } else {
+            metrics = reader.fromTailPages(
+                url: url,
+                maxBytesPerPage: SessionIndexStore.antigravityHistoryByteCap,
+                maximumPageCount: SessionIndexStore.antigravityHistoryPreviewPageLimit,
+                body: visitLatest
+            )
+        }
+        if retention.keepsLatestTurns {
+            try Task.checkCancellation()
+            try validateLatestTransferScan(
+                metrics,
+                didSatisfyRetention: didSatisfyLatestRetention,
+                retention: retention
+            )
+            try validateOpeningTransferScan(
+                openingMetrics,
+                openingUser: openingUser,
+                hasLatestTurns: !turns.isEmpty,
+                retention: retention
+            )
+        } else if didHitTurnLimit
+                    || !metrics.didReachStart
+                    || metrics.didSkipOversizedRecord {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
         turns.reverse()
-        return coalesce(turns)
+        if let openingUser,
+           !turns.contains(where: { $0.role == openingUser.role && $0.text == openingUser.text }) {
+            turns = [openingUser] + Array(turns.suffix(max(0, retention.limit - 1)))
+        }
+        return coalesce(turns, retention: retention)
+    }
+
+    private static func antigravityHistoryTurn(
+        in object: [String: Any],
+        id: Int,
+        agent: SessionAgent,
+        retention: SessionTranscriptRetention
+    ) -> SessionTranscriptTurn? {
+        let content = object["display"] ?? object["prompt"] ?? object["text"] ?? object["message"]
+        guard let text = normalizedText(
+            from: content,
+            role: .user,
+            agent: agent,
+            retention: retention
+        ) else {
+            return nil
+        }
+        return SessionTranscriptTurn(id: id, role: .user, text: text)
+    }
+
+    private static func validateLatestTransferScan(
+        _ metrics: SessionIndexJSONLReadMetrics,
+        didSatisfyRetention: Bool,
+        retention: SessionTranscriptRetention
+    ) throws {
+        guard retention.requiresCompleteLatestScan else { return }
+        guard !metrics.didSkipOversizedRecord,
+              !metrics.didEncounterMalformedRecord,
+              metrics.didReachStart || didSatisfyRetention else {
+            throw SessionTranscriptLoadError.incompleteSource
+        }
+    }
+
+    private static func validateOpeningTransferScan(
+        _ metrics: SessionIndexJSONLReadMetrics,
+        openingUser: SessionTranscriptTurn?,
+        hasLatestTurns: Bool,
+        retention: SessionTranscriptRetention
+    ) throws {
+        guard retention.requiresCompleteLatestScan, hasLatestTurns else { return }
+        guard openingUser != nil,
+              !metrics.didSkipOversizedRecord,
+              !metrics.didEncounterMalformedRecord else {
+            throw SessionTranscriptLoadError.incompleteSource
+        }
     }
 
     private static func antigravityHistorySessionID(in object: [String: Any]) -> String? {
@@ -1324,10 +1650,25 @@ enum SessionTranscriptLoader {
         return nil
     }
 
-    private static func loadOpenCodeSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
+    private static func loadOpenCodeSynchronously(
+        sessionId: String,
+        databasePath: String? = nil,
+        expectedStorageGeneration: AgentConversationStorageGeneration? = nil,
+        retention: SessionTranscriptRetention = .prefix(maxPreviewTurns)
+    ) throws -> [SessionTranscriptTurn] {
+        if let databasePath,
+           expectedStorageGeneration?.isCurrent(atPath: databasePath) == false {
+            throw SessionTranscriptLoadError.incompleteSource
+        }
         let snapshot: OpenCodeDatabaseSnapshot.Snapshot
         do {
-            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-preview") else {
+            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(
+                prefix: "cmux-opencode-preview",
+                sourcePath: databasePath,
+                maximumTotalBytes: retention.requiresCompleteLatestScan
+                    ? transferDatabaseSnapshotByteLimit
+                    : nil
+            ) else {
                 throw SessionTranscriptLoadError.missingFile
             }
             snapshot = madeSnapshot
@@ -1335,6 +1676,11 @@ enum SessionTranscriptLoader {
             throw SessionTranscriptLoadError.missingFile
         } catch {
             throw SessionTranscriptLoadError.databaseError(error.localizedDescription)
+        }
+        if let databasePath,
+           expectedStorageGeneration?.isCurrent(atPath: databasePath) == false {
+            snapshot.remove()
+            throw SessionTranscriptLoadError.incompleteSource
         }
         defer { snapshot.remove() }
 
@@ -1348,13 +1694,46 @@ enum SessionTranscriptLoader {
         defer { sqlite3_close(db) }
         _ = sqlite3_busy_timeout(db, 50)
 
-        let sql = """
-            SELECT m.id, m.data, p.data
-            FROM message m
-            LEFT JOIN part p ON p.message_id = m.id
-            WHERE m.session_id = ?
-            ORDER BY m.time_created, m.id, p.time_created, p.id
-            """
+        let rowLimit = min(retention.limit, 2_500) * openCodeRowsPerRetainedTurn
+        let sql: String
+        if retention.keepsLatestTurns {
+            let retainedRowsClause = retention.includes(.tool) ? "" : """
+                AND CASE WHEN json_valid(m.data)
+                         THEN lower(json_extract(m.data, '$.role'))
+                    END IN ('user', 'assistant')
+                AND CASE WHEN json_valid(p.data)
+                         THEN json_extract(p.data, '$.type')
+                    END = 'text'
+                """
+            sql = """
+                SELECT message_id, message_data, part_data
+                FROM (
+                    SELECT
+                        m.id AS message_id,
+                        m.data AS message_data,
+                        p.data AS part_data,
+                        m.time_created AS message_time_created,
+                        p.time_created AS part_time_created,
+                        p.id AS part_id
+                    FROM message m
+                    LEFT JOIN part p ON p.message_id = m.id
+                    WHERE m.session_id = ?
+                    \(retainedRowsClause)
+                    ORDER BY m.time_created DESC, m.id DESC, p.time_created DESC, p.id DESC
+                    LIMIT ?
+                )
+                ORDER BY message_time_created, message_id, part_time_created, part_id
+                """
+        } else {
+            sql = """
+                SELECT m.id, m.data, p.data
+                FROM message m
+                LEFT JOIN part p ON p.message_id = m.id
+                WHERE m.session_id = ?
+                ORDER BY m.time_created, m.id, p.time_created, p.id
+                LIMIT ?
+                """
+        }
         var stmt: OpaquePointer?
         let prepareResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
         guard prepareResult == SQLITE_OK, let stmt else {
@@ -1365,13 +1744,16 @@ enum SessionTranscriptLoader {
         defer { sqlite3_finalize(stmt) }
 
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        let bindResult = sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
-        guard bindResult == SQLITE_OK else {
-            let message = sqliteMessage(db) ?? "SQLite bind failed with code \(bindResult)"
+        let bindSessionResult = sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
+        let bindLimitResult = sqlite3_bind_int64(stmt, 2, Int64(rowLimit))
+        guard bindSessionResult == SQLITE_OK, bindLimitResult == SQLITE_OK else {
+            let message = sqliteMessage(db)
+                ?? "SQLite bind failed with codes \(bindSessionResult), \(bindLimitResult)"
             throw SessionTranscriptLoadError.databaseError(message)
         }
 
         var turns: [SessionTranscriptTurn] = []
+        var latestTurns = SessionTranscriptLatestCollector(retention: retention)
         var turnId = 0
         var currentMessageId: String?
         var currentMessageRole: SessionTranscriptRole = .event
@@ -1386,10 +1768,19 @@ enum SessionTranscriptLoader {
                 currentMessageRole = openCodeMessageRole(from: sqliteText(stmt, 1)) ?? .event
             }
             if let partJSON = sqliteText(stmt, 2),
-               let turn = parseOpenCodePart(partJSON, messageRole: currentMessageRole, id: turnId) {
-                turns.append(turn)
+               let turn = parseOpenCodePart(
+                   partJSON,
+                   messageRole: currentMessageRole,
+                   id: turnId,
+                   retention: retention
+               ) {
+                if retention.keepsLatestTurns {
+                    latestTurns.append(turn)
+                } else {
+                    turns.append(turn)
+                }
                 turnId += 1
-                if turns.count >= maxPreviewTurns {
+                if !retention.keepsLatestTurns, turns.count >= retention.limit {
                     didHitTurnLimit = true
                     break
                 }
@@ -1402,18 +1793,138 @@ enum SessionTranscriptLoader {
             throw SessionTranscriptLoadError.databaseError(message)
         }
 
+        if retention.keepsLatestTurns {
+            var retainedTurns = latestTurns.turns
+            if let openingUser = try loadOpenCodeOpeningUserTurn(
+                db: db,
+                sessionId: sessionId,
+                retention: retention
+            ), !retainedTurns.contains(where: {
+                $0.role == openingUser.role && $0.text == openingUser.text
+            }) {
+                retainedTurns = [openingUser]
+                    + Array(retainedTurns.suffix(max(0, retention.limit - 1)))
+            }
+            return coalesce(retainedTurns, retention: retention)
+        }
         if didHitTurnLimit {
             appendTurnLimitMarker(to: &turns, id: turnId)
         }
 
-        return coalesce(turns)
+        return coalesce(turns, retention: retention)
     }
 
-    private static func loadHermesAgentSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
+    private static func loadOpenCodeOpeningUserTurn(
+        db: OpaquePointer,
+        sessionId: String,
+        retention: SessionTranscriptRetention
+    ) throws -> SessionTranscriptTurn? {
+        let sql = """
+            SELECT m.id, m.data, p.data
+            FROM message m
+            LEFT JOIN part p ON p.message_id = m.id
+            WHERE m.session_id = ?
+              AND CASE WHEN json_valid(m.data)
+                       THEN lower(json_extract(m.data, '$.role'))
+                  END = 'user'
+              AND CASE WHEN json_valid(p.data)
+                       THEN json_extract(p.data, '$.type')
+                  END = 'text'
+            ORDER BY m.time_created, m.id, p.time_created, p.id
+            LIMIT ?
+            """
+        var stmt: OpaquePointer?
+        let prepareResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+        guard prepareResult == SQLITE_OK, let stmt else {
+            let message = sqliteMessage(db) ?? "SQLite prepare failed with code \(prepareResult)"
+            sqlite3_finalize(stmt)
+            throw SessionTranscriptLoadError.databaseError(message)
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(
+            OpaquePointer(bitPattern: -1),
+            to: sqlite3_destructor_type.self
+        )
+        let bindSessionResult = sqlite3_bind_text(
+            stmt,
+            1,
+            sessionId,
+            -1,
+            SQLITE_TRANSIENT_FN
+        )
+        let bindLimitResult = sqlite3_bind_int64(
+            stmt,
+            2,
+            Int64(openCodeOpeningRowLimit)
+        )
+        guard bindSessionResult == SQLITE_OK, bindLimitResult == SQLITE_OK else {
+            let message = sqliteMessage(db)
+                ?? "SQLite bind failed with codes \(bindSessionResult), \(bindLimitResult)"
+            throw SessionTranscriptLoadError.databaseError(message)
+        }
+
+        var currentMessageID: String?
+        var currentMessageRole: SessionTranscriptRole = .event
+        var rowID = 0
+        var stepResult = sqlite3_step(stmt)
+        while stepResult == SQLITE_ROW {
+            try Task.checkCancellation()
+            let messageID = sqliteText(stmt, 0) ?? ""
+            if currentMessageID != messageID {
+                currentMessageID = messageID
+                currentMessageRole = openCodeMessageRole(from: sqliteText(stmt, 1)) ?? .event
+            }
+            if currentMessageRole == .user,
+               let partJSON = sqliteText(stmt, 2),
+               let turn = parseOpenCodePart(
+                   partJSON,
+                   messageRole: currentMessageRole,
+                   id: rowID,
+                   retention: retention
+               ),
+               turn.role == .user {
+                return turn
+            }
+            rowID += 1
+            stepResult = sqlite3_step(stmt)
+        }
+        guard stepResult == SQLITE_DONE else {
+            let message = sqliteMessage(db) ?? "SQLite step failed with code \(stepResult)"
+            throw SessionTranscriptLoadError.databaseError(message)
+        }
+        return nil
+    }
+
+    private static func loadHermesAgentSynchronously(
+        sessionId: String,
+        stateDatabaseURL: URL?,
+        expectedStorageGeneration: AgentConversationStorageGeneration? = nil,
+        retention: SessionTranscriptRetention = .prefix(maxPreviewTurns)
+    ) throws -> [SessionTranscriptTurn] {
+        if let stateDatabaseURL,
+           expectedStorageGeneration?.isCurrent(atPath: stateDatabaseURL.path) == false {
+            throw SessionTranscriptLoadError.incompleteSource
+        }
         do {
-            let turns = try HermesAgentIndex.loadTranscript(sessionId: sessionId, limit: maxPreviewTurns + 1)
-            let didHitTurnLimit = turns.count > maxPreviewTurns
-            var previewTurns: [SessionTranscriptTurn] = turns.prefix(maxPreviewTurns).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
+            let queryLimit = retention.keepsLatestTurns ? retention.limit : retention.limit + 1
+            let turns = try HermesAgentIndex.loadTranscript(
+                sessionId: sessionId,
+                limit: queryLimit,
+                latest: retention.keepsLatestTurns,
+                preservingOpeningUser: retention.keepsLatestTurns,
+                dialogueOnly: retention.requiresCompleteLatestScan,
+                stateDBPath: stateDatabaseURL?.path ?? HermesAgentIndex.defaultStateDBPath(),
+                maximumSnapshotBytes: retention.requiresCompleteLatestScan
+                    ? transferDatabaseSnapshotByteLimit
+                    : nil
+            )
+            if let stateDatabaseURL,
+               expectedStorageGeneration?.isCurrent(atPath: stateDatabaseURL.path) == false {
+                throw SessionTranscriptLoadError.incompleteSource
+            }
+            let didHitTurnLimit = !retention.keepsLatestTurns && turns.count > retention.limit
+            var previewTurns: [SessionTranscriptTurn] = turns.prefix(retention.limit).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
                 let role: SessionTranscriptRole = (turn.toolName?.isEmpty == false) ? .tool : (transcriptRole(from: turn.role) ?? .event)
                 let text: String
                 if role == .tool, let toolName = turn.toolName, !toolName.isEmpty {
@@ -1423,14 +1934,22 @@ enum SessionTranscriptLoader {
                 }
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return nil }
-                return SessionTranscriptTurn(id: index, role: role, text: truncatedText(trimmed, role: role))
+                return SessionTranscriptTurn(
+                    id: index,
+                    role: role,
+                    text: retainedText(trimmed, role: role, retention: retention)
+                )
             }
             if didHitTurnLimit {
                 appendTurnLimitMarker(to: &previewTurns, id: previewTurns.count)
             }
-            return coalesce(previewTurns)
+            return coalesce(previewTurns, retention: retention)
         } catch HermesAgentIndexError.missingDatabase {
             throw SessionTranscriptLoadError.missingFile
+        } catch HermesAgentIndexError.snapshotTooLarge(let maximumBytes) {
+            throw SessionTranscriptLoadError.databaseError(
+                "Hermes database snapshot exceeds the \(maximumBytes)-byte transfer limit."
+            )
         } catch let HermesAgentIndexError.sqlite(message) {
             throw SessionTranscriptLoadError.databaseError(message)
         }
@@ -1447,18 +1966,20 @@ enum SessionTranscriptLoader {
         _ lineData: Data,
         agent: SessionAgent,
         usesGrokTranscriptLayout: Bool,
-        id: Int
-    ) -> SessionTranscriptTurn? {
+        id: Int,
+        retention: SessionTranscriptRetention
+    ) -> [SessionTranscriptTurn] {
         guard !lineData.isEmpty,
               shouldParseRawLine(lineData, agent: agent, usesGrokTranscriptLayout: usesGrokTranscriptLayout),
               let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
-            return nil
+            return []
         }
         return parseLine(
             object,
             agent: agent,
             usesGrokTranscriptLayout: usesGrokTranscriptLayout,
-            id: id
+            id: id,
+            retention: retention
         )
     }
 
@@ -1466,41 +1987,69 @@ enum SessionTranscriptLoader {
         _ object: [String: Any],
         agent: SessionAgent,
         usesGrokTranscriptLayout: Bool,
-        id: Int
-    ) -> SessionTranscriptTurn? {
+        id: Int,
+        retention: SessionTranscriptRetention
+    ) -> [SessionTranscriptTurn] {
         switch agent {
         case .claude:
-            return parseClaudeLine(object, id: id)
+            return parseClaudeLine(object, id: id, retention: retention)
         case .codex:
-            return parseCodexLine(object, id: id)
+            return parseCodexLine(object, id: id, retention: retention).map { [$0] } ?? []
         case .grok, .opencode, .rovodev, .registered:
             return parseGenericLine(
                 object,
                 agent: agent,
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
-                id: id
-            )
+                id: id,
+                retention: retention
+            ).map { [$0] } ?? []
         case .hermesAgent:
-            return nil
+            return []
         }
     }
 
-    private static func parseClaudeLine(_ object: [String: Any], id: Int) -> SessionTranscriptTurn? {
+    private static func parseClaudeLine(
+        _ object: [String: Any],
+        id: Int,
+        retention: SessionTranscriptRetention
+    ) -> [SessionTranscriptTurn] {
         guard (object["isMeta"] as? Bool) != true,
               let type = object["type"] as? String,
               type == "user" || type == "assistant" else {
-            return nil
+            return []
         }
         let message = object["message"] as? [String: Any]
-        let role = transcriptRole(from: message?["role"] as? String ?? type) ?? .event
+        let messageRole = transcriptRole(from: message?["role"] as? String ?? type) ?? .event
         let content = message?["content"] ?? object["content"]
-        guard let text = normalizedText(from: content, role: role, agent: .claude) else {
-            return nil
+        let blocks: [Any]
+        if let content = content as? [Any] {
+            blocks = content
+        } else if let content {
+            blocks = [content]
+        } else {
+            blocks = []
         }
-        return SessionTranscriptTurn(id: id, role: role, text: text)
+        return blocks.compactMap { block in
+            let blockType = (block as? [String: Any])?["type"] as? String
+            let blockRole = transcriptRole(from: blockType)
+            let role = blockRole == .tool ? SessionTranscriptRole.tool : messageRole
+            guard let text = normalizedText(
+                from: block,
+                role: role,
+                agent: .claude,
+                retention: retention
+            ) else {
+                return nil
+            }
+            return SessionTranscriptTurn(id: id, role: role, text: text)
+        }
     }
 
-    private static func parseCodexLine(_ object: [String: Any], id: Int) -> SessionTranscriptTurn? {
+    private static func parseCodexLine(
+        _ object: [String: Any],
+        id: Int,
+        retention: SessionTranscriptRetention
+    ) -> SessionTranscriptTurn? {
         guard (object["type"] as? String) == "response_item",
               let payload = object["payload"] as? [String: Any],
               let payloadType = payload["type"] as? String else {
@@ -1511,13 +2060,23 @@ enum SessionTranscriptLoader {
                   role == .user || role == .assistant else {
                 return nil
             }
-            guard let text = normalizedText(from: payload["content"], role: role, agent: .codex) else {
+            guard let text = normalizedText(
+                from: payload["content"],
+                role: role,
+                agent: .codex,
+                retention: retention
+            ) else {
                 return nil
             }
             return SessionTranscriptTurn(id: id, role: role, text: text)
         }
         if payloadType == "function_call" || payloadType == "function_call_output" {
-            guard let text = normalizedText(from: payload, role: .tool, agent: .codex) else {
+            guard let text = normalizedText(
+                from: payload,
+                role: .tool,
+                agent: .codex,
+                retention: retention
+            ) else {
                 return nil
             }
             return SessionTranscriptTurn(id: id, role: .tool, text: text)
@@ -1529,13 +2088,15 @@ enum SessionTranscriptLoader {
         _ object: [String: Any],
         agent: SessionAgent,
         usesGrokTranscriptLayout: Bool,
-        id: Int
+        id: Int,
+        retention: SessionTranscriptRetention
     ) -> SessionTranscriptTurn? {
         if let parsed = parseGenericMessage(
             object,
             agent: agent,
             usesGrokTranscriptLayout: usesGrokTranscriptLayout,
-            id: id
+            id: id,
+            retention: retention
         ) {
             return parsed
         }
@@ -1544,7 +2105,8 @@ enum SessionTranscriptLoader {
                payload,
                agent: agent,
                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
-               id: id
+               id: id,
+               retention: retention
            ) {
             return parsed
         }
@@ -1553,7 +2115,8 @@ enum SessionTranscriptLoader {
                message,
                agent: agent,
                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
-               id: id
+               id: id,
+               retention: retention
            ) {
             return parsed
         }
@@ -1564,7 +2127,8 @@ enum SessionTranscriptLoader {
         _ object: [String: Any],
         agent: SessionAgent,
         usesGrokTranscriptLayout: Bool,
-        id: Int
+        id: Int,
+        retention: SessionTranscriptRetention
     ) -> SessionTranscriptTurn? {
         let fallbackRole: SessionTranscriptRole? = { if case .registered = agent { return .event }; return nil }()
         let rawRole = object["role"] as? String
@@ -1591,7 +2155,12 @@ enum SessionTranscriptLoader {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]
-        guard let text = normalizedText(from: content, role: role, agent: agent) else {
+        guard let text = normalizedText(
+            from: content,
+            role: role,
+            agent: agent,
+            retention: retention
+        ) else {
             return nil
         }
         return SessionTranscriptTurn(id: id, role: role, text: text)
@@ -1609,7 +2178,8 @@ enum SessionTranscriptLoader {
     private static func parseOpenCodePart(
         _ raw: String,
         messageRole: SessionTranscriptRole,
-        id: Int
+        id: Int,
+        retention: SessionTranscriptRetention
     ) -> SessionTranscriptTurn? {
         guard let data = raw.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1631,7 +2201,12 @@ enum SessionTranscriptLoader {
             role = messageRole
         }
 
-        guard let text = normalizedText(from: object, role: role, agent: .opencode) else {
+        guard let text = normalizedText(
+            from: object,
+            role: role,
+            agent: .opencode,
+            retention: retention
+        ) else {
             return nil
         }
         return SessionTranscriptTurn(id: id, role: role, text: text)
@@ -1656,29 +2231,47 @@ enum SessionTranscriptLoader {
     private static func normalizedText(
         from value: Any?,
         role: SessionTranscriptRole,
-        agent: SessionAgent
+        agent: SessionAgent,
+        retention: SessionTranscriptRetention
     ) -> String? {
-        let text = textFragments(from: value)
+        let text = textFragments(
+            from: value,
+            includesNonDialogueFragments: role != .user && role != .assistant
+        )
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
         guard !text.isEmpty else { return nil }
         if agent == .claude, role == .user {
             return SessionEntry.claudeDisplayTitle(from: text)
-                .map { truncatedText($0, role: role) }
+                .map { retainedText($0, role: role, retention: retention) }
         }
-        return truncatedText(text, role: role)
+        return retainedText(text, role: role, retention: retention)
     }
 
-    private static func textFragments(from value: Any?) -> [String] {
+    private static func textFragments(
+        from value: Any?,
+        includesNonDialogueFragments: Bool
+    ) -> [String] {
         guard let value else { return [] }
         if let string = value as? String {
             return [string]
         }
         if let array = value as? [Any] {
-            return array.flatMap { textFragments(from: $0) }
+            return array.flatMap {
+                textFragments(
+                    from: $0,
+                    includesNonDialogueFragments: includesNonDialogueFragments
+                )
+            }
         }
         guard let object = value as? [String: Any] else {
+            return []
+        }
+        if !includesNonDialogueFragments,
+           let nestedRole = transcriptRole(from: object["role"] as? String),
+           nestedRole != .user,
+           nestedRole != .assistant {
             return []
         }
 
@@ -1688,16 +2281,25 @@ enum SessionTranscriptLoader {
             if let text = object["text"] as? String {
                 return [text]
             }
+        case "system", "developer":
+            guard includesNonDialogueFragments else { return [] }
         case "tool":
+            guard includesNonDialogueFragments else { return [] }
             return openCodeToolFragments(from: object)
         case "tool_use", "function_call":
+            guard includesNonDialogueFragments else { return [] }
             return toolCallFragments(from: object)
         case "tool_result", "function_call_output":
-            let fragments = textFragments(from: object["content"] ?? object["output"] ?? object["result"])
+            guard includesNonDialogueFragments else { return [] }
+            let fragments = textFragments(
+                from: object["content"] ?? object["output"] ?? object["result"],
+                includesNonDialogueFragments: true
+            )
             if !fragments.isEmpty {
                 return fragments
             }
         case "patch":
+            guard includesNonDialogueFragments else { return [] }
             return openCodePatchFragments(from: object)
         case "file":
             return openCodeFileFragments(from: object)
@@ -1706,7 +2308,10 @@ enum SessionTranscriptLoader {
         }
 
         for key in ["text", "content", "output", "result", "message"] {
-            let fragments = textFragments(from: object[key])
+            let fragments = textFragments(
+                from: object[key],
+                includesNonDialogueFragments: includesNonDialogueFragments
+            )
             if !fragments.isEmpty {
                 return fragments
             }
@@ -1773,21 +2378,27 @@ enum SessionTranscriptLoader {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func coalesce(_ turns: [SessionTranscriptTurn]) -> [SessionTranscriptTurn] {
-        var output: [SessionTranscriptTurn] = []
-        for turn in turns {
-            if let last = output.last, last.role == turn.role {
-                output[output.count - 1] = SessionTranscriptTurn(
-                    id: last.id,
-                    role: last.role,
-                    text: last.text + "\n\n" + turn.text
-                )
+    private static func coalesce(
+        _ turns: [SessionTranscriptTurn],
+        retention: SessionTranscriptRetention
+    ) -> [SessionTranscriptTurn] {
+        let boundedTurns = retention.boundedTurnsPreservingOpeningAndLatest(turns)
+        var roles: [SessionTranscriptRole] = []
+        var textGroups: [[String]] = []
+        for turn in boundedTurns {
+            if roles.last == turn.role {
+                textGroups[textGroups.count - 1].append(turn.text)
             } else {
-                output.append(turn)
+                roles.append(turn.role)
+                textGroups.append([turn.text])
             }
         }
-        return output.enumerated().map { offset, turn in
-            SessionTranscriptTurn(id: offset, role: turn.role, text: turn.text)
+        return roles.indices.map { index in
+            SessionTranscriptTurn(
+                id: index,
+                role: roles[index],
+                text: textGroups[index].joined(separator: "\n\n")
+            )
         }
     }
 
@@ -1868,6 +2479,19 @@ enum SessionTranscriptLoader {
 
     private static func containsAny(_ data: Data, needles: [Data]) -> Bool {
         needles.contains { data.range(of: $0) != nil }
+    }
+
+    private static func retainedText(
+        _ text: String,
+        role: SessionTranscriptRole,
+        retention: SessionTranscriptRetention
+    ) -> String {
+        guard retention.requiresCompleteLatestScan, retention.includes(role) else {
+            return truncatedText(text, role: role)
+        }
+        return retention.bounded(
+            SessionTranscriptTurn(id: 0, role: role, text: text)
+        ).text
     }
 
     private static func truncatedText(_ text: String, role: SessionTranscriptRole) -> String {
