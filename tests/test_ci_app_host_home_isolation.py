@@ -279,9 +279,18 @@ def main() -> int:
         ),
         "cleanup runner boundary": '"$runner_temp"/*',
         "cleanup scoped process termination": "CMUX_DERIVED_DATA_PATH",
+        "cleanup unlimited-width process discovery": (
+            "ps -axww -o pid=,command="
+        ),
         "cleanup exact target removal": 'rm -rf -- "$app_host_home"',
     }.items():
         require(cleanup_script, needle, context)
+
+    require(
+        CONSOLE_WRAPPER,
+        "cleanup_app_host_home_requested",
+        "console-session cleanup preparation mode",
+    )
 
     print("PASS: app-host XCTest receives an isolated launch home")
     return 0

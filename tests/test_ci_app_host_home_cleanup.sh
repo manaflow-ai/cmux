@@ -1,6 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" = "1" ]; then
+  case "${0##*/}" in
+    ps)
+      real_ps=/bin/ps
+      [ -x "$real_ps" ] || real_ps=/usr/bin/ps
+      if [ "$*" = "-axww -o pid=,command=" ]; then
+        exec "$real_ps" "$@"
+      fi
+      # Model macOS process output whose long command was truncated before the
+      # Build/Products suffix that scopes the app host.
+      exit 0
+      ;;
+    stat)
+      if [ "$*" = "-f %Su /dev/console" ]; then
+        printf 'ci-console\n'
+        exit 0
+      fi
+      exec /usr/bin/stat "$@"
+      ;;
+    id)
+      if [ "${1:-}" = "-u" ] && [ "${2:-}" = "ci-console" ]; then
+        printf '501\n'
+        exit 0
+      fi
+      exec /usr/bin/id "$@"
+      ;;
+    dscl)
+      exit 1
+      ;;
+    launchctl)
+      if [ "${1:-}" = "asuser" ]; then
+        shift 2
+      fi
+      exec "$@"
+      ;;
+    sudo)
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          -n|-E) shift ;;
+          -u) shift 2 ;;
+          *) break ;;
+        esac
+      done
+      case "${1:-}" in
+        true|chown|chmod) exit 0 ;;
+        *) exec "$@" ;;
+      esac
+      ;;
+  esac
+fi
+
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CLEANUP_SCRIPT="$ROOT_DIR/scripts/ci/cleanup-app-host-home.sh"
 if [ ! -f "$CLEANUP_SCRIPT" ]; then
@@ -20,18 +71,25 @@ cleanup() {
 trap cleanup EXIT
 
 RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
-DERIVED_DATA_PATH="$RUNNER_TEMP_DIR/cmux-derived-data-tests-123-1-shard-1"
+DERIVED_DATA_PATH="$RUNNER_TEMP_DIR/cmux-derived-data-tests-123-1-shard-1-with-a-realistically-long-self-hosted-runner-path-for-process-discovery"
 APP_HOST_HOME="$RUNNER_TEMP_DIR/ah-012345abcdef"
+FAKE_BIN="$TMP_DIR/fake-bin"
 mkdir -p \
   "$DERIVED_DATA_PATH/Build/Products/Debug" \
-  "$APP_HOST_HOME/.config"
+  "$APP_HOST_HOME/.config" \
+  "$FAKE_BIN"
+for helper in ps stat id dscl launchctl sudo; do
+  ln -s "$ROOT_DIR/tests/test_ci_app_host_home_cleanup.sh" "$FAKE_BIN/$helper"
+done
 printf 'private\n' > "$APP_HOST_HOME/sentinel"
 
-cp /bin/sleep "$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV"
+ln -s /bin/sleep "$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV"
 "$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV" 30 &
 app_host_pid=$!
 kill -0 "$app_host_pid"
 
+PATH="$FAKE_BIN:$PATH" \
+CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1 \
 CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
 RUNNER_TEMP="$RUNNER_TEMP_DIR" \
 CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
@@ -54,12 +112,16 @@ MISSING_XDG_HOME="$RUNNER_TEMP_DIR/ah-aabbccddeeff"
 mkdir -p "$MISSING_XDG_HOME/.config"
 printf 'private\n' > "$MISSING_XDG_HOME/sentinel"
 rmdir "$MISSING_XDG_HOME/.config"
+PATH="$FAKE_BIN:$PATH" \
+CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1 \
 CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
 RUNNER_TEMP="$RUNNER_TEMP_DIR" \
 CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
 CFFIXED_USER_HOME="$MISSING_XDG_HOME" \
 XDG_CONFIG_HOME="$MISSING_XDG_HOME/.config" \
-  bash "$CLEANUP_SCRIPT"
+GITHUB_WORKSPACE="$ROOT_DIR" \
+  bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
+    scripts/ci/cleanup-app-host-home.sh
 if [ -e "$MISSING_XDG_HOME" ]; then
   echo "FAIL: cleanup must remove the home after its mutable XDG child disappears"
   exit 1
@@ -107,5 +169,17 @@ fi
   RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
   bash "$CLEANUP_SCRIPT"
+
+ABSENT_HOME="$RUNNER_TEMP_DIR/ah-001122334455"
+PATH="$FAKE_BIN:$PATH" \
+CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+CFFIXED_USER_HOME="$ABSENT_HOME" \
+XDG_CONFIG_HOME="$ABSENT_HOME/.config" \
+GITHUB_WORKSPACE="$ROOT_DIR" \
+  bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
+    scripts/ci/cleanup-app-host-home.sh
 
 echo "PASS: isolated app-host cleanup is scoped and path validated"
