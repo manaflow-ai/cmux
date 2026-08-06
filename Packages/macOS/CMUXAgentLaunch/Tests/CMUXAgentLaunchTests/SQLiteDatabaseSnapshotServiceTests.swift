@@ -435,6 +435,29 @@ struct SQLiteDatabaseSnapshotServiceTests {
         #expect(!FileManager.default.fileExists(atPath: abandonedDirectory.path))
     }
 
+    @Test("Snapshot cleanup does not enumerate unrelated temporary-directory entries")
+    func snapshotCleanupIsScopedToOwnedStorage() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try makeDatabase(at: source)
+        let fileManager = DirectoryEnumerationRecordingFileManager()
+
+        try SQLiteDatabaseSnapshotService(fileManager: fileManager).copyDatabase(
+            from: source.path,
+            to: destination.path
+        )
+
+        #expect(
+            !fileManager.enumeratedDirectoryPaths.contains(
+                fileManager.temporaryDirectory.standardizedFileURL.path
+            )
+        )
+    }
+
     @Test("Preserves a same-volume binding while another snapshot holds its lease")
     func preservesLeasedSameVolumeBinding() throws {
         let root = FileManager.default.temporaryDirectory
@@ -604,6 +627,23 @@ struct SQLiteDatabaseSnapshotServiceTests {
                 "version": 1,
             ],
             options: [.sortedKeys]
+        )
+    }
+}
+
+private final class DirectoryEnumerationRecordingFileManager: FileManager {
+    private(set) var enumeratedDirectoryPaths: [String] = []
+
+    override func contentsOfDirectory(
+        at url: URL,
+        includingPropertiesForKeys keys: [URLResourceKey]?,
+        options mask: FileManager.DirectoryEnumerationOptions = []
+    ) throws -> [URL] {
+        enumeratedDirectoryPaths.append(url.standardizedFileURL.path)
+        return try super.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: keys,
+            options: mask
         )
     }
 }

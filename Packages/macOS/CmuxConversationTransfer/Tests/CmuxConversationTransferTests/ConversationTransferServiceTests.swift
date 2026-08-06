@@ -45,6 +45,31 @@ struct ConversationTransferServiceTests {
     }
 
     @Test
+    func singleLongOpeningRequestUsesAvailableConversationBudget() {
+        let policy = ConversationTransferPolicy(
+            maximumBytes: 2_048,
+            initialUserByteLimit: 256
+        )
+        let compaction = TailPreservingConversationCompactor().compact(
+            [
+                ConversationTurn(
+                    id: 0,
+                    role: .user,
+                    text: String(repeating: "request ", count: 1_000)
+                ),
+            ],
+            policy: policy,
+            formattedByteCount: { $0.text.utf8.count + 8 }
+        )
+
+        let retained = compaction.turns.first?.text.utf8.count ?? 0
+        #expect(retained > policy.initialUserByteLimit)
+        #expect(retained <= policy.maximumBytes - 512)
+        #expect(compaction.shortenedTurnCount == 1)
+        #expect(compaction.omittedTurnCount == 0)
+    }
+
+    @Test
     func combiningMarksCannotExceedUTF8ByteBudget() throws {
         let pathologicalOpening = "OPENING e" + String(repeating: "\u{0301}", count: 4_000)
         let policy = ConversationTransferPolicy(
