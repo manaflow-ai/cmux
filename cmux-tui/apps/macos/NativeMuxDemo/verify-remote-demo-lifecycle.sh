@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 RUN_REMOTE_DEMO="$SCRIPT_DIR/run-remote-demo.sh"
+READY_HELPER="$SCRIPT_DIR/remote-lifecycle-ready.sh"
 REMOTE_HOST="${1:-cmux-lawrence}"
 RUNS="${2:-3}"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/cmux-native-remote-lifecycle.XXXXXX")"
@@ -13,6 +14,9 @@ LAUNCHER_PID=""
 APP_PID=""
 ATTACH_PID=""
 ATTACH_FD_OPEN=0
+TRANSFER_READY_ATTEMPTS=3000
+DAEMON_READY_ATTEMPTS=900
+READY_POLL_SECONDS=0.1
 
 if [[ $# -gt 2 || ! "$RUNS" =~ ^[1-9][0-9]*$ ]]; then
   echo "Usage: verify-remote-demo-lifecycle.sh [ssh-host] [runs]" >&2
@@ -41,6 +45,9 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# shellcheck source=remote-lifecycle-ready.sh
+source "$READY_HELPER"
 
 matching_app_pids() {
   pgrep -f "$APP_PROCESS_SUFFIX" | sort -n | tr '\n' ' ' || true
@@ -81,21 +88,22 @@ for run in $(seq 1 "$TOTAL_RUNS"); do
   "$RUN_REMOTE_DEMO" "$REMOTE_HOST" >"$LAUNCH_LOG" 2>&1 &
   LAUNCHER_PID=$!
 
-  ready=0
-  for _ in $(seq 1 900); do
-    if grep -q '^Ready\.' "$LAUNCH_LOG"; then
-      ready=1
-      break
-    fi
-    if ! kill -0 "$LAUNCHER_PID" 2>/dev/null; then
-      echo "Remote demo run $run exited before becoming ready:" >&2
-      sed -n '1,220p' "$LAUNCH_LOG" >&2
-      exit 1
-    fi
-    sleep 0.1
-  done
-  if [[ "$ready" != "1" ]]; then
-    echo "Remote demo run $run did not become ready within 90 seconds:" >&2
+  set +e
+  cmux_wait_for_remote_demo_ready \
+    "$LAUNCH_LOG" \
+    "$LAUNCHER_PID" \
+    "$TRANSFER_READY_ATTEMPTS" \
+    "$DAEMON_READY_ATTEMPTS" \
+    "$READY_POLL_SECONDS"
+  READY_STATUS=$?
+  set -e
+  if [[ "$READY_STATUS" != "0" ]]; then
+    case "$READY_STATUS" in
+      10) echo "Remote demo run $run exited before becoming ready:" >&2 ;;
+      20) echo "Remote demo run $run did not finish installation within 300 seconds:" >&2 ;;
+      21) echo "Remote demo run $run did not become ready within 90 seconds after daemon startup:" >&2 ;;
+      *) echo "Remote demo run $run failed its readiness check with status $READY_STATUS:" >&2 ;;
+    esac
     sed -n '1,220p' "$LAUNCH_LOG" >&2
     exit 1
   fi
