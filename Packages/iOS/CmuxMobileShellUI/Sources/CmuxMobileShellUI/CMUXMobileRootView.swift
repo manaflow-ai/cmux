@@ -293,9 +293,9 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
-                if store.activeRoute?.kind == .tailscale {
-                    connectionMethodStore?.commitPendingTailscaleMethod()
-                }
+                connectionMethodStore?.resolvePendingTailscaleSelection(
+                    connectedOverTailscale: store.activeRoute?.kind == .tailscale
+                )
                 isShowingAddDeviceSheet = false
             } else {
                 clearAttachTicketAuthenticationIfNeeded()

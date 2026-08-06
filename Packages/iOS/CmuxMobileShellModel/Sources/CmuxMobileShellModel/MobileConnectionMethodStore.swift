@@ -100,6 +100,15 @@ public final class MobileConnectionMethodStore {
         pendingMethod = nil
     }
 
+    /// Resolves a staged choice when any connection finishes while pairing is open.
+    public func resolvePendingTailscaleSelection(connectedOverTailscale: Bool) {
+        if connectedOverTailscale {
+            commitPendingTailscaleMethod()
+        } else {
+            cancelPendingMethod()
+        }
+    }
+
     /// Observes connection-method changes, beginning with the current method.
     ///
     /// Each subscriber owns an independent stream. Cancelling iteration removes

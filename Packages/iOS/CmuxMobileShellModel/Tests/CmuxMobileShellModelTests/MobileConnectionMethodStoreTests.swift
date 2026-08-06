@@ -71,4 +71,15 @@ import Testing
         #expect(store.pendingMethod == nil)
         #expect(store.method == .tailscale)
     }
+
+    @Test func nonTailscaleConnectionCancelsPendingTailscaleSelection() {
+        let store = MobileConnectionMethodStore(defaults: makeDefaults())
+        #expect(store.request(.tailscale, hasAuthorizedTailscaleRoute: false))
+
+        store.resolvePendingTailscaleSelection(connectedOverTailscale: false)
+
+        #expect(store.pendingMethod == nil)
+        #expect(store.presentedMethod == .automatic)
+        #expect(store.method == .automatic)
+    }
 }

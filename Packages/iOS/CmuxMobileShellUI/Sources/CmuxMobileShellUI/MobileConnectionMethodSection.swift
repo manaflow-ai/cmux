@@ -56,15 +56,15 @@ struct MobileConnectionMethodSection: View {
         Binding(
             get: { store.presentedMethod },
             set: { method in
-                guard let startPairingScanner else {
-                    store.method = method
-                    return
-                }
                 if store.request(
                     method,
                     hasAuthorizedTailscaleRoute: hasAuthorizedTailscaleRoute
                 ) {
-                    startPairingScanner()
+                    if let startPairingScanner {
+                        startPairingScanner()
+                    } else {
+                        store.cancelPendingMethod()
+                    }
                 }
             }
         )
