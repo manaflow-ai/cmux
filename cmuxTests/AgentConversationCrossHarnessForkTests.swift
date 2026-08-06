@@ -397,6 +397,30 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func executableIdentityRejectsOversizedArtifactsBeforeHashing() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent(
+            "oversized-grok",
+            isDirectory: false
+        )
+        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data()))
+        let handle = try FileHandle(forWritingTo: executable)
+        try handle.truncate(atOffset: 600 * 1_024 * 1_024)
+        try handle.close()
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+
+        #expect(AgentConversationForkExecutableIdentity.capture(
+            executablePath: executable.path,
+            runtimeSearchPath: directory.path,
+            hashContents: true
+        ) == nil)
+    }
+
+    @Test
     func boundExecutableContentsStayFixedAfterValidation() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -1307,6 +1331,45 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(await forkTask.value == false)
         #expect(workspace.bonsplitController.allPaneIds.count == 1)
         #expect(workspace.focusedPanelId == sourcePanelId)
+    }
+
+    @Test
+    func crossHarnessForkRejectsSamePathTranscriptReplacement() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = try makeCodexSnapshot(
+            in: fixture,
+            sessionID: "same-path-replacement"
+        )
+        let transcriptURL = try #require(
+            AgentConversationSource(snapshot: snapshot).transcriptURL
+        )
+        let exportService = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                SamePathReplacingSourceAdapter(transcriptURL: transcriptURL),
+            ])
+        )
+        let workspace = Workspace()
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelID)
+        let liveAgentIndex = makeLiveAgentIndex(
+            snapshot: snapshot,
+            workspaceId: workspace.id,
+            panelId: sourcePanelID,
+            root: fixture
+        )
+
+        let didFork = await workspace.forkAgentConversation(
+            fromPanelId: sourcePanelID,
+            snapshot: snapshot,
+            request: .init(targetHarness: .claude, destination: .right),
+            exportService: exportService,
+            liveAgentIndex: liveAgentIndex
+        )
+
+        #expect(!didFork)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        #expect(workspace.focusedPanelId == sourcePanelID)
     }
 
     @Test
@@ -2276,6 +2339,24 @@ private struct ExecutableReplacingSourceAdapter: AgentConversationSourceAdapter 
         )
         return [
             SessionTranscriptTurn(id: 0, role: .user, text: "Continue safely"),
+        ]
+    }
+}
+
+private struct SamePathReplacingSourceAdapter: AgentConversationSourceAdapter {
+    let transcriptURL: URL
+
+    func supports(_ source: AgentConversationSource) -> Bool { true }
+
+    func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
+        try #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"replacement generation"}]}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        return [
+            SessionTranscriptTurn(
+                id: 0,
+                role: .user,
+                text: "replacement generation"
+            ),
         ]
     }
 }
