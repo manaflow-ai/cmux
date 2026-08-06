@@ -608,6 +608,12 @@ struct TerminalBytesLogicTests {
         #expect(await waitUntil { transport.requests.count == 2 })
         #expect(transport.requests.map(\.geometry) == [first, latest])
         #expect(model.errorMessage.contains("resize is pending"))
+
+        clock.advance()
+        for _ in 0 ..< 10 {
+            await Task.yield()
+        }
+        #expect(transport.requests.count == 2)
         model.shutdown()
     }
 
