@@ -587,7 +587,7 @@ impl MachineConnectionHub {
                             && slot.active_attempt.is_some_and(|active| active.id == attempt.id)
                         {
                             slot.active_attempt = None;
-                            slot.state = MachineConnectionState::Failed(message.clone());
+                            slot.state = MachineConnectionState::Failed(message);
                             self.inner.changed.notify_all();
                         }
                         return Err(error.into());
@@ -618,7 +618,7 @@ impl MachineConnectionHub {
     ) {
         let Ok(mut slots) = self.inner.slots.lock() else { return };
         let Some(slot) = slots.get_mut(&key) else { return };
-        if !slot.active_attempt.is_some_and(|active| active.id == attempt.id) {
+        if slot.active_attempt.is_none_or(|active| active.id != attempt.id) {
             return;
         }
         slot.active_attempt = None;
