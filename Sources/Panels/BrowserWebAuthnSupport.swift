@@ -840,19 +840,6 @@ private extension BrowserWebAuthnCredentialParameter {
     }
 }
 
-private extension ASAuthorizationPublicKeyCredentialAttachment {
-    var browserAttachmentValue: String {
-        switch self {
-        case .platform:
-            return "platform"
-        case .crossPlatform:
-            return "cross-platform"
-        @unknown default:
-            return "cross-platform"
-        }
-    }
-}
-
 @MainActor
 private struct BrowserBluetoothAuthorizationState {
     let authorization: CBManagerAuthorization
@@ -1610,7 +1597,7 @@ private extension BrowserWebAuthnCoordinator {
                     credentialID: registration.credentialID,
                     clientDataJSON: registration.rawClientDataJSON,
                     attestationObject: registration.rawAttestationObject,
-                    attachment: registration.attachment.browserAttachmentValue,
+                    attachment: "platform",
                     transports: []
                 ),
             ]
@@ -1638,7 +1625,7 @@ private extension BrowserWebAuthnCoordinator {
                     authenticatorData: assertion.rawAuthenticatorData,
                     signature: assertion.signature,
                     userHandle: assertion.userID,
-                    attachment: assertion.attachment.browserAttachmentValue,
+                    attachment: "platform",
                     clientExtensionResults: [:]
                 ),
             ]
