@@ -117,3 +117,14 @@ def test_terminal_key_state_indicator_reuses_localized_accessibility_label():
     assert "private var terminalKeyTableIndicatorAccessibilityLabel" not in terminal
     assert "private let keyTableIndicatorAccessibilityLabel = String(" in terminal
     assert "setAccessibilityLabel(keyTableIndicatorAccessibilityLabel)" in synchronization
+
+
+def test_sidebar_drag_end_does_not_forward_optional_appkit_selector():
+    drag_end = source_slice(
+        "Sources/Sidebar/AppKitList/SidebarWorkspaceTableViewImpl.swift",
+        "override func draggingEnded",
+        "private func updatePointer",
+    )
+
+    assert "super.draggingEnded" not in drag_end
+    assert "workspaceController?.reorderDropSessionEnded()" in drag_end
