@@ -64,7 +64,7 @@
         "Sentry: hata günlüklerini, yığın izlerini, cihaz bilgilerini ve işletim sistemi sürümünü toplayabilen hata izleme ve kilitlenme raporlama.",
         "Sparkle: macOS güncellemelerini kontrol etmek için uygulama ve işletim sistemi sürümlerini gönderen macOS otomatik güncelleme çerçevesi.",
         "Ghostty / libghostty: cihazınızda yerel olarak çalışan terminal oluşturma motoru.",
-        "PostHog: sayfa görünümleri, gezinme modelleri, tarayıcı meta verileri, mobil özellik etkinlikleri, oturum açtıktan sonra hesaba bağlı web ve mobil analizler ile faturalandırma yaşam döngüsü etkinlikleri ve sizi bilgilendirebilmemiz için gönderilen bir bekleme listesi e-postası dahil olmak üzere web sitesi ve mobil ürün analizleri.",
+        "PostHog: sayfa görünümleri, gezinme modelleri, tarayıcı meta verileri, mobil özellik etkinlikleri, oturum açtıktan sonra hesaba bağlı web ve mobil analizler ile ödeme, abonelik ve fatura etkinlikleri; bunlara plan, abonelik durumu, tutar ve para birimi ile Stripe müşteri, abonelik ve fatura tanımlayıcıları dahildir. Sizi bilgilendirmek için gönderilen bekleme listesi e-postasını da kaydederiz.",
         "Resend: işlemsel e-posta teslimi. E-postanız Resend'e yalnızca gönüllü olarak geri bildirim göndermeniz durumunda gönderilir.",
         "Slack: özel dahili bildirimler. Bir platform bekleme listesine katılırsanız gönderdiğiniz e-posta ve platformlar özel Slack çalışma alanımıza gönderilir."
       ],

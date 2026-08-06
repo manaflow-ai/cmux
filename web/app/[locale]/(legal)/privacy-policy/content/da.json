@@ -64,7 +64,7 @@
         "Sentry: fejlsporing og nedbrudsrapportering, som kan indsamle fejllogfiler, stakspor, enhedsoplysninger og operativsystemversion.",
         "Sparkle: macOS automatisk opdateringsramme, som sender applikations- og operativsystemversioner for at søge efter macOS-opdateringer.",
         "Ghostty / libghostty: terminalgengivelsesmotoren, som kører lokalt på din enhed.",
-        "PostHog: websteds- og mobilproduktanalyse, herunder sidevisninger, navigationsmønstre, browsermetadata, mobilfunktionshændelser, kontotilknyttet web- og mobilanalyse samt hændelser i faktureringens livscyklus efter login og en indsendt venteliste-e-mail, så vi kan give dig besked.",
+        "PostHog: websteds- og mobilproduktanalyse, herunder sidevisninger, navigationsmønstre, browsermetadata, mobilfunktionshændelser, kontotilknyttet web- og mobilanalyse efter login samt betalings-, abonnements- og fakturahændelser, herunder plan, abonnementsstatus, beløb og valuta samt Stripe-id'er for kunde, abonnement og faktura. Vi registrerer også en indsendt venteliste-e-mail, så vi kan give dig besked.",
         "Resend: transaktionel e-mail-levering. Din e-mail sendes kun til Resend, hvis du frivilligt sender feedback.",
         "Slack: private interne meddelelser. Hvis du tilmelder dig en platforms venteliste, sendes den e-mail og de platforme, du indsender, til vores private Slack-arbejdsområde."
       ],

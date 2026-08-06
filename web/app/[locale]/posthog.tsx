@@ -6,9 +6,24 @@ import { useEffect, Suspense } from "react";
 import { posthog } from "../lib/posthog-client";
 import { syncStackAnalyticsIdentity } from "../../services/analytics/stackIdentity";
 
-function StackIdentityTracker() {
+function PageviewTracker() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   useEffect(() => {
+    if (!pathname || !posthog) return;
+
     const controller = new AbortController();
+    const capturePageview = () => {
+      let url = window.origin + pathname;
+      const search = searchParams.toString();
+      if (search) url += "?" + search;
+      posthog.capture("$pageview", { $current_url: url });
+    };
+
+    // Resolve auth before each route's pageview. This preserves anonymous
+    // pre-sign-in history through identify(), and prevents the first pageview
+    // after sign-out from remaining attached to the previous Stack account.
     void fetch("/api/analytics/identity", {
       cache: "no-store",
       credentials: "same-origin",
@@ -26,24 +41,12 @@ function StackIdentityTracker() {
       })
       .catch(() => {
         // Preserve the current identity when auth lookup is unavailable.
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) capturePageview();
       });
+
     return () => controller.abort();
-  }, []);
-
-  return null;
-}
-
-function PageviewTracker() {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
-  useEffect(() => {
-    if (pathname && posthog) {
-      let url = window.origin + pathname;
-      const search = searchParams.toString();
-      if (search) url += "?" + search;
-      posthog.capture("$pageview", { $current_url: url });
-    }
   }, [pathname, searchParams]);
 
   return null;
@@ -52,7 +55,6 @@ function PageviewTracker() {
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   return (
     <PHProvider client={posthog}>
-      <StackIdentityTracker />
       <Suspense fallback={null}>
         <PageviewTracker />
       </Suspense>

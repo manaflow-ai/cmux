@@ -64,7 +64,7 @@
         "Sentry: praćenje grešaka i izvještavanje o padu, koje može prikupljati evidencije grešaka, tragove steka, informacije o uređaju i verziju operativnog sistema.",
         "Sparkle: okvir za automatsko ažuriranje macOS, koji šalje verzije aplikacija i operativnog sistema da provjeri ima li macOS ažuriranja.",
         "Ghostty / libghostty: mehanizam za prikazivanje terminala, koji radi lokalno na vašem uređaju.",
-        "PostHog: analiza web stranica i mobilnih proizvoda, uključujući prikaze stranica, obrasce navigacije, metapodatke preglednika, događaje mobilnih funkcija, web i mobilnu analitiku povezanu s računom te događaje životnog ciklusa naplate nakon prijave i poslanu e-poštu na listi čekanja kako bismo vas mogli obavijestiti.",
+        "PostHog: analiza web stranica i mobilnih proizvoda, uključujući prikaze stranica, obrasce navigacije, metapodatke preglednika, događaje mobilnih funkcija, web i mobilnu analitiku povezanu s računom nakon prijave te događaje plaćanja, pretplata i računa, uključujući plan, status pretplate, iznos i valutu te Stripe identifikatore kupca, pretplate i računa. Bilježimo i poslanu e-poštu na listi čekanja kako bismo vas mogli obavijestiti.",
         "Resend: transakcijska isporuka e-pošte. Vaša e-pošta se šalje na Resend samo ako dobrovoljno pošaljete povratne informacije.",
         "Slack: privatne interne obavijesti. Ako se pridružite listi čekanja platforme, e-pošta i platforme koje pošaljete šalju se u naš privatni radni prostor Slack."
       ],

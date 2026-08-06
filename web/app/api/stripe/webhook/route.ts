@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { eq, sql } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { env } from "../../../env";
@@ -39,6 +39,7 @@ type StripeWebhookDependencies = {
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
   captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
+  defer: (task: () => Promise<void>) => void;
 };
 
 const defaultDependencies: StripeWebhookDependencies = {
@@ -51,6 +52,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   sendProSignupWelcome: sendProSignupWelcomeDefault,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
   captureStripeBillingEvent: captureStripeBillingEventDefault,
+  defer: (task) => after(task),
 };
 
 export const POST = makeStripeWebhookHandler();
@@ -108,11 +110,12 @@ export function makeStripeWebhookHandler(
       }
 
       try {
-        const result = await processStripeEvent(event, dependencies);
+        const { analytics, ...result } = await processStripeEvent(event, dependencies);
         await db
           .update(stripeWebhookEvents)
           .set({ processedAt: sql`now()`, error: null })
           .where(eq(stripeWebhookEvents.id, event.id));
+        if (analytics) dependencies.defer(analytics);
         return NextResponse.json({ ok: true, ...result });
       } catch (error) {
         recordSpanError(span, error);
@@ -136,7 +139,11 @@ export function makeStripeWebhookHandler(
 async function processStripeEvent(
   event: Stripe.Event,
   dependencies: StripeWebhookDependencies,
-): Promise<{ processed?: string; skipped?: string }> {
+): Promise<{
+  processed?: string;
+  skipped?: string;
+  analytics?: () => Promise<void>;
+}> {
   switch (event.type) {
     case "checkout.session.completed":
     case "checkout.session.async_payment_succeeded": {
@@ -163,15 +170,15 @@ async function processStripeEvent(
           stackUserId: result.stackUserId,
         });
       }
-      await dependencies.captureStripeBillingEvent(
-        event,
-        analyticsSubject(
-          result,
-          true,
-          expandedSubscription(expanded)?.status ?? "active",
-        ),
+      const subject = analyticsSubject(
+        result,
+        true,
+        expandedSubscription(expanded)?.status ?? "active",
       );
-      return { processed: event.type };
+      return {
+        processed: event.type,
+        analytics: () => dependencies.captureStripeBillingEvent(event, subject),
+      };
     }
     case "customer.subscription.created":
     case "customer.subscription.updated":
@@ -180,15 +187,15 @@ async function processStripeEvent(
         event.data.object,
         dependencies,
       );
-      if (!("skipped" in result)) {
-        await dependencies.captureStripeBillingEvent(
-          event,
-          analyticsSubject(result, result.isActive, event.data.object.status),
-        );
-      }
       return "skipped" in result
         ? { skipped: "subscription_unmapped" }
-        : { processed: event.type };
+        : {
+            processed: event.type,
+            analytics: () => dependencies.captureStripeBillingEvent(
+              event,
+              analyticsSubject(result, result.isActive, event.data.object.status),
+            ),
+          };
     }
     case "invoice.paid":
     case "invoice.payment_failed": {
@@ -199,15 +206,15 @@ async function processStripeEvent(
         subscription,
         dependencies,
       );
-      if (!("skipped" in result)) {
-        await dependencies.captureStripeBillingEvent(
-          event,
-          analyticsSubject(result, result.isActive, subscription.status),
-        );
-      }
       return "skipped" in result
         ? { skipped: "invoice_subscription_unmapped" }
-        : { processed: event.type };
+        : {
+            processed: event.type,
+            analytics: () => dependencies.captureStripeBillingEvent(
+              event,
+              analyticsSubject(result, result.isActive, subscription.status),
+            ),
+          };
     }
     default:
       return { skipped: "event_type" };

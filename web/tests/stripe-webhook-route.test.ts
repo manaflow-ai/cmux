@@ -26,6 +26,7 @@ let applySubscriptionUpdateResult: unknown = {
 const applySubscriptionUpdate = mock(async () => applySubscriptionUpdateResult);
 const revokeCoderouterRouteTokens = mock(async () => {});
 const captureStripeBillingEvent = mock(async () => {});
+const deferredTasks: Array<() => Promise<void>> = [];
 const sendProSignupWelcome = mock(async () => {
   if (proWelcomeShouldFail) throw new Error("email provider unavailable");
 });
@@ -98,6 +99,7 @@ const POST = makeStripeWebhookHandler({
   sendProSignupWelcome,
   revokeCoderouterRouteTokens,
   captureStripeBillingEvent,
+  defer: (task) => deferredTasks.push(task),
 });
 
 describe("Stripe billing webhook route", () => {
@@ -134,6 +136,7 @@ describe("Stripe billing webhook route", () => {
     applySubscriptionUpdate.mockClear();
     revokeCoderouterRouteTokens.mockClear();
     captureStripeBillingEvent.mockClear();
+    deferredTasks.length = 0;
     sendProSignupWelcome.mockClear();
     retrieveSession.mockClear();
     retrieveSubscription.mockClear();
@@ -181,6 +184,9 @@ describe("Stripe billing webhook route", () => {
       expand: ["subscription", "customer"],
     });
     expect(recordCheckoutCompletion).toHaveBeenCalled();
+    expect(captureStripeBillingEvent).not.toHaveBeenCalled();
+    expect(deferredTasks).toHaveLength(1);
+    await deferredTasks[0]();
     expect(captureStripeBillingEvent).toHaveBeenCalledWith(
       currentEvent,
       {
@@ -318,6 +324,9 @@ describe("Stripe billing webhook route", () => {
       (currentEvent.data as { object: unknown }).object,
     );
     expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
+    expect(captureStripeBillingEvent).not.toHaveBeenCalled();
+    expect(deferredTasks).toHaveLength(1);
+    await deferredTasks[0]();
     expect(captureStripeBillingEvent).toHaveBeenCalledWith(
       currentEvent,
       {

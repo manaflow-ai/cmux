@@ -64,7 +64,7 @@
         "Sentry: seguimiento de errores e informes de fallos, que pueden recopilar registros de errores, seguimientos de pila, información del dispositivo y versión del sistema operativo.",
         "Sparkle: el marco de actualización automática de macOS, que envía versiones de aplicaciones y sistemas operativos para buscar actualizaciones de macOS.",
         "Ghostty / libghostty: el motor de renderizado de terminal, que se ejecuta localmente en su dispositivo.",
-        "PostHog: análisis de sitios web y productos móviles, incluidas visitas a páginas, patrones de navegación, metadatos del navegador, eventos de funciones móviles, análisis web y móviles vinculados a la cuenta y eventos del ciclo de facturación después de iniciar sesión, y un correo electrónico de lista de espera enviado para que podamos notificarle.",
+        "PostHog: análisis de sitios web y productos móviles, incluidas visitas a páginas, patrones de navegación, metadatos del navegador, eventos de funciones móviles, análisis web y móviles vinculados a la cuenta después de iniciar sesión y eventos de facturación de pagos, suscripciones y facturas, incluidos el plan, el estado de la suscripción, el importe y la moneda, y los identificadores de cliente, suscripción y factura de Stripe. También registramos el correo electrónico enviado a la lista de espera para poder notificarle.",
         "Resend: entrega de correo electrónico transaccional. Su correo electrónico se envía a Resend solo si envía comentarios voluntariamente.",
         "Slack: notificaciones internas privadas. Si se une a una lista de espera de una plataforma, el correo electrónico y las plataformas que envíe se envían a nuestro espacio de trabajo privado Slack."
       ],
