@@ -55,6 +55,43 @@ struct SQLiteDatabaseSnapshotServiceTests {
         }
     }
 
+    @Test(
+        "Rejects a special-file replacement after source validation",
+        .timeLimit(.minutes(1))
+    )
+    func rejectsSpecialFileReplacementAfterValidation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let replacement = root.appendingPathComponent("replacement.fifo", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try makeDatabase(at: source)
+        try #require(Darwin.mkfifo(replacement.path, 0o600) == 0)
+        let service = SQLiteDatabaseSnapshotService(
+            pagesPerStep: 1,
+            sourceValidatedObserver: {
+                guard Darwin.unlink(source.path) == 0,
+                      Darwin.rename(replacement.path, source.path) == 0 else {
+                    throw SQLiteDatabaseSnapshotError.sqlite("fixture replacement failed")
+                }
+            },
+            stepObserver: {}
+        )
+
+        #expect(
+            throws: SQLiteDatabaseSnapshotError.sqlite(
+                "source database changed while opening"
+            )
+        ) {
+            try service.copyDatabase(
+                from: source.path,
+                to: destination.path
+            )
+        }
+    }
+
     private func makeDatabase(at url: URL) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {

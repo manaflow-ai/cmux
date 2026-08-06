@@ -19,12 +19,11 @@ struct HermesAgentDatabaseSnapshotService {
         }
         try Task.checkCancellation()
 
-        let snapshotDirectory = fileManager.temporaryDirectory
-            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(
-            at: snapshotDirectory,
-            withIntermediateDirectories: true
-        )
+        let snapshotDirectory = try SQLiteDatabaseSnapshotService
+            .createPrivateTemporaryDirectory(
+                prefix: prefix,
+                fileManager: fileManager
+            )
 
         let snapshotDatabase = snapshotDirectory.appendingPathComponent(
             "state.db",

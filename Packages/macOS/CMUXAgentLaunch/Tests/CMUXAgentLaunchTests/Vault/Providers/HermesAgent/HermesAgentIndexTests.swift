@@ -274,6 +274,59 @@ struct HermesAgentIndexTests {
         )
     }
 
+    @Test("Online backup reads uncheckpointed rows from a live WAL")
+    func onlineBackupReadsLiveWAL() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceURL = root.appendingPathComponent("live.db", isDirectory: false)
+        let snapshotURL = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        let writer = Process()
+        let writerInput = Pipe()
+        let writerError = Pipe()
+        writer.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        writer.arguments = [sourceURL.path]
+        writer.standardInput = writerInput
+        writer.standardOutput = Pipe()
+        writer.standardError = writerError
+        try writer.run()
+        defer {
+            try? writerInput.fileHandleForWriting.close()
+            if writer.isRunning {
+                writer.terminate()
+            }
+            writer.waitUntilExit()
+        }
+        try writerInput.fileHandleForWriting.write(contentsOf: Data("""
+        PRAGMA journal_mode = WAL;
+        PRAGMA wal_autocheckpoint = 0;
+        CREATE TABLE records (value TEXT NOT NULL);
+        INSERT INTO records VALUES ('uncheckpointed');
+
+        """.utf8))
+
+        let walPath = sourceURL.path + "-wal"
+        var writerIsReady = false
+        let readyDeadline = Date().addingTimeInterval(2)
+        while Date() < readyDeadline {
+            if (try? scalarInt(sourceURL, "SELECT COUNT(*) FROM records")) == 1 {
+                writerIsReady = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        try #require(writerIsReady)
+        try #require(FileManager.default.fileExists(atPath: walPath))
+
+        try SQLiteDatabaseSnapshotService().copyDatabase(
+            from: sourceURL.path,
+            to: snapshotURL.path
+        )
+
+        #expect(
+            try scalarInt(snapshotURL, "SELECT COUNT(*) FROM records") == 1
+        )
+    }
+
     @Test("Online backup has a total deadline despite intermittent progress")
     func onlineBackupDeadlineSurvivesProgressAndSourceWrites() throws {
         let root = try temporaryDirectory()

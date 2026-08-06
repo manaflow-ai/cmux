@@ -170,11 +170,11 @@ enum OpenCodeDatabaseSnapshot {
         }
         try Task.checkCancellation()
 
-        let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
-            "\(prefix)-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
+        let snapshotDir = try SQLiteDatabaseSnapshotService
+            .createPrivateTemporaryDirectory(
+                prefix: prefix,
+                fileManager: fileManager
+            )
 
         let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
         do {

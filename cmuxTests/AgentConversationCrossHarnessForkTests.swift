@@ -227,6 +227,25 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func openCodeSnapshotUsesOwnerOnlyPermissions() throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let database = fixture.appendingPathComponent("opencode.db")
+        try createOpenCodeDatabase(at: database)
+
+        let snapshot = try #require(try OpenCodeDatabaseSnapshot.make(
+            prefix: "cmux-opencode-private-test",
+            sourcePath: database.path
+        ))
+        defer { snapshot.remove() }
+
+        #expect(
+            try permissions(at: snapshot.databaseURL.deletingLastPathComponent()) == 0o700
+        )
+        #expect(try permissions(at: snapshot.databaseURL) == 0o600)
+    }
+
+    @Test
     func forkCacheIdentityChangesWhenTranscriptPathChanges() {
         let first = SessionRestorableAgentSnapshot(
             kind: .codex,
@@ -1006,6 +1025,11 @@ struct AgentConversationCrossHarnessForkTests {
             .appendingPathComponent("cmux-cross-harness-fork-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func permissions(at url: URL) throws -> Int {
+        let value = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions]
+        return try #require(value as? NSNumber).intValue & 0o777
     }
 
     private func makeCodexSnapshot(
