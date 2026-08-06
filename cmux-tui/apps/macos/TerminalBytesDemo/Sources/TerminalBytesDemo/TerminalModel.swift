@@ -57,8 +57,11 @@ struct GeometryDeliveryState {
     private var submitted: TerminalResizeSubmission?
     private var delivered: TerminalGeometry?
 
-    mutating func update(_ geometry: TerminalGeometry) {
+    @discardableResult
+    mutating func update(_ geometry: TerminalGeometry) -> Bool {
+        let changed = desired != geometry
         desired = geometry
+        return changed
     }
 
     func pending(isConnected: Bool) -> TerminalGeometry? {
@@ -760,6 +763,8 @@ final class TerminalModel {
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
     @ObservationIgnored private var resizeAcknowledgementTask: Task<Void, Never>?
     @ObservationIgnored private var geometryDelivery = GeometryDeliveryState()
+    @ObservationIgnored private var resizeAcknowledgementRetryAvailable = true
+    @ObservationIgnored private var resizeRetryBlockedGeometry: TerminalGeometry?
     @ObservationIgnored private let resizeClock: any TerminalClock
     @ObservationIgnored private let resizeAcknowledgementTimeout: Duration
     @ObservationIgnored private let connectClient: TerminalConnector
@@ -1009,14 +1014,17 @@ final class TerminalModel {
     }
 
     func resize(to geometry: TerminalGeometry) {
-        geometryDelivery.update(geometry)
+        if geometryDelivery.update(geometry) {
+            resetResizeAcknowledgementRetryBudget()
+        }
         sendPendingGeometry()
     }
 
     private func sendPendingGeometry() {
         guard resizeTask == nil,
             let client,
-            let geometry = geometryDelivery.pending(isConnected: isConnected)
+            let geometry = geometryDelivery.pending(isConnected: isConnected),
+            resizeRetryBlockedGeometry != geometry
         else { return }
         let operation = connectionOperation
         let generation = rendererGeneration
@@ -1073,8 +1081,18 @@ final class TerminalModel {
             else { return }
             self.resizeAcknowledgementTask = nil
             self.errorKind = .resizeRejected
-            self.sendPendingGeometry()
+            if self.resizeAcknowledgementRetryAvailable {
+                self.resizeAcknowledgementRetryAvailable = false
+                self.sendPendingGeometry()
+            } else {
+                self.resizeRetryBlockedGeometry = submission.geometry
+            }
         }
+    }
+
+    private func resetResizeAcknowledgementRetryBudget() {
+        resizeAcknowledgementRetryAvailable = true
+        resizeRetryBlockedGeometry = nil
     }
 
     private func beginUpdates(from client: TerminalClientHandle, operation: UInt64) {
@@ -1082,6 +1100,7 @@ final class TerminalModel {
         resizeAcknowledgementTask?.cancel()
         resizeAcknowledgementTask = nil
         rendererGeneration &+= 1
+        resetResizeAcknowledgementRetryBudget()
         let generation = rendererGeneration
         geometryDelivery.resetConnection()
         updateTask = Task { [weak self] in
@@ -1116,6 +1135,7 @@ final class TerminalModel {
             if geometryDelivery.acknowledge(acknowledgement) {
                 resizeAcknowledgementTask?.cancel()
                 resizeAcknowledgementTask = nil
+                resetResizeAcknowledgementRetryBudget()
                 if errorKind == .resizeRejected {
                     errorKind = nil
                 }
