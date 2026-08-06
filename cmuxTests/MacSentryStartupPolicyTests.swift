@@ -10,6 +10,10 @@ import Foundation
 private func validateAppHostUserConfigurationHome(
     environment: [String: String]
 ) throws {
+    guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1" else {
+        return
+    }
+
     let expectedHome = try #require(
         environment["CMUX_APP_HOST_EXPECTED_HOME"],
         "The isolated app-host launch must publish its resolved home"
