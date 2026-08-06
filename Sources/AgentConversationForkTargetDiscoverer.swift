@@ -36,6 +36,7 @@ struct AgentConversationForkTargetDiscoverer: Sendable {
             ".hermes/bin",
             ".local/share/pnpm",
             ".npm-global/bin",
+            ".qoder/bin",
             "Library/pnpm",
         ].map { "\(home)/\($0)" }
         let resolver = AgentExecutableResolver(

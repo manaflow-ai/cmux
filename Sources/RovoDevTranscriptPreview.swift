@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 enum SessionTranscriptLoadError: Error {
@@ -20,10 +19,14 @@ enum RovoDevTranscriptPreview {
         limit: Int,
         latest: Bool = false,
         preservingOpeningUser: Bool = false,
-        dialogueOnly: Bool = false
+        dialogueOnly: Bool = false,
+        expectedStorageGeneration: AgentConversationStorageGeneration? = nil
     ) throws -> [RovoDevTranscriptPreviewTurn]? {
         guard limit > 0 else { return [] }
-        guard let data = try boundedJSONData(from: url) else { return nil }
+        guard let data = try boundedJSONData(
+            from: url,
+            expectedStorageGeneration: expectedStorageGeneration
+        ) else { return nil }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
@@ -36,35 +39,22 @@ enum RovoDevTranscriptPreview {
         )
     }
 
-    private static func boundedJSONData(from url: URL) throws -> Data? {
+    private static func boundedJSONData(
+        from url: URL,
+        expectedStorageGeneration: AgentConversationStorageGeneration?
+    ) throws -> Data? {
         guard url.isFileURL else { return nil }
-
-        // Open nonblocking so a path replaced with a FIFO cannot stall the caller,
-        // then validate and read the same descriptor to avoid path replacement races.
-        let descriptor = Darwin.open(url.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
-        guard descriptor >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-
-        var metadata = Darwin.stat()
-        guard Darwin.fstat(descriptor, &metadata) == 0 else {
-            let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            Darwin.close(descriptor)
-            throw error
-        }
-        guard (metadata.st_mode & S_IFMT) == S_IFREG else {
-            Darwin.close(descriptor)
+        guard let snapshot = AgentConversationStorageGeneration.openRegularFile(
+            at: url,
+            matching: expectedStorageGeneration
+        ),
+        snapshot.endOffset <= UInt64(maxJSONBytes) else {
             return nil
         }
-        guard metadata.st_size <= Int64(maxJSONBytes) else {
-            Darwin.close(descriptor)
-            return nil
-        }
-
-        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        let handle = snapshot.handle
         defer { try? handle.close() }
         var data = Data()
-        data.reserveCapacity(max(0, min(Int(metadata.st_size), maxJSONBytes)))
+        data.reserveCapacity(min(Int(snapshot.endOffset), maxJSONBytes))
         while data.count <= maxJSONBytes {
             let remaining = maxJSONBytes + 1 - data.count
             guard let chunk = try handle.read(upToCount: min(64 * 1024, remaining)),

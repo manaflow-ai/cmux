@@ -4,6 +4,8 @@ import Foundation
 /// them; an explicit fork selection validates and pins one candidate before
 /// any transcript is read.
 struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable {
+    private static let executableIdentityResolver = AgentForkExecutableIdentityResolver()
+
     let harness: AgentConversationForkTargetHarness
     let executablePath: String?
     let runtimeSearchPath: String?
@@ -71,7 +73,8 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
             handoffMessage: handoffMessage,
             executablePath: executableBinding?.boundPath ?? executablePath,
             runtimeSearchPath: runtimeSearchPath,
-            executableBinding: executableBinding
+            executableBinding: executableBinding,
+            executableLookupPath: executablePath
         )
     }
 
@@ -84,10 +87,7 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
             try Task.checkCancellation()
             guard let identityAfterProbe = await validatedIdentity(
                 for: candidate
-            ),
-                  AgentConversationForkExecutableBinding(
-                      identity: identityAfterProbe
-                  ) != nil else {
+            ) else {
                 continue
             }
             return AgentConversationForkTarget(
@@ -104,12 +104,13 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
     /// Canonical test targets do not carry a discovered file identity. Every
     /// installed UI target does, and must still resolve to the same file before
     /// cmux reads a transcript or launches it.
-    func executableIdentityIsCurrent() -> Bool {
+    func executableIdentityIsCurrent() async -> Bool {
         guard harness != .current,
               let executableIdentity else {
             return true
         }
-        return AgentConversationForkExecutableIdentity.capture(
+        return await Self.executableIdentityResolver
+            .conversationTransferExecutableIdentity(
             executablePath: executableIdentity.lookupPath,
             runtimeSearchPath: runtimeSearchPath,
             hashContents: executableIdentity.contentSHA256 != nil
@@ -119,17 +120,15 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
     private func validatedIdentity(
         for candidate: AgentConversationForkTargetCandidate
     ) async -> AgentConversationForkExecutableIdentity? {
-        guard let identityBeforeProbe = AgentConversationForkExecutableIdentity.capture(
-            executablePath: candidate.executableURL.path,
-            runtimeSearchPath: candidate.runtimeSearchPath,
-            hashContents: true
-        ),
-        let validationBinding = AgentConversationForkExecutableBinding(
-            identity: identityBeforeProbe
-        ),
-        validationBinding.materializeImmutableCopy() else {
+        guard let prepared = await Self.executableIdentityResolver
+            .prepareConversationTransferExecutable(
+                executablePath: candidate.executableURL.path,
+                runtimeSearchPath: candidate.runtimeSearchPath
+            ) else {
             return nil
         }
+        let identityBeforeProbe = prepared.identity
+        let validationBinding = prepared.binding
         defer { validationBinding.removeArtifacts() }
 
         var probeEnvironment = ProcessInfo.processInfo.environment
@@ -138,14 +137,16 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
         }
         let versionOutput = await AgentForkSupport.commandOutput(
             executable: validationBinding.boundPath,
-            arguments: ["--version"],
+            arguments: harness.versionProbeArguments(
+                resolvedExecutablePath: candidate.executableURL.path
+            ),
             environment: probeEnvironment,
             workingDirectory: nil
         )
         let versionMatches = versionOutput.map {
             harness.versionProbeMatches(
                 output: $0,
-                resolvedExecutablePath: validationBinding.boundPath
+                resolvedExecutablePath: candidate.executableURL.path
             )
         } == true
         let helpMatches: Bool
@@ -154,7 +155,9 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
         } else {
             helpMatches = await AgentForkSupport.commandOutput(
                 executable: validationBinding.boundPath,
-                arguments: ["--help"],
+                arguments: harness.helpProbeArguments(
+                    resolvedExecutablePath: candidate.executableURL.path
+                ),
                 environment: probeEnvironment,
                 workingDirectory: nil,
                 acceptedExitStatuses: [0, 2]
@@ -162,11 +165,12 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
         }
         guard !Task.isCancelled,
               versionMatches || helpMatches,
-              validationBinding.boundArtifactIsValid(),
-              let identityAfterProbe = AgentConversationForkExecutableIdentity.capture(
+              let identityAfterProbe = await Self.executableIdentityResolver
+                .conversationTransferExecutableIdentity(
                   executablePath: candidate.executableURL.path,
                   runtimeSearchPath: candidate.runtimeSearchPath,
-                  hashContents: true
+                  hashContents: true,
+                  validatedBinding: validationBinding
               ),
               identityAfterProbe == identityBeforeProbe else {
             return nil

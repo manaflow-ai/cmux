@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// Streaming, byte-bounded JSONL reader shared by Vault index and preview paths.
@@ -19,9 +18,13 @@ struct SessionIndexJSONLReader: Sendable {
     /// reopening a transcript path that may rotate between passes.
     func withFileSnapshot<Result>(
         url: URL,
+        expectedStorageGeneration: AgentConversationStorageGeneration? = nil,
         body: (FileHandle, UInt64) throws -> Result
     ) rethrows -> Result? {
-        guard let snapshot = regularFileSnapshot(forReadingFrom: url) else {
+        guard let snapshot = AgentConversationStorageGeneration.openRegularFile(
+            at: url,
+            matching: expectedStorageGeneration
+        ) else {
             return nil
         }
         defer { try? snapshot.handle.close() }
@@ -380,28 +383,6 @@ struct SessionIndexJSONLReader: Sendable {
             didSkipOversizedRecord: didSkipOversizedRecord,
             didEncounterMalformedRecord: didEncounterMalformedRecord,
             nextEndOffset: endOffset
-        )
-    }
-
-    private func regularFileSnapshot(
-        forReadingFrom url: URL
-    ) -> (handle: FileHandle, endOffset: UInt64)? {
-        let descriptor = url.withUnsafeFileSystemRepresentation { path -> Int32 in
-            guard let path else { return -1 }
-            return Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
-        }
-        guard descriptor >= 0 else { return nil }
-
-        var status = stat()
-        guard Darwin.fstat(descriptor, &status) == 0,
-              status.st_mode & S_IFMT == S_IFREG,
-              status.st_size >= 0 else {
-            Darwin.close(descriptor)
-            return nil
-        }
-        return (
-            FileHandle(fileDescriptor: descriptor, closeOnDealloc: true),
-            UInt64(status.st_size)
         )
     }
 

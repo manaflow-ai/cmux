@@ -13,6 +13,50 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct AgentConversationTransferSourceTests {
+    @Test
+    func transcriptSymlinkUsesCanonicalTargetGeneration() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let transcript = directory.appendingPathComponent("transcript.jsonl")
+        let replacement = directory.appendingPathComponent("replacement.jsonl")
+        let symlink = directory.appendingPathComponent("current.jsonl")
+        try Data("first".utf8).write(to: transcript)
+        try Data("second".utf8).write(to: replacement)
+        try FileManager.default.createSymbolicLink(
+            at: symlink,
+            withDestinationURL: transcript
+        )
+
+        let storage = try #require(
+            AgentConversationStorageGeneration.captureStorage(atPath: symlink.path)
+        )
+        let canonicalTranscriptPath = transcript.resolvingSymlinksInPath().path
+        #expect(storage.path == canonicalTranscriptPath)
+        let source = AgentConversationSource(snapshot: SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "symlinked-transcript",
+            transcriptPath: symlink.path
+        ))
+        #expect(source.transferIdentity?.storagePath == canonicalTranscriptPath)
+        let opened = try #require(
+            AgentConversationStorageGeneration.openRegularFile(
+                at: symlink,
+                matching: storage.generation
+            )
+        )
+        try opened.handle.close()
+
+        try FileManager.default.removeItem(at: symlink)
+        try FileManager.default.createSymbolicLink(
+            at: symlink,
+            withDestinationURL: replacement
+        )
+        #expect(AgentConversationStorageGeneration.openRegularFile(
+            at: symlink,
+            matching: storage.generation
+        ) == nil)
+    }
+
     @Test(arguments: [RestorableAgentKind.rovodev, .antigravity])
     func localTranscriptSourceDoesNotRequireNativeForkCapability(
         kind: RestorableAgentKind
@@ -203,7 +247,7 @@ struct AgentConversationTransferSourceTests {
         #expect(target.executablePath == executable.path)
         #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(root.path))
         #expect(target.executableIdentity != nil)
-        #expect(target.executableIdentityIsCurrent())
+        #expect(await target.executableIdentityIsCurrent())
     }
 
     @Test
@@ -229,7 +273,7 @@ struct AgentConversationTransferSourceTests {
         #expect(target.executablePath == executable.path)
         #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(bin.path))
         #expect(target.executableIdentity != nil)
-        #expect(target.executableIdentityIsCurrent())
+        #expect(await target.executableIdentityIsCurrent())
     }
 
     @Test
@@ -396,17 +440,30 @@ struct AgentConversationTransferSourceTests {
         #expect(target.executablePath == validExecutable.path)
     }
 
-    @Test(arguments: ["qodercli"])
-    func installedTargetDiscoveryOmitsHarnessWithoutInteractiveSeed(
-        executableName: String
-    ) async throws {
+    @Test
+    func installedTargetDiscoveryIncludesQoderAndRovoDev() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let executable = root.appendingPathComponent(executableName)
-        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data()))
+        try writeVersionExecutable(
+            root.appendingPathComponent("qodercli"),
+            output: "Qoder CLI 1.2.3"
+        )
+        let acli = root.appendingPathComponent("acli")
+        try """
+        #!/bin/zsh
+        if [[ "${1:-}" == "--version" ]]; then
+          /usr/bin/printf 'Atlassian CLI 1.2.3\\n'
+          exit 0
+        fi
+        if [[ "$*" == "rovodev --help" ]]; then
+          /usr/bin/printf 'Atlassian Rovo Dev CLI\\n'
+          exit 0
+        fi
+        exit 2
+        """.write(to: acli, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755],
-            ofItemAtPath: executable.path
+            ofItemAtPath: acli.path
         )
 
         let targets = await AgentConversationForkTargetDiscoverer(
@@ -417,7 +474,11 @@ struct AgentConversationTransferSourceTests {
             includeStandardSearchDirectories: false
         ).discover()
 
-        #expect(targets.isEmpty)
+        var validatedHarnesses: Set<AgentConversationForkTargetHarness> = []
+        for target in targets where target.harness == .qoder || target.harness == .rovodev {
+            validatedHarnesses.insert(try await target.validatedForTransfer().harness)
+        }
+        #expect(validatedHarnesses == [.qoder, .rovodev])
     }
 
     @Test
@@ -486,7 +547,7 @@ struct AgentConversationTransferSourceTests {
         #expect(target.executablePath == executable.path)
         #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(root.path))
         #expect(target.executableIdentity != nil)
-        #expect(target.executableIdentityIsCurrent())
+        #expect(await target.executableIdentityIsCurrent())
 
         try FileManager.default.removeItem(at: executable)
         await catalog.refresh(force: true)

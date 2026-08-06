@@ -189,7 +189,8 @@ final class SharedLiveAgentIndex {
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
+    private let conversationTransferIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
     private let forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver
     private let forkCapabilityProbeCache: ForkCapabilityProbeResultCache
     private let customForkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)?
@@ -198,9 +199,8 @@ final class SharedLiveAgentIndex {
     private let forkExecutableWatchSourceBudgetProvider: @MainActor (Int) -> Int
 
     init(
-        indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
-            SharedLiveAgentIndexLoader().loadResultSynchronously()
-        },
+        indexLoader: (@Sendable () async -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
+        conversationTransferIndexLoader: (@Sendable () async -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),
         forkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)? = nil,
@@ -216,7 +216,18 @@ final class SharedLiveAgentIndex {
             )
         }
     ) {
-        self.indexLoader = indexLoader
+        let defaultIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
+            await SharedLiveAgentIndexLoader().loadResult()
+        }
+        let defaultConversationTransferIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
+            await SharedLiveAgentIndexLoader().loadResult(
+                reuseCompletedOpenCodeDatabasePaths: false
+            )
+        }
+        self.indexLoader = indexLoader ?? defaultIndexLoader
+        self.conversationTransferIndexLoader = conversationTransferIndexLoader
+            ?? indexLoader
+            ?? defaultConversationTransferIndexLoader
         self.forkExecutableIdentityResolver = forkExecutableIdentityResolver
         self.forkCapabilityProbeCache = forkCapabilityProbeCache
         self.customForkSupportProvider = forkSupportProvider
@@ -354,12 +365,12 @@ final class SharedLiveAgentIndex {
             refresh = inFlight
         } else {
             conversationTransferRefreshGeneration &+= 1
-            let indexLoader = self.indexLoader
+            let indexLoader = conversationTransferIndexLoader
             let created = ConversationTransferRefresh(
                 id: UUID(),
                 generation: conversationTransferRefreshGeneration,
                 task: Task.detached(priority: .utility) {
-                    indexLoader()
+                    await indexLoader()
                 }
             )
             conversationTransferRefreshes[created.generation] = created
@@ -1149,7 +1160,7 @@ final class SharedLiveAgentIndex {
     ) async -> [UUID: Set<UUID>] {
         let indexLoader = self.indexLoader
         let result = await Task.detached(priority: .utility) {
-            indexLoader()
+            await indexLoader()
         }.value
         guard !Task.isCancelled else {
             removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)

@@ -21,8 +21,16 @@ nonisolated struct AgentConversationExportService: Sendable {
     #else
     @Sendable
     #endif
-    func message(for snapshot: SessionRestorableAgentSnapshot) async throws -> String {
-        let source = AgentConversationSource(snapshot: snapshot)
+    func message(
+        for snapshot: SessionRestorableAgentSnapshot,
+        expectedTransferIdentity: AgentConversationTransferIdentity? = nil
+    ) async throws -> String {
+        let uncapturedSource = AgentConversationSource(snapshot: snapshot)
+        let source = AgentConversationSource(
+            snapshot: snapshot,
+            expectedTransferIdentity: expectedTransferIdentity
+                ?? uncapturedSource.transferIdentity
+        )
         let turns = try await readerRegistry.read(source)
         do {
             return try transferService.message(

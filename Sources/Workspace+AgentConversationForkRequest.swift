@@ -85,6 +85,7 @@ extension Workspace {
         do {
             startupCommandOverride = try await request.startupCommandOverride(
                 sourceSnapshot: snapshot,
+                expectedTransferIdentity: initialTransferEvidence?.transferIdentity,
                 forceConversationTransfer: !usesNativeFork,
                 exportService: exportService
             )

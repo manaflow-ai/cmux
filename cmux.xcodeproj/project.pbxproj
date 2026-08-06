@@ -57,6 +57,7 @@
 		80FB34CD1B7845B2BF655A30 /* AgentConversationForkTargetDiscoverer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D2F451D15C408A9F7F0076 /* AgentConversationForkTargetDiscoverer.swift */; };
 		9016B0000000000000000001 /* AgentConversationForkTargetHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016B0000000000000000002 /* AgentConversationForkTargetHarness.swift */; };
 		901600000000000000000005 /* AgentConversationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901600000000000000000006 /* AgentConversationSource.swift */; };
+		9016E0000000000000000001 /* AgentConversationStorageGeneration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016E0000000000000000002 /* AgentConversationStorageGeneration.swift */; };
 		9016C0000000000000000001 /* AgentConversationTransferSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016C0000000000000000002 /* AgentConversationTransferSourceTests.swift */; };
 		79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */; };
 		93800001AA11BB22CC33EE01 /* AgentDeliveryTTYBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */; };
@@ -1486,9 +1487,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
 		9637C6D3170F4BE1A7EF6243 /* OmnibarSubmitDecisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */; };
 		0A0F00550000000000000001 /* OmpSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0F00550000000000000002 /* OmpSupportTests.swift */; };
+		9016E0000000000000000007 /* OneShotTerminalLauncherJanitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016E0000000000000000008 /* OneShotTerminalLauncherJanitor.swift */; };
+		9016E0000000000000000009 /* OneShotTerminalLauncherOwnershipRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016E000000000000000000A /* OneShotTerminalLauncherOwnershipRegistry.swift */; };
+		9016E0000000000000000005 /* OneShotTerminalLauncherRetention.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016E0000000000000000006 /* OneShotTerminalLauncherRetention.swift */; };
 		A5001670 /* OneShotTerminalLauncherStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001671 /* OneShotTerminalLauncherStore.swift */; };
 		D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = D1BEF00001A1B2C3D4E5F719 /* open */; };
 		FEED0000000000000000F007 /* opencode-plugin.js in Resources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F006 /* opencode-plugin.js */; };
+		9016E0000000000000000003 /* OpenCodeDatabaseDescriptorPathCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016E0000000000000000004 /* OpenCodeDatabaseDescriptorPathCache.swift */; };
 		A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000017 /* OpenCodeEventStreamParser.swift */; };
 		A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */; };
 		A5E01203A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */; };
@@ -2788,6 +2793,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C8D2F451D15C408A9F7F0076 /* AgentConversationForkTargetDiscoverer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkTargetDiscoverer.swift; sourceTree = "<group>"; };
 		9016B0000000000000000002 /* AgentConversationForkTargetHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkTargetHarness.swift; sourceTree = "<group>"; };
 		901600000000000000000006 /* AgentConversationSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationSource.swift; sourceTree = "<group>"; };
+		9016E0000000000000000002 /* AgentConversationStorageGeneration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationStorageGeneration.swift; sourceTree = "<group>"; };
 		9016C0000000000000000002 /* AgentConversationTransferSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationTransferSourceTests.swift; sourceTree = "<group>"; };
 		79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTargetResolution.swift; sourceTree = "<group>"; };
 		93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTTYBindingTests.swift; sourceTree = "<group>"; };
@@ -4134,9 +4140,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
 		48D6AE11906A4DF3BEB8CDFE /* OmnibarSubmitDecisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarSubmitDecisionTests.swift; sourceTree = "<group>"; };
 		0A0F00550000000000000002 /* OmpSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmpSupportTests.swift; sourceTree = "<group>"; };
+		9016E0000000000000000008 /* OneShotTerminalLauncherJanitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneShotTerminalLauncherJanitor.swift; sourceTree = "<group>"; };
+		9016E000000000000000000A /* OneShotTerminalLauncherOwnershipRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneShotTerminalLauncherOwnershipRegistry.swift; sourceTree = "<group>"; };
+		9016E0000000000000000006 /* OneShotTerminalLauncherRetention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneShotTerminalLauncherRetention.swift; sourceTree = "<group>"; };
 		A5001671 /* OneShotTerminalLauncherStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneShotTerminalLauncherStore.swift; sourceTree = "<group>"; };
 		D1BEF00001A1B2C3D4E5F719 /* open */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/open; sourceTree = SOURCE_ROOT; };
 		FEED0000000000000000F006 /* opencode-plugin.js */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.javascript; path = "opencode-plugin.js"; sourceTree = "<group>"; };
+		9016E0000000000000000004 /* OpenCodeDatabaseDescriptorPathCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeDatabaseDescriptorPathCache.swift; sourceTree = "<group>"; };
 		A9F100000000000000000017 /* OpenCodeEventStreamParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeEventStreamParser.swift; sourceTree = "<group>"; };
 		A9F100000000000000000018 /* OpenCodeEventTextAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/OpenCodeEventTextAccumulator.swift; sourceTree = "<group>"; };
 		A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenCodeHookRegressionTests.swift; sourceTree = "<group>"; };
@@ -5707,6 +5717,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				9016D0000000000000000008 /* AgentConversationForkFirstMessageAdapter.swift */,
 				9016B0000000000000000002 /* AgentConversationForkTargetHarness.swift */,
 				901600000000000000000006 /* AgentConversationSource.swift */,
+				9016E0000000000000000002 /* AgentConversationStorageGeneration.swift */,
 				90160000000000000000001C /* AgentSessionIDProvenance.swift */,
 				90160000000000000000001A /* PreparedAgentStartupInput.swift */,
 				901600000000000000000008 /* CommandPaletteArgumentChoiceView.swift */,
@@ -7079,6 +7090,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				92CA6F2F239631988B2FB0C8 /* WorkspaceRemoteTmuxNonInteractiveCloseRoute.swift */,
 				5E55400000000000000000D2 /* FocusStealingResponderConformances.swift */,
 				A5001671 /* OneShotTerminalLauncherStore.swift */,
+				9016E0000000000000000008 /* OneShotTerminalLauncherJanitor.swift */,
+				9016E000000000000000000A /* OneShotTerminalLauncherOwnershipRegistry.swift */,
+				9016E0000000000000000006 /* OneShotTerminalLauncherRetention.swift */,
+				9016E0000000000000000004 /* OpenCodeDatabaseDescriptorPathCache.swift */,
 				B35751000000000000000001 /* TmuxResumeParser.swift */,
 				F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */,
 				C6711B040000000000000001 /* RestorableAgentHookSessionRecord.swift */,
@@ -8610,6 +8625,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				80FB34CD1B7845B2BF655A30 /* AgentConversationForkTargetDiscoverer.swift in Sources */,
 				9016B0000000000000000001 /* AgentConversationForkTargetHarness.swift in Sources */,
 				901600000000000000000005 /* AgentConversationSource.swift in Sources */,
+				9016E0000000000000000001 /* AgentConversationStorageGeneration.swift in Sources */,
 				79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */,
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,
@@ -9439,7 +9455,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
 				C67540090000000000000001 /* OmnibarAddressButtonStyle.swift in Sources */,
+				9016E0000000000000000007 /* OneShotTerminalLauncherJanitor.swift in Sources */,
+				9016E0000000000000000009 /* OneShotTerminalLauncherOwnershipRegistry.swift in Sources */,
+				9016E0000000000000000005 /* OneShotTerminalLauncherRetention.swift in Sources */,
 				A5001670 /* OneShotTerminalLauncherStore.swift in Sources */,
+				9016E0000000000000000003 /* OpenCodeDatabaseDescriptorPathCache.swift in Sources */,
 				A9F200000000000000000017 /* OpenCodeEventStreamParser.swift in Sources */,
 				A9F200000000000000000018 /* OpenCodeEventTextAccumulator.swift in Sources */,
 				A9F200000000000000000019 /* OpenCodeProcessOutputDisposition.swift in Sources */,

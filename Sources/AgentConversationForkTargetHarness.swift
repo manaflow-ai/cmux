@@ -16,10 +16,12 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
     case gemini
     case kiro
     case antigravity
+    case rovodev
     case hermesAgent = "hermes-agent"
     case copilot
     case codebuddy
     case factory
+    case qoder
     case kimi
 
     var id: String { rawValue }
@@ -46,7 +48,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         handoffMessage: String,
         executablePath: String? = nil,
         runtimeSearchPath: String? = nil,
-        executableBinding: AgentConversationForkExecutableBinding? = nil
+        executableBinding: AgentConversationForkExecutableBinding? = nil,
+        executableLookupPath: String? = nil
     ) -> String? {
         let executable = startupExecutableInvocation(
             executablePath: executablePath,
@@ -57,13 +60,20 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .current:
             nil
         case .claude, .codex, .grok, .opencode, .omp, .campfire, .pi, .amp,
-             .cursor, .gemini, .antigravity, .codebuddy, .factory, .kimi:
+             .cursor, .gemini, .antigravity, .codebuddy, .factory, .qoder,
+             .kimi:
             "\(execPrefix)\(executable)"
         case .kiro:
             // The cmux profile is optional and installed separately. Preserve
             // interactive transfer for a plain Kiro installation while using
             // hooks whenever that profile is available at launch time.
             "if [[ -f \"${KIRO_HOME:-${HOME:-}/.kiro}/agents/cmux.json\" ]]; then \(execPrefix)\(executable) chat --agent cmux; else \(execPrefix)\(executable) chat; fi"
+        case .rovodev:
+            if Self.executableBasename(executableLookupPath ?? executablePath) == "acli" {
+                "\(execPrefix)\(executable) rovodev run"
+            } else {
+                "\(execPrefix)\(executable)"
+            }
         case .hermesAgent:
             "\(execPrefix)\(executable) chat --tui"
         case .copilot:
@@ -107,6 +117,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             "Type your message or @path/to/file"
         case .kiro:
             "Use Ctrl.*multi-line prompts"
+        case .rovodev:
+            "Rovo Dev"
         case .hermesAgent:
             "Available.*Tools"
         case .copilot:
@@ -115,6 +127,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             "(auto|manual).*mode on|Context [0-9]+% left"
         case .factory:
             "Shift.*Tab|Context [0-9]+% left"
+        case .qoder:
+            "Qoder|accept_edits|bypass_permissions|dont_ask"
         case .kimi:
             "What would you like to do\\?"
         }
@@ -165,8 +179,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .codex: .codex
         case .opencode: .opencode
         case .current, .grok, .omp, .campfire, .pi, .amp, .cursor, .gemini,
-             .kiro, .antigravity, .hermesAgent, .copilot, .codebuddy, .factory,
-             .kimi:
+             .kiro, .antigravity, .rovodev, .hermesAgent, .copilot, .codebuddy,
+             .factory, .qoder, .kimi:
             nil
         }
     }
@@ -199,6 +213,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ["kiro-cli"]
         case .antigravity:
             ["agy", "antigravity"]
+        case .rovodev:
+            ["acli", "rovodev", "rovo", "rovo-dev"]
         case .hermesAgent:
             ["hermes", "hermes-agent"]
         case .copilot:
@@ -207,6 +223,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ["codebuddy", "cbc"]
         case .factory:
             ["droid", "factory"]
+        case .qoder:
+            ["qodercli", "qoder"]
         case .kimi:
             ["kimi", "kimi-cli", "kimi-code"]
         }
@@ -248,6 +266,18 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         ) != nil
     }
 
+    func versionProbeArguments(resolvedExecutablePath _: String) -> [String] {
+        ["--version"]
+    }
+
+    func helpProbeArguments(resolvedExecutablePath: String) -> [String] {
+        if self == .rovodev,
+           Self.executableBasename(resolvedExecutablePath) == "acli" {
+            return ["rovodev", "--help"]
+        }
+        return ["--help"]
+    }
+
     private var versionIdentityMarkers: [String] {
         switch self {
         case .current:
@@ -276,6 +306,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ["kiro"]
         case .antigravity:
             ["antigravity", "/agy"]
+        case .rovodev:
+            ["rovo dev", "rovodev"]
         case .hermesAgent:
             ["hermes"]
         case .copilot:
@@ -284,6 +316,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ["codebuddy", "code-buddy"]
         case .factory:
             ["factory", "/droid"]
+        case .qoder:
+            ["qoder"]
         case .kimi:
             ["kimi"]
         }
@@ -317,6 +351,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             #"Kiro"#
         case .antigravity:
             #"Antigravity"#
+        case .rovodev:
+            #"Rovo Dev|rovodev"#
         case .hermesAgent:
             #"Hermes Agent"#
         case .copilot:
@@ -325,8 +361,15 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             #"CodeBuddy|Code Buddy"#
         case .factory:
             #"Factory|Droid"#
+        case .qoder:
+            #"Qoder"#
         case .kimi:
             #"Kimi"#
         }
+    }
+
+    private static func executableBasename(_ path: String?) -> String {
+        guard let path else { return "" }
+        return URL(fileURLWithPath: path).lastPathComponent.lowercased()
     }
 }

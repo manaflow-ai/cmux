@@ -1149,12 +1149,14 @@ enum SessionTranscriptLoader {
         if source.agent == .opencode {
             let sessionId = source.sessionId
             let databasePath = source.openCodeDatabasePath
+            let expectedStorageGeneration = source.expectedStorageGeneration
             // OpenCode is SQLite-backed. Keep its synchronous query work off
             // the main actor so presenting the popover only flips UI state.
             return try await performSynchronousLoad {
                 try loadOpenCodeSynchronously(
                     sessionId: sessionId,
                     databasePath: databasePath,
+                    expectedStorageGeneration: expectedStorageGeneration,
                     retention: source.retention
                 )
             }
@@ -1162,10 +1164,12 @@ enum SessionTranscriptLoader {
         if source.agent == .hermesAgent {
             let sessionId = source.sessionId
             let stateDatabaseURL = source.hermesStateDatabaseURL
+            let expectedStorageGeneration = source.expectedStorageGeneration
             return try await performSynchronousLoad {
                 try loadHermesAgentSynchronously(
                     sessionId: sessionId,
                     stateDatabaseURL: stateDatabaseURL,
+                    expectedStorageGeneration: expectedStorageGeneration,
                     retention: source.retention
                 )
             }
@@ -1175,11 +1179,13 @@ enum SessionTranscriptLoader {
         }
         let agent = source.agent
         let sessionId = source.sessionId
+        let expectedStorageGeneration = source.expectedStorageGeneration
         if agent.id == "antigravity" {
             return try await performSynchronousLoad {
                 try loadAntigravityHistorySynchronously(
                     from: url,
                     sessionId: sessionId,
+                    expectedStorageGeneration: expectedStorageGeneration,
                     retention: source.retention
                 )
             }
@@ -1190,6 +1196,7 @@ enum SessionTranscriptLoader {
                 from: url,
                 agent: agent,
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                expectedStorageGeneration: expectedStorageGeneration,
                 retention: source.retention
             )
         }
@@ -1218,6 +1225,7 @@ enum SessionTranscriptLoader {
         from url: URL,
         agent: SessionAgent,
         usesGrokTranscriptLayout: Bool,
+        expectedStorageGeneration: AgentConversationStorageGeneration?,
         retention: SessionTranscriptRetention
     ) throws -> [SessionTranscriptTurn] {
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -1229,7 +1237,8 @@ enum SessionTranscriptLoader {
                 limit: retention.limit,
                 latest: retention.keepsLatestTurns,
                 preservingOpeningUser: retention.keepsLatestTurns,
-                dialogueOnly: retention.requiresCompleteLatestScan
+                dialogueOnly: retention.requiresCompleteLatestScan,
+                expectedStorageGeneration: expectedStorageGeneration
             ) else {
                 throw SessionTranscriptLoadError.missingFile
             }
@@ -1248,11 +1257,18 @@ enum SessionTranscriptLoader {
                 from: url,
                 agent: agent,
                 usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                expectedStorageGeneration: expectedStorageGeneration,
                 retention: retention
             )
         }
 
-        let handle = try FileHandle(forReadingFrom: url)
+        guard let snapshot = AgentConversationStorageGeneration.openRegularFile(
+            at: url,
+            matching: expectedStorageGeneration
+        ) else {
+            throw SessionTranscriptLoadError.missingFile
+        }
+        let handle = snapshot.handle
         defer { try? handle.close() }
 
         var turns: [SessionTranscriptTurn] = []
@@ -1361,6 +1377,7 @@ enum SessionTranscriptLoader {
         from url: URL,
         agent: SessionAgent,
         usesGrokTranscriptLayout: Bool,
+        expectedStorageGeneration: AgentConversationStorageGeneration?,
         retention: SessionTranscriptRetention
     ) throws -> [SessionTranscriptTurn] {
         let reader = SessionIndexJSONLReader(maximumRecordBytes: maxPreviewRecordBytes)
@@ -1368,7 +1385,10 @@ enum SessionTranscriptLoader {
         var retainedTextBytes = 0
         var didSatisfyLatestRetention = false
         var openingUser: SessionTranscriptTurn?
-        guard let scan = reader.withFileSnapshot(url: url, body: { handle, fileEndOffset in
+        guard let scan = reader.withFileSnapshot(
+            url: url,
+            expectedStorageGeneration: expectedStorageGeneration,
+            body: { handle, fileEndOffset in
             let latestMetrics = reader.fromTailPages(
                 fileHandle: handle,
                 fileEndOffset: fileEndOffset,
@@ -1423,7 +1443,8 @@ enum SessionTranscriptLoader {
                 return false
             }
             return (latest: latestMetrics, opening: openingMetrics)
-        }) else {
+            }
+        ) else {
             throw SessionTranscriptLoadError.missingFile
         }
         try Task.checkCancellation()
@@ -1452,6 +1473,7 @@ enum SessionTranscriptLoader {
     private static func loadAntigravityHistorySynchronously(
         from url: URL,
         sessionId: String,
+        expectedStorageGeneration: AgentConversationStorageGeneration?,
         retention: SessionTranscriptRetention
     ) throws -> [SessionTranscriptTurn] {
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -1504,7 +1526,10 @@ enum SessionTranscriptLoader {
             recordsVisited: 0
         )
         if retention.keepsLatestTurns {
-            guard let scan = reader.withFileSnapshot(url: url, body: { handle, fileEndOffset in
+            guard let scan = reader.withFileSnapshot(
+                url: url,
+                expectedStorageGeneration: expectedStorageGeneration,
+                body: { handle, fileEndOffset in
                 let latestMetrics = reader.fromTailPages(
                     fileHandle: handle,
                     fileEndOffset: fileEndOffset,
@@ -1531,7 +1556,8 @@ enum SessionTranscriptLoader {
                     return true
                 }
                 return (latest: latestMetrics, opening: firstMetrics)
-            }) else {
+                }
+            ) else {
                 throw SessionTranscriptLoadError.missingFile
             }
             metrics = scan.latest
@@ -1627,8 +1653,13 @@ enum SessionTranscriptLoader {
     private static func loadOpenCodeSynchronously(
         sessionId: String,
         databasePath: String? = nil,
+        expectedStorageGeneration: AgentConversationStorageGeneration? = nil,
         retention: SessionTranscriptRetention = .prefix(maxPreviewTurns)
     ) throws -> [SessionTranscriptTurn] {
+        if let databasePath,
+           expectedStorageGeneration?.isCurrent(atPath: databasePath) == false {
+            throw SessionTranscriptLoadError.incompleteSource
+        }
         let snapshot: OpenCodeDatabaseSnapshot.Snapshot
         do {
             guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(
@@ -1645,6 +1676,11 @@ enum SessionTranscriptLoader {
             throw SessionTranscriptLoadError.missingFile
         } catch {
             throw SessionTranscriptLoadError.databaseError(error.localizedDescription)
+        }
+        if let databasePath,
+           expectedStorageGeneration?.isCurrent(atPath: databasePath) == false {
+            snapshot.remove()
+            throw SessionTranscriptLoadError.incompleteSource
         }
         defer { snapshot.remove() }
 
@@ -1863,8 +1899,13 @@ enum SessionTranscriptLoader {
     private static func loadHermesAgentSynchronously(
         sessionId: String,
         stateDatabaseURL: URL?,
+        expectedStorageGeneration: AgentConversationStorageGeneration? = nil,
         retention: SessionTranscriptRetention = .prefix(maxPreviewTurns)
     ) throws -> [SessionTranscriptTurn] {
+        if let stateDatabaseURL,
+           expectedStorageGeneration?.isCurrent(atPath: stateDatabaseURL.path) == false {
+            throw SessionTranscriptLoadError.incompleteSource
+        }
         do {
             let queryLimit = retention.keepsLatestTurns ? retention.limit : retention.limit + 1
             let turns = try HermesAgentIndex.loadTranscript(
@@ -1878,6 +1919,10 @@ enum SessionTranscriptLoader {
                     ? transferDatabaseSnapshotByteLimit
                     : nil
             )
+            if let stateDatabaseURL,
+               expectedStorageGeneration?.isCurrent(atPath: stateDatabaseURL.path) == false {
+                throw SessionTranscriptLoadError.incompleteSource
+            }
             let didHitTurnLimit = !retention.keepsLatestTurns && turns.count > retention.limit
             var previewTurns: [SessionTranscriptTurn] = turns.prefix(retention.limit).enumerated().compactMap { index, turn -> SessionTranscriptTurn? in
                 let role: SessionTranscriptRole = (turn.toolName?.isEmpty == false) ? .tool : (transcriptRole(from: turn.role) ?? .event)

@@ -19,6 +19,7 @@ nonisolated struct AgentConversationTransferIdentity: Equatable, Sendable {
     let kind: RestorableAgentKind
     let sessionId: String
     let storagePath: String
+    let storageGeneration: AgentConversationStorageGeneration
 }
 
 /// Process generation recorded synchronously by the panel's hook/runtime path.
@@ -46,8 +47,12 @@ nonisolated struct AgentConversationSource: Sendable {
     let registration: CmuxVaultAgentRegistration?
     let launchEnvironment: [String: String]
     let sessionIDProvenance: AgentSessionIDProvenance?
+    let expectedTransferIdentity: AgentConversationTransferIdentity?
 
-    init(snapshot: SessionRestorableAgentSnapshot) {
+    init(
+        snapshot: SessionRestorableAgentSnapshot,
+        expectedTransferIdentity: AgentConversationTransferIdentity? = nil
+    ) {
         kind = snapshot.kind
         sessionId = snapshot.sessionId
         workingDirectory = snapshot.workingDirectory
@@ -55,6 +60,7 @@ nonisolated struct AgentConversationSource: Sendable {
         registration = snapshot.registration
         launchEnvironment = snapshot.launchCommand?.environment ?? [:]
         sessionIDProvenance = snapshot.sessionIDProvenance
+        self.expectedTransferIdentity = expectedTransferIdentity
     }
 
     var sessionAgent: SessionAgent {
@@ -115,11 +121,17 @@ nonisolated struct AgentConversationSource: Sendable {
         default:
             storageIdentity = transcriptURL?.standardizedFileURL.path
         }
-        guard let storageIdentity else { return nil }
+        guard let storageIdentity,
+              let storage = AgentConversationStorageGeneration.captureStorage(
+                  atPath: storageIdentity
+              ) else {
+            return nil
+        }
         return AgentConversationTransferIdentity(
             kind: kind,
             sessionId: sessionId,
-            storagePath: storageIdentity
+            storagePath: storage.path,
+            storageGeneration: storage.generation
         )
     }
 
@@ -132,6 +144,16 @@ nonisolated struct AgentConversationSource: Sendable {
             true
         default:
             transcriptURL != nil
+        }
+    }
+
+    var expectedStorage: (
+        path: String,
+        generation: AgentConversationStorageGeneration
+    )? {
+        let identity = expectedTransferIdentity ?? transferIdentity
+        return identity.map {
+            (path: $0.storagePath, generation: $0.storageGeneration)
         }
     }
 
@@ -193,6 +215,7 @@ nonisolated protocol AgentConversationSourceAdapter: Sendable {
 
 nonisolated enum AgentConversationExportError: Error, Equatable, Sendable {
     case sourceUnavailable(String)
+    case sourceChanged
     case emptyConversation
 }
 
@@ -208,10 +231,22 @@ nonisolated struct AgentConversationReaderRegistry: Sendable {
     let adapters: [any AgentConversationSourceAdapter]
 
     func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn] {
+        let expectedTransferIdentity = source.expectedTransferIdentity
+            ?? source.transferIdentity
+        if source.hasDeterministicTranscriptSource,
+           expectedTransferIdentity == nil {
+            throw AgentConversationExportError.sourceUnavailable(source.kind.rawValue)
+        }
+        guard source.transferIdentity == expectedTransferIdentity else {
+            throw AgentConversationExportError.sourceChanged
+        }
         var lastError: (any Error)?
         for adapter in adapters where adapter.supports(source) {
             do {
                 let turns = try await adapter.read(source)
+                guard source.transferIdentity == expectedTransferIdentity else {
+                    throw AgentConversationExportError.sourceChanged
+                }
                 if let turns, !turns.isEmpty {
                     return turns
                 }
@@ -254,7 +289,10 @@ nonisolated struct OpenCodeAgentConversationSourceAdapter: AgentConversationSour
     }
 
     func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
-        guard let resolvedDatabasePath = databasePath ?? source.openCodeDatabasePath else {
+        let expectedStorage = source.expectedStorage
+        guard let resolvedDatabasePath = databasePath
+            ?? expectedStorage?.path
+            ?? source.openCodeDatabasePath else {
             throw AgentConversationExportError.sourceUnavailable(source.kind.rawValue)
         }
         return try await SessionTranscriptLoader.load(source: .init(
@@ -262,6 +300,7 @@ nonisolated struct OpenCodeAgentConversationSourceAdapter: AgentConversationSour
             sessionId: source.sessionId,
             fileURL: nil,
             openCodeDatabasePath: resolvedDatabasePath,
+            expectedStorageGeneration: expectedStorage?.generation,
             retention: agentConversationTransferRetention
         ))
     }
@@ -273,7 +312,10 @@ nonisolated struct HermesAgentConversationSourceAdapter: AgentConversationSource
     }
 
     func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
-        guard let stateDatabaseURL = source.hermesStateDatabaseURL else {
+        let expectedStorage = source.expectedStorage
+        guard let stateDatabaseURL = expectedStorage.map({
+            URL(fileURLWithPath: $0.path, isDirectory: false)
+        }) ?? source.hermesStateDatabaseURL else {
             throw AgentConversationExportError.sourceUnavailable(source.kind.rawValue)
         }
         return try await SessionTranscriptLoader.load(source: .init(
@@ -281,6 +323,7 @@ nonisolated struct HermesAgentConversationSourceAdapter: AgentConversationSource
             sessionId: source.sessionId,
             fileURL: nil,
             hermesStateDatabaseURL: stateDatabaseURL,
+            expectedStorageGeneration: expectedStorage?.generation,
             retention: agentConversationTransferRetention
         ))
     }
@@ -293,12 +336,16 @@ nonisolated struct DirectTranscriptAgentConversationSourceAdapter: AgentConversa
     }
 
     func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
-        guard let url = source.transcriptURL else { return nil }
+        let expectedStorage = source.expectedStorage
+        guard let url = expectedStorage.map({
+            URL(fileURLWithPath: $0.path, isDirectory: false)
+        }) ?? source.transcriptURL else { return nil }
         return try await SessionTranscriptLoader.load(source: .init(
             agent: source.sessionAgent,
             sessionId: source.sessionId,
             fileURL: url,
             usesGrokTranscriptLayout: source.usesGrokTranscriptLayout,
+            expectedStorageGeneration: expectedStorage?.generation,
             retention: agentConversationTransferRetention
         ))
     }

@@ -68,6 +68,66 @@ extension RestorableAgentSessionIndex {
         )
     }
 
+    /// Pre-resolves OpenCode database paths through the shared actor cache,
+    /// then runs the same deterministic scanner used by synchronous restores.
+    static func processDetectedSnapshotsCachingOpenCodeDatabasePaths(
+        registry: CmuxVaultAgentRegistry,
+        fileManager: FileManager,
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval,
+        reuseCompletedOpenCodeDatabasePaths: Bool = true,
+        processArgumentsProvider: @escaping @Sendable (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        openCodeDatabasePathProvider: @escaping @Sendable (Int, [String: String]) -> String? = {
+            openCodeDatabasePathHeldOpen(processID: $0, environment: $1)
+        }
+    ) async -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        var processArgumentsByPID: [Int: CmuxTopProcessArguments] = [:]
+        for process in processSnapshot.cmuxScopedProcesses() {
+            if let processArguments = processArgumentsProvider(process.pid) {
+                processArgumentsByPID[process.pid] = processArguments
+            }
+        }
+
+        var openCodeDatabasePathsByPID: [Int: String] = [:]
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard let processArguments = processArgumentsByPID[process.pid] else {
+                continue
+            }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            guard observed.isOpenCodeProcess else { continue }
+            let processID = process.pid
+            let environment = processArguments.environment
+            if let path = await OpenCodeDatabaseDescriptorPathCache.shared.resolve(
+                processID: processID,
+                environment: environment,
+                reuseCompletedResult: reuseCompletedOpenCodeDatabasePaths,
+                probe: {
+                    openCodeDatabasePathProvider(processID, environment)
+                }
+            ) {
+                openCodeDatabasePathsByPID[processID] = path
+            }
+        }
+
+        return processDetectedSnapshots(
+            registry: registry,
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            processArgumentsProvider: { processArgumentsByPID[$0] },
+            openCodeDatabasePathProvider: { processID, _ in
+                openCodeDatabasePathsByPID[processID]
+            }
+        )
+    }
+
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
         fileManager: FileManager,

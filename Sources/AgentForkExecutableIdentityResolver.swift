@@ -6,6 +6,83 @@ actor AgentForkExecutableIdentityResolver {
     private var validationResolutionTasks: [String: Task<AgentForkSupport.ForkValidationExecutableResolution, Never>] = [:]
     private var timedOutIdentityKeys = Set<String>()
     private var timedOutValidationResolutionKeys = Set<String>()
+    private var outstandingTransferValidationWork = 0
+
+    func prepareConversationTransferExecutable(
+        executablePath: String,
+        runtimeSearchPath: String?
+    ) async -> (
+        identity: AgentConversationForkExecutableIdentity,
+        binding: AgentConversationForkExecutableBinding
+    )? {
+        guard reserveTransferValidationWork() else { return nil }
+        let task = Task.detached(priority: .userInitiated) {
+            let deadline = ContinuousClock().now.advanced(by: .seconds(3))
+            guard let identity = AgentConversationForkExecutableIdentity.capture(
+                executablePath: executablePath,
+                runtimeSearchPath: runtimeSearchPath,
+                hashContents: true,
+                deadline: deadline
+            ),
+            let binding = AgentConversationForkExecutableBinding(identity: identity),
+            binding.materializeImmutableCopy(deadline: deadline) else {
+                return nil
+            }
+            return (identity: identity, binding: binding)
+        }
+        Task {
+            _ = await task.value
+            self.completeTransferValidationWork()
+        }
+        let result = await boundedValue(
+            task: task,
+            timeoutValue: nil,
+            onTimeout: { task.cancel() }
+        )
+        if result == nil {
+            task.cancel()
+            Task.detached(priority: .utility) {
+                let lateResult = await task.value
+                lateResult?.binding.removeArtifacts()
+            }
+        }
+        return result
+    }
+
+    func conversationTransferExecutableIdentity(
+        executablePath: String,
+        runtimeSearchPath: String?,
+        hashContents: Bool,
+        validatedBinding: AgentConversationForkExecutableBinding? = nil
+    ) async -> AgentConversationForkExecutableIdentity? {
+        guard reserveTransferValidationWork() else { return nil }
+        let task = Task.detached(priority: .userInitiated) {
+            let deadline = ContinuousClock().now.advanced(by: .seconds(3))
+            if let validatedBinding,
+               !validatedBinding.boundArtifactIsValid(deadline: deadline) {
+                return nil
+            }
+            return AgentConversationForkExecutableIdentity.capture(
+                executablePath: executablePath,
+                runtimeSearchPath: runtimeSearchPath,
+                hashContents: hashContents,
+                deadline: deadline
+            )
+        }
+        Task {
+            _ = await task.value
+            self.completeTransferValidationWork()
+        }
+        let result = await boundedValue(
+            task: task,
+            timeoutValue: nil,
+            onTimeout: { task.cancel() }
+        )
+        if result == nil {
+            task.cancel()
+        }
+        return result
+    }
 
     func identityIfRunnable(
         probe: (executable: String, arguments: [String]),
@@ -153,6 +230,22 @@ actor AgentForkExecutableIdentityResolver {
     private var outstandingResolutionWorkCount: Int {
         identityTasks.count
             + validationResolutionTasks.count
+            + outstandingTransferValidationWork
+    }
+
+    private func reserveTransferValidationWork() -> Bool {
+        guard outstandingResolutionWorkCount < maxOutstandingResolutionWork else {
+            return false
+        }
+        outstandingTransferValidationWork += 1
+        return true
+    }
+
+    private func completeTransferValidationWork() {
+        outstandingTransferValidationWork = max(
+            0,
+            outstandingTransferValidationWork - 1
+        )
     }
 
     private func identityKey(

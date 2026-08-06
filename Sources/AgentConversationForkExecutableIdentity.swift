@@ -5,6 +5,8 @@ import Foundation
 /// Stable identity of a harness executable. Explicit validation also records
 /// the SHA-256 capability of the exact bytes copied and probed by cmux.
 struct AgentConversationForkExecutableIdentity: Equatable, Hashable, Sendable {
+    static let maximumArtifactBytes: Int64 = 512 * 1_024 * 1_024
+
     let lookupPath: String
     let realPath: String
     let fingerprint: String
@@ -15,7 +17,8 @@ struct AgentConversationForkExecutableIdentity: Equatable, Hashable, Sendable {
     static func capture(
         executablePath: String,
         runtimeSearchPath: String?,
-        hashContents: Bool = false
+        hashContents: Bool = false,
+        deadline: ContinuousClock.Instant? = nil
     ) -> Self? {
         var environment: [String: String] = [:]
         if let runtimeSearchPath,
@@ -31,7 +34,8 @@ struct AgentConversationForkExecutableIdentity: Equatable, Hashable, Sendable {
         }
         guard let captured = capturedFile(
             atPath: identity.realPath,
-            hashContents: hashContents
+            hashContents: hashContents,
+            deadline: deadline
         ) else {
             return nil
         }
@@ -57,13 +61,21 @@ struct AgentConversationForkExecutableIdentity: Equatable, Hashable, Sendable {
         )
     }
 
-    static func contentSHA256(atPath path: String) -> String? {
-        capturedFile(atPath: path, hashContents: true)?.contentSHA256
+    static func contentSHA256(
+        atPath path: String,
+        deadline: ContinuousClock.Instant? = nil
+    ) -> String? {
+        capturedFile(
+            atPath: path,
+            hashContents: true,
+            deadline: deadline
+        )?.contentSHA256
     }
 
     private static func capturedFile(
         atPath path: String,
-        hashContents: Bool
+        hashContents: Bool,
+        deadline: ContinuousClock.Instant?
     ) -> (metadata: stat, contentSHA256: String?)? {
         let descriptor = Darwin.open(
             path,
@@ -73,7 +85,10 @@ struct AgentConversationForkExecutableIdentity: Equatable, Hashable, Sendable {
         defer { _ = Darwin.close(descriptor) }
         var initialMetadata = stat()
         guard Darwin.fstat(descriptor, &initialMetadata) == 0,
-              initialMetadata.st_mode & S_IFMT == S_IFREG else {
+              initialMetadata.st_mode & S_IFMT == S_IFREG,
+              initialMetadata.st_size >= 0,
+              initialMetadata.st_size <= maximumArtifactBytes,
+              workMayContinue(deadline: deadline) else {
             return nil
         }
 
@@ -82,9 +97,11 @@ struct AgentConversationForkExecutableIdentity: Equatable, Hashable, Sendable {
             var hasher = SHA256()
             var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
             while true {
+                guard workMayContinue(deadline: deadline) else { return nil }
                 let bytesRead = buffer.withUnsafeMutableBytes { bytes in
                     Darwin.read(descriptor, bytes.baseAddress, bytes.count)
                 }
+                if bytesRead < 0, errno == EINTR { continue }
                 guard bytesRead >= 0 else { return nil }
                 if bytesRead == 0 { break }
                 hasher.update(data: Data(buffer.prefix(bytesRead)))
@@ -101,7 +118,8 @@ struct AgentConversationForkExecutableIdentity: Equatable, Hashable, Sendable {
         guard Darwin.fstat(descriptor, &finalMetadata) == 0,
               Darwin.lstat(path, &pathMetadata) == 0,
               stableMetadata(initialMetadata, finalMetadata),
-              stableMetadata(finalMetadata, pathMetadata) else {
+              stableMetadata(finalMetadata, pathMetadata),
+              workMayContinue(deadline: deadline) else {
             return nil
         }
         return (finalMetadata, contentSHA256)
@@ -116,5 +134,13 @@ struct AgentConversationForkExecutableIdentity: Equatable, Hashable, Sendable {
             && lhs.st_mtimespec.tv_nsec == rhs.st_mtimespec.tv_nsec
             && lhs.st_ctimespec.tv_sec == rhs.st_ctimespec.tv_sec
             && lhs.st_ctimespec.tv_nsec == rhs.st_ctimespec.tv_nsec
+    }
+
+    static func workMayContinue(
+        deadline: ContinuousClock.Instant?
+    ) -> Bool {
+        guard !Task.isCancelled else { return false }
+        guard let deadline else { return true }
+        return ContinuousClock().now < deadline
     }
 }

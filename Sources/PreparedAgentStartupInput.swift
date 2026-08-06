@@ -14,11 +14,4 @@ struct PreparedAgentStartupInput: Sendable {
         guard let launcherScriptURL else { return }
         try? fileManager.removeItem(at: launcherScriptURL)
     }
-
-    func scheduleLauncherScriptRemoval() {
-        guard let launcherScriptURL else { return }
-        OneShotTerminalLauncherStore.scheduleSensitiveLauncherRemoval(
-            at: launcherScriptURL
-        )
-    }
 }

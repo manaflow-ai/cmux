@@ -87,6 +87,7 @@ struct AgentConversationForkRequest: Equatable, Sendable {
 
     func startupCommandOverride(
         sourceSnapshot: SessionRestorableAgentSnapshot,
+        expectedTransferIdentity: AgentConversationTransferIdentity? = nil,
         forceConversationTransfer: Bool = false,
         exportService: AgentConversationExportService = .live
     ) async throws -> String? {
@@ -96,8 +97,11 @@ struct AgentConversationForkRequest: Equatable, Sendable {
             return nil
         }
         let validatedTarget = try await target.validatedForTransfer()
-        let handoffMessage = try await exportService.message(for: sourceSnapshot)
-        guard validatedTarget.executableIdentityIsCurrent() else {
+        let handoffMessage = try await exportService.message(
+            for: sourceSnapshot,
+            expectedTransferIdentity: expectedTransferIdentity
+        )
+        guard await validatedTarget.executableIdentityIsCurrent() else {
             throw AgentConversationForkRequestError.targetExecutableChanged
         }
         guard let startupCommand = validatedTarget.startupCommand(

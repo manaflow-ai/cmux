@@ -8,6 +8,7 @@ struct SessionTranscriptSource: Sendable {
     let usesGrokTranscriptLayout: Bool
     let openCodeDatabasePath: String?
     let hermesStateDatabaseURL: URL?
+    let expectedStorageGeneration: AgentConversationStorageGeneration?
     let retention: SessionTranscriptRetention
 
     init(
@@ -17,6 +18,7 @@ struct SessionTranscriptSource: Sendable {
         usesGrokTranscriptLayout: Bool = false,
         openCodeDatabasePath: String? = nil,
         hermesStateDatabaseURL: URL? = nil,
+        expectedStorageGeneration: AgentConversationStorageGeneration? = nil,
         retention: SessionTranscriptRetention = .prefix(500)
     ) {
         self.agent = agent
@@ -25,6 +27,7 @@ struct SessionTranscriptSource: Sendable {
         self.usesGrokTranscriptLayout = usesGrokTranscriptLayout
         self.openCodeDatabasePath = openCodeDatabasePath
         self.hermesStateDatabaseURL = hermesStateDatabaseURL
+        self.expectedStorageGeneration = expectedStorageGeneration
         self.retention = retention
     }
 }

@@ -86,23 +86,28 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
 
     /// Materializes the exact immutable artifact used by the explicit version
     /// or help probe. The caller owns cleanup through ``removeArtifacts()``.
-    func materializeImmutableCopy() -> Bool {
+    func materializeImmutableCopy(
+        deadline: ContinuousClock.Instant? = nil
+    ) -> Bool {
         guard expectedContentSHA256 != nil,
               writeCleanupRecord(),
-              copySourceToBoundPath(),
+              copySourceToBoundPath(deadline: deadline),
               Darwin.chflags(boundPath, UInt32(UF_IMMUTABLE)) == 0,
-              boundArtifactIsValid() else {
+              boundArtifactIsValid(deadline: deadline) else {
             removeArtifacts()
             return false
         }
         return true
     }
 
-    func boundArtifactIsValid() -> Bool {
+    func boundArtifactIsValid(
+        deadline: ContinuousClock.Instant? = nil
+    ) -> Bool {
         guard let expectedContentSHA256 else { return false }
         return Self.immutableArtifact(
             atPath: boundPath,
-            matchesSHA256: expectedContentSHA256
+            matchesSHA256: expectedContentSHA256,
+            deadline: deadline
         )
     }
 
@@ -216,7 +221,9 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
         return true
     }
 
-    private func copySourceToBoundPath() -> Bool {
+    private func copySourceToBoundPath(
+        deadline: ContinuousClock.Instant?
+    ) -> Bool {
         let sourceDescriptor = Darwin.open(
             sourcePath,
             O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
@@ -225,7 +232,13 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
         defer { _ = Darwin.close(sourceDescriptor) }
         var sourceMetadata = stat()
         guard Darwin.fstat(sourceDescriptor, &sourceMetadata) == 0,
-              sourceMetadata.st_mode & S_IFMT == S_IFREG else {
+              sourceMetadata.st_mode & S_IFMT == S_IFREG,
+              sourceMetadata.st_size >= 0,
+              sourceMetadata.st_size
+                <= AgentConversationForkExecutableIdentity.maximumArtifactBytes,
+              AgentConversationForkExecutableIdentity.workMayContinue(
+                  deadline: deadline
+              ) else {
             return false
         }
         let destinationDescriptor = Darwin.open(
@@ -237,14 +250,21 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
         defer { _ = Darwin.close(destinationDescriptor) }
         var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
         while true {
+            guard AgentConversationForkExecutableIdentity.workMayContinue(
+                deadline: deadline
+            ) else { return false }
             let bytesRead = buffer.withUnsafeMutableBytes { bytes in
                 Darwin.read(sourceDescriptor, bytes.baseAddress, bytes.count)
             }
+            if bytesRead < 0, errno == EINTR { continue }
             guard bytesRead >= 0 else { return false }
             if bytesRead == 0 { break }
             var offset = 0
             while offset < bytesRead {
                 let remaining = bytesRead - offset
+                guard AgentConversationForkExecutableIdentity.workMayContinue(
+                    deadline: deadline
+                ) else { return false }
                 let written = buffer.withUnsafeBytes { bytes in
                     Darwin.write(
                         destinationDescriptor,
@@ -396,7 +416,8 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
 
     private static func immutableArtifact(
         atPath path: String,
-        matchesSHA256 expectedContentSHA256: String
+        matchesSHA256 expectedContentSHA256: String,
+        deadline: ContinuousClock.Instant? = nil
     ) -> Bool {
         var metadata = stat()
         guard Darwin.lstat(path, &metadata) == 0,
@@ -407,7 +428,10 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
               metadata.st_flags & UInt32(UF_IMMUTABLE) != 0 else {
             return false
         }
-        return AgentConversationForkExecutableIdentity.contentSHA256(atPath: path)
+        return AgentConversationForkExecutableIdentity.contentSHA256(
+            atPath: path,
+            deadline: deadline
+        )
             == expectedContentSHA256
     }
 

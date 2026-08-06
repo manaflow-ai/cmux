@@ -8,11 +8,6 @@ nonisolated private let oneShotTerminalLauncherLogger = Logger(
 
 /// Stores one-shot terminal actions in private, self-deleting launcher scripts.
 struct OneShotTerminalLauncherStore {
-    enum Retention: Equatable {
-        case standard
-        case sensitive
-    }
-
     enum CommandExecution {
         /// Runs post-start input directly in the launcher child, then returns
         /// to the terminal host's already-initialized shell.
@@ -28,7 +23,7 @@ struct OneShotTerminalLauncherStore {
 
     private let directoryName = "cmux-r"
     private let standardScriptTTL: TimeInterval = 24 * 60 * 60
-    private static let sensitiveScriptTTL: TimeInterval = 10 * 60
+    static let sensitiveScriptTTL: TimeInterval = 10 * 60
     private let pruneInterval: TimeInterval = 5 * 60
     private let pruneMarkerName = ".last-prune"
     private static let sensitiveScriptSuffix = ".handoff.zsh"
@@ -67,7 +62,7 @@ struct OneShotTerminalLauncherStore {
         command: String,
         workingDirectory: String?,
         execution: CommandExecution = .direct,
-        retention: Retention = .standard
+        retention: OneShotTerminalLauncherRetention = .standard
     ) -> URL? {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
@@ -166,19 +161,6 @@ struct OneShotTerminalLauncherStore {
         return "/usr/bin/env /bin/zsh -f \(TerminalStartupShellQuoting.singleQuoted(launcherURL.path))"
     }
 
-    static func scheduleSensitiveLauncherRemoval(at scriptURL: URL) {
-        _ = Task.detached(priority: .utility) {
-            do {
-                try await Task.sleep(
-                    nanoseconds: UInt64(Self.sensitiveScriptTTL * 1_000_000_000)
-                )
-            } catch {
-                return
-            }
-            try? FileManager.default.removeItem(at: scriptURL)
-        }
-    }
-
     /// Removes expired conversation handoffs without touching ordinary resume
     /// launchers, including files left behind by a prior process crash.
     func pruneExpiredSensitiveLaunchers() {
@@ -260,51 +242,5 @@ struct OneShotTerminalLauncherStore {
 
     private static func isSensitiveLauncher(_ scriptURL: URL) -> Bool {
         scriptURL.lastPathComponent.hasSuffix(sensitiveScriptSuffix)
-    }
-}
-
-actor OneShotTerminalLauncherJanitor {
-    static let shared = OneShotTerminalLauncherJanitor()
-
-    private var cleanupTask: Task<Void, Never>?
-
-    func start() {
-        guard cleanupTask == nil else { return }
-        cleanupTask = Task.detached(priority: .utility) {
-            while !Task.isCancelled {
-                OneShotTerminalLauncherStore().pruneExpiredSensitiveLaunchers()
-                do {
-                    try await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000)
-                } catch {
-                    return
-                }
-            }
-        }
-    }
-}
-
-@MainActor
-final class OneShotTerminalLauncherOwnershipRegistry {
-    static let shared = OneShotTerminalLauncherOwnershipRegistry()
-
-    private var launcherURLsByPanelID: [UUID: URL] = [:]
-
-    func adopt(_ input: PreparedAgentStartupInput?, forPanelID panelID: UUID) {
-        guard let scriptURL = input?.launcherScriptURL else { return }
-        if let previousURL = launcherURLsByPanelID.updateValue(
-            scriptURL,
-            forKey: panelID
-        ),
-        previousURL != scriptURL {
-            try? FileManager.default.removeItem(at: previousURL)
-        }
-        input?.scheduleLauncherScriptRemoval()
-    }
-
-    func discard(forPanelID panelID: UUID) {
-        guard let scriptURL = launcherURLsByPanelID.removeValue(forKey: panelID) else {
-            return
-        }
-        try? FileManager.default.removeItem(at: scriptURL)
     }
 }

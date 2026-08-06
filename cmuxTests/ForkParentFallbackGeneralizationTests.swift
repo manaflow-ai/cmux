@@ -453,7 +453,7 @@ struct ForkParentFallbackGeneralizationTests {
         )
     }
 
-    @Test func openCodeDatabaseDescriptorPathIsCachedForProcessGeneration() throws {
+    @Test func openCodeDatabaseDescriptorPathIsCachedForProcessGeneration() async throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
         let processID = Int(getpid())
@@ -486,7 +486,8 @@ struct ForkParentFallbackGeneralizationTests {
         let probeCount = OSAllocatedUnfairLock(initialState: 0)
 
         for _ in 0..<2 {
-            let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            let detected = await RestorableAgentSessionIndex
+                .processDetectedSnapshotsCachingOpenCodeDatabasePaths(
                 registry: CmuxVaultAgentRegistry(registrations: []),
                 fileManager: fixture.fileManager,
                 processSnapshot: processSnapshot,
@@ -504,6 +505,24 @@ struct ForkParentFallbackGeneralizationTests {
         }
 
         #expect(probeCount.withLock { $0 } == 1)
+
+        _ = await RestorableAgentSessionIndex
+            .processDetectedSnapshotsCachingOpenCodeDatabasePaths(
+                registry: CmuxVaultAgentRegistry(registrations: []),
+                fileManager: fixture.fileManager,
+                processSnapshot: processSnapshot,
+                capturedAt: 43,
+                reuseCompletedOpenCodeDatabasePaths: false,
+                processArgumentsProvider: { pid in
+                    pid == processID ? processArguments : nil
+                },
+                openCodeDatabasePathProvider: { pid, _ in
+                    guard pid == processID else { return nil }
+                    probeCount.withLock { $0 += 1 }
+                    return databasePath
+                }
+            )
+        #expect(probeCount.withLock { $0 } == 2)
     }
 
     private struct Fixture {
