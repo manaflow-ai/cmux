@@ -595,12 +595,13 @@ where
         let operation = operation.clone();
         let result = Arc::new(Mutex::new(None));
         let job_result = result.clone();
-        if pool.submit_before(deadline, Box::new(move || {
+        let job = Box::new(move || {
             let value = operation(&item, deadline);
             *job_result.lock().unwrap() =
                 Some(DeadlineCompletion { completed_at: Instant::now(), value });
             let _ = sender.send(index);
-        })) {
+        });
+        if pool.submit_before(deadline, job) {
             submitted += 1;
             ordered[index] = DeadlineMapResult::Pending(DeadlinePending { result });
         }
