@@ -49,4 +49,20 @@ describe("Stack PostHog identity bridge", () => {
     expect(signedOut.reset).toHaveBeenCalledTimes(1);
     expect(signedOut.values.has(STACK_IDENTITY_STORAGE_KEY)).toBe(false);
   });
+
+  test("resets before switching directly between authenticated users", () => {
+    const h = harness("stack-user-1");
+
+    syncStackAnalyticsIdentity(h, h.storage, {
+      id: "stack-user-2",
+      plan: "free",
+    });
+
+    expect(h.reset).toHaveBeenCalledTimes(1);
+    expect(h.identify).toHaveBeenCalledWith(
+      "stack-user-2",
+      expect.objectContaining({ stack_user_id: "stack-user-2" }),
+    );
+    expect(h.values.get(STACK_IDENTITY_STORAGE_KEY)).toBe("stack-user-2");
+  });
 });

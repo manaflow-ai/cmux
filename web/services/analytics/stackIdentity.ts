@@ -24,6 +24,11 @@ export function syncStackAnalyticsIdentity(
 ): void {
   const previousUserId = storage.getItem(STACK_IDENTITY_STORAGE_KEY);
   if (identity) {
+    // PostHog requires a reset between authenticated people. A browser can
+    // switch accounts without observing an intermediate signed-out route.
+    if (previousUserId && previousUserId !== identity.id) {
+      posthog.reset();
+    }
     posthog.identify(identity.id, {
       stack_user_id: identity.id,
       authentication_provider: "stack",

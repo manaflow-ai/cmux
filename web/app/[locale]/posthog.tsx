@@ -37,19 +37,25 @@ function PageviewTracker() {
         const payload = await response.json() as {
           user?: { id?: unknown; plan?: unknown } | null;
         };
-        const plan = payload.user?.plan;
-        const identity: StackAnalyticsIdentity | null =
-          typeof payload.user?.id === "string"
-          && (plan === "free" || plan === "pro" || plan === "team")
-          ? { id: payload.user.id, plan }
-          : null;
+        let identity: StackAnalyticsIdentity | null;
+        if (payload.user === null) {
+          identity = null;
+        } else {
+          const plan = payload.user?.plan;
+          if (
+            typeof payload.user?.id !== "string"
+            || (plan !== "free" && plan !== "pro" && plan !== "team")
+          ) {
+            return;
+          }
+          identity = { id: payload.user.id, plan };
+        }
         syncStackAnalyticsIdentity(posthog, window.localStorage, identity);
+        if (!controller.signal.aborted) capturePageview();
       })
       .catch(() => {
-        // Preserve the current identity when auth lookup is unavailable.
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) capturePageview();
+        // Fail closed: an unresolved auth state must not attribute this route
+        // to an identity retained from before a logout or account switch.
       });
 
     return () => controller.abort();
