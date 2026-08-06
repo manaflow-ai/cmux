@@ -71,6 +71,31 @@ final class CodexHookCapturedSocketCommands: @unchecked Sendable {
     }
 }
 
+final class CodexHookSurfaceAvailability: @unchecked Sendable {
+    private let lock = NSLock()
+    private let visibleAfterListRequestCount: Int
+    private var listRequestCount = 0
+
+    init(visibleAfterListRequestCount: Int = 0) {
+        self.visibleAfterListRequestCount = max(0, visibleAfterListRequestCount)
+    }
+
+    func shouldExposeSurface() -> Bool {
+        lock.lock()
+        listRequestCount += 1
+        let shouldExpose = listRequestCount > visibleAfterListRequestCount
+        lock.unlock()
+        return shouldExpose
+    }
+
+    func requestCountSnapshot() -> Int {
+        lock.lock()
+        let value = listRequestCount
+        lock.unlock()
+        return value
+    }
+}
+
 func makeCodexHookSocketPath(_ name: String) -> String {
     let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
     return URL(fileURLWithPath: NSTemporaryDirectory())
@@ -119,7 +144,8 @@ func startCodexHookMockSocketServerAccepting(
     listenerFD: Int32,
     commands: CodexHookCapturedSocketCommands,
     surfaceId: String,
-    connectionLimit: Int
+    connectionLimit: Int,
+    surfaceAvailability: CodexHookSurfaceAvailability = CodexHookSurfaceAvailability()
 ) {
     DispatchQueue.global(qos: .userInitiated).async {
         var accepted = 0
@@ -137,7 +163,12 @@ func startCodexHookMockSocketServerAccepting(
             }
             accepted += 1
             DispatchQueue.global(qos: .userInitiated).async {
-                handleCodexHookMockSocketClient(fd: clientFD, commands: commands, surfaceId: surfaceId)
+                handleCodexHookMockSocketClient(
+                    fd: clientFD,
+                    commands: commands,
+                    surfaceId: surfaceId,
+                    surfaceAvailability: surfaceAvailability
+                )
             }
         }
     }
@@ -146,7 +177,8 @@ func startCodexHookMockSocketServerAccepting(
 func handleCodexHookMockSocketClient(
     fd clientFD: Int32,
     commands: CodexHookCapturedSocketCommands,
-    surfaceId: String
+    surfaceId: String,
+    surfaceAvailability: CodexHookSurfaceAvailability
 ) {
     defer { Darwin.close(clientFD) }
     var pending = Data()
@@ -164,7 +196,11 @@ func handleCodexHookMockSocketClient(
             pending.removeSubrange(0...newlineRange.lowerBound)
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
             commands.append(line)
-            let response = codexHookMockSocketResponse(for: line, surfaceId: surfaceId) + "\n"
+            let response = codexHookMockSocketResponse(
+                for: line,
+                surfaceId: surfaceId,
+                surfaceAvailability: surfaceAvailability
+            ) + "\n"
             _ = response.withCString { ptr in
                 Darwin.write(clientFD, ptr, strlen(ptr))
             }
@@ -172,16 +208,23 @@ func handleCodexHookMockSocketClient(
     }
 }
 
-func codexHookMockSocketResponse(for line: String, surfaceId: String) -> String {
+func codexHookMockSocketResponse(
+    for line: String,
+    surfaceId: String,
+    surfaceAvailability: CodexHookSurfaceAvailability
+) -> String {
     guard let payload = codexHookJSONObject(line),
           let id = payload["id"] as? String else {
         return "OK"
     }
     if payload["method"] as? String == "surface.list" {
+        let surfaces: [[String: Any]] = surfaceAvailability.shouldExposeSurface()
+            ? [["id": surfaceId, "ref": surfaceId, "focused": true]]
+            : []
         return codexHookV2Response(
             id: id,
             ok: true,
-            result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
+            result: ["surfaces": surfaces]
         )
     }
     return codexHookV2Response(id: id, ok: true, result: [:])

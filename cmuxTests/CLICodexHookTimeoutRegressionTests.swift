@@ -668,6 +668,70 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["activePromptTurnIds"] as? [String] == ["turn-active"])
     }
 
+    @Test func codexSessionStartWaitsForItsNewSurfaceToBecomeVisible() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-delayed-surface-\(UUID().uuidString)", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("codex-delay")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let availability = CodexHookSurfaceAvailability(visibleAfterListRequestCount: 8)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-delayed-surface-session"
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 24,
+            surfaceAvailability: availability
+        )
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(availability.requestCountSnapshot() > 8)
+        #expect(
+            commands.snapshot().contains {
+                codexHookJSONObject($0)?["method"] as? String == "surface.resume.set"
+            },
+            "SessionStart must register after the app publishes its new surface."
+        )
+
+        let saved = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        let sessions = try #require(saved["sessions"] as? [String: Any])
+        let session = try #require(sessions[sessionId] as? [String: Any])
+        #expect(session["workspaceId"] as? String == workspaceId)
+        #expect(session["surfaceId"] as? String == surfaceId)
+    }
+
     @Test func codexSessionStartRefreshesCompletedPriorTurn() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
