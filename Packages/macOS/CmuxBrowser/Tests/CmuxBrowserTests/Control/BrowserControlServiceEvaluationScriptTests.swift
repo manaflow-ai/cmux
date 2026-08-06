@@ -1,6 +1,7 @@
 import Foundation
 import JavaScriptCore
 import Testing
+import WebKit
 @testable import CmuxBrowser
 
 @Suite("BrowserControlService evaluation script")
@@ -109,6 +110,43 @@ struct BrowserControlServiceEvaluationScriptTests {
         #expect(value["bottom"] as? Int == 42)
     }
 
+    @MainActor
+    @Test("nested undefined values cross the real WebKit result bridge as null")
+    func nestedUndefinedValuesAreBridgeSafe() async throws {
+        let webView = WKWebView()
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserEvaluationScriptNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString("<!doctype html><title>bridge test</title>", baseURL: nil)
+        var loadedIterator = loaded.makeAsyncIterator()
+        _ = await loadedIterator.next()
+
+        let body = service.evaluationScript(
+            script: "({objectValue: undefined, items: [1, undefined, , 4]})",
+            useEval: true,
+            frameSelector: nil
+        )
+        let rawValue = try await webView.callAsyncJavaScript(
+            body,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let envelope = try #require(rawValue as? [String: Any])
+        let value = try #require(envelope[service.evalEnvelope.valueKey] as? [String: Any])
+        let items = try #require(value["items"] as? [Any])
+
+        #expect(envelope[service.evalEnvelope.typeKey] as? String == service.evalEnvelope.typeValue)
+        #expect(value["objectValue"] is NSNull)
+        #expect(items.count == 4)
+        #expect(items[1] is NSNull)
+        #expect(items[2] is NSNull)
+        _ = navigationDelegate
+    }
+
     @Test("custom prototypes are copied without invoking serialization hooks")
     func customPrototypeIsCopiedAsPlainObject() throws {
         let envelope = try evaluate(
@@ -209,5 +247,18 @@ struct BrowserControlServiceEvaluationScriptTests {
         let json = try #require(context.evaluateScript("JSON.stringify(__cmuxTestResult)")?.toString())
         let data = try #require(json.data(using: .utf8))
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+}
+
+@MainActor
+private final class BrowserEvaluationScriptNavigationDelegate: NSObject, WKNavigationDelegate {
+    private let onFinish: () -> Void
+
+    init(onFinish: @escaping () -> Void) {
+        self.onFinish = onFinish
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        onFinish()
     }
 }
