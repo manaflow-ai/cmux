@@ -81,11 +81,17 @@ select_zig_for_target() {
   # Prefer Apple Silicon Homebrew Zig on macOS runners. Some CI shells expose
   # /usr/local/bin first or run under Rosetta, but the x86_64 Zig link path can
   # fail against newer macOS SDKs while arm64 Zig cross-compiles both slices.
-  candidates+=("/opt/homebrew/bin/zig")
+  candidates+=(
+    "/opt/homebrew/bin/zig"
+    "/opt/homebrew/opt/zig/bin/zig"
+  )
   local path_zig=""
   path_zig="$(command -v zig 2>/dev/null || true)"
   [[ -n "$path_zig" ]] && candidates+=("$path_zig")
-  candidates+=("/usr/local/bin/zig")
+  candidates+=(
+    "/usr/local/bin/zig"
+    "/usr/local/opt/zig/bin/zig"
+  )
 
   local fallback=""
   local host_match=""

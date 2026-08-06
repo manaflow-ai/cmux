@@ -14353,7 +14353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         if equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault {
-            performEqualizeSplitsShortcut()
+            performEqualizeSplitsShortcut(event: event)
             return true
         }
         if handlePaneShareShortcut(event: event) { return true }

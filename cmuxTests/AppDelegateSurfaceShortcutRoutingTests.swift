@@ -33,14 +33,15 @@ private final class CanvasViewportSpy: CanvasViewportControlling {
 @MainActor
 @Suite(.serialized)
 struct AppDelegateSurfaceShortcutRoutingTests {
-    @Test func paneGrowShortcutsAreUnboundByDefault() {
-        for action in [
-            KeyboardShortcutSettings.Action.growPaneLeft,
-            .growPaneRight,
-            .growPaneUp,
-            .growPaneDown,
-        ] {
-            #expect(action.defaultShortcut == .unbound)
+    @Test func paneResizeShortcutsUseDirectionalDefaults() {
+        let expectedShortcuts: [(KeyboardShortcutSettings.Action, StoredShortcut)] = [
+            (.growPaneLeft, StoredShortcut(key: "h", command: false, shift: true, option: false, control: true)),
+            (.growPaneRight, StoredShortcut(key: "l", command: false, shift: true, option: false, control: true)),
+            (.growPaneUp, StoredShortcut(key: "k", command: false, shift: true, option: false, control: true)),
+            (.growPaneDown, StoredShortcut(key: "j", command: false, shift: true, option: false, control: true)),
+        ]
+        for (action, expectedShortcut) in expectedShortcuts {
+            #expect(action.defaultShortcut == expectedShortcut)
         }
     }
 
@@ -372,41 +373,43 @@ struct AppDelegateSurfaceShortcutRoutingTests {
     }
 
     @Test func equalizeSplitsShortcutInCanvasEqualizesCanvasPaneSizesOnly() throws {
-        try withTemporaryShortcut(action: .equalizeSplits) {
-            let appDelegate = try #require(AppDelegate.shared)
+        try withIsolatedShortcutSettings {
+            try withTemporaryShortcut(action: .equalizeSplits) {
+                let appDelegate = try #require(AppDelegate.shared)
 
-            let windowId = appDelegate.createMainWindow()
-            defer { closeWindow(withId: windowId) }
+                let windowId = appDelegate.createMainWindow()
+                defer { closeWindow(withId: windowId) }
 
-            let window = try #require(mainWindow(for: windowId))
-            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            let workspace = try #require(manager.selectedWorkspace)
-            let firstPanelId = try #require(workspace.focusedPanelId)
-            let event = try #require(makeKeyDownEvent(
-                key: "=",
-                modifiers: [.command, .control, .shift],
-                keyCode: 24,
-                windowNumber: window.windowNumber
-            ))
+                let window = try #require(mainWindow(for: windowId))
+                let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+                let workspace = try #require(manager.selectedWorkspace)
+                let firstPanelId = try #require(workspace.focusedPanelId)
+                let event = try #require(makeKeyDownEvent(
+                    key: "=",
+                    modifiers: [.command, .control, .shift],
+                    keyCode: 24,
+                    windowNumber: window.windowNumber
+                ))
 
-            window.makeKeyAndOrderFront(nil)
-            workspace.setLayoutMode(.canvas)
-            let secondPanelId = try #require(workspace.openNewCanvasPane(type: .terminal, focus: true))
-            let originalBonsplitPaneCount = workspace.bonsplitController.allPaneIds.count
-            workspace.canvasModel.setFrame(CGRect(x: 0, y: 0, width: 640, height: 420), for: firstPanelId)
-            workspace.canvasModel.setFrame(CGRect(x: 720, y: 0, width: 320, height: 260), for: secondPanelId)
+                window.makeKeyAndOrderFront(nil)
+                workspace.setLayoutMode(.canvas)
+                let secondPanelId = try #require(workspace.openNewCanvasPane(type: .terminal, focus: true))
+                let originalBonsplitPaneCount = workspace.bonsplitController.allPaneIds.count
+                workspace.canvasModel.setFrame(CGRect(x: 0, y: 0, width: 640, height: 420), for: firstPanelId)
+                workspace.canvasModel.setFrame(CGRect(x: 720, y: 0, width: 320, height: 260), for: secondPanelId)
 
 #if DEBUG
-            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+                #expect(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+                Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-            let firstFrame = try #require(workspace.canvasModel.frame(of: firstPanelId))
-            let secondFrame = try #require(workspace.canvasModel.frame(of: secondPanelId))
-            #expect(firstFrame.width == secondFrame.width)
-            #expect(firstFrame.height == secondFrame.height)
-            #expect(workspace.bonsplitController.allPaneIds.count == originalBonsplitPaneCount)
+                let firstFrame = try #require(workspace.canvasModel.frame(of: firstPanelId))
+                let secondFrame = try #require(workspace.canvasModel.frame(of: secondPanelId))
+                #expect(firstFrame.width == secondFrame.width)
+                #expect(firstFrame.height == secondFrame.height)
+                #expect(workspace.bonsplitController.allPaneIds.count == originalBonsplitPaneCount)
+            }
         }
     }
 
@@ -604,6 +607,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let firstWorkspace = try #require(manager.selectedWorkspace)
             let firstPaneId = try #require(firstWorkspace.focusedPanelId)
             _ = try #require(firstWorkspace.newTerminalSplit(from: firstPaneId, orientation: .vertical))
+            firstWorkspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 900, height: 600))
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
             let event = try #require(makeKeyDownEvent(
@@ -625,6 +629,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let secondWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
             let secondPaneId = try #require(secondWorkspace.focusedPanelId)
             _ = try #require(secondWorkspace.newTerminalSplit(from: secondPaneId, orientation: .vertical))
+            secondWorkspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 900, height: 600))
 
 #if DEBUG
             #expect(appDelegate.debugHandleCustomShortcut(event: event))

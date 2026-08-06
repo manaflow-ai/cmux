@@ -6512,13 +6512,6 @@ extension TabManager {
             paneHeightMaximizeSnapshot = nil
             return .applied(actualShare: 0)
         }
-        if let snapshot = paneHeightMaximizeSnapshot {
-            if let previousWorkspace = tabs.first(where: { $0.id == snapshot.workspaceId }) {
-                restoreHeightMaximize(snapshot, in: previousWorkspace)
-            }
-            paneHeightMaximizeSnapshot = nil
-        }
-
         let controller = workspace.bonsplitController
         let tree = controller.treeSnapshot()
         let configuration = controller.configuration
@@ -6529,6 +6522,13 @@ extension TabManager {
         )
         guard case .plan(let plan) = planResult else {
             return .rejected(reason: "The focused pane has no height split to maximize.")
+        }
+
+        if let previousSnapshot = paneHeightMaximizeSnapshot {
+            if let previousWorkspace = tabs.first(where: { $0.id == previousSnapshot.workspaceId }) {
+                restoreHeightMaximize(previousSnapshot, in: previousWorkspace)
+            }
+            paneHeightMaximizeSnapshot = nil
         }
 
         let snapshot = PaneHeightMaximizeSnapshot(

@@ -163,8 +163,9 @@ extension AppDelegate {
 #endif
     }
 
-    func performEqualizeSplitsShortcut() {
-        guard let tabManager, let workspace = tabManager.selectedWorkspace else {
+    func performEqualizeSplitsShortcut(event: NSEvent) {
+        let manager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+        guard let manager, let workspace = manager.selectedWorkspace else {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=equalizeSplits result=noWorkspace")
 #endif
@@ -184,10 +185,10 @@ extension AppDelegate {
 #endif
             return
         }
-        if shouldSuppressSplitShortcutForTransientTerminalFocusState(tabManager: tabManager) {
+        if shouldSuppressSplitShortcutForTransientTerminalFocusState(tabManager: manager) {
             return
         }
-        let didEqualize = tabManager.equalizeSplits(tabId: workspace.id)
+        let didEqualize = manager.equalizeSplits(tabId: workspace.id)
 #if DEBUG
         if !didEqualize {
             cmuxDebugLog("shortcut.action name=equalizeSplits result=noSplitOrFailed workspaceId=\(workspace.id)")
