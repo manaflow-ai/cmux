@@ -1,9 +1,17 @@
-import { addAccount, parseCredential } from "../../../../services/coderouter/accounts";
+import {
+  addAccount,
+  parseCredential,
+} from "../../../../services/coderouter/accounts";
 import {
   resolveCoderouterUsageTeam,
   resolveCodeRouterRequestContext,
 } from "../../../../services/coderouter/requestContext";
 import { accountsWithUsage } from "../../../../services/coderouter/usage";
+import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
+import {
+  addCoderouterBreadcrumb,
+  reportCoderouterFailure,
+} from "../../../../services/coderouter/observability";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +44,22 @@ export async function GET(request: Request): Promise<Response> {
     timing("serialize", serializeMs),
     timing("total", performance.now() - startedAt),
   ].join(", ");
+  captureCoderouterEvent({
+    event: "coderouter_account_status_viewed",
+    userId: resolved.stackUserId,
+    teamId: resolved.teamId,
+    properties: {
+      account_count: result.accounts.length,
+      account_error_count: result.accounts.filter(
+        (account) => "usageError" in account && Boolean(account.usageError),
+      ).length,
+      duration_ms: Math.round(performance.now() - startedAt),
+    },
+  });
+  addCoderouterBreadcrumb("status", "Account status loaded", {
+    account_count: result.accounts.length,
+    duration_ms: Math.round(performance.now() - startedAt),
+  });
   return new Response(body, {
     headers: {
       "cache-control": "no-store",
@@ -69,11 +93,43 @@ export async function POST(request: Request): Promise<Response> {
   if (!credential) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
-  const result = await addAccount(resolved.value.team.teamId, credential);
-  return Response.json(result, {
-    status: result.alreadyExists ? 200 : 201,
-    headers: { "cache-control": "no-store" },
-  });
+  try {
+    const result = await addAccount(resolved.value.team.teamId, credential);
+    captureCoderouterEvent({
+      event: "coderouter_account_added",
+      userId: resolved.value.user.id,
+      teamId: resolved.value.team.teamId,
+      properties: {
+        provider: credential.provider,
+        already_exists: result.alreadyExists,
+      },
+    });
+    addCoderouterBreadcrumb("account", "Provider account stored", {
+      provider: credential.provider,
+      already_exists: result.alreadyExists,
+    });
+    return Response.json(result, {
+      status: result.alreadyExists ? 200 : 201,
+      headers: { "cache-control": "no-store" },
+    });
+  } catch (error) {
+    reportCoderouterFailure("rds", error, { operation: "add_account" });
+    return Response.json(
+      {
+        error: "account_store_unavailable",
+        message:
+          "coderouter could not store this account. Your local provider sign-in was not removed; retry `cr add` shortly.",
+        retryable: true,
+      },
+      {
+        status: 503,
+        headers: {
+          "cache-control": "no-store",
+          "retry-after": "5",
+        },
+      },
+    );
+  }
 }
 
 function timing(name: string, duration: number): string {
