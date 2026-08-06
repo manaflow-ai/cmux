@@ -1652,6 +1652,98 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func cleanupTransactionReusesValidatedPostStopSnapshot(shellPath: String) throws {
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_test_snapshot_calls=0
+        cmux_ssh_auth_take_process_snapshot() {
+          cmux_test_snapshot_calls=$((cmux_test_snapshot_calls + 1))
+          : > "$1"
+        }
+        cmux_ssh_auth_expand_owned_processes() { return 0; }
+        cmux_ssh_auth_freeze_owned_processes() {
+          : > "$cmux_ssh_auth_poststop_snapshot"
+        }
+        cmux_ssh_auth_force_frozen_processes() {
+          test "$1" = "$cmux_ssh_auth_poststop_snapshot"
+        }
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_PROCESS_SNAPSHOT"
+        cmux_ssh_auth_poststop_snapshot="$CMUX_TEST_POSTSTOP_SNAPSHOT"
+        cmux_ssh_auth_freeze_and_force_owned_processes || exit 99
+        test "$cmux_test_snapshot_calls" -eq 1 || exit 98
+        """
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-transaction-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_PROCESS_SNAPSHOT": root.appendingPathComponent("processes").path,
+                "CMUX_TEST_POSTSTOP_SNAPSHOT": root.appendingPathComponent("poststop").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func validatedFrozenProcessesReachKillCommitPoint(shellPath: String) throws {
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
+        cmux_test_victim_pid=$!
+        trap '/bin/kill -KILL "$cmux_test_victim_pid" >/dev/null 2>&1 || true; wait "$cmux_test_victim_pid" 2>/dev/null || true' EXIT
+        /bin/kill -STOP "$cmux_test_victim_pid" || exit 97
+        /bin/sleep 0.01
+        /usr/bin/env LC_ALL=C LANG=C /bin/ps \
+          -o pid=,ppid=,pgid=,state=,lstart= -p "$cmux_test_victim_pid" \
+          > "$CMUX_TEST_SNAPSHOT" || exit 96
+        /usr/bin/awk 'NF >= 9 && $4 ~ /T/ { print $1, $2, $3, $5 "_" $6 "_" $7 "_" $8 "_" $9, $4 }' \
+          "$CMUX_TEST_SNAPSHOT" > "$CMUX_TEST_FROZEN" || exit 95
+        test -s "$CMUX_TEST_FROZEN" || exit 94
+        /bin/cp "$CMUX_TEST_FROZEN" "$CMUX_TEST_OWNED" || exit 93
+        : > "$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() { return 1; }
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_CURRENT"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_FALLBACK_SNAPSHOT"
+        cmux_ssh_auth_force_frozen_processes "$CMUX_TEST_SNAPSHOT" || exit 92
+        wait "$cmux_test_victim_pid" 2>/dev/null || true
+        /bin/kill -0 "$cmux_test_victim_pid" >/dev/null 2>&1 && exit 91
+        trap - EXIT
+        """
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-commit-point-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_CURRENT": root.appendingPathComponent("current").path,
+                "CMUX_TEST_FALLBACK_SNAPSHOT": root.appendingPathComponent("fallback-snapshot").path,
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_GROUPS": root.appendingPathComponent("groups").path,
+                "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+                "CMUX_TEST_ORDERED": root.appendingPathComponent("ordered").path,
+                "CMUX_TEST_OWNED": root.appendingPathComponent("owned").path,
+                "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func processTreeTerminationUsesOneOverallDeadline(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
