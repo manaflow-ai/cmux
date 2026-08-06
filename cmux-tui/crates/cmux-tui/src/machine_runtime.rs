@@ -781,6 +781,47 @@ fn local_hostname() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn closing_hub_releases_a_caller_while_its_connector_is_blocked() {
+        let key = MachineKey(41);
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let connector_release = release.clone();
+        let connector: MachineConnectFn = Arc::new(move || {
+            started_tx.send(()).unwrap();
+            let (lock, changed) = &*connector_release;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            finished_tx.send(()).unwrap();
+            anyhow::bail!("test connector released")
+        });
+        let hub = MachineConnectionHub::new([(key, connector)]);
+        let connecting = hub.clone();
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let caller = std::thread::spawn(move || {
+            let _ = result_tx.send(connecting.connect(key));
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        hub.close();
+        let result = result_rx.recv_timeout(Duration::from_millis(250));
+
+        let (lock, changed) = &*release;
+        *lock.lock().unwrap() = true;
+        changed.notify_all();
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        caller.join().unwrap();
+
+        assert!(
+            matches!(result, Ok(Err(_))),
+            "closing the hub left its caller blocked inside the connector"
+        );
+    }
 
     #[test]
     fn connected_target_is_deduplicated() {
