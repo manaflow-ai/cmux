@@ -121,6 +121,21 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         return CGFloat(value)
     }
 
+    /// The accessory toolbar's keyboard-toggle button, found by its stable
+    /// accessibility identifier in the surface's subtree.
+    private func keyboardToggleButton(in view: UIView) -> UIButton? {
+        if let button = view as? UIButton,
+           button.accessibilityIdentifier == "terminal.inputAccessory.hideKeyboard" {
+            return button
+        }
+        for subview in view.subviews {
+            if let found = keyboardToggleButton(in: subview) {
+                return found
+            }
+        }
+        return nil
+    }
+
     @Test("keyboard rise docks the bars above it even when the layout guide missed it")
     func barsRideTheKeyboardWhenTheGuideStaysOnItsFallback() throws {
         let harness = try makeHarness()
@@ -152,9 +167,50 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         let composerMaxY = try #require(probeValue(of: harness.view, key: "composerMaxY"))
         let toolbarMaxY = try #require(probeValue(of: harness.view, key: "toolbarMaxY"))
         let modelKeyboardHeight = try #require(probeValue(of: harness.view, key: "keyboardHeight"))
+        let keyboardUp = try #require(probeValue(of: harness.view, key: "keyboardUp"))
         #expect(abs(composerMaxY - dockBottom) <= 1)
         #expect(abs(toolbarMaxY - dockBottom) <= 1)
         #expect(abs(modelKeyboardHeight - Self.keyboardHeight) <= 1)
+        // The visibility bit catches up too: the toggle must read hide-keyboard.
+        #expect(keyboardUp == 1)
+    }
+
+    @Test("a fresh toolbar is born in the keyboard-down state")
+    func freshToolbarShowsTheShowKeyboardToggle() throws {
+        let harness = try makeHarness()
+        defer { tearDown(harness) }
+
+        let toggle = try #require(keyboardToggleButton(in: harness.view))
+        #expect(toggle.accessibilityLabel == "Show Keyboard")
+        let keyboardUp = try #require(probeValue(of: harness.view, key: "keyboardUp"))
+        #expect(keyboardUp == 0)
+    }
+
+    @Test("re-entering after the keyboard dismissed while detached resets the visibility state")
+    func reattachAfterDetachedDismissalShowsKeyboardDownState() throws {
+        let harness = try makeHarness()
+        defer { tearDown(harness) }
+
+        // Keyboard up while the surface is presented.
+        deliverKeyboardTransition(coveringBottom: Self.keyboardHeight, to: harness)
+        #expect(try #require(probeValue(of: harness.view, key: "keyboardUp")) == 1)
+
+        // Leave the workspace detail: the surface detaches, THEN the keyboard
+        // dismisses. Only the tracker observes the dismissal.
+        harness.view.removeFromSuperview()
+        harness.center.post(keyboardNotification(coveringBottom: 0))
+
+        // Re-enter: the visibility bit, the toggle glyph state, and the dock
+        // must all reflect the keyboard-down truth.
+        attach(harness.view, to: harness.window)
+
+        let keyboardUp = try #require(probeValue(of: harness.view, key: "keyboardUp"))
+        let bottomSafeArea = try #require(probeValue(of: harness.view, key: "bottomSafeArea"))
+        let composerMaxY = try #require(probeValue(of: harness.view, key: "composerMaxY"))
+        let toggle = try #require(keyboardToggleButton(in: harness.view))
+        #expect(keyboardUp == 0)
+        #expect(abs(composerMaxY - (Self.windowHeight - bottomSafeArea)) <= 1)
+        #expect(toggle.accessibilityLabel == "Show Keyboard")
     }
 
     @Test("a dismissal transition releases the floor and reseats the bars at the bottom")
