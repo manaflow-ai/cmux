@@ -79,6 +79,30 @@ import UIKit
         #expect(tracker.overlap(in: view) == 0)
     }
 
+    @Test func didChangeFrameSupersedesTheWillChangeTransition() {
+        let center = NotificationCenter()
+        let tracker = MobileKeyboardFrameTracker(notificationCenter: center)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        let view = UIView(frame: window.bounds)
+        window.addSubview(view)
+        window.isHidden = false
+        defer { window.isHidden = true }
+
+        post(
+            UIResponder.keyboardWillChangeFrameNotification,
+            endFrame: CGRect(x: 0, y: 534, width: 400, height: 266),
+            to: center
+        )
+        post(
+            UIResponder.keyboardDidChangeFrameNotification,
+            endFrame: CGRect(x: 0, y: 500, width: 400, height: 300),
+            to: center
+        )
+
+        // The settled frame wins, so layout catch-ups converge on final geometry.
+        #expect(abs(tracker.overlap(in: view) - 300) <= 0.5)
+    }
+
     @Test func didHideClearsTheTrackedTransition() {
         let center = NotificationCenter()
         let tracker = MobileKeyboardFrameTracker(notificationCenter: center)

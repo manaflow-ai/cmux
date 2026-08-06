@@ -55,6 +55,19 @@ public final class MobileKeyboardFrameTracker {
                     self?.latestTransition = transition
                 }
             },
+            // The settled twin of willChangeFrame: consumers converting the
+            // end frame through a view whose own frame moved during the
+            // transition re-derive against final geometry from this one.
+            notificationCenter.addObserver(
+                forName: UIResponder.keyboardDidChangeFrameNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                let transition = MobileKeyboardTransition(notification: notification)
+                MainActor.assumeIsolated {
+                    self?.latestTransition = transition
+                }
+            },
             notificationCenter.addObserver(
                 forName: UIResponder.keyboardDidHideNotification,
                 object: nil,
