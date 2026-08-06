@@ -6254,6 +6254,21 @@ mod unix {
         }
 
         #[test]
+        fn host_tap_frame_count_cannot_exhaust_client_below_byte_budget() {
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = sync_channel(256);
+            let tap = HostTap::new(sender, Arc::new(host_socket), MAX_HOST_CLIENT_QUEUED_BYTES);
+
+            for index in 0..257 {
+                assert!(
+                    tap.try_send(Frame::new(MessageKind::Output, vec![index as u8])),
+                    "frame {index} exhausted the client below its byte budget"
+                );
+            }
+            assert_eq!(receiver.try_iter().count(), 257);
+        }
+
+        #[test]
         fn viewer_resize_apply_order_cannot_invert_reduced_sizes() {
             let viewer_sizes = Arc::new(Mutex::new(HashMap::new()));
             let applied = Arc::new(Mutex::new(Vec::new()));
