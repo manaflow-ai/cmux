@@ -240,23 +240,28 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-tree-\(UUID().uuidString)", isDirectory: true)
         let leafScript = root.appendingPathComponent("leaf.sh")
         let leafPIDFile = root.appendingPathComponent("leaf.pid")
-        let signalLog = root.appendingPathComponent("signal.log")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
         defer { try? fileManager.removeItem(at: root) }
 
         try """
         #!/bin/sh
-        trap '' HUP INT
-        trap 'printf "%s\\n" term > "$CMUX_TEST_SIGNAL_LOG"' TERM
+        trap '' HUP INT TERM
         printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
         while :; do /bin/sleep 30; done
         """.write(to: leafScript, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: leafScript.path)
 
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: "/usr/bin/script -q /dev/null /bin/sh \"$CMUX_TEST_LEAF_SCRIPT\""
+        )
         let command = """
-        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        ( /bin/sh "$CMUX_TEST_LEAF_SCRIPT" & wait $! ) &
+        \(policy.processTreeTerminationShellFunction())
+        ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
+        trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
         cmux_test_ready_attempt=0
         while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
           /bin/sleep 0.01
@@ -265,7 +270,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         test -s "$CMUX_TEST_LEAF_PID" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
-        test "$(/bin/cat "$CMUX_TEST_SIGNAL_LOG" 2>/dev/null || true)" = term
+        trap - EXIT
         """
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -273,7 +278,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
             "CMUX_TEST_LEAF_PID": leafPIDFile.path,
-            "CMUX_TEST_SIGNAL_LOG": signalLog.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -295,8 +300,721 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
 
         #expect(process.terminationStatus == 0)
-        #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
         #expect(Darwin.kill(leafPID, 0) != 0)
+    }
+
+    @Test func cleanupFailureDoesNotLeaveStoppedAuthenticationProcesses() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-cleanup-failure-\(UUID().uuidString)", isDirectory: true)
+        let leafScript = root.appendingPathComponent("leaf.sh")
+        let cleanupWorkerScript = root.appendingPathComponent("cleanup-worker.sh")
+        let cleanupWorkerPIDFile = root.appendingPathComponent("cleanup-worker.pid")
+        let leafPIDFile = root.appendingPathComponent("leaf.pid")
+        let reaperPIDFile = root.appendingPathComponent("reaper.pid")
+        let observedProcessFile = root.appendingPathComponent("observed-process")
+        let snapshotPermissionFile = root.appendingPathComponent("snapshot-permission")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "0\n".write(to: snapshotPermissionFile, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        trap '' HUP INT TERM
+        printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
+        while :; do /bin/sleep 30; done
+        """.write(to: leafScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: leafScript.path)
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: "/usr/bin/script -q /dev/null /bin/sh \"$CMUX_TEST_LEAF_SCRIPT\""
+        )
+        try """
+        #!/bin/sh
+        printf '%s\n' "$$" > "$CMUX_TEST_CLEANUP_WORKER_PID" || exit 99
+        \(policy.processTreeTerminationShellFunction())
+        cmux_ssh_auth_take_process_snapshot() {
+          if [ "$(/bin/cat "$CMUX_TEST_SNAPSHOT_PERMISSION")" != 1 ]; then return 1; fi
+          /usr/bin/env LC_ALL=C LANG=C /bin/ps -axo pid=,ppid=,pgid=,state=,lstart= > "$1" 2>/dev/null
+        }
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        cmux_test_ready_attempt=0
+        while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -s "$CMUX_TEST_LEAF_PID" || exit 98
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 97
+        cmux_test_leaf_pid=$(/bin/cat "$CMUX_TEST_LEAF_PID") || exit 96
+        /bin/kill -0 "$cmux_test_leaf_pid" >/dev/null 2>&1 || exit 95
+        cmux_test_leaf_state=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o state= \
+          -p "$cmux_test_leaf_pid" 2>/dev/null || true)
+        case "$cmux_test_leaf_state" in *T*) exit 94 ;; esac
+        cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR" || exit 93
+        printf '%s\n' "$!" > "$CMUX_TEST_REAPER_PID" || exit 92
+        trap - EXIT
+        """.write(to: cleanupWorkerScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cleanupWorkerScript.path)
+
+        let command = """
+        /bin/zsh "$CMUX_TEST_CLEANUP_WORKER"
+        cmux_test_cleanup_worker_status=$?
+        if [ "$cmux_test_cleanup_worker_status" -ne 0 ]; then
+          exit "$cmux_test_cleanup_worker_status"
+        fi
+        cmux_test_cleanup_worker_pid=$(/bin/cat "$CMUX_TEST_CLEANUP_WORKER_PID") || exit 98
+        /bin/kill -0 "$cmux_test_cleanup_worker_pid" >/dev/null 2>&1 && exit 97
+        test -s "$CMUX_TEST_REAPER_PID" || exit 98
+        printf '%s\n' 1 > "$CMUX_TEST_SNAPSHOT_PERMISSION" || exit 93
+        cmux_test_leaf_pid=$(/bin/cat "$CMUX_TEST_LEAF_PID") || exit 92
+        cmux_test_reaper_pid=$(/bin/cat "$CMUX_TEST_REAPER_PID") || exit 91
+        cmux_test_reaper_attempt=0
+        while { /bin/kill -0 "$cmux_test_leaf_pid" >/dev/null 2>&1 || \
+          [ -d "$CMUX_SSH_AUTH_GROUP_DIR" ] || \
+          /bin/kill -0 "$cmux_test_reaper_pid" >/dev/null 2>&1; } && \
+          [ "$cmux_test_reaper_attempt" -lt 600 ]; do
+          /bin/sleep 0.01
+          cmux_test_reaper_attempt=$((cmux_test_reaper_attempt + 1))
+        done
+        /usr/bin/env LC_ALL=C LANG=C /bin/ps -o pid=,ppid=,pgid=,state=,lstart= \
+          -p "$(/bin/cat "$CMUX_TEST_LEAF_PID")" > "$CMUX_TEST_OBSERVED_PROCESS" 2>/dev/null || true
+        /bin/kill -0 "$cmux_test_leaf_pid" >/dev/null 2>&1 && exit 90
+        test ! -d "$CMUX_SSH_AUTH_GROUP_DIR" || exit 89
+        /bin/kill -0 "$cmux_test_reaper_pid" >/dev/null 2>&1 && exit 88
+        exit 0
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
+            "CMUX_TEST_CLEANUP_WORKER": cleanupWorkerScript.path,
+            "CMUX_TEST_CLEANUP_WORKER_PID": cleanupWorkerPIDFile.path,
+            "CMUX_TEST_LEAF_PID": leafPIDFile.path,
+            "CMUX_TEST_REAPER_PID": reaperPIDFile.path,
+            "CMUX_TEST_OBSERVED_PROCESS": observedProcessFile.path,
+            "CMUX_TEST_SNAPSHOT_PERMISSION": snapshotPermissionFile.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture, timeout: 20)
+
+        let leafPID = try #require(Int32(
+            String(contentsOf: leafPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer { Darwin.kill(leafPID, SIGKILL) }
+        let exitDeadline = Date.now.addingTimeInterval(1)
+        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+
+        #expect(
+            process.terminationStatus == 0,
+            "Cleanup supervisor failed: \((try? String(contentsOf: stderrCapture.url, encoding: .utf8)) ?? "missing")"
+        )
+        #expect(
+            Darwin.kill(leafPID, 0) != 0,
+            "Cleanup failure left: \((try? String(contentsOf: observedProcessFile, encoding: .utf8)) ?? "missing")"
+        )
+        #expect(!fileManager.fileExists(atPath: groupDirectory.path))
+    }
+
+    @Test func cleanupDeadlineKillsOwnedProcessesBeforeReturning() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-cleanup-deadline-\(UUID().uuidString)", isDirectory: true)
+        let leafScript = root.appendingPathComponent("leaf.sh")
+        let leafPIDFile = root.appendingPathComponent("leaf.pid")
+        let processStateFile = root.appendingPathComponent("leaf.state")
+        let clockFile = root.appendingPathComponent("clock")
+        let deadlineExpiredMarker = root.appendingPathComponent("deadline-expired")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "0\n".write(to: clockFile, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        trap '' HUP INT TERM
+        printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
+        while :; do /bin/sleep 30; done
+        """.write(to: leafScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: leafScript.path)
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: "/usr/bin/script -q /dev/null /bin/sh \"$CMUX_TEST_LEAF_SCRIPT\""
+        )
+        let command = """
+        \(policy.processTreeTerminationShellFunction())
+        cmux_ssh_auth_now_millis() {
+          cmux_test_now=$(/bin/cat "$CMUX_TEST_CLOCK_FILE") || return 1
+          cmux_test_now=$((cmux_test_now + 200))
+          printf '%s\\n' "$cmux_test_now" > "$CMUX_TEST_CLOCK_FILE" || return 1
+          case "${cmux_ssh_auth_deadline_millis:-}" in
+            ''|*[!0-9]*) ;;
+            *)
+              if [ "$cmux_test_now" -ge "$cmux_ssh_auth_deadline_millis" ]; then
+                : > "$CMUX_TEST_DEADLINE_EXPIRED_MARKER" || return 1
+              fi
+              ;;
+          esac
+          printf '%s\\n' "$cmux_test_now"
+        }
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        cmux_test_ready_attempt=0
+        while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -s "$CMUX_TEST_LEAF_PID" || exit 98
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        /usr/bin/env LC_ALL=C LANG=C /bin/ps -o state= \
+          -p "$(/bin/cat "$CMUX_TEST_LEAF_PID")" > "$CMUX_TEST_PROCESS_STATE" 2>/dev/null || true
+        trap - EXIT
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_CLOCK_FILE": clockFile.path,
+            "CMUX_TEST_DEADLINE_EXPIRED_MARKER": deadlineExpiredMarker.path,
+            "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
+            "CMUX_TEST_LEAF_PID": leafPIDFile.path,
+            "CMUX_TEST_PROCESS_STATE": processStateFile.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        let leafPID = try #require(Int32(
+            String(contentsOf: leafPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        let leafGroup = Darwin.getpgid(leafPID)
+        defer {
+            if leafGroup > 0 {
+                Darwin.kill(-leafGroup, SIGKILL)
+            }
+            Darwin.kill(leafPID, SIGKILL)
+        }
+        let processState = try String(contentsOf: processStateFile, encoding: .utf8)
+
+        #expect(process.terminationStatus == 0)
+        #expect(fileManager.fileExists(atPath: deadlineExpiredMarker.path))
+        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(processState.isEmpty, "Deadline fallback left a process behind: \(processState)")
+        #expect(!fileManager.fileExists(atPath: groupDirectory.path))
+    }
+
+    @Test func hardDeadlineFallbackRevalidatesRecordedProcessIdentity() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-deadline-identity-\(UUID().uuidString)", isDirectory: true)
+        let frozenFile = root.appendingPathComponent("frozen")
+        let orderedFile = root.appendingPathComponent("ordered")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
+        cmux_test_victim_pid=$!
+        trap '/bin/kill -KILL "$cmux_test_victim_pid" >/dev/null 2>&1 || true; wait "$cmux_test_victim_pid" 2>/dev/null || true' EXIT
+        printf '%s 1 1 stale_identity S\n' "$cmux_test_victim_pid" > "$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
+        cmux_ssh_auth_expand_owned_processes() { return 0; }
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        if cmux_ssh_auth_force_frozen_processes; then exit 96; fi
+        /bin/kill -0 "$cmux_test_victim_pid" >/dev/null 2>&1 || exit 97
+        trap - EXIT
+        /bin/kill -KILL "$cmux_test_victim_pid" >/dev/null 2>&1 || true
+        wait "$cmux_test_victim_pid" 2>/dev/null || true
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_FROZEN": frozenFile.path,
+            "CMUX_TEST_ORDERED": orderedFile.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        #expect(process.terminationStatus == 0)
+    }
+
+    @Test func ordersDuplicateFrozenProcessRecordsWithoutCycling() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-duplicate-frozen-\(UUID().uuidString)", isDirectory: true)
+        let input = root.appendingPathComponent("frozen")
+        let output = root.appendingPathComponent("ordered")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        900001 1 900001 Thu_Aug_6_08:00:00_2026 S
+        900001 1 900001 Thu_Aug_6_08:00:00_2026 S
+        900002 900001 900001 Thu_Aug_6_08:00:01_2026 S
+        900002 900001 900001 Thu_Aug_6_08:00:01_2026 S
+        """.write(to: input, atomically: true, encoding: .utf8)
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let command = """
+        ulimit -t 1
+        \(policy.processTreeTerminationShellFunction())
+        cmux_ssh_auth_order_children_first "$CMUX_TEST_FROZEN" "$CMUX_TEST_ORDERED"
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_FROZEN": input.path,
+            "CMUX_TEST_ORDERED": output.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture, timeout: 3)
+
+        let orderedPIDs = try String(contentsOf: output, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { $0.split(separator: " ").dropFirst().first }
+        #expect(process.terminationStatus == 0)
+        #expect(orderedPIDs == ["900002", "900001"])
+    }
+
+    @Test func doesNotRunSharedGroupTermHandlerDuringCleanup() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-shared-handler-\(UUID().uuidString)", isDirectory: true)
+        let readyMarker = root.appendingPathComponent("ready")
+        let replacementScript = root.appendingPathComponent("replacement.sh")
+        let replacementPIDFile = root.appendingPathComponent("replacement.pid")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        trap '' HUP INT TERM
+        printf '%s\\n' "$$" > "$CMUX_TEST_REPLACEMENT_PID"
+        while :; do /bin/sleep 30; done
+        """.write(to: replacementScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: replacementScript.path)
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( trap '/usr/bin/nohup /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM; : > "$CMUX_TEST_READY_MARKER"; while :; do /bin/sleep 30; done ) &
+        cmux_test_auth_root=$!
+        cmux_test_ready_attempt=0
+        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        /bin/sleep 0.1
+        test ! -s "$CMUX_TEST_REPLACEMENT_PID"
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_REPLACEMENT_SCRIPT": replacementScript.path,
+            "CMUX_TEST_REPLACEMENT_PID": replacementPIDFile.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        let replacementPID = (try? String(contentsOf: replacementPIDFile, encoding: .utf8))
+            .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        if let replacementPID {
+            Darwin.kill(replacementPID, SIGKILL)
+        }
+
+        #expect(process.terminationStatus == 0)
+        #expect(replacementPID == nil)
+    }
+
+    @Test func naturalCompletionLeavesNoOwnedProcessGroupMembers() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-natural-cleanup-\(UUID().uuidString)", isDirectory: true)
+        let readyMarker = root.appendingPathComponent("ready")
+        let releaseMarker = root.appendingPathComponent("release")
+        let leafScript = root.appendingPathComponent("leaf.sh")
+        let leafPIDFile = root.appendingPathComponent("leaf.pid")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let groupFile = groupDirectory.appendingPathComponent("identity")
+        let groupRecord = root.appendingPathComponent("group-record")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        trap '' HUP INT TERM
+        printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
+        while :; do /bin/sleep 30; done
+        """.write(to: leafScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: leafScript.path)
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: """
+            /usr/bin/nohup /bin/sh "$CMUX_TEST_LEAF_SCRIPT" </dev/null >/dev/null 2>&1 &
+            cmux_test_leaf_attempt=0
+            while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_leaf_attempt" -lt 300 ]; do
+              /bin/sleep 0.01
+              cmux_test_leaf_attempt=$((cmux_test_leaf_attempt + 1))
+            done
+            test -s "$CMUX_TEST_LEAF_PID" || exit 95
+            : > "$CMUX_TEST_READY_MARKER"
+            while [ ! -f "$CMUX_TEST_RELEASE_MARKER" ]; do /bin/sleep 0.01; done
+            """
+        )
+        let command = """
+        \(policy.processTreeTerminationShellFunction())
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        cmux_test_ready_attempt=0
+        while { [ ! -f "$CMUX_TEST_READY_MARKER" ] || [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; } && \
+          [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 97
+        /bin/cp "$CMUX_SSH_AUTH_GROUP_DIR/identity" "$CMUX_TEST_GROUP_RECORD" || exit 96
+        : > "$CMUX_TEST_RELEASE_MARKER"
+        wait "$cmux_test_auth_root"
+        cmux_ssh_terminate_owned_auth_group
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_RELEASE_MARKER": releaseMarker.path,
+            "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
+            "CMUX_TEST_LEAF_PID": leafPIDFile.path,
+            "CMUX_TEST_GROUP_RECORD": groupRecord.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        let leafPID = try #require(Int32(
+            String(contentsOf: leafPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer { Darwin.kill(leafPID, SIGKILL) }
+        let exitDeadline = Date.now.addingTimeInterval(1)
+        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        let groupID = try #require(processGroupID(in: groupRecord))
+        defer { Darwin.kill(-groupID, SIGKILL) }
+        #expect(process.terminationStatus == 0)
+        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(Darwin.kill(-groupID, 0) != 0)
+        #expect(!fileManager.fileExists(atPath: groupFile.path))
+        #expect(!fileManager.fileExists(atPath: groupDirectory.path))
+    }
+
+    @Test func reaperStopsAfterBoundedFailuresAndPreservesState() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-bounded-reaper-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let callsFile = root.appendingPathComponent("calls")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "anchor|group|started\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_terminate_owned_auth_group() {
+          printf x >> "$CMUX_TEST_REAPER_CALLS"
+          return 1
+        }
+        cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
+        cmux_test_reaper_pid=$!
+        ( /bin/sleep 5; /bin/kill -KILL "$cmux_test_reaper_pid" 2>/dev/null || true ) &
+        cmux_test_watchdog_pid=$!
+        wait "$cmux_test_reaper_pid"
+        cmux_test_reaper_status=$?
+        /bin/kill -KILL "$cmux_test_watchdog_pid" 2>/dev/null || true
+        wait "$cmux_test_watchdog_pid" 2>/dev/null || true
+        test "$cmux_test_reaper_status" -eq 0 || exit 95
+        test "$(/usr/bin/wc -c < "$CMUX_TEST_REAPER_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 3 || exit 94
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 93
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" || exit 92
+        test ! -d "$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock" || exit 91
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_REAPER_CALLS": callsFile.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        #expect(process.terminationStatus == 0)
+    }
+
+    @Test func laterRecoverySweepReclaimsFailedAuthenticationGroup() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-recovery-sweep-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("cmux-ssh-auth-group.test", isDirectory: true)
+        let callsFile = root.appendingPathComponent("calls")
+        let allowCleanupFile = root.appendingPathComponent("allow-cleanup")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "anchor|group|started\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_terminate_owned_auth_group() {
+          printf x >> "$CMUX_TEST_REAPER_CALLS"
+          if [ -e "$CMUX_TEST_ALLOW_CLEANUP" ]; then
+            /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
+          fi
+        }
+        cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
+        cmux_test_first_reaper=$!
+        wait "$cmux_test_first_reaper" || exit 97
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" || exit 96
+        : > "$CMUX_TEST_ALLOW_CLEANUP"
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_resume_failed_auth_group_reapers || exit 95
+        cmux_test_second_reaper=$!
+        wait "$cmux_test_second_reaper" || exit 94
+        test ! -d "$TMPDIR/cmux-ssh-auth-group.test" || exit 93
+        test "$(/usr/bin/wc -c < "$CMUX_TEST_REAPER_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 4 || exit 92
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_ALLOW_CLEANUP": allowCleanupFile.path,
+            "CMUX_TEST_REAPER_CALLS": callsFile.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+            "TMPDIR": root.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        #expect(process.terminationStatus == 0)
+    }
+
+    @Test(arguments: [("HUP", Int32(129)), ("INT", Int32(130)), ("TERM", Int32(143))])
+    func directProcessGroupSignalIsReapedByCaller(
+        signalName: String,
+        expectedStatus: Int32
+    ) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-direct-signal-\(UUID().uuidString)", isDirectory: true)
+        let readyMarker = root.appendingPathComponent("ready")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let groupFile = groupDirectory.appendingPathComponent("identity")
+        let groupRecord = root.appendingPathComponent("group-record")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: ": > \"$CMUX_TEST_READY_MARKER\"; while :; do /bin/sleep 30; done"
+        )
+        let command = """
+        \(policy.processTreeTerminationShellFunction())
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        cmux_test_ready_attempt=0
+        while { [ ! -f "$CMUX_TEST_READY_MARKER" ] || [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; } && \
+          [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 97
+        /bin/cp "$CMUX_SSH_AUTH_GROUP_DIR/identity" "$CMUX_TEST_GROUP_RECORD" || exit 96
+        cmux_test_auth_group=$(/usr/bin/awk -F '|' '{ print $2 }' "$CMUX_SSH_AUTH_GROUP_DIR/identity")
+        /bin/kill -\(signalName) -- "-$cmux_test_auth_group" || exit 95
+        wait "$cmux_test_auth_root"
+        cmux_test_auth_status=$?
+        test "$cmux_test_auth_status" -eq \(expectedStatus) || exit 94
+        cmux_ssh_terminate_owned_auth_group
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_GROUP_RECORD": groupRecord.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+            "LC_ALL": "fr_FR.UTF-8",
+            "LANG": "fr_FR.UTF-8",
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        let groupID = try #require(processGroupID(in: groupRecord))
+        defer { Darwin.kill(-groupID, SIGKILL) }
+        #expect(process.terminationStatus == 0)
+        #expect(Darwin.kill(-groupID, 0) != 0)
+        #expect(!fileManager.fileExists(atPath: groupFile.path))
+        #expect(!fileManager.fileExists(atPath: groupDirectory.path))
+    }
+
+    @Test func cancellationBeforeGroupPublicationPreventsAuthenticationStart() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-prepublish-cancel-\(UUID().uuidString)", isDirectory: true)
+        let commandStartedMarker = root.appendingPathComponent("command-started")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: ": > \"$CMUX_TEST_COMMAND_STARTED_MARKER\"; while :; do /bin/sleep 30; done"
+        )
+        let command = """
+        \(policy.processTreeTerminationShellFunction())
+        cmux_ssh_terminate_owned_auth_group &
+        cmux_test_cleanup_pid=$!
+        cmux_test_cancel_attempt=0
+        while [ ! -f "$CMUX_SSH_AUTH_GROUP_DIR/cancel" ] && \
+          [ "$cmux_test_cancel_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_cancel_attempt=$((cmux_test_cancel_attempt + 1))
+        done
+        test -f "$CMUX_SSH_AUTH_GROUP_DIR/cancel" || exit 98
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        wait "$cmux_test_auth_root"
+        cmux_test_auth_status=$?
+        wait "$cmux_test_cleanup_pid" 2>/dev/null || true
+        test "$cmux_test_auth_status" -eq 143 || exit 97
+        test ! -e "$CMUX_TEST_COMMAND_STARTED_MARKER" || exit 96
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_COMMAND_STARTED_MARKER": commandStartedMarker.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        #expect(process.terminationStatus == 0)
+        #expect(!fileManager.fileExists(atPath: commandStartedMarker.path))
+        #expect(!fileManager.fileExists(atPath: groupDirectory.path))
     }
 
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
@@ -351,7 +1069,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let chainScript = root.appendingPathComponent("chain.sh")
         let readyMarker = root.appendingPathComponent("ready")
         let pidLog = root.appendingPathComponent("pids")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
         defer { try? fileManager.removeItem(at: root) }
 
         try """
@@ -376,9 +1096,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             }
         }
 
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: "CMUX_TEST_CHAIN_DEPTH=24 /bin/sh \"$CMUX_TEST_CHAIN_SCRIPT\""
+        )
         let command = """
-        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        CMUX_TEST_CHAIN_DEPTH=24 /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
+        \(policy.processTreeTerminationShellFunction())
+        ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
@@ -397,6 +1121,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -430,14 +1155,16 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
     }
 
-    @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
+    @Test func doesNotRunAuthenticationTermHandlerDuringOwnedGroupCleanup() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-replacement-\(UUID().uuidString)", isDirectory: true)
         let readyMarker = root.appendingPathComponent("ready")
         let replacementScript = root.appendingPathComponent("replacement.sh")
         let replacementPIDFile = root.appendingPathComponent("replacement.pid")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
         defer { try? fileManager.removeItem(at: root) }
 
         try """
@@ -451,7 +1178,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
-            trap '/usr/bin/nohup /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM
+            trap '/usr/bin/nohup /usr/bin/script -q /dev/null /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
             """
@@ -460,6 +1187,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(policy.processTreeTerminationShellFunction())
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
+        trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
           /bin/sleep 0.01
@@ -473,7 +1201,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           /bin/sleep 0.01
           cmux_test_replacement_attempt=$((cmux_test_replacement_attempt + 1))
         done
-        test -s "$CMUX_TEST_REPLACEMENT_PID"
+        test ! -s "$CMUX_TEST_REPLACEMENT_PID"
+        trap - EXIT
         """
 
         let process = Process()
@@ -483,6 +1212,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_REPLACEMENT_SCRIPT": replacementScript.path,
             "CMUX_TEST_REPLACEMENT_PID": replacementPIDFile.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -493,18 +1223,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try process.run()
         try waitForExit(process, stderrCapture: stderrCapture)
 
-        let replacementPID = try #require(Int32(
-            String(contentsOf: replacementPIDFile, encoding: .utf8)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        ))
-        defer { Darwin.kill(replacementPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(replacementPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
+        let replacementPID = (try? String(contentsOf: replacementPIDFile, encoding: .utf8))
+            .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        if let replacementPID {
+            Darwin.kill(replacementPID, SIGKILL)
         }
 
         #expect(process.terminationStatus == 0)
-        #expect(Darwin.kill(replacementPID, 0) != 0)
+        #expect(replacementPID == nil)
     }
 
     @Test func restoresTerminalModesWhenTerminatingForegroundAuthenticationTree() throws {
@@ -512,15 +1238,16 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-termios-\(UUID().uuidString)", isDirectory: true)
         let readyMarker = root.appendingPathComponent("ready")
-        let signalLog = root.appendingPathComponent("signal.log")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
         defer { try? fileManager.removeItem(at: root) }
 
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
-            trap '' HUP INT
-            trap 'printf "%s\\n" term > "$CMUX_TEST_SIGNAL_LOG"; exit 143' TERM
+            trap '' HUP INT TERM
+            /bin/stty -echo
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
             """
@@ -548,7 +1275,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_READY_MARKER": readyMarker.path,
-            "CMUX_TEST_SIGNAL_LOG": signalLog.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -560,7 +1287,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try waitForExit(process, stderrCapture: stderrCapture)
 
         #expect(process.terminationStatus == 0)
-        #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
     }
 
     @Test func keepsDiagnosticStateBoundedWhileCommandIsRunning() throws {
@@ -607,13 +1333,29 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         #expect(fileManager.fileExists(atPath: readyFile.path))
 
-        let diagnosticFiles = try fileManager.contentsOfDirectory(
+        let temporaryEntries = try fileManager.contentsOfDirectory(
             at: temporaryDirectory,
-            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
             options: []
-        ).filter {
-            $0 != readyFile
-                && (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        )
+        let diagnosticDirectories = temporaryEntries.filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+        #expect(diagnosticDirectories.count == 1)
+        for directory in diagnosticDirectories {
+            let permissions = try #require(
+                fileManager.attributesOfItem(atPath: directory.path)[.posixPermissions] as? NSNumber
+            )
+            #expect(permissions.intValue & 0o077 == 0)
+        }
+        let diagnosticFiles = try diagnosticDirectories.flatMap { directory in
+            try fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+                options: []
+            ).filter {
+                (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            }
         }
         let largestDiagnosticFile = try diagnosticFiles
             .map { try $0.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0 }
@@ -680,6 +1422,18 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             String(data: stderrData, encoding: .utf8) ?? "",
             temporaryFiles
         )
+    }
+
+    private func processGroupID(in record: URL) -> Int32? {
+        guard let contents = try? String(contentsOf: record, encoding: .utf8) else { return nil }
+        let fields = contents.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "|")
+        guard fields.count == 3 else { return nil }
+        return Int32(fields[1])
+    }
+
+    private func createSecureGroupDirectory(at url: URL) throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
     }
 
     private func makeStandardErrorCapture() throws -> (url: URL, handle: FileHandle) {
