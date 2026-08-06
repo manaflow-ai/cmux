@@ -20,7 +20,7 @@ struct ComputerVisibilityToggle: View {
             ),
             isOn: Binding(
                 get: { isVisible },
-                set: setVisible
+                set: { newValue in setVisible(newValue) }
             )
         )
         .labelsHidden()
