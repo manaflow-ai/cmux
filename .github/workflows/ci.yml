@@ -609,10 +609,9 @@ jobs:
       - name: Run agent chat transcript lifecycle regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep hook-driven transcript resolution on a
-          # non-tolerant focused invocation so Feed ingress cannot regain an
-          # unbounded recursive filesystem scan.
+          # Keep hook-driven transcript resolution isolated from unrelated
+          # app-host crashes so Feed ingress cannot regain an unbounded
+          # recursive filesystem scan.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           for suite in \
@@ -634,10 +633,8 @@ jobs:
       - name: Run browser runtime viewport regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # The tolerant full-suite step can accept ordinary assertion failures
-          # when XCTest reports "0 unexpected". Keep the real-WKWebView DOM
-          # viewport check non-tolerant so a layout-only screenshot workaround
-          # cannot make this regression appear green.
+          # Keep the real-WKWebView DOM viewport check isolated so an unrelated
+          # app-host abort cannot prevent it from executing.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -655,8 +652,7 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Use a dedicated app-host process so task_vm_info deltas only compare
-          # one versus five real Ghostty renderers in this workload. The focused
-          # invocation also makes footprint assertion failures non-tolerant.
+          # one versus five real Ghostty renderers in this workload.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           CMUX_RENDERER_MEMORY_REGRESSION=1 \
@@ -674,9 +670,8 @@ jobs:
       - name: Run notification routing regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # The tolerant full-suite step can accept assertion failures or stop
-          # after an app-host crash before this suite runs. Keep notification
-          # move/clear causality coverage on a non-tolerant focused invocation.
+          # Keep notification move/clear causality coverage isolated from
+          # unrelated app-host crashes in the full shard.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -699,9 +694,8 @@ jobs:
       - name: Run Pi Feed ownership regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep Feed ingestion and ownership on a non-tolerant
-          # focused invocation so valid Pi Feed targets cannot silently regress.
+          # Keep Feed ingestion and ownership isolated so an unrelated app-host
+          # abort cannot prevent these regressions from executing.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           # Each suite mutates process-global app/store state. Give every suite
@@ -729,8 +723,8 @@ jobs:
         run: |
           # Closing a mirrored workspace must never kill the remote tmux session,
           # and --new-window must consolidate mirrors moved across source windows.
-          # Keep these destructive/topology regressions outside the tolerant full
-          # suite so an ordinary assertion failure cannot be accepted as expected.
+          # Keep these destructive/topology regressions in a dedicated app-host
+          # process so unrelated shard state cannot perturb them.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -748,11 +742,9 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/5888.
-          # The full "Run unit tests" step tolerates app-host crashes by
-          # parsing only the last test summary, so suites that run late can
-          # otherwise be skipped by an app-host abort that still reports
-          # "(0 unexpected)". Keep this targeted only-testing invocation as a
-          # non-tolerant guard for the system proxy mirror regression.
+          # Keep this targeted only-testing invocation so an unrelated
+          # app-host abort cannot prevent the system proxy mirror regression
+          # from executing.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -786,13 +778,8 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/7367.
-          # The full "Run unit tests" step tolerates any xcodebuild failure
-          # whose last test summary reports "(0 unexpected)", and test
-          # assertion failures never increment the unexpected count on these
-          # runners — so a failing regression assertion in the sharded run
-          # cannot turn the shard red. Keep this targeted only-testing
-          # invocation as a non-tolerant guard for the ssh-session-attach
-          # split-anchor regression.
+          # Keep the ssh-session-attach split-anchor regression isolated so an
+          # unrelated app-host abort cannot prevent it from executing.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -810,9 +797,8 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Focused gates for https://github.com/manaflow-ai/cmux/issues/7380 and #8054.
-          # The tolerant full-suite step can crash-skip late suites (see #5888
-          # note above), so these regressions get a non-tolerant focused
-          # invocation.
+          # Keep these regressions isolated so an unrelated app-host abort
+          # cannot prevent them from executing.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -831,9 +817,8 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Focused gates for https://github.com/manaflow-ai/cmux/issues/7372.
-          # The tolerant full-suite step can crash-skip late suites (see #5888
-          # note above), so the seed and immediate-update paths get a
-          # non-tolerant invocation.
+          # Keep the seed and immediate-update paths isolated so an unrelated
+          # app-host abort cannot prevent them from executing.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -850,9 +835,8 @@ jobs:
       - name: Run remote tmux mirror layout identity regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # The tolerant full-suite step may accept expected failures or stop
-          # after an app-host crash. Keep #7833's identity suite non-tolerant
-          # so a missing incremental-reconcile regression cannot pass the shard.
+          # Keep #7833's identity suite isolated so an unrelated app-host abort
+          # cannot prevent it from executing.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -869,9 +853,8 @@ jobs:
       - name: Run socket ACL reload regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
-          # The tolerant full-suite step can accept assertion failures or
-          # crash-skip late suites. Keep #7984's live reload and denial tests
-          # non-tolerant so a snapshotted socket ACL cannot pass the shard.
+          # Keep #7984's live reload and denial tests isolated so an unrelated
+          # app-host abort cannot prevent them from executing.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           scripts/ci/run-in-console-session.sh \
@@ -952,8 +935,8 @@ jobs:
             wait "$xcodebuild_pid"
           }
 
-          # Stream output via tee so CI logs are visible in real time, while still
-          # capturing for post-run analysis of expected vs unexpected failures.
+          # Stream output via tee so CI logs are visible in real time while still
+          # capturing package-resolution diagnostics for the bounded retry below.
           TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
           set +e
           run_unit_tests | tee "$TEST_OUTPUT"
@@ -964,7 +947,9 @@ jobs:
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] \
+            && [[ "$OUTPUT" != *"FAIL: app-host test assertion failure detected"* ]] \
+            && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
@@ -978,13 +963,8 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
+            echo "App-host unit tests failed with exit code $EXIT_CODE"
+            exit "$EXIT_CODE"
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
