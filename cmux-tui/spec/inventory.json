@@ -232,6 +232,9 @@
       "detach-attached-view"
     ],
     "local-admin": [
+      "register-browser-provider",
+      "get-browser-provider",
+      "unregister-browser-provider",
       "shutdown-daemon",
       "pairing-response"
     ],

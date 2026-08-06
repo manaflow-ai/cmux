@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 24a8c46845f5755a0bd2c5257e8fad00f794271d032470af0e9c2614bc7eb8c1.
+// cmux-tui mux protocol 10, IR 585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -95,6 +95,46 @@ pub struct BrowserFrame {
     pub height: u32,
     pub seq: u64,
     pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrowserProviderAuthentication {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "bearer")]
+    Bearer,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderSnapshot {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<BrowserProviderAuthentication>,
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub bearer_token: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub clients: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    pub revision: u64,
+    pub targets: Vec<BrowserProviderTarget>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderTarget {
+    pub tab_id: String,
+    pub target_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserProviderUnregisterResult {
+    pub removed: bool,
 }
 
 #[rustfmt::skip]

@@ -23,6 +23,10 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
+use crate::browser_provider::{
+    BrowserProviderRegistration, BrowserProviderRegistry, BrowserProviderSnapshot,
+    BrowserProviderTargetLease,
+};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 #[cfg(test)]
 use crate::layout::layout_screen_with_viewport;
@@ -1755,6 +1759,7 @@ pub struct Mux {
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
     deadline_fanout_pool: DeadlineFanoutPool,
@@ -2102,6 +2107,7 @@ impl Mux {
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
+            browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
             deadline_fanout_pool: DeadlineFanoutPool::new(),
@@ -2294,7 +2300,11 @@ impl Mux {
             insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
             match browser.reconnect {
                 RegistryBrowserReconnect::Recreate => {
-                    self.start_browser_bootstrap(surface, BrowserBootstrap::Create { url }, None);
+                    self.start_browser_bootstrap(
+                        surface,
+                        BrowserBootstrap::Provider { tab_id: content.identity.tab_id.clone(), url },
+                        None,
+                    );
                 }
             }
         }
@@ -5955,7 +5965,16 @@ impl Mux {
             )?,
         };
         insert_surface_checked(&mut self.state.lock().unwrap(), surface.clone())?;
-        self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
+        let tab_id = surface
+            .resource_identity()
+            .context("browser surface omitted its public tab identity")?
+            .tab_id
+            .clone();
+        self.start_browser_bootstrap(
+            surface.clone(),
+            BrowserBootstrap::Provider { tab_id, url },
+            None,
+        );
         Ok(surface)
     }
 
@@ -6965,11 +6984,73 @@ impl Mux {
 
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
         let mut runtime = self.browser_runtime.lock().unwrap();
-        if let Some(existing) = runtime.as_ref().filter(|existing| !existing.is_closed()) {
+        if let Some(existing) = runtime.as_ref().filter(|existing| {
+            !existing.is_closed() && existing.source() != crate::BrowserSource::Provider
+        }) {
             return Ok(existing.clone());
         }
         let opts = self.surface_options.lock().unwrap().clone();
         let created = BrowserRuntime::connect(&opts)?;
+        *runtime = Some(created.clone());
+        Ok(created)
+    }
+
+    pub(crate) fn register_browser_provider(
+        self: &Arc<Self>,
+        client: u64,
+        registration: BrowserProviderRegistration,
+    ) -> anyhow::Result<BrowserProviderSnapshot> {
+        let snapshot = self.browser_providers.register(client, registration)?;
+        self.reconcile_provider_browser_surfaces();
+        Ok(snapshot)
+    }
+
+    pub(crate) fn unregister_browser_provider(self: &Arc<Self>, client: u64) -> bool {
+        let removed = self.browser_providers.unregister(client);
+        if removed {
+            self.reconcile_provider_browser_surfaces();
+        }
+        removed
+    }
+
+    pub(crate) fn browser_provider_snapshot(&self) -> Option<BrowserProviderSnapshot> {
+        self.browser_providers.snapshot()
+    }
+
+    fn reconcile_provider_browser_surfaces(self: &Arc<Self>) {
+        let surfaces = {
+            let state = self.state.lock().unwrap();
+            state
+                .surfaces
+                .values()
+                .filter_map(|surface| {
+                    let identity = surface.resource_identity()?;
+                    matches!(&identity.content_id, ContentPublicId::Browser(_))
+                        .then(|| (surface.clone(), identity.tab_id.clone()))
+                })
+                .collect::<Vec<_>>()
+        };
+        for (surface, tab_id) in surfaces {
+            let lease = self.browser_providers.target(&tab_id);
+            let Surface::Browser(browser) = surface.as_ref() else { continue };
+            if browser.prepare_provider_lease_replacement(lease.as_ref()) {
+                self.restart_provider_browser_surface(surface);
+            }
+        }
+    }
+
+    fn browser_runtime_for_provider(
+        &self,
+        lease: &BrowserProviderTargetLease,
+    ) -> anyhow::Result<Arc<BrowserRuntime>> {
+        let mut runtime = self.browser_runtime.lock().unwrap();
+        if let Some(existing) = runtime.as_ref().filter(|existing| {
+            !existing.is_closed()
+                && existing.matches_provider(&lease.endpoint, &lease.authentication)
+        }) {
+            return Ok(existing.clone());
+        }
+        let created = BrowserRuntime::connect_provider(&lease.endpoint, &lease.authentication)?;
         *runtime = Some(created.clone());
         Ok(created)
     }
@@ -6980,27 +7061,166 @@ impl Mux {
         bootstrap: BrowserBootstrap,
         runtime: Option<Arc<BrowserRuntime>>,
     ) {
-        let mux = self.clone();
+        let provider_bootstrap = matches!(&bootstrap, BrowserBootstrap::Provider { .. });
+        let weak_mux = Arc::downgrade(self);
+        let providers = self.browser_providers.clone();
         let id = surface.id;
-        let _ = std::thread::Builder::new().name(format!("browser-surface-{id}-bootstrap")).spawn(
-            move || {
+        let thread_surface = surface.clone();
+        let spawn = std::thread::Builder::new()
+            .name(format!("browser-surface-{id}-bootstrap"))
+            .spawn(move || {
                 let result = (|| -> anyhow::Result<()> {
-                    let runtime = match runtime {
-                        Some(runtime) => runtime,
-                        None => mux.browser_runtime()?,
-                    };
-                    runtime.bootstrap_surface_sync(surface.clone(), bootstrap, Arc::downgrade(&mux))
+                    match bootstrap {
+                        BrowserBootstrap::Provider { tab_id, url } => {
+                            anyhow::ensure!(
+                                runtime.is_none(),
+                                "provider bootstrap cannot override its CDP runtime"
+                            );
+                            let mut retry_delay = Duration::from_millis(250);
+                            loop {
+                                let canceled = || {
+                                    thread_surface.is_dead()
+                                        || weak_mux.upgrade().is_none_or(|mux| {
+                                            mux.shutting_down.load(Ordering::Acquire)
+                                        })
+                                };
+                                let lease =
+                                    providers.wait_for_target(&tab_id, canceled).ok_or_else(
+                                        || anyhow::anyhow!("browser provider wait was canceled"),
+                                    )?;
+                                let attempt = (|| -> anyhow::Result<()> {
+                                    let mux = weak_mux.upgrade().ok_or_else(|| {
+                                        anyhow::anyhow!("browser mux was dropped")
+                                    })?;
+                                    let runtime = mux.browser_runtime_for_provider(&lease)?;
+                                    let Surface::Browser(browser) = thread_surface.as_ref() else {
+                                        anyhow::bail!(
+                                            "browser bootstrap got a non-browser surface"
+                                        );
+                                    };
+                                    anyhow::ensure!(
+                                        browser.prepare_provider_bootstrap_attempt(),
+                                        "browser provider wait was canceled"
+                                    );
+                                    runtime.bootstrap_surface_sync(
+                                        thread_surface.clone(),
+                                        BrowserBootstrap::ExistingTarget {
+                                            target_id: lease.target_id.clone(),
+                                            url: url.clone(),
+                                        },
+                                        weak_mux.clone(),
+                                    )
+                                })();
+                                match attempt {
+                                    Ok(()) => {
+                                        let current_lease = providers.target(&tab_id);
+                                        let Surface::Browser(browser) = thread_surface.as_ref()
+                                        else {
+                                            anyhow::bail!(
+                                                "browser bootstrap got a non-browser surface"
+                                            );
+                                        };
+                                        // Registration can change while CDP
+                                        // setup is in flight. Never publish a
+                                        // now-stale target merely because its
+                                        // attach finished after the provider
+                                        // revision advanced.
+                                        if browser.prepare_provider_lease_replacement(
+                                            current_lease.as_ref(),
+                                        ) {
+                                            retry_delay = Duration::from_millis(250);
+                                            continue;
+                                        }
+                                        return Ok(());
+                                    }
+                                    Err(error) if !canceled() => {
+                                        let message = error.to_string();
+                                        let Surface::Browser(browser) = thread_surface.as_ref()
+                                        else {
+                                            return Err(error);
+                                        };
+                                        let changed = browser.status()
+                                            != crate::BrowserStatus::Failed(message.clone());
+                                        if changed {
+                                            browser.mark_failed(message.clone());
+                                            if let Some(mux) = weak_mux.upgrade() {
+                                                mux.emit(MuxEvent::Status(format!(
+                                                    "cmux-browser provider unavailable: {message}"
+                                                )));
+                                                mux.emit(MuxEvent::TitleChanged {
+                                                    surface: id,
+                                                    title: thread_surface.title().into(),
+                                                });
+                                                mux.emit(MuxEvent::SurfaceOutput(id));
+                                            }
+                                        }
+                                        if !providers.wait_for_revision_change(
+                                            lease.revision,
+                                            canceled,
+                                            retry_delay,
+                                        ) {
+                                            anyhow::bail!("browser provider wait was canceled");
+                                        }
+                                        retry_delay = retry_delay
+                                            .saturating_mul(2)
+                                            .min(Duration::from_secs(2));
+                                    }
+                                    Err(error) => return Err(error),
+                                }
+                            }
+                        }
+                        bootstrap => {
+                            let mux = weak_mux
+                                .upgrade()
+                                .ok_or_else(|| anyhow::anyhow!("browser mux was dropped"))?;
+                            let runtime = match runtime {
+                                Some(runtime) => runtime,
+                                None => mux.browser_runtime()?,
+                            };
+                            runtime.bootstrap_surface_sync(
+                                thread_surface.clone(),
+                                bootstrap,
+                                weak_mux.clone(),
+                            )
+                        }
+                    }
                 })();
                 if let Err(err) = result {
-                    if let Surface::Browser(browser) = surface.as_ref() {
+                    if !thread_surface.is_dead()
+                        && !provider_bootstrap
+                        && let Surface::Browser(browser) = thread_surface.as_ref()
+                    {
                         browser.mark_failed(err.to_string());
                     }
-                    mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
-                    mux.emit(MuxEvent::TitleChanged { surface: id, title: surface.title().into() });
-                    mux.emit(MuxEvent::SurfaceOutput(id));
+                    if !provider_bootstrap && let Some(mux) = weak_mux.upgrade() {
+                        if !thread_surface.is_dead() {
+                            mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
+                            mux.emit(MuxEvent::TitleChanged {
+                                surface: id,
+                                title: thread_surface.title().into(),
+                            });
+                            mux.emit(MuxEvent::SurfaceOutput(id));
+                        }
+                    }
                 }
-            },
-        );
+            });
+        if let Err(error) = spawn {
+            if !surface.is_dead()
+                && let Surface::Browser(browser) = surface.as_ref()
+            {
+                browser.mark_failed(format!("could not start browser bootstrap: {error}"));
+            }
+        }
+    }
+
+    pub(crate) fn restart_provider_browser_surface(self: &Arc<Self>, surface: Arc<Surface>) {
+        let Some(identity) = surface.resource_identity() else { return };
+        if !matches!(identity.content_id, ContentPublicId::Browser(_)) {
+            return;
+        }
+        let tab_id = identity.tab_id.clone();
+        let url = surface.browser_url().unwrap_or_else(|| "about:blank".to_string());
+        self.start_browser_bootstrap(surface, BrowserBootstrap::Provider { tab_id, url }, None);
     }
 
     /// A fresh single-tab pane wrapping `surface`.

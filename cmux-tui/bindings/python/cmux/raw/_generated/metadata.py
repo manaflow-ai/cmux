@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = '24a8c46845f5755a0bd2c5257e8fad00f794271d032470af0e9c2614bc7eb8c1'
+IR_SHA256 = '585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252'
 
 
 @dataclass(frozen=True)
@@ -475,6 +475,16 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
         },
     ),
+    'get-browser-provider': CommandMetadata(
+        'get-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'get-cell-pixels': CommandMetadata(
         'get-cell-pixels',
         'frontend',
@@ -824,6 +834,21 @@ COMMANDS = {
             'count': CommandFieldMetadata(None, None),
             'start': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'register-browser-provider': CommandMetadata(
+        'register-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
+            'authentication': CommandFieldMetadata(None, None),
+            'bearer_token': CommandFieldMetadata(None, None),
+            'endpoint': CommandFieldMetadata(None, None),
+            'provider_id': CommandFieldMetadata(None, None),
+            'targets': CommandFieldMetadata(None, None),
         },
     ),
     'release-attached-view-size': CommandMetadata(
@@ -1267,6 +1292,16 @@ COMMANDS = {
             'confirm_close': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'revision': CommandFieldMetadata(None, None),
+        },
+    ),
+    'unregister-browser-provider': CommandMetadata(
+        'unregister-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'vt-state': CommandMetadata(

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "24a8c46845f5755a0bd2c5257e8fad00f794271d032470af0e9c2614bc7eb8c1";
+pub const ir_sha256 = "585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -110,6 +110,51 @@ pub const BrowserFrame = struct {
     height: u32,
     seq: u64,
     width: u32,
+};
+
+pub const BrowserProviderAuthentication = enum {
+    none,
+    bearer,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "none")) return .none;
+        if (std.mem.eql(u8, value, "bearer")) return .bearer;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .none => "none",
+            .bearer => "bearer",
+        };
+    }
+};
+
+pub const BrowserProviderSnapshot = struct {
+    authentication: ?BrowserProviderAuthentication = null,
+    available: bool,
+    bearer_token: wire.Field([]const u8) = .absent,
+    clients: ?u64 = null,
+    endpoint: ?[]const u8 = null,
+    provider_id: ?[]const u8 = null,
+    revision: u64,
+    targets: []const BrowserProviderTarget,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "authentication",
+        "clients",
+        "endpoint",
+        "provider_id",
+    };
+};
+
+pub const BrowserProviderTarget = struct {
+    tab_id: []const u8,
+    target_id: []const u8,
+};
+
+pub const BrowserProviderUnregisterResult = struct {
+    removed: bool,
 };
 
 pub const CellPixelFailure = struct {
@@ -2435,6 +2480,23 @@ pub fn focusPane(client: anytype, request: FocusPaneRequest) !wire.Decoded(Focus
     );
 }
 
+pub const GetBrowserProviderRequest = struct {};
+
+pub const GetBrowserProviderResult = BrowserProviderSnapshot;
+
+pub fn getBrowserProvider(client: anytype, request: GetBrowserProviderRequest) !wire.Decoded(GetBrowserProviderResult) {
+    return client.callTyped(
+        GetBrowserProviderResult,
+        .{
+            .name = "get-browser-provider",
+            .authority = "local-admin",
+            .since = 10,
+            .capability = "browser-provider-v1",
+        },
+        request,
+    );
+}
+
 pub const GetCellPixelsRequest = struct {};
 
 pub fn getCellPixels(client: anytype, request: GetCellPixelsRequest) !wire.Decoded(GetCellPixelsResult) {
@@ -3012,6 +3074,29 @@ pub fn readScrollback(client: anytype, request: ReadScrollbackRequest) !wire.Dec
             .authority = "control",
             .since = 7,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const RegisterBrowserProviderRequest = struct {
+    authentication: BrowserProviderAuthentication,
+    bearer_token: wire.Field([]const u8) = .absent,
+    endpoint: []const u8,
+    provider_id: []const u8,
+    targets: []const BrowserProviderTarget,
+};
+
+pub const RegisterBrowserProviderResult = BrowserProviderSnapshot;
+
+pub fn registerBrowserProvider(client: anytype, request: RegisterBrowserProviderRequest) !wire.Decoded(RegisterBrowserProviderResult) {
+    return client.callTyped(
+        RegisterBrowserProviderResult,
+        .{
+            .name = "register-browser-provider",
+            .authority = "local-admin",
+            .since = 10,
+            .capability = "browser-provider-v1",
         },
         request,
     );
@@ -3798,6 +3883,23 @@ pub fn undoLayout(client: anytype, request: UndoLayoutRequest) !wire.Decoded(Und
             .authority = "control",
             .since = 9,
             .capability = "layout-undo-v1",
+        },
+        request,
+    );
+}
+
+pub const UnregisterBrowserProviderRequest = struct {};
+
+pub const UnregisterBrowserProviderResult = BrowserProviderUnregisterResult;
+
+pub fn unregisterBrowserProvider(client: anytype, request: UnregisterBrowserProviderRequest) !wire.Decoded(UnregisterBrowserProviderResult) {
+    return client.callTyped(
+        UnregisterBrowserProviderResult,
+        .{
+            .name = "unregister-browser-provider",
+            .authority = "local-admin",
+            .since = 10,
+            .capability = "browser-provider-v1",
         },
         request,
     );
@@ -4710,7 +4812,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 97;
+pub const command_count: usize = 100;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -4744,6 +4846,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "export-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "get-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "get-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -4772,6 +4875,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "read-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "read-scrollback", .authority = "control", .since = 7, .capability = null, .stream = null },
+    .{ .name = "register-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
@@ -4806,6 +4910,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "swap-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
+    .{ .name = "unregister-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "zoom-pane", .authority = "control", .since = 6, .capability = null, .stream = null },

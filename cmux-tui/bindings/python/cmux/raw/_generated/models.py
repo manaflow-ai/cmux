@@ -53,6 +53,10 @@ class AgentState(str, Enum):
     DONE = 'done'
     UNKNOWN = 'unknown'
 
+class BrowserProviderAuthentication(str, Enum):
+    NONE = 'none'
+    BEARER = 'bearer'
+
 class ClientTransport(str, Enum):
     LOCAL = 'local'
     UNIX = 'unix'
@@ -272,6 +276,32 @@ class BrowserFrame:
     height: int
     seq: int
     width: int
+
+
+@dataclass(frozen=True)
+class BrowserProviderSnapshot:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderSnapshot'
+    available: bool
+    revision: int
+    targets: List[BrowserProviderTarget]
+    authentication: Union[BrowserProviderAuthentication, MissingType] = field(default=MISSING)
+    bearer_token: Union[str, None, MissingType] = field(default=MISSING)
+    clients: Union[int, MissingType] = field(default=MISSING)
+    endpoint: Union[str, MissingType] = field(default=MISSING)
+    provider_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class BrowserProviderTarget:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderTarget'
+    tab_id: str
+    target_id: str
+
+
+@dataclass(frozen=True)
+class BrowserProviderUnregisterResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserProviderUnregisterResult'
+    removed: bool
 
 
 @dataclass(frozen=True)
@@ -1321,6 +1351,12 @@ class FocusPaneRequest:
 
 
 @dataclass(frozen=True)
+class GetBrowserProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-browser-provider/request'
+    pass
+
+
+@dataclass(frozen=True)
 class GetCellPixelsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-cell-pixels/request'
     pass
@@ -1541,6 +1577,16 @@ class ReadScrollbackRequest:
     surface: Id
     start: int
     count: int
+
+
+@dataclass(frozen=True)
+class RegisterBrowserProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/register-browser-provider/request'
+    authentication: BrowserProviderAuthentication
+    endpoint: str
+    provider_id: str
+    targets: List[BrowserProviderTarget]
+    bearer_token: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1822,6 +1868,12 @@ class UndoLayoutRequest:
     pane: Id
     confirm_close: Union[bool, MissingType] = field(default=MISSING)
     revision: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class UnregisterBrowserProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/unregister-browser-provider/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -2374,6 +2426,7 @@ __all__ = [
     'AgentReportSource',
     'AgentSource',
     'AgentState',
+    'BrowserProviderAuthentication',
     'ClientTransport',
     'CursorStyle',
     'FrontendFocusTarget',
@@ -2392,6 +2445,9 @@ __all__ = [
     'AttachedViewOutcomeResult',
     'AttachedViewResizeResult',
     'BrowserFrame',
+    'BrowserProviderSnapshot',
+    'BrowserProviderTarget',
+    'BrowserProviderUnregisterResult',
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
@@ -2499,6 +2555,7 @@ __all__ = [
     'ExportLayoutRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
+    'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
     'GetFrontendProjectionRequest',
     'IdentifyRequest',
@@ -2528,6 +2585,7 @@ __all__ = [
     'PutFrontendProjectionRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
+    'RegisterBrowserProviderRequest',
     'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
@@ -2563,6 +2621,7 @@ __all__ = [
     'SwapPaneRequest',
     'TerminalEventsRequest',
     'UndoLayoutRequest',
+    'UnregisterBrowserProviderRequest',
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',

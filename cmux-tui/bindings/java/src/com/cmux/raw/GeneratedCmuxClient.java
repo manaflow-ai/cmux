@@ -173,6 +173,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final BrowserProviderSnapshot getBrowserProvider() throws CmuxException {
+        Object result = execute(Commands.GET_BROWSER_PROVIDER, Map.of());
+        return BrowserProviderSnapshot.fromWire(result);
+    }
+
     public final GetCellPixelsResult getCellPixels() throws CmuxException {
         Object result = execute(Commands.GET_CELL_PIXELS, Map.of());
         return GetCellPixelsResult.fromWire(result);
@@ -311,6 +316,11 @@ public abstract class GeneratedCmuxClient {
     public final ReadScrollbackResult readScrollback(ReadScrollbackRequest request) throws CmuxException {
         Object result = execute(Commands.READ_SCROLLBACK, request.toWire());
         return ReadScrollbackResult.fromWire(result);
+    }
+
+    public final BrowserProviderSnapshot registerBrowserProvider(RegisterBrowserProviderRequest request) throws CmuxException {
+        Object result = execute(Commands.REGISTER_BROWSER_PROVIDER, request.toWire());
+        return BrowserProviderSnapshot.fromWire(result);
     }
 
     public final AttachedViewOutcomeResult releaseAttachedViewSize(ReleaseAttachedViewSizeRequest request) throws CmuxException {
@@ -480,6 +490,11 @@ public abstract class GeneratedCmuxClient {
     public final LayoutUndoResult undoLayout(UndoLayoutRequest request) throws CmuxException {
         Object result = execute(Commands.UNDO_LAYOUT, request.toWire());
         return LayoutUndoResult.fromWire(result);
+    }
+
+    public final BrowserProviderUnregisterResult unregisterBrowserProvider() throws CmuxException {
+        Object result = execute(Commands.UNREGISTER_BROWSER_PROVIDER, Map.of());
+        return BrowserProviderUnregisterResult.fromWire(result);
     }
 
     public final VtStateResult vtState(VtStateRequest request) throws CmuxException {

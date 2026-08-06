@@ -876,7 +876,7 @@ fn public_browser_snapshot(
             RegistryBrowserSource::External => "external",
             RegistryBrowserSource::Launched => "launched",
             RegistryBrowserSource::Unknown => match durable.launch {
-                RegistryBrowserLaunch::Create => "launched",
+                RegistryBrowserLaunch::Create => "external",
                 RegistryBrowserLaunch::Adopted => "external",
             },
         });

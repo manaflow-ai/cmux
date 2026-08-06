@@ -6,6 +6,8 @@
 //! `cmux-tui attach` connects the same TUI to an existing (usually
 //! headless) session over that socket, which is how detach/reattach works.
 
+#[cfg(unix)]
+mod agent_browser_provider;
 mod agent_hook_install;
 mod app;
 mod browser_input;
@@ -466,6 +468,7 @@ struct Args {
     iroh: bool,
     advertised_routes: Vec<String>,
     term: Option<String>,
+    agent_browser_provider: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -535,6 +538,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         iroh: false,
         advertised_routes: Vec::new(),
         term: None,
+        agent_browser_provider: false,
     };
     let mut args = args.into_iter().peekable();
     match args.peek().map(|s| s.as_str()) {
@@ -738,6 +742,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--term" => {
                 out.term = Some(args.next().ok_or_else(|| "--term needs a value".to_string())?);
             }
+            // Private launch contract used by cmux-browser. It configures
+            // Vercel agent-browser to attach through the local provider
+            // adapter instead of starting an unrelated Chrome process.
+            "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
                 print!("{}", usage());
                 std::process::exit(0);
@@ -1058,6 +1066,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.term.is_some() {
         conflicts.push("--term");
     }
+    if args.agent_browser_provider {
+        conflicts.push("--agent-browser-provider");
+    }
     if !conflicts.is_empty() {
         anyhow::bail!("machine provider mode cannot be combined with {}", conflicts.join(", "));
     }
@@ -1066,6 +1077,10 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
 
 fn main() {
     let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
+        std::process::exit(agent_browser_provider::run());
+    }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it
     // before installing the interactive daemon's signal handlers: the host
@@ -1453,6 +1468,10 @@ fn run_server(
     }
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+    #[cfg(unix)]
+    if args.agent_browser_provider {
+        agent_browser_provider::configure_surface_options(&mut surface_options)?;
+    }
 
     let state_root = if args.ephemeral {
         None
@@ -1992,6 +2011,14 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn browser_owned_server_accepts_the_private_agent_browser_provider_flag() {
+        let parsed = args(&["--headless", "--agent-browser-provider"]);
+        assert!(parsed.headless);
+        assert!(parsed.agent_browser_provider);
+        assert!(!usage().contains("--agent-browser-provider"));
     }
 
     #[cfg(windows)]

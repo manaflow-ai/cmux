@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 24a8c46845f5755a0bd2c5257e8fad00f794271d032470af0e9c2614bc7eb8c1.
+// cmux-tui mux protocol 10, IR 585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -477,6 +477,14 @@ pub type FocusPaneResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct GetBrowserProviderRequest {
+}
+
+#[rustfmt::skip]
+pub type GetBrowserProviderResult = T::BrowserProviderSnapshot;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GetCellPixelsRequest {
 }
 
@@ -788,6 +796,20 @@ pub struct ReadScrollbackRequest {
     pub start: u32,
     pub surface: T::Id,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RegisterBrowserProviderRequest {
+    pub authentication: T::BrowserProviderAuthentication,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub bearer_token: Optional<String>,
+    pub endpoint: String,
+    pub provider_id: String,
+    pub targets: Vec<T::BrowserProviderTarget>,
+}
+
+#[rustfmt::skip]
+pub type RegisterBrowserProviderResult = T::BrowserProviderSnapshot;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1207,6 +1229,14 @@ pub struct UndoLayoutRequest {
 pub type UndoLayoutResult = T::LayoutUndoResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct UnregisterBrowserProviderRequest {
+}
+
+#[rustfmt::skip]
+pub type UnregisterBrowserProviderResult = T::BrowserProviderUnregisterResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateRequest {
     pub surface: T::Id,
@@ -1403,6 +1433,10 @@ impl CmuxClient {
         self.execute(&FOCUS_PANE_METADATA, &request)
     }
 
+    pub fn get_browser_provider(&mut self, request: GetBrowserProviderRequest) -> Result<GetBrowserProviderResult> {
+        self.execute(&GET_BROWSER_PROVIDER_METADATA, &request)
+    }
+
     pub fn get_cell_pixels(&mut self, request: GetCellPixelsRequest) -> Result<T::GetCellPixelsResult> {
         self.execute(&GET_CELL_PIXELS_METADATA, &request)
     }
@@ -1529,6 +1563,10 @@ impl CmuxClient {
 
     pub fn read_scrollback(&mut self, request: ReadScrollbackRequest) -> Result<T::ReadScrollbackResult> {
         self.execute(&READ_SCROLLBACK_METADATA, &request)
+    }
+
+    pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {
+        self.execute(&REGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
 
     pub fn release_attached_view_size(&mut self, request: ReleaseAttachedViewSizeRequest) -> Result<ReleaseAttachedViewSizeResult> {
@@ -1727,6 +1765,10 @@ impl CmuxClient {
 
     pub fn undo_layout(&mut self, request: UndoLayoutRequest) -> Result<UndoLayoutResult> {
         self.execute(&UNDO_LAYOUT_METADATA, &request)
+    }
+
+    pub fn unregister_browser_provider(&mut self, request: UnregisterBrowserProviderRequest) -> Result<UnregisterBrowserProviderResult> {
+        self.execute(&UNREGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
 
     pub fn vt_state(&mut self, request: VtStateRequest) -> Result<T::VtStateResult> {

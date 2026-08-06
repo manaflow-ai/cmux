@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 24a8c46845f5755a0bd2c5257e8fad00f794271d032470af0e9c2614bc7eb8c1. */
+/* cmux-tui mux protocol 10, IR 585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "24a8c46845f5755a0bd2c5257e8fad00f794271d032470af0e9c2614bc7eb8c1" as const;
+export const SDK_IR_SHA256 = "585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -435,6 +435,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "get-browser-provider": {
+    "authority": "local-admin",
+    "since": 10,
+    "capability": "browser-provider-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Provider endpoints and optional bearer credentials are disclosed only over a trusted local transport.",
+      "Automation must select a target by stable tab id instead of treating CDP discovery as topology authority."
+    ]
+  },
   "get-cell-pixels": {
     "authority": "frontend",
     "since": 6,
@@ -702,6 +713,19 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "PTY surfaces only; row indexes are snapshot-relative and not durable."
+    ]
+  },
+  "register-browser-provider": {
+    "authority": "local-admin",
+    "since": 10,
+    "capability": "browser-provider-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The lease is scoped to the trusted local control connection and is released on disconnect.",
+      "The endpoint must be an explicit loopback ws URL with no credentials or fragment.",
+      "Bearer authentication is optional and sends the token only in the CDP WebSocket upgrade Authorization header.",
+      "Each registration replaces that connection's complete target set; target ids are never journaled."
     ]
   },
   "release-attached-view-size": {
@@ -1162,6 +1186,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Clients must reject incomplete or contradictory result variants."
+    ]
+  },
+  "unregister-browser-provider": {
+    "authority": "local-admin",
+    "since": 10,
+    "capability": "browser-provider-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Only the calling connection's provider lease is removed."
     ]
   },
   "vt-state": {
@@ -1773,6 +1807,126 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserProviderAuthentication": {
+    "kind": "enum",
+    "values": [
+      "none",
+      "bearer"
+    ]
+  },
+  "BrowserProviderSnapshot": {
+    "additional_properties": false,
+    "constraints": [
+      "available is true exactly when provider_id, endpoint, authentication, and clients are present.",
+      "bearer_token is present only for an available bearer-authenticated provider."
+    ],
+    "fields": {
+      "authentication": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "BrowserProviderAuthentication"
+        }
+      },
+      "available": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "bearer_token": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "clients": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "endpoint": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "provider_id": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "targets": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "BrowserProviderTarget"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserProviderTarget": {
+    "additional_properties": false,
+    "fields": {
+      "tab_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "target_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserProviderUnregisterResult": {
+    "additional_properties": false,
+    "fields": {
+      "removed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -7392,6 +7546,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "get-browser-provider": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserProviderSnapshot"
+    }
+  },
   "get-cell-pixels": {
     "request": {
       "additional_properties": false,
@@ -8421,6 +8586,62 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ReadScrollbackResult"
+    }
+  },
+  "register-browser-provider": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "authentication": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProviderAuthentication"
+          }
+        },
+        "bearer_token": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "endpoint": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "provider_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "targets": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "BrowserProviderTarget"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserProviderSnapshot"
     }
   },
   "release-attached-view-size": {
@@ -9898,6 +10119,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "LayoutUndoResult"
+    }
+  },
+  "unregister-browser-provider": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserProviderUnregisterResult"
     }
   },
   "vt-state": {

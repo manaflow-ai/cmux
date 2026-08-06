@@ -1977,6 +1977,7 @@ impl Surface {
             .transpose()?;
         if let Some(terminal_public_id) = terminal_public_id.as_ref() {
             set_surface_environment(&mut opts, "CMUX_TUI_TERMINAL_ID", terminal_public_id.as_str());
+            configure_agent_browser_session(&mut opts, terminal_public_id.as_str());
         }
         if let Some(mux) = mux.upgrade() {
             set_surface_environment(
@@ -5349,6 +5350,19 @@ fn set_surface_environment(options: &mut SurfaceOptions, key: &str, value: &str)
     }
 }
 
+fn configure_agent_browser_session(options: &mut SurfaceOptions, terminal_id: &str) {
+    let enabled = options
+        .extra_env
+        .iter()
+        .any(|(key, value)| key == "CMUX_TUI_AGENT_BROWSER_PROVIDER" && value == "1");
+    if enabled {
+        // agent-browser daemons are keyed by session. A distinct caller
+        // session prevents a command from another workspace from silently
+        // reusing the first workspace's page-scoped CDP connection.
+        set_surface_environment(options, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
+    }
+}
+
 #[cfg(test)]
 struct TestMasterPty {
     size: Mutex<PtySize>,
@@ -6119,6 +6133,26 @@ mod tests {
 
     use super::*;
     use crate::MuxEvent;
+
+    #[test]
+    fn agent_browser_provider_uses_a_terminal_local_daemon_session() {
+        let mut options = SurfaceOptions {
+            extra_env: vec![
+                ("CMUX_TUI_AGENT_BROWSER_PROVIDER".into(), "1".into()),
+                ("AGENT_BROWSER_SESSION".into(), "unsafe-shared-session".into()),
+            ],
+            ..SurfaceOptions::default()
+        };
+        configure_agent_browser_session(&mut options, "term_0123456789abcdef");
+        assert_eq!(
+            options
+                .extra_env
+                .iter()
+                .find(|(key, _)| key == "AGENT_BROWSER_SESSION")
+                .map(|(_, value)| value.as_str()),
+            Some("cmux-term_0123456789abcdef")
+        );
+    }
 
     #[test]
     fn terminal_projection_has_distinct_view_identity_and_shared_runtime() {

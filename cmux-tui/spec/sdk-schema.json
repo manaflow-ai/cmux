@@ -4131,6 +4131,126 @@
       },
       "additional_properties": false
     },
+    "BrowserProviderAuthentication": {
+      "kind": "enum",
+      "values": [
+        "none",
+        "bearer"
+      ]
+    },
+    "BrowserProviderTarget": {
+      "kind": "object",
+      "fields": {
+        "tab_id": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "target_id": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "BrowserProviderSnapshot": {
+      "kind": "object",
+      "fields": {
+        "available": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "provider_id": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "endpoint": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "authentication": {
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProviderAuthentication"
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "bearer_token": {
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "presence": "optional",
+          "nullable": true
+        },
+        "revision": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "clients": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "targets": {
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "BrowserProviderTarget"
+            }
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false,
+      "constraints": [
+        "available is true exactly when provider_id, endpoint, authentication, and clients are present.",
+        "bearer_token is present only for an available bearer-authenticated provider."
+      ]
+    },
+    "BrowserProviderUnregisterResult": {
+      "kind": "object",
+      "fields": {
+        "removed": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
     "BrowserFrame": {
       "kind": "object",
       "fields": {
@@ -8660,6 +8780,109 @@
         "terminal_event": "detached"
       },
       "constraints": []
+    },
+    "register-browser-provider": {
+      "authority": "local-admin",
+      "since": 10,
+      "capability": "browser-provider-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "provider_id": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "endpoint": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "authentication": {
+            "type": {
+              "kind": "ref",
+              "name": "BrowserProviderAuthentication"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "bearer_token": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "targets": {
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "BrowserProviderTarget"
+              }
+            },
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserProviderSnapshot"
+      },
+      "stream": null,
+      "constraints": [
+        "The lease is scoped to the trusted local control connection and is released on disconnect.",
+        "The endpoint must be an explicit loopback ws URL with no credentials or fragment.",
+        "Bearer authentication is optional and sends the token only in the CDP WebSocket upgrade Authorization header.",
+        "Each registration replaces that connection's complete target set; target ids are never journaled."
+      ]
+    },
+    "get-browser-provider": {
+      "authority": "local-admin",
+      "since": 10,
+      "capability": "browser-provider-v1",
+      "request": {
+        "kind": "object",
+        "fields": {},
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserProviderSnapshot"
+      },
+      "stream": null,
+      "constraints": [
+        "Provider endpoints and optional bearer credentials are disclosed only over a trusted local transport.",
+        "Automation must select a target by stable tab id instead of treating CDP discovery as topology authority."
+      ]
+    },
+    "unregister-browser-provider": {
+      "authority": "local-admin",
+      "since": 10,
+      "capability": "browser-provider-v1",
+      "request": {
+        "kind": "object",
+        "fields": {},
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserProviderUnregisterResult"
+      },
+      "stream": null,
+      "constraints": [
+        "Only the calling connection's provider lease is removed."
+      ]
     },
     "shutdown-daemon": {
       "authority": "local-admin",

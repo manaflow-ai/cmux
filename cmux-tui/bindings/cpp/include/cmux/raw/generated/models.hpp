@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "24a8c46845f5755a0bd2c5257e8fad00f794271d032470af0e9c2614bc7eb8c1";
+inline constexpr std::string_view kProtocolIrSha256 = "585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -26,6 +26,10 @@ struct AttachedViewOutcomeResult;
 struct AttachedViewResizeResult;
 struct Base64;
 struct BrowserFrame;
+enum class BrowserProviderAuthentication;
+struct BrowserProviderSnapshot;
+struct BrowserProviderTarget;
+struct BrowserProviderUnregisterResult;
 struct CellPixelFailure;
 struct CellPixelResize;
 struct CellPixelSurface;
@@ -144,6 +148,7 @@ struct DetachClientRequest;
 struct ExportLayoutRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
+struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
 struct GetFrontendProjectionRequest;
 struct IdentifyRequest;
@@ -174,6 +179,7 @@ struct ProcessInfoRequest;
 struct PutFrontendProjectionRequest;
 struct ReadScreenRequest;
 struct ReadScrollbackRequest;
+struct RegisterBrowserProviderRequest;
 struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
@@ -209,6 +215,7 @@ struct SubscribeRequest;
 struct SwapPaneRequest;
 struct TerminalEventsRequest;
 struct UndoLayoutRequest;
+struct UnregisterBrowserProviderRequest;
 struct VtStateRequest;
 struct WaitForRequest;
 struct ZoomPaneRequest;
@@ -508,6 +515,34 @@ struct BrowserNavigateRequest {
     Id surface{};
     std::string url{};
     friend bool operator==(const BrowserNavigateRequest&, const BrowserNavigateRequest&) = default;
+};
+
+enum class BrowserProviderAuthentication {
+    none,
+    bearer,
+};
+
+struct BrowserProviderTarget {
+    std::string tab_id{};
+    std::string target_id{};
+    friend bool operator==(const BrowserProviderTarget&, const BrowserProviderTarget&) = default;
+};
+
+struct BrowserProviderSnapshot {
+    std::optional<BrowserProviderAuthentication> authentication{};
+    bool available{};
+    Field<std::string> bearer_token{};
+    std::optional<std::uint64_t> clients{};
+    std::optional<std::string> endpoint{};
+    std::optional<std::string> provider_id{};
+    std::uint64_t revision{};
+    std::vector<BrowserProviderTarget> targets{};
+    friend bool operator==(const BrowserProviderSnapshot&, const BrowserProviderSnapshot&) = default;
+};
+
+struct BrowserProviderUnregisterResult {
+    bool removed{};
+    friend bool operator==(const BrowserProviderUnregisterResult&, const BrowserProviderUnregisterResult&) = default;
 };
 
 struct BrowserReloadRequest {
@@ -1130,6 +1165,10 @@ struct FrontendProjectionChangedEvent {
     friend bool operator==(const FrontendProjectionChangedEvent&, const FrontendProjectionChangedEvent&) = default;
 };
 
+struct GetBrowserProviderRequest {
+    friend bool operator==(const GetBrowserProviderRequest&, const GetBrowserProviderRequest&) = default;
+};
+
 struct GetCellPixelsRequest {
     friend bool operator==(const GetCellPixelsRequest&, const GetCellPixelsRequest&) = default;
 };
@@ -1694,6 +1733,15 @@ struct ReadScrollbackResult {
     std::uint32_t start{};
     std::uint32_t total{};
     friend bool operator==(const ReadScrollbackResult&, const ReadScrollbackResult&) = default;
+};
+
+struct RegisterBrowserProviderRequest {
+    BrowserProviderAuthentication authentication{};
+    Field<std::string> bearer_token{};
+    std::string endpoint{};
+    std::string provider_id{};
+    std::vector<BrowserProviderTarget> targets{};
+    friend bool operator==(const RegisterBrowserProviderRequest&, const RegisterBrowserProviderRequest&) = default;
 };
 
 struct ReleaseAttachedViewSizeRequest {
@@ -2290,6 +2338,10 @@ struct UndoLayoutRequest {
     friend bool operator==(const UndoLayoutRequest&, const UndoLayoutRequest&) = default;
 };
 
+struct UnregisterBrowserProviderRequest {
+    friend bool operator==(const UnregisterBrowserProviderRequest&, const UnregisterBrowserProviderRequest&) = default;
+};
+
 struct VtStateEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
@@ -2469,6 +2521,30 @@ template <>
 struct Codec<BrowserFrame> {
     static Result<Json> encode(const BrowserFrame& value);
     static Result<BrowserFrame> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserProviderAuthentication> {
+    static Result<Json> encode(const BrowserProviderAuthentication& value);
+    static Result<BrowserProviderAuthentication> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserProviderSnapshot> {
+    static Result<Json> encode(const BrowserProviderSnapshot& value);
+    static Result<BrowserProviderSnapshot> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserProviderTarget> {
+    static Result<Json> encode(const BrowserProviderTarget& value);
+    static Result<BrowserProviderTarget> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserProviderUnregisterResult> {
+    static Result<Json> encode(const BrowserProviderUnregisterResult& value);
+    static Result<BrowserProviderUnregisterResult> decode(const Json& value);
 };
 
 template <>
@@ -3180,6 +3256,12 @@ struct Codec<FocusPaneRequest> {
 };
 
 template <>
+struct Codec<GetBrowserProviderRequest> {
+    static Result<Json> encode(const GetBrowserProviderRequest& value);
+    static Result<GetBrowserProviderRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<GetCellPixelsRequest> {
     static Result<Json> encode(const GetCellPixelsRequest& value);
     static Result<GetCellPixelsRequest> decode(const Json& value);
@@ -3357,6 +3439,12 @@ template <>
 struct Codec<ReadScrollbackRequest> {
     static Result<Json> encode(const ReadScrollbackRequest& value);
     static Result<ReadScrollbackRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<RegisterBrowserProviderRequest> {
+    static Result<Json> encode(const RegisterBrowserProviderRequest& value);
+    static Result<RegisterBrowserProviderRequest> decode(const Json& value);
 };
 
 template <>
@@ -3567,6 +3655,12 @@ template <>
 struct Codec<UndoLayoutRequest> {
     static Result<Json> encode(const UndoLayoutRequest& value);
     static Result<UndoLayoutRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UnregisterBrowserProviderRequest> {
+    static Result<Json> encode(const UnregisterBrowserProviderRequest& value);
+    static Result<UnregisterBrowserProviderRequest> decode(const Json& value);
 };
 
 template <>

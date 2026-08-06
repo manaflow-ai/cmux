@@ -71,13 +71,11 @@ The Unix-only `machine-agent` shares an existing local session through one outbo
 
 Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_TUI_TERM` can override the terminal runtime default, with `CMUX_MUX_TERM` retained as a legacy fallback.
 
-## Browser Realism
+## Browser ownership
 
-By default, browser panes launch your real Google Chrome or another Chrome-family binary in `browser.mode: "headful"` with a visible window and a persistent per-session profile. Log into Google or other sites once in that visible window; cookies and logins persist across sessions. Set `browser.mode: "headless"` to hide the launched Chrome window. Both modes keep the anti-throttle flags, `--disable-blink-features=AutomationControlled`, the persistent `--user-data-dir`, and `about:blank` startup.
+Browser tabs are attach-only. cmux-tui never discovers or launches Chrome and never owns browser profiles, cookies, or targets. A live cmux-browser process publishes its ephemeral loopback CDP endpoint and stable tab-to-target mapping over the trusted local control socket. If that provider disappears, the canonical tab and layout remain and reconnect when the provider returns. `CMUX_MUX_CDP_URL` remains an explicit development-only endpoint.
 
-Chrome 136 and newer reject CDP remote debugging on the OS-default profile directory, and a running normal Chrome owns its profile `SingletonLock`. Use the mux profile, set `browser.user_data_dir` to a copy or a dedicated directory after quitting normal Chrome, or attach to a Chrome you started with `--remote-debugging-port`.
-
-To attach instead of launching, set `browser.cdp_url`, `CMUX_MUX_CDP_URL`, or enable discovery. Agent Browser works the same way: run `agent-browser get cdp-url` and use the returned `ws://` URL. This build supports `ws://` and `http://` CDP endpoints; `wss://` is not supported.
+cmux-browser starts its bundled TUI with the upstream Vercel `agent-browser` provider enabled. New terminal shells inherit a caller-local agent-browser session and a `browser.provider` plugin backed by the same cmux-browser process, so ordinary `agent-browser snapshot`, `click`, `fill`, and related commands operate on a browser tab in that terminal's canonical workspace instead of spawning or auto-discovering another Chrome. Selection is deterministic and does not read any frontend's active/focus state; set `CMUX_TUI_BROWSER_TAB_ID` to choose an exact stable tab when a workspace contains several browser tabs.
 
 ## Development
 
