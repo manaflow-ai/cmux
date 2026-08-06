@@ -9,6 +9,7 @@ import {
   readTeamVault,
 } from "./vault";
 import type { CodeRouterCredential } from "./types";
+import type { VaultAccount } from "./types";
 
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENCODE_CLIENT_ID = "opencode-cli";
@@ -27,8 +28,10 @@ export async function freshCredential(input: {
   readonly accountId: string;
   readonly expectedRevision: number;
   readonly force?: boolean;
+  readonly known?: VaultAccount;
 }): Promise<CodeRouterCredential> {
-  const before = await readCredential(input.teamId, input.accountId);
+  const before = input.known ??
+    await readCredential(input.teamId, input.accountId);
   if (!input.force && before.credential.expiresAt > Date.now() + REFRESH_SKEW_MS) {
     return before.credential;
   }

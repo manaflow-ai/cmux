@@ -39,7 +39,7 @@ afterAll(() => {
 
 const { proxyCodexModels } = await import("../services/coderouter/codexProxy");
 
-describe("CodeRouter models proxy", () => {
+describe("coderouter models proxy", () => {
   test("forwards Codex model discovery through the authenticated account", async () => {
     const response = await proxyCodexModels(
       new Request("https://coderouter.dev/v1/models?client_version=0.146.0", {
