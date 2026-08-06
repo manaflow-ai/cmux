@@ -265,7 +265,7 @@ fail_entry() {
 # re-reads enqueued_at; when it changed, the newer build is left queued for the
 # next drain pass instead of being silently deleted or failed.
 drain_entry() {
-  local slug="$1" override_device="$2"
+  local slug="$1" override_device="$2" suppress_launch="${3:-0}"
   local entry="$PENDING_DIR/$slug"
   local meta="$entry/meta.json"
   local app="$entry/cmux.app"
@@ -330,6 +330,18 @@ drain_entry() {
 
   if [[ "$launch" != "1" ]]; then
     log "installed $bundle_id (launch disabled at enqueue)"
+    finish_installed
+    return $?
+  fi
+
+  # A multi-tag backlog must not fight over the phone's screen: each signed
+  # launch foregrounds its app, suspending the previously launched one seconds
+  # after it paired (its stream drops and the user finds it disconnected).
+  # The drain therefore launches ONLY the newest queued build; older ones are
+  # installed fresh but left unlaunched — they sign in and re-pair on their
+  # next manual open with their stored credentials.
+  if [[ "$suppress_launch" == "1" ]]; then
+    log "installed $bundle_id (launch deferred: a newer queued build owns the screen this drain)"
     finish_installed
     return $?
   fi
@@ -408,10 +420,22 @@ cmd_drain() {
   local start now installed_tags="" had_failure=0
   start="$(date +%s)"
   while :; do
-    local slug rc remaining=0
+    local slug rc remaining=0 newest_slug="" newest_stamp="" stamp suppress
+    # Only the most recently enqueued build gets the signed foreground launch
+    # this pass; see drain_entry's suppress_launch comment. Timestamps are
+    # ISO-8601 from this Mac's clock, so lexicographic comparison orders them.
     for slug in $(pending_slugs); do
+      stamp="$(meta_field "$PENDING_DIR/$slug/meta.json" enqueued_at 2>/dev/null || true)"
+      if [[ -n "$stamp" && ( -z "$newest_stamp" || "$stamp" > "$newest_stamp" ) ]]; then
+        newest_stamp="$stamp"
+        newest_slug="$slug"
+      fi
+    done
+    for slug in $(pending_slugs); do
+      suppress=0
+      [[ -n "$newest_slug" && "$slug" != "$newest_slug" ]] && suppress=1
       set +e
-      drain_entry "$slug" "$override_device"
+      drain_entry "$slug" "$override_device" "$suppress"
       rc=$?
       set -e
       case "$rc" in
