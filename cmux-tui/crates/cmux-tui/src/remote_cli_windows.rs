@@ -321,7 +321,6 @@ fn ensure_mux_owner(
             Ok(())
         }
         _ if identify_mux_owner(&paths.mux_socket, &options.session)?.is_some() => {
-            terminate_failed_owner(&mut child);
             ensure_owner_link_ready(paths)?;
             Ok(())
         }
