@@ -47,11 +47,11 @@ export async function generateMetadata({
 }
 
 export default async function BrowserPage() {
-  const [t, common, platforms, unavailable, footer] = await Promise.all([
+  const [t, common, platforms, waitlist, footer] = await Promise.all([
     getTranslations("browserDownloads"),
     getTranslations("common"),
     getTranslations("platforms"),
-    getTranslations("vault.detail"),
+    getTranslations("waitlist"),
     getTranslations("footer"),
   ]);
   const title = `${t("eyebrow")} ${footer("nightly")}`;
@@ -124,7 +124,7 @@ export default async function BrowserPage() {
               <p className="mt-3 text-sm text-muted">{card.requirements}</p>
               {!card.available && (
                 <p className="mt-4 text-xs text-muted">
-                  {unavailable("downloadUnavailable")}
+                  {waitlist("calloutText")}
                 </p>
               )}
               <div className="mt-auto pt-6">

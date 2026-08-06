@@ -168,6 +168,8 @@ describe("Windows and Linux downloads", () => {
     expect(browserPage).toContain("BROWSER_MACOS_NIGHTLY_AVAILABLE");
     expect(browserPage).toContain("PLATFORM_DOWNLOAD_AVAILABILITY.windows");
     expect(browserPage).toContain("PLATFORM_DOWNLOAD_AVAILABILITY.linux");
+    expect(browserPage).toContain('getTranslations("waitlist")');
+    expect(browserPage).not.toContain('getTranslations("vault.detail")');
     expect(downloadButton).toContain("BROWSER_NIGHTLY_PAGE");
     expect(downloadButton).toContain("cmux_browser_nightly_page_clicked");
   });
