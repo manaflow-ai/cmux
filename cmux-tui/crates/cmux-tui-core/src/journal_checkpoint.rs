@@ -28,6 +28,7 @@ const RESOURCE_COLLECTIONS: [&str; 10] = [
     "sidebar_views",
 ];
 
+#[derive(Debug)]
 pub(crate) struct CapturedCheckpoint {
     pub(crate) source_sequence: u64,
     pub(crate) state: Value,
