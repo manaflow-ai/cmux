@@ -9,3 +9,11 @@ struct PortScanPublicationBatch: Sendable {
         panelPublicationsByKey.isEmpty && agentPublicationsByWorkspace.isEmpty
     }
 }
+
+/// Immutable arrays materialized on the scanner queue before delivery hops to
+/// the main actor. This keeps dictionary storage walks and allocation out of
+/// the UI publication loop.
+struct PortScanPublicationDeliveryBatch: Sendable {
+    let panelPublications: [PanelPortScanPublication]
+    let agentPublications: [AgentPortScanPublication]
+}

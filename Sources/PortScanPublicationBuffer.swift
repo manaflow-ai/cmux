@@ -40,7 +40,7 @@ struct PortScanPublicationBuffer {
         return scheduleDrainIfNeeded()
     }
 
-    mutating func takePendingBatch() -> PortScanPublicationBatch? {
+    mutating func takePendingBatch() -> PortScanPublicationDeliveryBatch? {
         guard claimedAgentPublicationsByWorkspace.isEmpty else { return nil }
         guard !pending.isEmpty else {
             isDrainScheduled = false
@@ -49,7 +49,10 @@ struct PortScanPublicationBuffer {
         let batch = pending
         pending = PortScanPublicationBatch()
         claimedAgentPublicationsByWorkspace = batch.agentPublicationsByWorkspace
-        return batch
+        return PortScanPublicationDeliveryBatch(
+            panelPublications: Array(batch.panelPublicationsByKey.values),
+            agentPublications: Array(batch.agentPublicationsByWorkspace.values)
+        )
     }
 
     mutating func completeAgentDelivery(

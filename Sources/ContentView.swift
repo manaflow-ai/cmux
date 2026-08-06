@@ -954,6 +954,9 @@ struct ContentView: View {
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     @State private var sidebarResizerCursorReleaseScheduler = SidebarResizerCursorReleaseScheduler()
+    // Reference state is intentionally non-observed. Mouse down/up events must
+    // not invalidate the full ContentView tree.
+    @State private var sidebarResizerPointerButtonState = SidebarResizerPointerButtonState()
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
     @State private var isSidebarResizerCursorActive = false
@@ -1446,9 +1449,13 @@ struct ContentView: View {
     }
 
     private func releaseSidebarResizerCursorIfNeeded(force: Bool = false) {
-        let isLeftMouseButtonDown = CGEventSource.buttonState(.combinedSessionState, button: .left)
         let shouldKeepCursor = !force
-            && (isResizerDragging || isResizerBandActive || !hoveredResizerHandles.isEmpty || isLeftMouseButtonDown)
+            && (
+                isResizerDragging
+                    || isResizerBandActive
+                    || !hoveredResizerHandles.isEmpty
+                    || sidebarResizerPointerButtonState.isLeftButtonDown
+            )
         guard !shouldKeepCursor else { return }
         guard isSidebarResizerCursorActive else { return }
         isSidebarResizerCursorActive = false
@@ -1508,14 +1515,14 @@ struct ContentView: View {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now(), repeating: .milliseconds(16), leeway: .milliseconds(2))
         timer.setEventHandler {
-            // Ground-truth failsafe: a cancelled SwiftUI drag gesture never
-            // fires onEnded, stranding isResizerDragging and pinning the
-            // resize cursor. If the physical button is up, the drag is over.
+            // Failsafe: a cancelled SwiftUI drag gesture never fires onEnded,
+            // stranding isResizerDragging and pinning the resize cursor. The
+            // local event monitor remains the source of button state.
             // End the registry session too — clearing only the local flag
             // left portals latched in interactive-resize mode (deferred PTY
             // resizes, immediate-path syncs) until the next real drag.
             if isResizerDragging,
-               !CGEventSource.buttonState(.combinedSessionState, button: .left) {
+               !sidebarResizerPointerButtonState.isLeftButtonDown {
                 TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
                 isResizerDragging = false
                 sidebarDragStartWidth = nil
@@ -1557,6 +1564,7 @@ struct ContentView: View {
                 .leftMouseDragged,
             ]
         ) { event in
+            sidebarResizerPointerButtonState.observe(event.type)
             updateSidebarResizerBandState(using: event)
             let shouldOverrideCursorEvent: Bool = {
                 switch event.type {
@@ -1583,6 +1591,7 @@ struct ContentView: View {
             NSEvent.removeMonitor(monitor)
             sidebarResizerPointerMonitor = nil
         }
+        sidebarResizerPointerButtonState.reset()
         isResizerBandActive = false
         isSidebarResizerCursorActive = false
         stopSidebarResizerCursorStabilizer()
@@ -1600,11 +1609,12 @@ struct ContentView: View {
         if featureFlags.isAppKitSidebarListEnabled {
             base
                 .overlay(
-                    // Native divider tracking (NSSplitView's technique): a
-                    // synchronous event loop that commits and presents each
-                    // width change inside the mouse event.
+                        // Native divider tracking (NSSplitView's technique): a
+                        // synchronous event loop that commits and presents each
+                        // width change inside the mouse event.
                     SidebarDividerTracker(
                         onBegan: {
+                            sidebarResizerPointerButtonState.observe(.leftMouseDown)
                             let config = resizerConfig(for: handle, availableWidth: availableWidth)
                             TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
                                 owner: tabManager,
@@ -1619,6 +1629,7 @@ struct ContentView: View {
                             config.updateWidth(translation)
                         },
                         onEnded: {
+                            sidebarResizerPointerButtonState.observe(.leftMouseUp)
                             TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
                             isResizerDragging = false
                             let config = resizerConfig(for: handle, availableWidth: availableWidth)
@@ -1634,6 +1645,7 @@ struct ContentView: View {
                 .gesture(
                     DragGesture(minimumDistance: 0, coordinateSpace: .global)
                         .onChanged { value in
+                            sidebarResizerPointerButtonState.observe(.leftMouseDown)
                             let config = resizerConfig(for: handle, availableWidth: availableWidth)
                             if !isResizerDragging {
                                 TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
@@ -1647,6 +1659,7 @@ struct ContentView: View {
                             config.updateWidth(value.translation.width)
                         }
                         .onEnded { _ in
+                            sidebarResizerPointerButtonState.observe(.leftMouseUp)
                             if isResizerDragging {
                                 TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
                                 isResizerDragging = false
@@ -1677,8 +1690,7 @@ struct ContentView: View {
                     activateSidebarResizerCursor()
                 } else {
                     hoveredResizerHandles.remove(handle)
-                    let isLeftMouseButtonDown = CGEventSource.buttonState(.combinedSessionState, button: .left)
-                    if isLeftMouseButtonDown {
+                    if sidebarResizerPointerButtonState.isLeftButtonDown {
                         // Keep resize cursor pinned through mouse-down so AppKit
                         // cursorUpdate events from overlapping views do not flash arrow.
                         activateSidebarResizerCursor()

@@ -28,7 +28,7 @@ extension PortScanner {
     private func drainPortPublications() async {
         while let batch = await nextPublicationBatch() {
             let panelPublications = publicationState.acceptCurrentPanelPublications(
-                batch.panelPublicationsByKey.values
+                batch.panelPublications
             )
             if let panelCallback = onPortsUpdated {
                 for publication in panelPublications {
@@ -40,7 +40,7 @@ extension PortScanner {
                 }
             }
 
-            let deliveredResults = Array(batch.agentPublicationsByWorkspace.values)
+            let deliveredResults = batch.agentPublications
             guard !deliveredResults.isEmpty else { continue }
             let currentResults = publicationState.acceptCurrentAgentPublications(deliveredResults)
             let appliedResults = currentResults.filter { result in
