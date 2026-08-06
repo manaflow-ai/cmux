@@ -116,6 +116,12 @@ public struct SQLiteDatabaseSnapshotService {
         let pageSize = try databasePageSize(sourceDatabase)
         try checkDeadline(startedAt: startedAt)
         try createPrivateDestinationFile(path: destinationPath)
+        var destinationCompleted = false
+        defer {
+            if !destinationCompleted {
+                removeSnapshotArtifacts(destinationPath: destinationPath)
+            }
+        }
         var destinationDatabase: OpaquePointer?
         let destinationOpenResult = sqlite3_open_v2(
             destinationPath,
@@ -195,6 +201,7 @@ public struct SQLiteDatabaseSnapshotService {
                 destinationDatabaseNeedsClose = nil
                 try restrictSnapshotArtifactPermissions(destinationPath: destinationPath)
                 try removeSnapshotSidecars(destinationPath: destinationPath)
+                destinationCompleted = true
                 return
             case SQLITE_OK:
                 busyRetryCount = 0
@@ -610,6 +617,7 @@ public struct SQLiteDatabaseSnapshotService {
         }
         defer { _ = Darwin.close(descriptor) }
         guard Darwin.fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
+            _ = Darwin.unlink(path)
             throw SQLiteDatabaseSnapshotError.sqlite(
                 "cannot restrict snapshot database permissions"
             )
@@ -692,6 +700,12 @@ public struct SQLiteDatabaseSnapshotService {
                     "cannot remove snapshot sidecar: \(error.localizedDescription)"
                 )
             }
+        }
+    }
+
+    private func removeSnapshotArtifacts(destinationPath: String) {
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            _ = Darwin.unlink(destinationPath + suffix)
         }
     }
 
