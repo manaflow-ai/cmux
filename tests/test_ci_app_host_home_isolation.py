@@ -135,9 +135,12 @@ def main() -> int:
         "neutral app-host home": (
             'echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"'
         ),
-        "neutral app-host XDG home": (
-            'echo "CMUX_APP_HOST_XDG_CONFIG_HOME=$APP_HOST_HOME/.config" '
-            '>> "$GITHUB_ENV"'
+        "structured Ghostty config sentinel path": (
+            'APP_HOST_CONFIG_SENTINEL="$APP_HOST_HOME/Library/Application Support/'
+            'com.mitchellh.ghostty/config.ghostty"'
+        ),
+        "structured Ghostty config sentinel contents": (
+            "cmux CI app-host isolation sentinel"
         ),
         "owner-only app-host access": (
             'chmod -R u+rwX,go-rwx "$APP_HOST_HOME"'
@@ -147,6 +150,19 @@ def main() -> int:
     }
     for context, needle in requirements.items():
         require(setup_run, needle, context)
+
+    home_publish = setup_run.index(
+        'echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"'
+    )
+    first_home_mutation = setup_run.index('rm -rf "$APP_HOST_HOME"')
+    if home_publish > first_home_mutation:
+        raise SystemExit(
+            "FAIL: cleanup target must be published before app-host home creation"
+        )
+    if 'echo "CMUX_APP_HOST_XDG_CONFIG_HOME=' in setup_run:
+        raise SystemExit(
+            "FAIL: workflow must derive XDG from the single published cleanup target"
+        )
 
     for leaked_redirect in (
         'echo "CFFIXED_USER_HOME=',
@@ -267,6 +283,11 @@ def main() -> int:
         "SWIFT_ACTIVE_COMPILATION_CONDITIONS=\\$(inherited) "
         "CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
         "independent compiled isolation assertion",
+    )
+    require(
+        APP_HOST_WRAPPER,
+        "FAIL: app-host configuration evidence is missing",
+        "missing structured Ghostty evidence failure",
     )
     require(
         APP_HOST_POLICY_TESTS,

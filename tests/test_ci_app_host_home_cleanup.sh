@@ -128,6 +128,29 @@ if [ -e "$MISSING_XDG_HOME" ]; then
   exit 1
 fi
 
+PARTIAL_SETUP_HOME="$RUNNER_TEMP_DIR/ah-123456abcdef"
+mkdir -p "$PARTIAL_SETUP_HOME"
+printf 'partially-created\n' > "$PARTIAL_SETUP_HOME/sentinel"
+set +e
+PATH="$FAKE_BIN:$PATH" \
+CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+CMUX_APP_HOST_HOME="$PARTIAL_SETUP_HOME" \
+GITHUB_WORKSPACE="$ROOT_DIR" \
+  /usr/bin/env -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+    bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
+      scripts/ci/cleanup-app-host-home.sh \
+      >"$TMP_DIR/partial-setup-cleanup.log" 2>&1
+partial_setup_status=$?
+set -e
+if [ "$partial_setup_status" -ne 0 ] || [ -e "$PARTIAL_SETUP_HOME" ]; then
+  cat "$TMP_DIR/partial-setup-cleanup.log"
+  echo "FAIL: cleanup must recover a home created after its single target was published"
+  exit 1
+fi
+
 for mutated_xdg_kind in regular-file dangling-symlink; do
   case "$mutated_xdg_kind" in
     regular-file) MUTATED_XDG_HOME="$RUNNER_TEMP_DIR/ah-112233445566" ;;

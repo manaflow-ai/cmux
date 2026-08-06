@@ -19,12 +19,15 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME:-<unset>}" \
     >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
   config_home="${TEST_RUNNER_HOME:-${HOME:-/tmp}}"
-  config_category=config
+  config_category=default
+  config_message="reading configuration file"
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
+  emit_config_evidence=1
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
     xdg-config-leak)
+      config_category=config
       config_home=/Users/runner
       config_suffix='.config/ghostty/config'
       ;;
@@ -33,16 +36,27 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
       config_home=/Users/runner
       config_suffix='.config/ghostty/config'
       ;;
+    unrelated-config-token)
+      config_category=config
+      config_message="config:"
+      ;;
+    no-config-evidence)
+      emit_config_evidence=0
+      ;;
     missing-log)
       rm -f "$CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH"
       exit 0
       ;;
   esac
-  echo "cmux DEV [$config_category] config: path=$config_home/$config_suffix"
+  if [ "$emit_config_evidence" = "1" ]; then
+    echo "cmux DEV [$config_category] $config_message path=$config_home/$config_suffix"
+  fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
-    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ]; then
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "unrelated-config-token" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "no-config-evidence" ]; then
     echo 'cmux DEV message = "socket.listener.start"'
     exit 0
   fi
@@ -242,6 +256,35 @@ if [ "$isolated_runner_count" -ne "$invocation_count" ]; then
   echo "FAIL: every xcodebuild invocation must pass isolated homes through TEST_RUNNER_ variables"
   exit 1
 fi
+
+for evidence_regression in no-config-evidence unrelated-config-token; do
+  set +e
+  PATH="$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$TMP_DIR" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/$evidence_regression-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/$evidence_regression-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/$evidence_regression-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/$evidence_regression-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE="$evidence_regression" \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+  CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+  CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+    bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+      >"$TMP_DIR/$evidence_regression-output.log" 2>&1
+  evidence_regression_status=$?
+  set -e
+
+  if [ "$evidence_regression_status" -ne 1 ] || ! grep -Fq \
+    "FAIL: app-host configuration evidence is missing" \
+    "$TMP_DIR/$evidence_regression-output.log"; then
+    cat "$TMP_DIR/$evidence_regression-output.log"
+    echo "FAIL: wrapper must reject $evidence_regression"
+    exit 1
+  fi
+done
 
 EXTERNAL_XDG_CONFIG_HOME="$TMP_DIR/external-xdg"
 mkdir -p "$EXTERNAL_XDG_CONFIG_HOME"
