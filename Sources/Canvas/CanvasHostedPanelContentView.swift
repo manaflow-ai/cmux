@@ -15,7 +15,6 @@ struct CanvasHostedPanelContentView: View {
     let paneId: PaneID
     let isVisibleInUI: Bool
     let portalPriority: Int
-    let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     let customSidebarTabManager: TabManager?
     let onRequestPanelFocus: () -> Void
@@ -31,8 +30,8 @@ struct CanvasHostedPanelContentView: View {
             allowsPointerInput: presentation.allowsPointerInput,
             pointerEntryEventFilter: presentation.acceptsPointerEntryEvent,
             portalPriority: portalPriority,
-            isSplit: false,
-            appearance: appearance,
+            isSplit: presentation.isSplit,
+            appearance: presentation.appearance,
             windowAppearance: windowAppearance,
             customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: false,

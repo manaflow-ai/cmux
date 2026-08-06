@@ -1140,6 +1140,24 @@ private final class BrowserDropZoneOverlayView: NSView {
     }
 }
 
+/// Click-through overlay that paints the unfocused-split dim over a browser
+/// pane's web content. Internal (not file-private) so tests can locate it in
+/// the slot's subviews by type.
+final class BrowserInactiveDimOverlayView: NSView {
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+/// The unfocused-split dim painted over an inactive browser pane's web content,
+/// mirroring the terminal's `unfocused-split-opacity` overlay.
+struct BrowserPortalInactiveDimConfiguration: Equatable {
+    let color: NSColor
+    let opacity: Double
+}
+
 struct BrowserPortalSearchOverlayConfiguration {
     let panelId: UUID
     let searchState: BrowserSearchState
@@ -1172,6 +1190,7 @@ final class WindowBrowserSlotView: NSView {
     }
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
+    private let inactiveDimOverlayView = BrowserInactiveDimOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     private var designComposerHostingView: BrowserDesignModeComposerHostingView?
     private var designComposerPanelId: UUID?
@@ -1207,6 +1226,12 @@ final class WindowBrowserSlotView: NSView {
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
+
+        inactiveDimOverlayView.wantsLayer = true
+        inactiveDimOverlayView.isHidden = true
+        inactiveDimOverlayView.autoresizingMask = [.width, .height]
+        addSubview(inactiveDimOverlayView, positioned: .above, relativeTo: nil)
+
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
     }
 
@@ -1225,6 +1250,8 @@ final class WindowBrowserSlotView: NSView {
     override func layout() {
         super.layout()
         paneDropTargetView.frame = bounds
+        inactiveDimOverlayView.frame = bounds
+        liftInactiveDimAboveHostedContentIfNeeded()
         applyResolvedDropZoneOverlay()
         if let hostedWebView,
            hostedWebView.cmuxBrowserViewportUsesHost,
@@ -1308,6 +1335,35 @@ final class WindowBrowserSlotView: NSView {
         guard abs(paneTopChromeHeight - resolvedHeight) > 0.5 else { return }
         paneTopChromeHeight = resolvedHeight
         applyResolvedDropZoneOverlay()
+    }
+
+    /// Shows, updates, or hides the unfocused-split dim over this slot's content.
+    func setInactiveDim(_ configuration: BrowserPortalInactiveDimConfiguration?) {
+        let clampedOpacity = min(max(configuration?.opacity ?? 0, 0), 1)
+        guard let configuration, clampedOpacity > 0.0001 else {
+            inactiveDimOverlayView.isHidden = true
+            return
+        }
+        inactiveDimOverlayView.layer?.backgroundColor =
+            configuration.color.withAlphaComponent(clampedOpacity).cgColor
+        if inactiveDimOverlayView.isHidden {
+            inactiveDimOverlayView.frame = bounds
+            inactiveDimOverlayView.isHidden = false
+        }
+        liftInactiveDimAboveHostedContentIfNeeded()
+    }
+
+    /// Re-lifts the visible dim above hosted content. sortSubviews is silently
+    /// ignored while a subview insertion is in flight (didAddSubview), so a web
+    /// view attached after the dim would cover it; layout runs once attach
+    /// churn settles and restores the order here.
+    private func liftInactiveDimAboveHostedContentIfNeeded() {
+        guard !inactiveDimOverlayView.isHidden,
+              let dimIndex = subviews.firstIndex(of: inactiveDimOverlayView),
+              let topContent = subviews.last(where: { interactionLayerPriority(of: $0) == 0 }),
+              let topContentIndex = subviews.firstIndex(of: topContent),
+              topContentIndex > dimIndex else { return }
+        addSubview(inactiveDimOverlayView, positioned: .above, relativeTo: topContent)
     }
 
     private func logSearchOverlayEvent(_ action: String, panelId: UUID?) {
@@ -1731,10 +1787,12 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
-        if view === paneDropTargetView { return 4 }
-        if view === omnibarSuggestionsHostingView { return 3 }
-        if view === searchOverlayHostingView { return 2 }
-        if view === designComposerHostingView { return 1 }
+        if view === dropZoneOverlayView { return 6 }
+        if view === paneDropTargetView { return 5 }
+        if view === omnibarSuggestionsHostingView { return 4 }
+        if view === searchOverlayHostingView { return 3 }
+        if view === designComposerHostingView { return 2 }
+        if view === inactiveDimOverlayView { return 1 }
         return 0
     }
 
@@ -1824,6 +1882,7 @@ final class WindowBrowserPortal: NSObject {
         var searchOverlay: BrowserPortalSearchOverlayConfiguration?
         var designComposer: BrowserPortalDesignComposerConfiguration?
         var omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
+        var inactiveDim: BrowserPortalInactiveDimConfiguration?
         var paneTopChromeHeight: CGFloat
         var transientRecoveryReason: String?
         var transientRecoveryRetriesRemaining: Int
@@ -2402,6 +2461,7 @@ final class WindowBrowserPortal: NSObject {
             existing.setSearchOverlay(entry.searchOverlay)
             existing.setDesignComposer(entry.designComposer)
             existing.setOmnibarSuggestions(entry.omnibarSuggestions)
+            existing.setInactiveDim(entry.inactiveDim)
             existing.setPaneTopChromeHeight(entry.paneTopChromeHeight)
             return existing
         }
@@ -2410,6 +2470,7 @@ final class WindowBrowserPortal: NSObject {
         created.setSearchOverlay(entry.searchOverlay)
         created.setDesignComposer(entry.designComposer)
         created.setOmnibarSuggestions(entry.omnibarSuggestions)
+        created.setInactiveDim(entry.inactiveDim)
         created.setPaneTopChromeHeight(entry.paneTopChromeHeight)
 #if DEBUG
         cmuxDebugLog(
@@ -2858,6 +2919,18 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setOmnibarSuggestions(configuration)
     }
 
+    /// Stores and applies the unfocused-split dim for the given web view's slot.
+    func updateInactiveDim(
+        forWebViewId webViewId: ObjectIdentifier,
+        configuration: BrowserPortalInactiveDimConfiguration?
+    ) {
+        guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard entry.inactiveDim != configuration else { return }
+        entry.inactiveDim = configuration
+        entriesByWebViewId[webViewId] = entry
+        entry.containerView?.setInactiveDim(configuration)
+    }
+
     func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
         // Drive the lookup off the live slot view hierarchy rather than copying
         // Entry structs out of entriesByWebViewId. Each Entry copy performs 3
@@ -2942,6 +3015,7 @@ final class WindowBrowserPortal: NSObject {
                 searchOverlay: nil,
                 designComposer: nil,
                 omnibarSuggestions: nil,
+                inactiveDim: nil,
                 paneTopChromeHeight: 0,
                 transientRecoveryReason: nil,
                 transientRecoveryRetriesRemaining: 0
@@ -2982,6 +3056,7 @@ final class WindowBrowserPortal: NSObject {
             searchOverlay: previousEntry?.searchOverlay,
             designComposer: previousEntry?.designComposer,
             omnibarSuggestions: previousEntry?.omnibarSuggestions,
+            inactiveDim: previousEntry?.inactiveDim,
             paneTopChromeHeight: previousEntry?.paneTopChromeHeight ?? 0,
             transientRecoveryReason: previousEntry?.transientRecoveryReason,
             transientRecoveryRetriesRemaining: previousEntry?.transientRecoveryRetriesRemaining ?? 0
@@ -4017,6 +4092,17 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateOmnibarSuggestions(forWebViewId: webViewId, configuration: configuration)
+    }
+
+    /// Routes an unfocused-split dim update to the web view's window portal.
+    static func updateInactiveDim(
+        for webView: WKWebView,
+        configuration: BrowserPortalInactiveDimConfiguration?
+    ) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.updateInactiveDim(forWebViewId: webViewId, configuration: configuration)
     }
 
     static func searchOverlayPanelId(for responder: NSResponder, in window: NSWindow) -> UUID? {

@@ -249,6 +249,11 @@ struct BrowserPanelView: View {
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    /// Whether the pane shares its container with other panes; unfocused split
+    /// panes get the unfocused-split dim.
+    let isSplit: Bool
+    /// Resolved panel appearance supplying the dim color and opacity.
+    let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
     /// Explicit pane-ownership signal for hosts whose panels are not registered
     /// in the main `Workspace` tree (e.g. the right-sidebar Dock, which owns its
@@ -347,6 +352,8 @@ struct BrowserPanelView: View {
         isFocused: Bool,
         isVisibleInUI: Bool,
         portalPriority: Int,
+        isSplit: Bool,
+        appearance: PanelAppearance,
         paneOwnershipOverride: Bool? = nil,
         onRequestPanelFocus: @escaping () -> Void
     ) {
@@ -355,6 +362,8 @@ struct BrowserPanelView: View {
         self.isFocused = isFocused
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
+        self.isSplit = isSplit
+        self.appearance = appearance
         self.paneOwnershipOverride = paneOwnershipOverride
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
@@ -362,6 +371,16 @@ struct BrowserPanelView: View {
             themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
             drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
         ))
+    }
+
+    /// The unfocused-split dim to apply, or `nil` when the pane should not dim.
+    private var inactiveDim: BrowserPortalInactiveDimConfiguration? {
+        isSplit && !isFocused
+            ? BrowserPortalInactiveDimConfiguration(
+                color: appearance.unfocusedOverlayNSColor,
+                opacity: appearance.unfocusedOverlayOpacity
+            )
+            : nil
     }
 
     private var searchConfiguration: BrowserSearchConfiguration {
@@ -1723,6 +1742,7 @@ struct BrowserPanelView: View {
                         controller: panel.designModeController
                     ),
                     omnibarSuggestions: portalOmnibarSuggestions,
+                    inactiveDim: inactiveDim,
                     paneTopChromeHeight: panel.isOmnibarVisible ? addressBarHeight : 0
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
@@ -1762,6 +1782,13 @@ struct BrowserPanelView: View {
                         if shouldShowEmptyStateImportOverlay,
                            browserImportHintPresentation.blankTabPlacement == .floatingCard {
                             emptyBrowserStateCardOverlay
+                        }
+                    }
+                    .overlay {
+                        if let inactiveDim {
+                            Color(nsColor: inactiveDim.color)
+                                .opacity(inactiveDim.opacity)
+                                .allowsHitTesting(false)
                         }
                     }
             }
@@ -5322,6 +5349,8 @@ struct WebViewRepresentable: NSViewRepresentable {
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let designComposer: BrowserPortalDesignComposerConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
+    /// The unfocused-split dim for the hosted web content, or `nil` for none.
+    let inactiveDim: BrowserPortalInactiveDimConfiguration?
     let paneTopChromeHeight: CGFloat
 
     final class Coordinator {
@@ -7198,6 +7227,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         guard let host = nsView as? HostContainerView else { return false }
         let slotView = host.ensureLocalInlineSlotView()
         slotView.setDesignComposer(designComposer)
+        slotView.setInactiveDim(inactiveDim)
         let isAlreadyInLocalHost = host.containsManagedLocalInlineContent(webView)
         let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
             for: webView,
@@ -7416,6 +7446,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
         let activeSearchOverlay = coordinator.desiredPortalVisibleInUI ? searchOverlay : nil
         let activeDesignComposer = coordinator.desiredPortalVisibleInUI ? designComposer : nil
+        let activeInactiveDim = coordinator.desiredPortalVisibleInUI ? inactiveDim : nil
         let portalAnchorView = panel.portalAnchorView
         let portalHideReason = !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
         let didReleasePortalHost: Bool
@@ -7503,6 +7534,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
+            BrowserWindowPortalRegistry.updateInactiveDim(for: webView, configuration: activeInactiveDim)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
@@ -7540,6 +7572,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
                 BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)
                 BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
+                BrowserWindowPortalRegistry.updateInactiveDim(for: webView, configuration: activeInactiveDim)
                 coordinator.lastPortalHostId = hostId
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
@@ -7589,6 +7622,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
+            BrowserWindowPortalRegistry.updateInactiveDim(for: webView, configuration: activeInactiveDim)
             if !shouldBindNow,
                coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
                 BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
@@ -7621,6 +7655,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             BrowserWindowPortalRegistry.updateDesignComposer(for: webView, configuration: activeDesignComposer)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
+            BrowserWindowPortalRegistry.updateInactiveDim(for: webView, configuration: activeInactiveDim)
         }
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()

@@ -208,6 +208,8 @@ struct CanvasSimulatorPointerOwnershipTests {
         let owner = NSView(frame: .zero)
         let presentation = CanvasHostedPanelPresentation(
             isFocused: false,
+            isSplit: false,
+            appearance: makeHostedPresentationAppearance(),
             allowsPointerInput: true,
             pointerInputOwner: owner
         )
@@ -215,6 +217,10 @@ struct CanvasSimulatorPointerOwnershipTests {
         #expect(!presentation.isFocused)
         presentation.setFocused(true)
         #expect(presentation.isFocused)
+
+        #expect(!presentation.isSplit)
+        presentation.setSplit(true)
+        #expect(presentation.isSplit)
     }
 
     @Test("An overlapping pointer entry belongs only to the frontmost pane")
@@ -236,11 +242,15 @@ struct CanvasSimulatorPointerOwnershipTests {
         defer { window.orderOut(nil) }
         let obscured = CanvasHostedPanelPresentation(
             isFocused: false,
+            isSplit: false,
+            appearance: makeHostedPresentationAppearance(),
             allowsPointerInput: true,
             pointerInputOwner: obscuredOwner
         )
         let frontmost = CanvasHostedPanelPresentation(
             isFocused: true,
+            isSplit: false,
+            appearance: makeHostedPresentationAppearance(),
             allowsPointerInput: true,
             pointerInputOwner: frontmostOwner
         )
@@ -293,4 +303,16 @@ private actor SimulatorThemePaneClient: SimulatorPaneClient {
     func emit(_ message: SimulatorWorkerOutbound) async {
         _ = await events.continuation.yield(.message(message))
     }
+}
+
+@MainActor
+private func makeHostedPresentationAppearance() -> PanelAppearance {
+    PanelAppearance(
+        backgroundColor: .black,
+        foregroundColor: .white,
+        dividerColor: Color(nsColor: .separatorColor),
+        unfocusedOverlayNSColor: .black,
+        unfocusedOverlayOpacity: 0.3,
+        usesClearContentBackground: false
+    )
 }

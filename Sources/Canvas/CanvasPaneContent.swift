@@ -121,6 +121,8 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     /// terminal stays mounted.
     func updatePresentation(
         isFocused: Bool,
+        isSplit: Bool,
+        appearance: PanelAppearance,
         allowsPointerInput: Bool,
         showsInactiveOverlay: Bool,
         inactiveOverlayColor: NSColor,
@@ -139,6 +141,8 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             )
         case .hosted(_, _, let presentation):
             presentation.setFocused(isFocused)
+            presentation.setSplit(isSplit)
+            presentation.setAppearance(appearance)
             presentation.setAllowsPointerInput(allowsPointerInput)
         }
     }
