@@ -13,7 +13,7 @@ extension BrowserControlService {
     ///   - script: User or automation JavaScript to execute.
     ///   - useEval: Whether `script` is data passed to `eval`; when false it is
     ///     inserted as a trusted expression built by cmux.
-    ///   - frameSelector: Optional selector for a same-origin frame document.
+    ///   - frameSelector: Optional selector for a same-origin frame execution realm.
     /// - Returns: A JavaScript async-function body for WebKit evaluation.
     public func evaluationScript(
         script: String,
@@ -38,6 +38,7 @@ extension BrowserControlService {
             let selectorLiteral = jsonLiteral(frameSelector)
             framePrelude = """
             let __cmuxDoc;
+            let __cmuxWindow;
             const __cmuxFrameUnavailable = () => ({
               [\(typeKey)]: \(typeError),
               [\(errorCodeKey)]: \(frameUnavailableCode),
@@ -49,10 +50,12 @@ extension BrowserControlService {
                 return __cmuxFrameUnavailable();
               }
               const __cmuxFrameDocument = __cmuxFrame.contentDocument;
-              if (!__cmuxFrameDocument) {
+              const __cmuxFrameWindow = __cmuxFrame.contentWindow;
+              if (!__cmuxFrameDocument || !__cmuxFrameWindow) {
                 return __cmuxFrameUnavailable();
               }
               __cmuxDoc = __cmuxFrameDocument;
+              __cmuxWindow = __cmuxFrameWindow;
             } catch (_) {
               return __cmuxFrameUnavailable();
             }
@@ -61,9 +64,16 @@ extension BrowserControlService {
             framePrelude = "const __cmuxDoc = document;"
         }
 
-        let executionBlock = useEval
-            ? "const __r = eval(\(jsonLiteral(script)));"
-            : "const __r = \(script);"
+        let executionBlock: String
+        if frameSelector != nil {
+            // Member-call eval is indirect. The eval function belongs to the
+            // selected frame, so every global lookup uses that frame's realm.
+            executionBlock = "const __r = __cmuxWindow.eval(\(jsonLiteral(script)));"
+        } else {
+            executionBlock = useEval
+                ? "const __r = eval(\(jsonLiteral(script)));"
+                : "const __r = \(script);"
+        }
         let circularReferenceCode = jsonLiteral(evalEnvelope.circularReferenceCode)
         let circularReferenceMessage = jsonLiteral(evalEnvelope.circularReferenceMessage)
         let resultTooComplexCode = jsonLiteral("result_too_complex")
