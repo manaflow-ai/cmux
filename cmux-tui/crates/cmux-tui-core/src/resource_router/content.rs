@@ -2334,7 +2334,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_viewport_scroll_uses_one_bounded_receipt_without_session_journal_churn() {
+    fn terminal_viewport_scroll_uses_one_bounded_receipt_and_one_journal_outcome() {
         let (mux, surface, selectors) = terminal_fixture(None);
         surface
             .try_with_terminal(|terminal| {
@@ -2349,6 +2349,7 @@ mod tests {
         let revision = mux.with_state(|state| state.resource_revision);
         let terminal_revision = mux.terminal_registry_snapshot().unwrap().revision;
         let event_epoch = mux.resource_event_epoch();
+        let journal_head = mux.session_journal_after(0, 1).unwrap().head_sequence;
         let mutation_count = mux.resource_mutation_count_for_test().unwrap();
         let request = || {
             parsed_request(
@@ -2380,9 +2381,13 @@ mod tests {
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, terminal_revision);
-        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_event_epoch(), event_epoch + 1);
         assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
         assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
+        let journal = mux.session_journal_after(journal_head, 2).unwrap();
+        assert_eq!(journal.records.len(), 1);
+        assert_eq!(journal.records[0].kind, "terminal.viewport.scroll.effect.succeeded");
+        let effect_sequence = journal.records[0].sequence;
 
         let replay = dispatch(&mux, request()).unwrap();
         assert_eq!(replay["value"], first["value"]);
@@ -2395,7 +2400,8 @@ mod tests {
             "receipt replay must not apply the viewport delta twice"
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
-        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_event_epoch(), event_epoch + 1);
+        assert!(mux.session_journal_after(effect_sequence, 1).unwrap().records.is_empty());
         assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
 
         let closed = dispatch(

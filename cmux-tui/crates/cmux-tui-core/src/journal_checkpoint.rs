@@ -1051,7 +1051,10 @@ mod tests {
         let surface = mux.surface(surface_id).unwrap();
         {
             let _pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
-            let error = capture(&mux).expect_err("checkpoint accepted unsettled terminal output");
+            let error = match capture(&mux) {
+                Ok(_) => panic!("checkpoint accepted unsettled terminal output"),
+                Err(error) => error,
+            };
             assert!(error.to_string().contains("terminal journal ingress is unsettled"));
         }
 

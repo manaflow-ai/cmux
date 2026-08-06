@@ -16662,7 +16662,7 @@ mod tests {
             "receipt-only-effect",
             "terminal.input",
             &fingerprint,
-            &ResourceEffectOutcome::Success(json!({})),
+            &ResourceEffectOutcome::Success(serde_json::json!({})),
             None,
         )
         .unwrap();

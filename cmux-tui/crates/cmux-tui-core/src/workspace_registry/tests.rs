@@ -22,15 +22,16 @@ fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
 }
 
 fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
+    let revision = registry.snapshot().unwrap().revision;
     registry
         .commit(
             &WorkspaceMutation::new(format!("create-{key}"), "test").unwrap(),
             &json!({"op":"create","key":key}),
             None,
-            Some(registry.snapshot().unwrap().revision),
+            Some(revision),
             "workspace-added",
             key,
-            &[workspace(1, key, "Workspace")],
+            &[workspace(revision + 1, key, "Workspace")],
             &json!({"key":key}),
         )
         .unwrap();
@@ -3067,9 +3068,15 @@ fn current_schema_normalizes_legacy_single_view_resource_tabs() {
 fn schema_eight_rejects_multiple_live_views_for_one_browser() {
     let root = temp_root("schema-eight-duplicate-browser-views");
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let browser = browser_id(1);
     {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
         commit_terminal_topology(&mut registry, "duplicate-browser-seed");
+        commit_browser_topology(
+            &mut registry,
+            "duplicate-browser-view-seed",
+            RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 80, 24),
+        );
     }
     let legacy = Connection::open(&database).unwrap();
     legacy
@@ -3077,16 +3084,15 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
             "PRAGMA foreign_keys=OFF;
              DROP INDEX live_resource_browser_view;
              CREATE INDEX live_resource_browser_view ON resource_tabs(content_id);
-             UPDATE resource_tabs SET content_kind = 'browser';
              UPDATE meta SET value = '8' WHERE key = 'schema_version';",
         )
         .unwrap();
-    let second_tab = tab_id(2);
+    let second_tab = tab_id(3);
     legacy
         .execute(
             "INSERT INTO resource_identities(
                public_id, kind, created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, 'tab', 1, 1, NULL)",
+             ) VALUES(?1, 'tab', 2, 2, NULL)",
             [second_tab.as_str()],
         )
         .unwrap();
@@ -3095,12 +3101,8 @@ fn schema_eight_rejects_multiple_live_views_for_one_browser() {
             "INSERT INTO resource_tabs(
                public_id, pane_id, position, content_kind, content_id, name,
                created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 1, 1, NULL)",
-            params![
-                second_tab.as_str(),
-                pane_id(1).as_str(),
-                terminal_resource(TERMINAL_ONE).as_str()
-            ],
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 2, 2, NULL)",
+            params![second_tab.as_str(), pane_id(2).as_str(), browser.as_str()],
         )
         .unwrap();
     drop(legacy);
