@@ -2,7 +2,6 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import Foundation
-import IrohLib
 
 @MainActor
 extension MobileHostIrohRuntime {
@@ -627,16 +626,5 @@ extension MobileHostIrohRuntime {
             && !signOutIntentActive
             && desiredActive
             && observedAccountID == accountID
-    }
-}
-
-private extension CmxIrohIdentityMaterial {
-    var peerIdentity: CmxIrohPeerIdentity? {
-        guard let endpoint = try? SecretKey.fromBytes(bytes: secretKey.bytes).public()
-        else { return nil }
-        let endpointID = endpoint.toBytes()
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return try? CmxIrohPeerIdentity(endpointID: endpointID)
     }
 }
