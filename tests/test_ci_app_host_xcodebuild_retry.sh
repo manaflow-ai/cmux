@@ -19,18 +19,30 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME:-<unset>}" \
     >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
   config_home="${TEST_RUNNER_HOME:-${HOME:-/tmp}}"
+  config_category=config
+  config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
+    xdg-config-leak)
+      config_home=/Users/runner
+      config_suffix='.config/ghostty/config'
+      ;;
+    xdg-default-leak)
+      config_category=default
+      config_home=/Users/runner
+      config_suffix='.config/ghostty/config'
+      ;;
     missing-log)
       rm -f "$CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH"
       exit 0
       ;;
   esac
-  config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
-  echo "cmux DEV [config] config: path=$config_home/$config_suffix"
+  echo "cmux DEV [$config_category] config: path=$config_home/$config_suffix"
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
-  if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ]; then
+  if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ]; then
     echo 'cmux DEV message = "socket.listener.start"'
     exit 0
   fi
@@ -80,6 +92,39 @@ if [ "$non_isolated_status" -ne 0 ] \
   || [ "$(grep -cx 'test' "$TMP_DIR/non-isolated-xcodebuild-args.log" 2>/dev/null || true)" -ne 1 ]; then
   cat "$TMP_DIR/non-isolated-output.log"
   echo "FAIL: macOS Bash 3.2 must launch xcodebuild when isolation is disabled"
+  exit 1
+fi
+
+AMBIENT_XDG_CONFIG_HOME="$TMP_DIR/ambient-xdg"
+mkdir -p "$AMBIENT_XDG_CONFIG_HOME"
+set +e
+/usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+  -u CFFIXED_USER_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$TMP_DIR" \
+  XDG_CONFIG_HOME="$AMBIENT_XDG_CONFIG_HOME" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/ambient-xdg-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/ambient-xdg-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/ambient-xdg-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/ambient-xdg-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=success \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/ambient-xdg-output.log" 2>&1
+ambient_xdg_status=$?
+set -e
+
+if [ "$ambient_xdg_status" -ne 0 ] \
+  || [ "$(grep -cx 'test' "$TMP_DIR/ambient-xdg-xcodebuild-args.log" 2>/dev/null || true)" -ne 1 ] \
+  || ! awk -F '|' -v xdg="$AMBIENT_XDG_CONFIG_HOME" '
+    $2 == "<unset>" && $3 == xdg { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "$TMP_DIR/ambient-xdg-parent-env.log"; then
+  cat "$TMP_DIR/ambient-xdg-output.log"
+  cat "$TMP_DIR/ambient-xdg-parent-env.log" 2>/dev/null || true
+  echo "FAIL: ordinary XDG_CONFIG_HOME must remain a non-isolated xcodebuild input"
   exit 1
 fi
 
@@ -254,6 +299,35 @@ if [ "$leak_status" -ne 1 ] || ! grep -Fq \
   echo "FAIL: wrapper must reject a Ghostty config path outside the isolated app-host home"
   exit 1
 fi
+
+for xdg_leak in xdg-config-leak xdg-default-leak; do
+  set +e
+  PATH="$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$TMP_DIR" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/$xdg_leak-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/$xdg_leak-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/$xdg_leak-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/$xdg_leak-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE="$xdg_leak" \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+  CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+  CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+    bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+      >"$TMP_DIR/$xdg_leak-output.log" 2>&1
+  xdg_leak_status=$?
+  set -e
+
+  if [ "$xdg_leak_status" -ne 1 ] || ! grep -Fq \
+    "FAIL: Ghostty accessed configuration outside the isolated app-host home" \
+    "$TMP_DIR/$xdg_leak-output.log"; then
+    cat "$TMP_DIR/$xdg_leak-output.log"
+    echo "FAIL: wrapper must reject $xdg_leak outside the isolated home"
+    exit 1
+  fi
+done
 
 for regression in sibling-leak missing-log; do
   case "$regression" in
