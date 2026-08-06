@@ -277,7 +277,9 @@ jobs:
 
       - name: Verify bounded Windows carrier behavior
         working-directory: cmux-tui
-        run: cargo test -p cmux-remote --target x86_64-pc-windows-gnu --locked windows_ -- --nocapture
+        run: |
+          cargo test -p cmux-remote --target x86_64-pc-windows-gnu --locked windows_ -- --nocapture
+          cargo test -p cmux-tui --target x86_64-pc-windows-gnu --locked windows_ -- --nocapture
 
       - name: Build libghostty-vt for Windows GNU
         shell: bash

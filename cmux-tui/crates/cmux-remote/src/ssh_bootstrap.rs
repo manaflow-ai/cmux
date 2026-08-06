@@ -1082,6 +1082,34 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn windows_stale_mux_socket_does_not_block_owner_upgrade() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        fs::write(
+            &script,
+            "#!/bin/sh\nprintf '%s' 'cmux-tui: could not inspect C:\\Users\\cmux\\AppData\\Local\\cmux\\remote\\sessions\\main\\mux.sock: A socket operation encountered a dead network. (os error 10050)' >&2\nexit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults("windows-host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        let bootstrap = SshBootstrapper::new(config).unwrap();
+        let target = SshRemoteTarget {
+            binary: WINDOWS_REMOTE_BINARY.into(),
+            shell: SshRemoteShell::WindowsCmd,
+        };
+
+        bootstrap
+            .stop_daemon_target(&target, "main", Some(r"%LOCALAPPDATA%\cmux\state"))
+            .await
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn legacy_windows_probe_does_not_block_first_resident_owner_upgrade() {
         use std::fs;
         use std::os::unix::fs::PermissionsExt;

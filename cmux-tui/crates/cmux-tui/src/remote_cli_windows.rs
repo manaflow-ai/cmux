@@ -562,3 +562,18 @@ fn proxy_windows_stdio(paths: &WindowsSessionPaths) -> anyhow::Result<()> {
 fn windows_daemon_name() -> String {
     std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Windows".into())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_stale_mux_socket_is_treated_as_absent() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("mux.sock");
+        let listener = uds_windows::UnixListener::bind(&socket).unwrap();
+        drop(listener);
+
+        assert!(identify_mux_owner(&socket, "main").unwrap().is_none());
+    }
+}
