@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import Darwin
 import Foundation
 import SQLite3
 import Testing
@@ -78,6 +79,36 @@ struct AgentConversationTransferSourceTests {
         )
         #expect(updated.path == initial.path)
         #expect(updated.generation != initial.generation)
+    }
+
+    @Test
+    func storageGenerationRejectsSameSizeRewriteWithRestoredModificationTime() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let transcript = directory.appendingPathComponent("transcript.jsonl")
+        let fixedModificationDate = Date(timeIntervalSince1970: 1_700_000_000)
+        try Data("first".utf8).write(to: transcript)
+        try FileManager.default.setAttributes(
+            [.modificationDate: fixedModificationDate],
+            ofItemAtPath: transcript.path
+        )
+        let initial = try #require(
+            AgentConversationStorageGeneration.captureStorage(atPath: transcript.path)
+        )
+
+        Darwin.usleep(20_000)
+        let handle = try FileHandle(forWritingTo: transcript)
+        try handle.seek(toOffset: 0)
+        try handle.write(contentsOf: Data("other".utf8))
+        try handle.truncate(atOffset: 5)
+        try handle.synchronize()
+        try handle.close()
+        try FileManager.default.setAttributes(
+            [.modificationDate: fixedModificationDate],
+            ofItemAtPath: transcript.path
+        )
+
+        #expect(!initial.generation.isCurrent(atPath: transcript.path))
     }
 
     @Test(arguments: [RestorableAgentKind.opencode, .hermesAgent])

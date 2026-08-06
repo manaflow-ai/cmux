@@ -69,6 +69,25 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func transferConfirmationNamesExactRecipientExecutable() throws {
+        let installedPath = "/Applications/Agent Tools/grok"
+        let command = try #require(
+            AgentConversationForkTargetHarness.grok.startupCommand(
+                handoffMessage: "User: private context",
+                executablePath: "/Applications/Agent Tools/.cmux-bound-grok",
+                executableLookupPath: installedPath
+            )
+        )
+
+        let prompt = try decodedTransferAdapterValue(
+            named: "cmux_confirmation_prompt",
+            from: command
+        )
+        #expect(prompt.contains(installedPath))
+        #expect(prompt.contains("Control-]"))
+    }
+
+    @Test
     func transferredTranscriptReachesHarnessInputWithoutAppearingInHarnessArguments() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
