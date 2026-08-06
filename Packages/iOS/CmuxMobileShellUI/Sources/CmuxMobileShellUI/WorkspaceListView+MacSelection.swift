@@ -127,16 +127,16 @@ extension WorkspaceListView {
     }
 
     #if os(iOS)
-    var canRenderGroupsForSelection: Bool {
+    var canMutateForegroundGroupsForSelection: Bool {
         #if DEBUG
         // The store-free layout fixture has no foreground Mac, so the
-        // foreground-scope gate can never pass there; render its seeded groups
-        // so grouped rows and end-of-group slots are exercised in previews.
+        // foreground-mutation gate can never pass there. Allow its isolated
+        // reorder harness to exercise grouped rows and end-of-group slots.
         if store == nil, UITestConfig.workspaceListLayoutPreviewEnabled {
             return true
         }
         #endif
-        return macSelectionScope.canRenderGroupsForSelection
+        return macSelectionScope.canMutateForegroundGroupsForSelection
     }
 
     func macTitlePickerTitle(machineSnapshots: WorkspaceMachineSnapshots) -> String {
@@ -179,7 +179,7 @@ extension WorkspaceListView {
         #endif
     }
     #else
-    var canRenderGroupsForSelection: Bool {
+    var canMutateForegroundGroupsForSelection: Bool {
         true
     }
     #endif

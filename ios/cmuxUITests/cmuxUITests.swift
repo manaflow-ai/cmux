@@ -360,6 +360,33 @@ final class cmuxUITests: XCTestCase {
         add(attachment)
     }
 
+    @MainActor
+    func testWorkspaceGroupsStayVisibleForAllComputersAcrossMultipleMacs() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "8",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.staticTexts["All Computers"].waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "MobileWorkspaceGroupHeader-seed-group-0"
+            ].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "MobileWorkspaceGroupHeader-seed-group-1"
+            ].waitForExistence(timeout: 3)
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-groups-all-computers-multiple-macs"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Regression: the iOS 26 workspace table must underlap the navigation
     /// and tab bars so their native soft effects have content to process,
     /// while UIKit keeps the first and last rows outside the bars' hit areas.
