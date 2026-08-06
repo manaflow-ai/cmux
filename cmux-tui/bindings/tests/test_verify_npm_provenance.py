@@ -266,10 +266,10 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
 
     def test_accepts_a_stable_latest_tag_after_bootstrap(self) -> None:
         metadata = self.metadata()
-        metadata["dist-tags"]["latest"] = "1.0.0"
+        metadata["dist-tags"]["latest"] = "1.0.0+build-1"
         stable_release = dict(metadata["versions"][self.version])
-        stable_release["version"] = "1.0.0"
-        metadata["versions"]["1.0.0"] = stable_release
+        stable_release["version"] = "1.0.0+build-1"
+        metadata["versions"]["1.0.0+build-1"] = stable_release
         completed = (
             subprocess.CompletedProcess([], 0, stdout="", stderr=""),
             subprocess.CompletedProcess(

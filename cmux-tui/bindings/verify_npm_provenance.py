@@ -115,7 +115,8 @@ def _validate_metadata(
         tagged_version = tags[required_tag]
         if not isinstance(versions.get(tagged_version), dict):
             raise ProvenanceError("npm required dist-tag names an unknown release")
-        if required_tag == "latest" and "-" in tagged_version:
+        version_without_build = tagged_version.split("+", 1)[0]
+        if required_tag == "latest" and "-" in version_without_build:
             # npm requires a latest tag even when the ownership bootstrap is
             # the project's sole release. A later release must replace it.
             if tagged_version != version or len(versions) != 1:
