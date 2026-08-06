@@ -533,7 +533,9 @@ private func sensitiveAssignmentValueRange(
 
     if isAuthorizationAssignmentKey(key) {
         let firstTokenStart = valueStart
-        while valueStart < bytes.count, !isUnquotedValueTerminator(bytes[valueStart]) {
+        while valueStart < bytes.count,
+              !isUnquotedValueTerminator(at: valueStart, in: bytes)
+        {
             valueStart += 1
         }
         var secondTokenStart = valueStart
@@ -541,7 +543,7 @@ private func sensitiveAssignmentValueRange(
             secondTokenStart += 1
         }
         if secondTokenStart < bytes.count,
-           !isUnquotedValueTerminator(bytes[secondTokenStart])
+           !isUnquotedValueTerminator(at: secondTokenStart, in: bytes)
         {
             valueStart = secondTokenStart
         } else {
@@ -550,7 +552,9 @@ private func sensitiveAssignmentValueRange(
     }
 
     var valueEnd = valueStart
-    while valueEnd < bytes.count, !isUnquotedValueTerminator(bytes[valueEnd]) {
+    while valueEnd < bytes.count,
+          !isUnquotedValueTerminator(at: valueEnd, in: bytes)
+    {
         valueEnd += 1
     }
     guard valueStart < valueEnd else { return nil }
@@ -585,13 +589,43 @@ private func isQuote(_ byte: UInt8) -> Bool {
     byte == 0x22 || byte == 0x27
 }
 
-private func isUnquotedValueTerminator(_ byte: UInt8) -> Bool {
-    isASCIIWhitespace(byte)
-        || isQuote(byte)
-        || byte == 0x26
-        || byte == 0x29
-        || byte == 0x2C
-        || byte == 0x3B
-        || byte == 0x5D
-        || byte == 0x7D
+private func isUnquotedValueTerminator(at index: Int, in bytes: [UInt8]) -> Bool {
+    let byte = bytes[index]
+    if isASCIIWhitespace(byte) {
+        return true
+    }
+
+    // Query and environment separators are also valid credential bytes. Only
+    // preserve one when the suffix proves that a new assignment starts there;
+    // otherwise redact through it so no secret suffix can escape.
+    if byte == 0x26 || byte == 0x2C || byte == 0x3B {
+        return startsAssignment(after: index, in: bytes)
+    }
+
+    // Quotes and closing delimiters are structural only at a visible boundary.
+    // Embedded punctuation such as `token=abc)def` remains part of the value.
+    if isQuote(byte) || byte == 0x29 || byte == 0x5D || byte == 0x7D {
+        let nextIndex = index + 1
+        return nextIndex == bytes.count
+            || isASCIIWhitespace(bytes[nextIndex])
+            || startsAssignment(after: index, in: bytes)
+    }
+
+    return false
+}
+
+private func startsAssignment(after separatorIndex: Int, in bytes: [UInt8]) -> Bool {
+    var cursor = separatorIndex + 1
+    while cursor < bytes.count, isASCIIWhitespace(bytes[cursor]) {
+        cursor += 1
+    }
+    let keyStart = cursor
+    while cursor < bytes.count, isAssignmentKeyByte(bytes[cursor]) {
+        cursor += 1
+    }
+    guard cursor > keyStart else { return false }
+    while cursor < bytes.count, isASCIIWhitespace(bytes[cursor]) {
+        cursor += 1
+    }
+    return cursor < bytes.count && (bytes[cursor] == 0x3A || bytes[cursor] == 0x3D)
 }
