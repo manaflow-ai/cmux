@@ -41,3 +41,14 @@ def test_omnibar_update_skips_redundant_placeholder_field_editor_work():
 
     assert "if nsView.placeholderString != placeholder" in update
     assert "nsView.placeholderString = placeholder" in update
+
+
+def test_right_sidebar_chrome_reads_cached_shortcut_snapshot():
+    sidebar = source_slice(
+        "Sources/RightSidebarPanelView.swift",
+        "struct RightSidebarPanelView: View",
+        "private struct RightSidebarKeyboardFocusBridge",
+    )
+
+    assert "KeyboardShortcutSettings.shortcut(for:" not in sidebar
+    assert "shortcut: shortcut" in sidebar
