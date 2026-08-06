@@ -715,7 +715,7 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
-        #expect(availability.requestCountSnapshot() > 8)
+        #expect(availability.waitRequestCountSnapshot() == 1)
         #expect(
             commands.snapshot().contains {
                 codexHookJSONObject($0)?["method"] as? String == "surface.resume.set"

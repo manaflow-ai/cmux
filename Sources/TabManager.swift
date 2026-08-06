@@ -247,6 +247,7 @@ class TabManager: ObservableObject {
         workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         objectWillChange.send()
         tabsPublisher.send(newValue)
+        AgentDeliveryTargetPublicationBus.publish()
     }
 
     /// Legacy `@Published workspaceGroups` willSet.

@@ -75,6 +75,7 @@ final class CodexHookSurfaceAvailability: @unchecked Sendable {
     private let lock = NSLock()
     private let visibleAfterListRequestCount: Int
     private var listRequestCount = 0
+    private var waitRequestCount = 0
 
     init(visibleAfterListRequestCount: Int = 0) {
         self.visibleAfterListRequestCount = max(0, visibleAfterListRequestCount)
@@ -91,6 +92,20 @@ final class CodexHookSurfaceAvailability: @unchecked Sendable {
     func requestCountSnapshot() -> Int {
         lock.lock()
         let value = listRequestCount
+        lock.unlock()
+        return value
+    }
+
+    func exposeForWaitRequest() {
+        lock.lock()
+        waitRequestCount += 1
+        listRequestCount = max(listRequestCount, visibleAfterListRequestCount + 1)
+        lock.unlock()
+    }
+
+    func waitRequestCountSnapshot() -> Int {
+        lock.lock()
+        let value = waitRequestCount
         lock.unlock()
         return value
     }
@@ -225,6 +240,21 @@ func codexHookMockSocketResponse(
             id: id,
             ok: true,
             result: ["surfaces": surfaces]
+        )
+    }
+    if payload["method"] as? String == "agent.wait_for_delivery_target",
+       let params = payload["params"] as? [String: Any],
+       let workspaceId = params["workspace_id"] as? String,
+       let requestedSurfaceId = params["surface_id"] as? String {
+        surfaceAvailability.exposeForWaitRequest()
+        return codexHookV2Response(
+            id: id,
+            ok: true,
+            result: [
+                "workspace_id": workspaceId,
+                "surface_id": requestedSurfaceId,
+                "source": "surface",
+            ]
         )
     }
     return codexHookV2Response(id: id, ok: true, result: [:])

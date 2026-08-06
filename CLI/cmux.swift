@@ -31250,6 +31250,46 @@ export default CMUXSessionRestore;
                 telemetry: telemetry
             )
         }
+        func retryAmbientSessionStartTarget() -> (workspaceId: String, surfaceId: String)? {
+            guard hookWsFlag == nil,
+                  explicitSurfaceFlag == nil,
+                  let directWorkspaceArg = nonEmptyClaudeHookIdentifier(directWorkspaceArg),
+                  let directSurfaceArg = nonEmptyClaudeHookIdentifier(directSurfaceArg) else {
+                return nil
+            }
+            telemetry.breadcrumb("\(def.name)-hook.session-start.target-await")
+            let target = awaitAgentHookSessionStartTarget(
+                subcommand: subcommand,
+                workspaceId: directWorkspaceArg,
+                surfaceId: directSurfaceArg
+            ) { workspaceId, surfaceId in
+                guard let payload = try? client.sendV2(
+                    method: "agent.wait_for_delivery_target",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                    ],
+                    responseTimeout: 1.25
+                ),
+                      payload["source"] as? String == "surface",
+                      let resolvedWorkspaceId = normalizedHandleValue(
+                          payload["workspace_id"] as? String
+                      ),
+                      isUUID(resolvedWorkspaceId),
+                      let resolvedSurfaceId = normalizedHandleValue(
+                          payload["surface_id"] as? String
+                      ),
+                      isUUID(resolvedSurfaceId),
+                      resolvedSurfaceId.caseInsensitiveCompare(surfaceId) == .orderedSame else {
+                    return nil
+                }
+                return (resolvedWorkspaceId, resolvedSurfaceId)
+            }
+            if target != nil {
+                telemetry.breadcrumb("\(def.name)-hook.session-start.target-await-resolved")
+            }
+            return target
+        }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
             guard !hasUnusableDirectBinding else {
 #if DEBUG
@@ -31381,7 +31421,8 @@ export default CMUXSessionRestore;
         switch action {
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+            guard let target = resolveAgentHookTarget(mapped: mapped)
+                ?? retryAmbientSessionStartTarget() else {
                 reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
                 print("{}")

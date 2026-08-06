@@ -1408,6 +1408,8 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "agent.wait_for_delivery_target":
+            return v2Result(id: request.id, v2AgentWaitForDeliveryTarget(params: request.params))
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
@@ -2602,6 +2604,7 @@ class TerminalController {
             "pane.last",
             "notification.create",
             "notification.create_for_caller", "agent.resolve_delivery_target",
+            "agent.wait_for_delivery_target",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",

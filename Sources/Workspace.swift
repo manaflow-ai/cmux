@@ -11815,6 +11815,7 @@ extension Workspace: PaneTreeHosting {
             invalidateSidebarObservation: false
         )
         panelsPublisher.send(newValue)
+        AgentDeliveryTargetPublicationBus.publish()
     }
 
     /// Legacy `@Published paneLayoutVersion` willSet; same contract.
