@@ -2210,6 +2210,28 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func launcherOwnershipLifetimeRemovesPrivateLaunchers() throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let launcher = fixture.appendingPathComponent("launcher.zsh")
+        try Data("private transfer".utf8).write(to: launcher)
+        var registry: OneShotTerminalLauncherOwnershipRegistry? =
+            OneShotTerminalLauncherOwnershipRegistry(sensitiveScriptTTL: 60)
+        registry?.adopt(
+            PreparedAgentStartupInput(
+                text: " /bin/zsh '\(launcher.path)'\n",
+                launcherScriptURL: launcher
+            ),
+            forPanelID: UUID()
+        )
+        #expect(FileManager.default.fileExists(atPath: launcher.path))
+
+        registry = nil
+
+        #expect(!FileManager.default.fileExists(atPath: launcher.path))
+    }
+
+    @Test
     func launcherJanitorHasRestartableOwnedLifecycle() {
         let pruneCount = OSAllocatedUnfairLock(initialState: 0)
         let janitor = OneShotTerminalLauncherJanitor(
