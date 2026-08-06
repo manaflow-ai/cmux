@@ -4,7 +4,10 @@ import { PostHogProvider as PHProvider } from "posthog-js/react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, Suspense } from "react";
 import { posthog } from "../lib/posthog-client";
-import { syncStackAnalyticsIdentity } from "../../services/analytics/stackIdentity";
+import {
+  syncStackAnalyticsIdentity,
+  type StackAnalyticsIdentity,
+} from "../../services/analytics/stackIdentity";
 
 function PageviewTracker() {
   const pathname = usePathname();
@@ -32,10 +35,13 @@ function PageviewTracker() {
       .then(async (response) => {
         if (!response.ok) return;
         const payload = await response.json() as {
-          user?: { id?: unknown } | null;
+          user?: { id?: unknown; plan?: unknown } | null;
         };
-        const identity = typeof payload.user?.id === "string"
-          ? { id: payload.user.id }
+        const plan = payload.user?.plan;
+        const identity: StackAnalyticsIdentity | null =
+          typeof payload.user?.id === "string"
+          && (plan === "free" || plan === "pro" || plan === "team")
+          ? { id: payload.user.id, plan }
           : null;
         syncStackAnalyticsIdentity(posthog, window.localStorage, identity);
       })

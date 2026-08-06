@@ -2,6 +2,7 @@ export const STACK_IDENTITY_STORAGE_KEY = "cmux.posthog.stack-user-id";
 
 export type StackAnalyticsIdentity = {
   readonly id: string;
+  readonly plan: "free" | "pro" | "team";
 };
 
 type PostHogIdentityClient = {
@@ -26,6 +27,8 @@ export function syncStackAnalyticsIdentity(
     posthog.identify(identity.id, {
       stack_user_id: identity.id,
       authentication_provider: "stack",
+      billing_plan: identity.plan,
+      is_pro: identity.plan === "pro",
     });
     storage.setItem(STACK_IDENTITY_STORAGE_KEY, identity.id);
     return;

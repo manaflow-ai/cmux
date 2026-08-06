@@ -8,7 +8,11 @@ type IdentityRouteDependencies = {
   readonly isConfigured: () => boolean;
   readonly getUser: (
     request: Request,
-  ) => Promise<{ readonly id: string; readonly isAnonymous: boolean } | null>;
+  ) => Promise<{
+    readonly id: string;
+    readonly isAnonymous: boolean;
+    readonly clientReadOnlyMetadata?: unknown;
+  } | null>;
 };
 
 const defaultDependencies: IdentityRouteDependencies = {
@@ -32,11 +36,26 @@ export function makeAnalyticsIdentityHandler(
     const user = await dependencies.getUser(request);
     // Stack anonymous checkout users must not replace PostHog's browser-level
     // anonymous identity. They become canonical only after account conversion.
-    return identityResponse(user && !user.isAnonymous ? { id: user.id } : null);
+    return identityResponse(user && !user.isAnonymous
+      ? { id: user.id, plan: analyticsPlan(user.clientReadOnlyMetadata) }
+      : null);
   };
 }
 
-function identityResponse(user: { readonly id: string } | null): NextResponse {
+function analyticsPlan(metadata: unknown): "free" | "pro" | "team" {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return "free";
+  }
+  const plan = (metadata as Record<string, unknown>).cmuxPlan;
+  return plan === "pro" || plan === "team" ? plan : "free";
+}
+
+function identityResponse(
+  user: {
+    readonly id: string;
+    readonly plan: "free" | "pro" | "team";
+  } | null,
+): NextResponse {
   return NextResponse.json(
     { user },
     { headers: { "Cache-Control": "private, no-store" } },

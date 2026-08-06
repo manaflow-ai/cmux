@@ -7,6 +7,7 @@ describe("analytics identity route", () => {
     const getUser = mock(async () => ({
       id: "stack-user-1",
       isAnonymous: false,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
     }));
     const GET = makeAnalyticsIdentityHandler({
       isConfigured: () => true,
@@ -17,7 +18,7 @@ describe("analytics identity route", () => {
 
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     await expect(response.json()).resolves.toEqual({
-      user: { id: "stack-user-1" },
+      user: { id: "stack-user-1", plan: "pro" },
     });
     expect(getUser).toHaveBeenCalledTimes(1);
   });

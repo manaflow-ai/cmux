@@ -24,11 +24,16 @@ describe("Stack PostHog identity bridge", () => {
   test("identifies signed-in Stack users without profile PII", () => {
     const h = harness();
 
-    syncStackAnalyticsIdentity(h, h.storage, { id: "stack-user-1" });
+    syncStackAnalyticsIdentity(h, h.storage, {
+      id: "stack-user-1",
+      plan: "pro",
+    });
 
     expect(h.identify).toHaveBeenCalledWith("stack-user-1", {
       stack_user_id: "stack-user-1",
       authentication_provider: "stack",
+      billing_plan: "pro",
+      is_pro: true,
     });
     expect(h.reset).not.toHaveBeenCalled();
     expect(h.values.get(STACK_IDENTITY_STORAGE_KEY)).toBe("stack-user-1");
