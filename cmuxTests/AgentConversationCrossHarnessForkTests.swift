@@ -2184,6 +2184,32 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func workspaceLifetimeOwnsInjectedConversationTransferLaunchers() throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let launcher = fixture.appendingPathComponent("launcher.zsh")
+        try Data("private transfer".utf8).write(to: launcher)
+        let registry = OneShotTerminalLauncherOwnershipRegistry(
+            sensitiveScriptTTL: 60
+        )
+        var workspace: Workspace? = Workspace(
+            conversationTransferLauncherOwnershipRegistry: registry
+        )
+        workspace?.adoptConversationTransferLauncher(
+            PreparedAgentStartupInput(
+                text: " /bin/zsh '\(launcher.path)'\n",
+                launcherScriptURL: launcher
+            ),
+            forPanelId: UUID()
+        )
+        #expect(FileManager.default.fileExists(atPath: launcher.path))
+
+        workspace = nil
+
+        #expect(!FileManager.default.fileExists(atPath: launcher.path))
+    }
+
+    @Test
     func expiredConversationTransferLauncherIsPrunedByNextSensitiveWrite() throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }

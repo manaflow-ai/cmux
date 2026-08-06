@@ -123,9 +123,14 @@ nonisolated struct AgentConversationSource: Sendable {
         default:
             storageIdentity = transcriptURL?.standardizedFileURL.path
         }
+        let usesSQLiteSnapshot = kind == .opencode || kind == .hermesAgent
         guard let storageIdentity,
               let storage = AgentConversationStorageGeneration.captureStorage(
-                  atPath: storageIdentity
+                  atPath: storageIdentity,
+                  // The snapshot service binds SQLite artifacts with hard
+                  // links, which changes ctime itself. Direct transcript files
+                  // retain ctime so equal-size, restored-mtime rewrites fail.
+                  includeStatusChangeTime: !usesSQLiteSnapshot
               ) else {
             return nil
         }
@@ -136,9 +141,15 @@ nonisolated struct AgentConversationSource: Sendable {
             // WAL and rollback journals carry transaction content. SQLite's
             // shared-memory sidecar only carries reader/writer lock state.
             let writeAheadLog = AgentConversationStorageGeneration
-                .captureOptionalRegularFile(atPath: storage.path + "-wal")
+                .captureOptionalRegularFile(
+                    atPath: storage.path + "-wal",
+                    includeStatusChangeTime: false
+                )
             let rollbackJournal = AgentConversationStorageGeneration
-                .captureOptionalRegularFile(atPath: storage.path + "-journal")
+                .captureOptionalRegularFile(
+                    atPath: storage.path + "-journal",
+                    includeStatusChangeTime: false
+                )
             guard writeAheadLog.isValid, rollbackJournal.isValid else {
                 return nil
             }

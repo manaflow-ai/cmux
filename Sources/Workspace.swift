@@ -2614,6 +2614,7 @@ final class Workspace: Identifiable, ObservableObject {
     let todoState = WorkspaceTodoState()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
+    let conversationTransferLauncherOwnershipRegistry: OneShotTerminalLauncherOwnershipRegistry
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -3207,12 +3208,14 @@ final class Workspace: Identifiable, ObservableObject {
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
-        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        conversationTransferLauncherOwnershipRegistry: OneShotTerminalLauncherOwnershipRegistry = OneShotTerminalLauncherOwnershipRegistry()
     ) {
         self.id = id ?? UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.conversationTransferLauncherOwnershipRegistry = conversationTransferLauncherOwnershipRegistry
         self.settings = settings
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
@@ -3497,6 +3500,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionTransitionTask?.cancel()
         remoteSessionController?.stop(cleanupScope: .persistentSlot)
         for owner in remoteSessionCleanupControllers.values { owner.controller.stop(cleanupScope: .persistentSlot) }
+        conversationTransferLauncherOwnershipRegistry.discardAll()
         PortScanner.shared.scheduleAgentWorkspaceUnregistration(workspaceId: id)
     }
 

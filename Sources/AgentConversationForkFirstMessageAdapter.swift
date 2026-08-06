@@ -10,15 +10,21 @@ struct AgentConversationForkFirstMessageAdapter {
     static func startupCommand(
         interactiveCommand: String,
         firstMessage: String,
-        readinessPattern: String
+        readinessPattern: String,
+        recipientExecutablePath: String
     ) -> String {
         let encodedCommand = hexEncoded(interactiveCommand)
         let encodedMessage = hexEncoded(firstMessage)
         let encodedReadinessPattern = hexEncoded(readinessPattern)
         let encodedBlockingPromptPattern = hexEncoded(blockingPromptPattern)
-        let confirmationPrompt = String(
+        let confirmationFormat = String(
             localized: "forkConversation.transfer.confirmation",
-            defaultValue: "cmux: When the harness input is ready, press Control-] to send the transferred conversation, or Control-X to continue without it."
+            defaultValue: "cmux: The running harness was launched from %@ and may load other code from that installation. Press Control-] to send the transferred conversation, or Control-X to continue without it."
+        )
+        let confirmationPrompt = String(
+            format: confirmationFormat,
+            locale: .current,
+            terminalSafePath(recipientExecutablePath)
         )
         let encodedConfirmationPrompt = hexEncoded(confirmationPrompt)
         return """
@@ -177,5 +183,18 @@ struct AgentConversationForkFirstMessageAdapter {
 
     private static func hexEncoded(_ value: String) -> String {
         value.utf8.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Prevents an attacker-controlled filename from emitting terminal control
+    /// sequences while preserving ordinary absolute paths verbatim.
+    private static func terminalSafePath(_ path: String) -> String {
+        path.unicodeScalars.reduce(into: "") { result, scalar in
+            switch scalar.value {
+            case 0...31, 127...159, 0x202A...0x202E, 0x2066...0x2069:
+                result += String(format: "\\u{%X}", scalar.value)
+            default:
+                result.unicodeScalars.append(scalar)
+            }
+        }
     }
 }

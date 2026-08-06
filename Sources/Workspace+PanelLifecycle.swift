@@ -424,7 +424,7 @@ extension Workspace {
     ) -> WorkspaceRemoteConfiguration? {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if !preservesTerminalForTransfer {
-            OneShotTerminalLauncherOwnershipRegistry.shared.discard(
+            conversationTransferLauncherOwnershipRegistry.discard(
                 forPanelID: panelId
             )
         }

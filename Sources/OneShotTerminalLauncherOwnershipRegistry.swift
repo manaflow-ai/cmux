@@ -3,22 +3,35 @@ import Foundation
 /// Owns each sensitive launcher until its panel consumes, replaces, or expires it.
 @MainActor
 final class OneShotTerminalLauncherOwnershipRegistry {
-    static let shared = OneShotTerminalLauncherOwnershipRegistry()
-
     private typealias OwnedLauncher = (
         scriptURL: URL,
         expiryTimer: DispatchSourceTimer
     )
 
+    private let fileManager: FileManager
+    private let sensitiveScriptTTL: TimeInterval
+    private let makeExpiryTimer: () -> DispatchSourceTimer
     private var launchersByPanelID: [UUID: OwnedLauncher] = [:]
+
+    init(
+        fileManager: FileManager = .default,
+        sensitiveScriptTTL: TimeInterval = OneShotTerminalLauncherStore.sensitiveScriptTTL,
+        makeExpiryTimer: @escaping () -> DispatchSourceTimer = {
+            DispatchSource.makeTimerSource(queue: .main)
+        }
+    ) {
+        self.fileManager = fileManager
+        self.sensitiveScriptTTL = sensitiveScriptTTL
+        self.makeExpiryTimer = makeExpiryTimer
+    }
 
     func adopt(_ input: PreparedAgentStartupInput?, forPanelID panelID: UUID) {
         guard let scriptURL = input?.launcherScriptURL else { return }
         discard(forPanelID: panelID)
 
-        let timer = DispatchSource.makeTimerSource(queue: .main)
+        let timer = makeExpiryTimer()
         timer.schedule(
-            deadline: .now() + OneShotTerminalLauncherStore.sensitiveScriptTTL
+            deadline: .now() + sensitiveScriptTTL
         )
         timer.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
@@ -40,7 +53,13 @@ final class OneShotTerminalLauncherOwnershipRegistry {
         }
         launcher.expiryTimer.setEventHandler {}
         launcher.expiryTimer.cancel()
-        try? FileManager.default.removeItem(at: launcher.scriptURL)
+        try? fileManager.removeItem(at: launcher.scriptURL)
+    }
+
+    func discardAll() {
+        for panelID in Array(launchersByPanelID.keys) {
+            discard(forPanelID: panelID)
+        }
     }
 
     private func expire(scriptURL: URL, forPanelID panelID: UUID) {

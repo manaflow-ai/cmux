@@ -72,13 +72,16 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
             executablePath: executableBinding?.boundPath ?? executablePath,
             runtimeSearchPath: runtimeSearchPath,
             executableBinding: executableBinding,
-            executableLookupPath: executablePath
+            executableLookupPath: executablePath,
+            recipientExecutablePath: executableBinding?.sourcePath
+                ?? executablePath
         )
     }
 
     /// Validates candidates only after the user selects this target. Version
-    /// and help output must identify the harness without using filename text as
-    /// evidence, and the executable inode must remain stable across the probe.
+    /// and help output must be compatible with the harness without using the
+    /// filename, and the executable inode must remain stable across the probe.
+    /// Transcript submission still requires confirmation of the exact path.
     func validatedForTransfer(
         using executableIdentityResolver: AgentForkExecutableIdentityResolver? = nil
     ) async throws -> AgentConversationForkTarget {

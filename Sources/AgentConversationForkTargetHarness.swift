@@ -49,7 +49,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         executablePath: String? = nil,
         runtimeSearchPath: String? = nil,
         executableBinding: AgentConversationForkExecutableBinding? = nil,
-        executableLookupPath: String? = nil
+        executableLookupPath: String? = nil,
+        recipientExecutablePath: String? = nil
     ) -> String? {
         let executable = startupExecutableInvocation(
             executablePath: executablePath,
@@ -84,7 +85,11 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         return AgentConversationForkFirstMessageAdapter.startupCommand(
             interactiveCommand: launchCommand,
             firstMessage: handoffMessage,
-            readinessPattern: firstMessageReadinessPattern
+            readinessPattern: firstMessageReadinessPattern,
+            recipientExecutablePath: recipientExecutablePath
+                ?? executableLookupPath
+                ?? executablePath
+                ?? preferredExecutableName
         )
     }
 
@@ -232,8 +237,9 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         executableNames.first ?? rawValue
     }
 
-    /// A successful `--version` is accepted only when its output identifies the
-    /// expected harness. Executable filenames are never identity evidence.
+    /// A successful `--version` is accepted only when its output is compatible
+    /// with the expected harness. The exact source path is disclosed separately
+    /// in the user confirmation that gates transcript submission.
     func versionProbeMatches(
         output: String,
         resolvedExecutablePath _: String
@@ -247,11 +253,11 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
               ) != nil else {
             return false
         }
-        let identityEvidence = normalizedOutput.lowercased()
-        return versionIdentityMarkers.contains { identityEvidence.contains($0) }
+        let compatibilityEvidence = normalizedOutput.lowercased()
+        return versionIdentityMarkers.contains { compatibilityEvidence.contains($0) }
     }
 
-    /// Help output is the fallback identity probe for tools whose version
+    /// Help output is the fallback compatibility probe for tools whose version
     /// output is only a number. This runs after an explicit fork selection.
     func helpProbeMatches(_ output: String) -> Bool {
         guard self != .current,

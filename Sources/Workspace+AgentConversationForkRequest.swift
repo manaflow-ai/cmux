@@ -12,7 +12,7 @@ extension Workspace {
         _ input: PreparedAgentStartupInput?,
         forPanelId panelId: UUID
     ) {
-        OneShotTerminalLauncherOwnershipRegistry.shared.adopt(
+        conversationTransferLauncherOwnershipRegistry.adopt(
             input,
             forPanelID: panelId
         )

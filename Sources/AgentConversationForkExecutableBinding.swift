@@ -1,10 +1,11 @@
 import Darwin
 import Foundation
 
-/// Binds the exact executable contents that passed explicit harness validation.
+/// Binds the executable entry artifact that passed compatibility validation.
 /// Writable installations use an adjacent user-immutable copy so scripts retain
-/// relative assets. Sources the current user cannot replace run in place after
-/// their file identity and content hash are revalidated.
+/// relative assets. The copy cannot pin a script's dependency closure, so the
+/// exact source path is shown in the explicit transcript-disclosure prompt.
+/// Protected sources run in place after identity and hash revalidation.
 struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
     private static let cleanupDirectoryName = "cmux-transfer-bindings"
     private static let cleanupRecordTTL: TimeInterval = 24 * 60 * 60

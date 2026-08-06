@@ -12,6 +12,8 @@ struct AgentConversationStorageGeneration: Equatable, Sendable {
     let birthNanoseconds: Int64
     let modificationSeconds: Int64
     let modificationNanoseconds: Int64
+    let statusChangeSeconds: Int64?
+    let statusChangeNanoseconds: Int64?
 
     static func capture(atPath path: String) -> Self? {
         captureStorage(atPath: path)?.generation
@@ -20,7 +22,8 @@ struct AgentConversationStorageGeneration: Equatable, Sendable {
     /// Resolves a configured symlink once, then captures the generation of its
     /// regular-file target so later readers can use the same canonical path.
     static func captureStorage(
-        atPath path: String
+        atPath path: String,
+        includeStatusChangeTime: Bool = true
     ) -> (path: String, generation: Self)? {
         var resolvedPathBuffer = [CChar](
             repeating: 0,
@@ -45,15 +48,27 @@ struct AgentConversationStorageGeneration: Equatable, Sendable {
               metadata.st_mode & S_IFMT == S_IFREG else {
             return nil
         }
-        return (resolvedPath, Self(metadata: metadata))
+        return (
+            resolvedPath,
+            Self(
+                metadata: metadata,
+                includeStatusChangeTime: includeStatusChangeTime
+            )
+        )
     }
 
     func matches(_ metadata: stat) -> Bool {
-        self == Self(metadata: metadata)
+        self == Self(
+            metadata: metadata,
+            includeStatusChangeTime: statusChangeSeconds != nil
+        )
     }
 
     func isCurrent(atPath path: String) -> Bool {
-        Self.capture(atPath: path) == self
+        Self.captureStorage(
+            atPath: path,
+            includeStatusChangeTime: statusChangeSeconds != nil
+        )?.generation == self
     }
 
     static func openRegularFile(
@@ -84,7 +99,8 @@ struct AgentConversationStorageGeneration: Equatable, Sendable {
     }
 
     static func captureOptionalRegularFile(
-        atPath path: String
+        atPath path: String,
+        includeStatusChangeTime: Bool = true
     ) -> (isValid: Bool, generation: Self?) {
         let descriptor = Darwin.open(
             path,
@@ -101,10 +117,16 @@ struct AgentConversationStorageGeneration: Equatable, Sendable {
               metadata.st_size >= 0 else {
             return (false, nil)
         }
-        return (true, Self(metadata: metadata))
+        return (
+            true,
+            Self(
+                metadata: metadata,
+                includeStatusChangeTime: includeStatusChangeTime
+            )
+        )
     }
 
-    private init(metadata: stat) {
+    private init(metadata: stat, includeStatusChangeTime: Bool = true) {
         device = UInt64(metadata.st_dev)
         inode = UInt64(metadata.st_ino)
         mode = UInt32(metadata.st_mode)
@@ -114,5 +136,11 @@ struct AgentConversationStorageGeneration: Equatable, Sendable {
         birthNanoseconds = Int64(metadata.st_birthtimespec.tv_nsec)
         modificationSeconds = Int64(metadata.st_mtimespec.tv_sec)
         modificationNanoseconds = Int64(metadata.st_mtimespec.tv_nsec)
+        statusChangeSeconds = includeStatusChangeTime
+            ? Int64(metadata.st_ctimespec.tv_sec)
+            : nil
+        statusChangeNanoseconds = includeStatusChangeTime
+            ? Int64(metadata.st_ctimespec.tv_nsec)
+            : nil
     }
 }

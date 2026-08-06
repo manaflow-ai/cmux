@@ -116496,8 +116496,8 @@
     "forkConversation.transfer.confirmation": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "cmux: When the harness input is ready, press Control-] to send the transferred conversation, or Control-X to continue without it." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "cmux：エージェントの入力欄が準備できたら、転送した会話を送信するには Control-] を押し、送信せずに続行するには Control-X を押してください。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "cmux: The running harness was launched from %@ and may load other code from that installation. Press Control-] to send the transferred conversation, or Control-X to continue without it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux：実行中のエージェントは %@ から起動され、そのインストール先の他のコードを読み込む場合があります。転送した会話を送信するには Control-] を押し、送信せずに続行するには Control-X を押してください。" } }
       }
     },
     "forkConversation.handoff.compacted": {
