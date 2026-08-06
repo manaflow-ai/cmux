@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 import SQLite3
 import Testing
 @testable import CMUXAgentLaunch
@@ -145,6 +146,130 @@ struct SQLiteDatabaseSnapshotServiceTests {
                 to: destination.path
             )
         }
+    }
+
+    @Test("Allows a rollback journal owned by an active writer")
+    func allowsActiveRollbackTransaction() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        var database: OpaquePointer?
+        try #require(sqlite3_open(source.path, &database) == SQLITE_OK)
+        let openedDatabase = try #require(database)
+        defer {
+            _ = sqlite3_exec(openedDatabase, "ROLLBACK;", nil, nil, nil)
+            sqlite3_close(openedDatabase)
+        }
+        try #require(sqlite3_exec(
+            openedDatabase,
+            """
+            PRAGMA journal_mode = DELETE;
+            PRAGMA cache_size = 10;
+            PRAGMA cache_spill = ON;
+            CREATE TABLE records (marker TEXT, payload BLOB);
+            INSERT INTO records VALUES ('committed', randomblob(2097152));
+            BEGIN IMMEDIATE;
+            UPDATE records SET marker = 'uncommitted', payload = randomblob(2097152);
+            """,
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK)
+        let journal = URL(fileURLWithPath: source.path + "-journal", isDirectory: false)
+        let journalHeader = try Data(contentsOf: journal).prefix(8)
+        #expect(Array(journalHeader) == [
+            0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7,
+        ])
+
+        try SQLiteDatabaseSnapshotService().copyDatabase(
+            from: source.path,
+            to: destination.path
+        )
+
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    @Test("Read-only fallback checks its deadline between copy chunks")
+    func readOnlyCopyEnforcesDeadlineBetweenChunks() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try Data(repeating: 0x41, count: 8 * 1_024).write(to: source)
+        let maximumDuration = Duration.seconds(10)
+        let startedAt = ContinuousClock().now
+        let deadlineExpired = OSAllocatedUnfairLock(initialState: false)
+        let service = SQLiteDatabaseSnapshotService(
+            pagesPerStep: 1,
+            maximumDuration: maximumDuration,
+            now: {
+                deadlineExpired.withLock { expired in
+                    expired
+                        ? startedAt.advanced(by: maximumDuration)
+                        : startedAt
+                }
+            },
+            forceReadOnlySourceCopy: true,
+            readOnlyCopyChunkSize: 1_024,
+            readOnlyCopyChunkObserver: {
+                deadlineExpired.withLock { $0 = true }
+            },
+            stepObserver: {}
+        )
+
+        #expect(
+            throws: SQLiteDatabaseSnapshotError.timedOut(
+                maximumDuration: maximumDuration
+            )
+        ) {
+            try service.copyDatabase(
+                from: source.path,
+                to: destination.path
+            )
+        }
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    @Test("Read-only fallback checks cancellation between copy chunks")
+    func readOnlyCopyChecksCancellationBetweenChunks() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try Data(repeating: 0x41, count: 8 * 1_024).write(to: source)
+        let service = SQLiteDatabaseSnapshotService(
+            pagesPerStep: 1,
+            forceReadOnlySourceCopy: true,
+            readOnlyCopyChunkSize: 1_024,
+            readOnlyCopyChunkObserver: {
+                withUnsafeCurrentTask { $0?.cancel() }
+            },
+            stepObserver: {}
+        )
+
+        let result = await Task {
+            do {
+                try service.copyDatabase(
+                    from: source.path,
+                    to: destination.path
+                )
+                return false
+            } catch is CancellationError {
+                return true
+            } catch {
+                return false
+            }
+        }.value
+
+        #expect(result)
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
     }
 
     @Test("Counts live WAL bytes toward the aggregate snapshot limit")

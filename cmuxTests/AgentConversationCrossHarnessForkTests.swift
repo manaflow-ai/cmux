@@ -2014,6 +2014,101 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func concurrentFreshTransferSnapshotsForDifferentPanelsUseSeparateScans() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let firstSnapshot = try makeCodexSnapshot(
+            in: fixture,
+            sessionID: "first-panel"
+        )
+        let secondDirectory = fixture.appendingPathComponent("second", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: secondDirectory,
+            withIntermediateDirectories: true
+        )
+        let secondSnapshot = try makeCodexSnapshot(
+            in: secondDirectory,
+            sessionID: "second-panel"
+        )
+        let workspaceId = UUID()
+        let firstPanelId = UUID()
+        let secondPanelId = UUID()
+        let firstKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: firstPanelId
+        )
+        let secondKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: secondPanelId
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                firstKey: (
+                    snapshot: firstSnapshot,
+                    updatedAt: 42,
+                    processIDs: [],
+                    agentProcessIDs: [],
+                    sessionIDSource: .explicit
+                ),
+                secondKey: (
+                    snapshot: secondSnapshot,
+                    updatedAt: 42,
+                    processIDs: [],
+                    agentProcessIDs: [],
+                    sessionIDSource: .explicit
+                ),
+            ]
+        )
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let loadStarted = DispatchSemaphore(value: 0)
+        let releaseLoads = DispatchSemaphore(value: 0)
+        let liveAgentIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                loadStarted.signal()
+                _ = releaseLoads.wait(timeout: .now() + 2)
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [firstKey, secondKey]
+                )
+            },
+            hookStoreDirectoryProvider: { fixture.path },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        let first = Task { @MainActor in
+            await liveAgentIndex.freshConversationTransferSnapshot(
+                workspaceId: workspaceId,
+                panelId: firstPanelId
+            )
+        }
+        #expect(await Task.detached {
+            loadStarted.wait(timeout: .now() + 2) == .success
+        }.value)
+        let second = Task { @MainActor in
+            await liveAgentIndex.freshConversationTransferSnapshot(
+                workspaceId: workspaceId,
+                panelId: secondPanelId
+            )
+        }
+        let secondScanStarted = await Task.detached {
+            loadStarted.wait(timeout: .now() + 0.2) == .success
+        }.value
+        releaseLoads.signal()
+        releaseLoads.signal()
+
+        #expect(secondScanStarted)
+        #expect(await first.value?.sessionId == firstSnapshot.sessionId)
+        #expect(await second.value?.sessionId == secondSnapshot.sessionId)
+        #expect(loadCount.withLock { $0 } == 2)
+    }
+
+    @Test
     func freshnessBoundariesCoalesceIntoOneQueuedIndexScan() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }

@@ -899,6 +899,32 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
+    func relativeHermesHomeResolvesAgainstCapturedLaunchDirectory() throws {
+        let workingDirectory = "/tmp/hermes-project"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: "relative-hermes-home",
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "hermes",
+                executablePath: "/opt/homebrew/bin/hermes",
+                arguments: ["/opt/homebrew/bin/hermes"],
+                workingDirectory: workingDirectory,
+                environment: ["HERMES_HOME": ".hermes-profile"],
+                capturedAt: 123,
+                source: "process"
+            ),
+            sessionIDProvenance: .authoritative
+        )
+
+        #expect(
+            AgentConversationSource(snapshot: snapshot)
+                .hermesStateDatabaseURL?.path
+                == "/tmp/hermes-project/.hermes-profile/state.db"
+        )
+    }
+
+    @Test
     func hermesTransferUsesCapturedHermesHome() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
