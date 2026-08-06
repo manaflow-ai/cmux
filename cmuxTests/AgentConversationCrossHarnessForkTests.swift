@@ -81,12 +81,11 @@ struct AgentConversationCrossHarnessForkTests {
             "CMUX_ARGUMENTS_LOG": argumentsLog.path,
             "CMUX_INPUT_LOG": inputLog.path,
         ]) { _, override in override }
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
-        try process.run()
+        let confirmationProcess = try runWithTransferConfirmation(process)
         process.waitUntilExit()
+        confirmationProcess.waitUntilExit()
 
         #expect(process.terminationStatus == 0)
         #expect(String(decoding: try Data(contentsOf: argumentsLog), as: UTF8.self) == "\n")
@@ -129,12 +128,11 @@ struct AgentConversationCrossHarnessForkTests {
             "CMUX_EARLY_INPUT_LOG": earlyInputLog.path,
             "CMUX_INPUT_LOG": inputLog.path,
         ]) { _, override in override }
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
-        try process.run()
+        let confirmationProcess = try runWithTransferConfirmation(process)
         process.waitUntilExit()
+        confirmationProcess.waitUntilExit()
 
         #expect(process.terminationStatus == 0)
         #expect(!FileManager.default.fileExists(atPath: earlyInputLog.path))
@@ -290,7 +288,6 @@ struct AgentConversationCrossHarnessForkTests {
             executablePath: executable.path
         ))
         let process = Process()
-        let standardOutput = Pipe()
         let standardError = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-lc", command]
@@ -298,11 +295,11 @@ struct AgentConversationCrossHarnessForkTests {
             "CMUX_HERMES_TEST_LOG": invocationLog.path,
             "CMUX_HERMES_INPUT_LOG": inputLog.path,
         ]) { _, override in override }
-        process.standardOutput = standardOutput
         process.standardError = standardError
 
-        try process.run()
+        let confirmationProcess = try runWithTransferConfirmation(process)
         process.waitUntilExit()
+        confirmationProcess.waitUntilExit()
         let errorOutput = String(
             decoding: standardError.fileHandleForReading.readDataToEndOfFile(),
             as: UTF8.self
@@ -1524,6 +1521,47 @@ struct AgentConversationCrossHarnessForkTests {
     private func permissions(at url: URL) throws -> Int {
         let value = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions]
         return try #require(value as? NSNumber).intValue & 0o777
+    }
+
+    /// Connects the process to a user-input pipe and emits the explicit
+    /// confirmation only after the cmux-owned prompt is visible.
+    private func runWithTransferConfirmation(_ process: Process) throws -> Process {
+        let userInput = Pipe()
+        let harnessOutput = Pipe()
+        process.standardInput = userInput
+        process.standardOutput = harnessOutput
+
+        let confirmationProcess = Process()
+        confirmationProcess.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        confirmationProcess.arguments = [
+            "-c",
+            """
+            if /usr/bin/grep -F -m 1 'Control-]' >/dev/null; then
+              /usr/bin/printf '\\035'
+              /bin/cat >/dev/null
+            fi
+            """,
+        ]
+        confirmationProcess.standardInput = harnessOutput
+        confirmationProcess.standardOutput = userInput
+        confirmationProcess.standardError = FileHandle.nullDevice
+
+        try confirmationProcess.run()
+        do {
+            try process.run()
+        } catch {
+            confirmationProcess.terminate()
+            throw error
+        }
+        for handle in [
+            userInput.fileHandleForReading,
+            userInput.fileHandleForWriting,
+            harnessOutput.fileHandleForReading,
+            harnessOutput.fileHandleForWriting,
+        ] {
+            try? handle.close()
+        }
+        return confirmationProcess
     }
 
     private func makeLiveAgentIndex(

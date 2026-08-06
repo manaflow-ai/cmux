@@ -116493,6 +116493,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "エージェント" } }
       }
     },
+    "forkConversation.transfer.confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux: Press Control-] to send the transferred conversation to this prompt, or Control-X to continue without it." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux：転送した会話をこのプロンプトに送信するには Control-] を押し、送信せずに続行するには Control-X を押してください。" } }
+      }
+    },
     "forkConversation.handoff.compacted": {
       "extractionState": "manual",
       "localizations": {
