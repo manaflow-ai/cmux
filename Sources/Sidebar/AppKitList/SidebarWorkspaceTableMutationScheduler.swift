@@ -60,12 +60,11 @@ final class SidebarWorkspaceTableMutationScheduler {
         isFlushScheduled = true
         // Deliberately retain the scheduler through this turn. Post-update
         // actions can commit user edits while their controller is tearing down.
-        RunLoop.main.perform(inModes: [.common]) {
-            // RunLoop guarantees main-thread delivery, but Foundation does
-            // not annotate this callback with MainActor.
-            MainActor.assumeIsolated {
-                self.flushPendingMutations()
-            }
+        Task { @MainActor [self] in
+            // The task starts after the current main-actor callback returns.
+            // Yield once more so AppKit can finish the originating layout turn.
+            await Task.yield()
+            flushPendingMutations()
         }
     }
 
