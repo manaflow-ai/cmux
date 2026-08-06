@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252";
+pub const ir_sha256 = "16906e2638310a262e3b0580c5efb9d47204e9f92d869df8d5cb545d142a2627";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2298,6 +2298,7 @@ pub const CreateSurfaceWithReceiptRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
+    idempotency_key: wire.Field([]const u8) = .absent,
     operation: []const u8,
     origin: []const u8,
     pane: wire.Field(Id) = .absent,
@@ -2324,6 +2325,9 @@ pub fn createSurfaceWithReceipt(client: anytype, request: CreateSurfaceWithRecei
             .authority = "control",
             .since = 10,
             .capability = "creation-receipts-v1",
+            .fields = &.{
+                .{ .name = "idempotency_key", .since = null, .capability = "creation-attempt-keys-v1" },
+            },
         },
         request,
     );

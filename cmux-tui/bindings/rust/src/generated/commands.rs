@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252.
+// cmux-tui mux protocol 10, IR 16906e2638310a262e3b0580c5efb9d47204e9f92d869df8d5cb545d142a2627.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -356,6 +356,8 @@ pub struct CreateSurfaceWithReceiptRequest {
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub idempotency_key: Optional<String>,
     pub operation: String,
     pub origin: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1399,6 +1401,9 @@ impl CmuxClient {
     }
 
     pub fn create_surface_with_receipt(&mut self, request: CreateSurfaceWithReceiptRequest) -> Result<CreateSurfaceWithReceiptResult> {
+        if !request.idempotency_key.is_missing() {
+            self.require_capability_field("create-surface-with-receipt", "creation-attempt-keys-v1")?;
+        }
         self.execute(&CREATE_SURFACE_WITH_RECEIPT_METADATA, &request)
     }
 

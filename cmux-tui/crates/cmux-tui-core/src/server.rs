@@ -99,6 +99,7 @@ const LOCAL_JOURNAL_PRINCIPAL: &str = "cmux.local-owner";
 pub const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
 pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
+pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
 pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
@@ -127,6 +128,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
+        CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         BROWSER_PROVIDER_CAPABILITY,
@@ -501,7 +503,12 @@ struct Request {
 struct CreateSurfaceWithReceiptRequest {
     operation: String,
     origin: String,
+    /// Stable correlation identity for the logical creation across retries.
     receipt: String,
+    /// One execution attempt. Omission preserves the original adapter
+    /// behavior by using `receipt` for both identities.
+    #[serde(default)]
+    idempotency_key: Option<String>,
     /// Stable public identities captured by the frontend before the request
     /// is sent. Numeric targets remain a legacy fallback.
     #[serde(default)]
@@ -3705,6 +3712,7 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
+                    || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
             }));
         }
@@ -8643,6 +8651,7 @@ fn create_surface_with_receipt(
         operation,
         origin,
         receipt,
+        idempotency_key,
         selectors: supplied_selectors,
         selector_fallbacks,
         pane,
@@ -8658,13 +8667,24 @@ fn create_surface_with_receipt(
         mux.control_clients.supports_capability(client, CREATION_RECEIPTS_CAPABILITY),
         "client did not negotiate {CREATION_RECEIPTS_CAPABILITY}"
     );
-    let mutation = WorkspaceMutation::new(receipt, origin)?;
+    anyhow::ensure!(
+        idempotency_key.is_none()
+            || mux
+                .control_clients
+                .supports_capability(client, CREATION_ATTEMPT_KEYS_CAPABILITY),
+        "client did not negotiate {CREATION_ATTEMPT_KEYS_CAPABILITY}"
+    );
+    let mutation = WorkspaceMutation::new(
+        idempotency_key.unwrap_or_else(|| receipt.clone()),
+        origin,
+    )?;
     let size = paired_surface_size("create-surface-with-receipt", cols, rows)?;
     let mut fields = serde_json::Map::new();
     if let Some((cols, rows)) = size {
         fields.insert("cols".to_string(), json!(cols));
         fields.insert("rows".to_string(), json!(rows));
     }
+    fields.insert("correlation_key".to_string(), json!(receipt));
     let session_selectors = || crate::ResourceSelectors {
         machine: Some("current".to_string()),
         session: Some("current".to_string()),
@@ -18162,11 +18182,12 @@ mod tests {
         let selectors = mux.resource_selectors_for_pane(Some(pane)).unwrap();
         let receipt = "split-receipt-00000001";
         let origin = "tui-receipt-test";
-        let command = |direction: &str| {
+        let command = |direction: &str, idempotency_key: &str| {
             Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
                 operation: format!("split-{direction}"),
                 origin: origin.to_string(),
                 receipt: receipt.to_string(),
+                idempotency_key: Some(idempotency_key.to_string()),
                 selectors: Some(selectors.clone()),
                 selector_fallbacks: Vec::new(),
                 pane: Some(pane),
@@ -18179,15 +18200,19 @@ mod tests {
                 rows: Some(30),
             }))
         };
-        let register = |writer: &MessageWriter| {
+        let register = |writer: &MessageWriter, attempt_keys: bool| {
             let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            let mut capabilities = vec![CREATION_RECEIPTS_CAPABILITY.to_string()];
+            if attempt_keys {
+                capabilities.push(CREATION_ATTEMPT_KEYS_CAPABILITY.to_string());
+            }
             handle_command(
                 &mux,
                 client,
                 Command::SetClientInfo {
                     name: Some("receipt test".to_string()),
                     kind: Some("tui".to_string()),
-                    capabilities: Some(vec![CREATION_RECEIPTS_CAPABILITY.to_string()]),
+                    capabilities: Some(capabilities),
                 },
                 writer,
             )
@@ -18195,15 +18220,43 @@ mod tests {
             client
         };
 
+        let legacy_writer = test_writer();
+        let legacy_client = register(&legacy_writer, false);
+        let capability_error = handle_command(
+            &mux,
+            legacy_client,
+            command("right", "split-attempt-unsupported"),
+            &legacy_writer,
+        )
+        .unwrap_err();
+        assert!(
+            capability_error
+                .to_string()
+                .contains(CREATION_ATTEMPT_KEYS_CAPABILITY)
+        );
+        assert!(disconnect_client(&mux, legacy_client, true));
+
         let first_writer = test_writer();
-        let first_client = register(&first_writer);
-        let first = handle_command(&mux, first_client, command("right"), &first_writer).unwrap();
+        let first_client = register(&first_writer, true);
+        let first = handle_command(
+            &mux,
+            first_client,
+            command("right", "split-attempt-00000001"),
+            &first_writer,
+        )
+        .unwrap();
         assert_eq!(first["replayed"], false);
         let created = first["surface"].as_u64().expect("creation omitted its surface");
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert_eq!(snapshot["panes"].as_array().unwrap().len(), 2);
 
-        let replay = handle_command(&mux, first_client, command("right"), &first_writer).unwrap();
+        let replay = handle_command(
+            &mux,
+            first_client,
+            command("right", "split-attempt-00000001"),
+            &first_writer,
+        )
+        .unwrap();
         assert_eq!(replay["replayed"], true);
         assert_eq!(replay["surface"].as_u64(), Some(created));
         assert_eq!(
@@ -18218,14 +18271,24 @@ mod tests {
         assert!(disconnect_client(&mux, first_client, true));
 
         let second_writer = test_writer();
-        let second_client = register(&second_writer);
-        let reconnect_replay =
-            handle_command(&mux, second_client, command("right"), &second_writer).unwrap();
+        let second_client = register(&second_writer, true);
+        let reconnect_replay = handle_command(
+            &mux,
+            second_client,
+            command("right", "split-attempt-00000002"),
+            &second_writer,
+        )
+        .unwrap();
         assert_eq!(reconnect_replay["replayed"], true);
         assert_eq!(reconnect_replay["surface"].as_u64(), Some(created));
 
-        let conflict =
-            handle_command(&mux, second_client, command("down"), &second_writer).unwrap_err();
+        let conflict = handle_command(
+            &mux,
+            second_client,
+            command("down", "split-attempt-00000003"),
+            &second_writer,
+        )
+        .unwrap_err();
         assert!(
             conflict.to_string().contains("bound to different semantics"),
             "unexpected receipt conflict: {conflict:#}"
@@ -18264,6 +18327,7 @@ mod tests {
                 operation: "new-browser-tab".to_string(),
                 origin: "native-browser-bootstrap-test".to_string(),
                 receipt: "browser-workspace-receipt-00000001".to_string(),
+                idempotency_key: None,
                 selectors: Some(selectors.clone()),
                 selector_fallbacks: Vec::new(),
                 pane: None,
@@ -18317,6 +18381,7 @@ mod tests {
                 operation: "split-right".to_string(),
                 origin: "tui-fallback-test".to_string(),
                 receipt: "split-fallback-receipt-00000001".to_string(),
+                idempotency_key: None,
                 selectors: Some(primary_selectors.clone()),
                 selector_fallbacks: vec![fallback_selectors.clone()],
                 pane: Some(primary_pane),
@@ -20657,6 +20722,7 @@ mod tests {
     fn identify_advertises_clear_history_key_only_with_bounded_fallback_writes() {
         let unsupported = advertised_capabilities(false);
         assert!(unsupported.contains(&CLEAR_HISTORY_CAPABILITY));
+        assert!(unsupported.contains(&CREATION_ATTEMPT_KEYS_CAPABILITY));
         assert!(!unsupported.contains(&CLEAR_HISTORY_KEY_CAPABILITY));
 
         let supported = advertised_capabilities(true);

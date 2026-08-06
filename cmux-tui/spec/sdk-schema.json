@@ -5254,6 +5254,13 @@
             "presence": "required",
             "nullable": false
           },
+          "idempotency_key": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null,
+            "capability": "creation-attempt-keys-v1"
+          },
           "selectors": {
             "type": {"kind": "ref", "name": "ResourceSelectors"},
             "presence": "optional",
@@ -5326,13 +5333,15 @@
         "constraints": [
           "operation is one of new-tab, run-command, new-browser-tab, new-workspace, new-screen, new-pane, new-pane-right, split-right, or split-down.",
           "Each operation admits only its documented selector and option fields.",
+          "idempotency_key names one execution attempt and defaults to receipt.",
           "cols and rows must be supplied together."
         ]
       },
       "result": {"kind": "ref", "name": "JsonValue"},
       "stream": null,
       "constraints": [
-        "Repeating one origin and receipt with identical fields returns the original creation result."
+        "Repeating one origin and receipt with identical fields returns the original creation result.",
+        "A new idempotency_key is valid only when durable creation resolution instructs retry_new_idempotency_key."
       ]
     },
     "send-key": {

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 10U;
-inline constexpr std::string_view kProtocolIrSha256 = "585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252";
+inline constexpr std::string_view kProtocolIrSha256 = "16906e2638310a262e3b0580c5efb9d47204e9f92d869df8d5cb545d142a2627";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -948,6 +948,7 @@ struct CreateSurfaceWithReceiptRequest {
     Field<std::vector<std::string>> argv{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
+    Field<std::string> idempotency_key{};
     std::string operation{};
     std::string origin{};
     Field<Id> pane{};

@@ -1282,6 +1282,7 @@ class CreateSurfaceWithReceiptRequest:
     argv: Union[List[str], None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
+    idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     selector_fallbacks: Union[List[ResourceSelectors], MissingType] = field(default=MISSING)
     selectors: Union[ResourceSelectors, None, MissingType] = field(default=MISSING)

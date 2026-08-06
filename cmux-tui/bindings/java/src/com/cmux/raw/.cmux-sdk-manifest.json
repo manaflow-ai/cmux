@@ -302,8 +302,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "5b3f204da896a3729ae8545bce35415e623b3a3678370cebaaebaea5caf162b8",
-      "size": 24190
+      "sha256": "14fa0511c3432b31761d1d0d159603aec201fa0af75d85d167eaf24da4c945a4",
+      "size": 24253
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -332,8 +332,8 @@
     },
     {
       "path": "CreateSurfaceWithReceiptRequest.java",
-      "sha256": "f36044cd30f7420b8b3ed854389ad34a6d80f8a0c174bc29fbffe459e5f71a4d",
-      "size": 10332
+      "sha256": "21b7225cb4e96ad1bb84069800aecd24f594e42878733a381d15c3d5adba53e3",
+      "size": 11138
     },
     {
       "path": "CreateTerminalRequest.java",
@@ -817,7 +817,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "3df99262aa0b284f20dc3b648cfe6c0f9610b62b57b9babb0a9c2faf12484d4b",
+      "sha256": "d35629092488cc3bbc66332c9222ff15bb0a77f978af4092be3b9506fb77e6a8",
       "size": 3967
     },
     {
@@ -1422,7 +1422,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252",
+  "ir_sha256": "16906e2638310a262e3b0580c5efb9d47204e9f92d869df8d5cb545d142a2627",
   "language": "java",
   "mux_protocol": 10,
   "schema_version": 2

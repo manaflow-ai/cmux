@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252. */
+/* cmux-tui mux protocol 10, IR 16906e2638310a262e3b0580c5efb9d47204e9f92d869df8d5cb545d142a2627. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "585d276a087f1f869e89c67e8d55a0194b5a5a6d6bb3398b2673f028ecf99252" as const;
+export const SDK_IR_SHA256 = "16906e2638310a262e3b0580c5efb9d47204e9f92d869df8d5cb545d142a2627" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -365,10 +365,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 10,
     "capability": "creation-receipts-v1",
-    "fields": {},
+    "fields": {
+      "idempotency_key": {
+        "since": null,
+        "capability": "creation-attempt-keys-v1"
+      }
+    },
     "stream": null,
     "constraints": [
-      "Repeating one origin and receipt with identical fields returns the original creation result."
+      "Repeating one origin and receipt with identical fields returns the original creation result.",
+      "A new idempotency_key is valid only when durable creation resolution instructs retry_new_idempotency_key."
     ]
   },
   "create-terminal": {
@@ -7070,6 +7076,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "constraints": [
         "operation is one of new-tab, run-command, new-browser-tab, new-workspace, new-screen, new-pane, new-pane-right, split-right, or split-down.",
         "Each operation admits only its documented selector and option fields.",
+        "idempotency_key names one execution attempt and defaults to receipt.",
         "cols and rows must be supplied together."
       ],
       "fields": {
@@ -7095,6 +7102,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "cwd": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "capability": "creation-attempt-keys-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",

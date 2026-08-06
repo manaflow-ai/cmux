@@ -7865,6 +7865,11 @@ Result<Json> Codec<CreateSurfaceWithReceiptRequest>::encode(const CreateSurfaceW
         if (!encoded) return std::move(encoded).error();
         object.emplace("cwd", std::move(encoded).value());
     }
+    if (!value.idempotency_key.is_absent()) {
+        auto encoded = encode_value(value.idempotency_key);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("idempotency_key", std::move(encoded).value());
+    }
     auto encoded_operation = encode_value(value.operation);
     if (!encoded_operation) return std::move(encoded_operation).error();
     object.emplace("operation", std::move(encoded_operation).value());
@@ -7944,6 +7949,16 @@ Result<CreateSurfaceWithReceiptRequest> Codec<CreateSurfaceWithReceiptRequest>::
             auto decoded = decode_value<std::string>(*field_cwd);
             if (!decoded) return std::move(decoded).error();
             result.cwd = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_idempotency_key = value.find("idempotency_key");
+    if (field_idempotency_key) {
+        if (field_idempotency_key->is_null()) {
+            result.idempotency_key = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_idempotency_key);
+            if (!decoded) return std::move(decoded).error();
+            result.idempotency_key = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_operation = value.find("operation");
@@ -16580,6 +16595,9 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand22FieldRequirements{{
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand24FieldRequirements{{
+    {"idempotency_key", 0U, "creation-attempt-keys-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand25FieldRequirements{{
     {"terminal_id", 9U, ""},
 }};
@@ -16650,7 +16668,7 @@ constexpr std::array<CommandMetadata, 100> kCommands{{
     {"close-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"close-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand22FieldRequirements)},
     {"copy", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"create-surface-with-receipt", "control", 10U, "creation-receipts-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"create-surface-with-receipt", "control", 10U, "creation-receipts-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand24FieldRequirements)},
     {"create-terminal", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand25FieldRequirements)},
     {"create-workspace", "control", 7U, "workspace-registry-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"detach-attached-view", "frontend", 10U, "view-attachment-detach-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
