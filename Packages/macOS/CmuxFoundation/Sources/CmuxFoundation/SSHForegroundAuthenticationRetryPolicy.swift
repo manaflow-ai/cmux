@@ -60,19 +60,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         ].joined(separator: "|")
     }
 
-    /// Builds the shell helper that terminates a foreground-authentication process tree.
-    ///
-    /// The immediate authentication PID is a shell wrapper whose descendants own
-    /// the classifier, nested PTY, and SSH process. The helper snapshots that tree,
-    /// freezes every discovered member, and repeats until no runnable descendant
-    /// remains. Isolated PTY process groups receive a graceful TERM while shared
-    /// wrapper processes stay frozen, preventing a shared-group handler from forking
-    /// outside the owned tree. A final snapshot freezes TERM-handler replacements
-    /// before group KILL, while shared processes are force-killed only after their
-    /// PID, parent, process-group, and start-time identities are revalidated.
-    /// The caller supplies the authentication root's known wrapper PID so root
-    /// validation is not inferred from a potentially reused candidate PID.
-    ///
+    /// Builds the bounded shell helper that terminates a foreground-authentication tree.
+    /// It freezes snapshot-validated members, gracefully terminates isolated PTY
+    /// groups, captures their TERM-handler replacements, and force-kills shared
+    /// wrappers without running their handlers. Every PID signal validates the
+    /// recorded parent, process group, and start time. The caller supplies the
+    /// root's known parent so a reused candidate PID cannot become the root.
     /// - Returns: A shell function named `cmux_ssh_terminate_auth_process_tree`.
     public func processTreeTerminationShellFunction() -> String {
         #"""
@@ -123,6 +116,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   cmux_state[cmux_pid] = $4
                   cmux_started[cmux_pid] = $5 "_" $6 "_" $7 "_" $8 "_" $9
                   cmux_process[cmux_pid] = 1
+                  cmux_next_sibling[cmux_pid] = cmux_first_child[$2]
+                  cmux_first_child[$2] = cmux_pid
                 }
                 END {
                   if (!(cmux_root in cmux_process) ||
@@ -131,17 +126,18 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     exit
                   }
                   cmux_depth[cmux_root] = 0
-                  cmux_changed = 1
-                  while (cmux_changed) {
-                    cmux_changed = 0
-                    for (cmux_candidate in cmux_process) {
-                      if (cmux_candidate in cmux_depth || cmux_state[cmux_candidate] ~ /Z/) {
-                        continue
+                  cmux_queue_head = 1
+                  cmux_queue_tail = 1
+                  cmux_queue[cmux_queue_tail] = cmux_root
+                  while (cmux_queue_head <= cmux_queue_tail) {
+                    cmux_parent_pid = cmux_queue[cmux_queue_head++]
+                    cmux_candidate = cmux_first_child[cmux_parent_pid]
+                    while (cmux_candidate != "") {
+                      if (cmux_state[cmux_candidate] !~ /Z/) {
+                        cmux_depth[cmux_candidate] = cmux_depth[cmux_parent_pid] + 1
+                        cmux_queue[++cmux_queue_tail] = cmux_candidate
                       }
-                      if (cmux_parent[cmux_candidate] in cmux_depth) {
-                        cmux_depth[cmux_candidate] = cmux_depth[cmux_parent[cmux_candidate]] + 1
-                        cmux_changed = 1
-                      }
+                      cmux_candidate = cmux_next_sibling[cmux_candidate]
                     }
                   }
                   for (cmux_candidate in cmux_depth) {
@@ -181,15 +177,31 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               /usr/bin/sort -n -k2,2n > "$cmux_ssh_auth_live"
           }
 
+        \#(processIdentityValidationShellFunction())
+
           cmux_ssh_auth_freeze_file() {
             cmux_ssh_auth_freeze_source="$1"
             : > "$cmux_ssh_auth_frozen" || return 1
             while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_started cmux_state; do
               case "$cmux_pid:$cmux_parent:$cmux_group" in *[!0-9:]*) continue ;; esac
-              if kill -STOP "$cmux_pid" >/dev/null 2>&1; then
-                printf '%s %s %s %s %s %s\n' \
-                  "$cmux_depth" "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_started" "$cmux_state" \
-                  >> "$cmux_ssh_auth_frozen" || return 1
+              cmux_ssh_auth_record_is_current "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_started" || continue
+              cmux_did_stop=
+              case "$cmux_state" in
+                *T*) ;;
+                *)
+                  kill -STOP "$cmux_pid" >/dev/null 2>&1 || continue
+                  cmux_did_stop=1
+                  if ! cmux_ssh_auth_record_is_current "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_started"; then
+                    kill -CONT "$cmux_pid" >/dev/null 2>&1 || true
+                    continue
+                  fi
+                  ;;
+              esac
+              if ! printf '%s %s %s %s %s %s\n' \
+                "$cmux_depth" "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_started" "$cmux_state" \
+                >> "$cmux_ssh_auth_frozen"; then
+                if [ -n "$cmux_did_stop" ]; then kill -CONT "$cmux_pid" >/dev/null 2>&1 || true; fi
+                return 1
               fi
             done < "$cmux_ssh_auth_freeze_source"
           }
@@ -232,6 +244,47 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_parent_group=$(/bin/ps -o pgid= -p "$cmux_ssh_auth_tree_root_parent" 2>/dev/null | /usr/bin/tr -d '[:space:]')
           case "$cmux_ssh_auth_parent_group" in ''|0|*[!0-9]*) cmux_ssh_auth_parent_group= ;; esac
 
+          cmux_ssh_auth_signal_groups() {
+            cmux_ssh_auth_group_signal="$1"
+            cmux_ssh_auth_group_source="$2"
+            while IFS= read -r cmux_group; do
+              case "$cmux_group" in ''|0|*[!0-9]*) continue ;; esac
+              /bin/kill -"$cmux_ssh_auth_group_signal" -- "-$cmux_group" >/dev/null 2>&1 || true
+            done < "$cmux_ssh_auth_group_source"
+          }
+
+          cmux_ssh_auth_signal_records() {
+            cmux_ssh_auth_record_signal="$1"
+            cmux_ssh_auth_record_source="$2"
+            /usr/bin/sort -nr -k1,1 -k2,2nr "$cmux_ssh_auth_record_source" | \
+              while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_started cmux_state; do
+                case "$cmux_pid" in ''|*[!0-9]*) continue ;; esac
+                cmux_ssh_auth_record_is_current "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_started" || continue
+                kill -"$cmux_ssh_auth_record_signal" "$cmux_pid" >/dev/null 2>&1 || true
+              done
+          }
+
+          cmux_ssh_auth_force_validated_frozen() {
+            if [ ! -s "$cmux_ssh_auth_frozen" ]; then return; fi
+            cmux_ssh_auth_take_snapshot || return
+            cmux_ssh_auth_extract_identity_matches "$cmux_ssh_auth_frozen" || return
+            /usr/bin/awk '$6 ~ /T/' "$cmux_ssh_auth_live" > "$cmux_ssh_auth_members" || return
+            case "$cmux_ssh_auth_parent_group" in
+              '')
+                /bin/cp "$cmux_ssh_auth_members" "$cmux_ssh_auth_shared" || return
+                ;;
+              *)
+                /usr/bin/awk -v cmux_parent_group="$cmux_ssh_auth_parent_group" \
+                  '$4 != cmux_parent_group && $4 != 0 { print $4 }' "$cmux_ssh_auth_members" | \
+                  /usr/bin/sort -un > "$cmux_ssh_auth_force_groups" || return
+                /usr/bin/awk -v cmux_parent_group="$cmux_ssh_auth_parent_group" \
+                  '$4 == cmux_parent_group { print }' "$cmux_ssh_auth_members" > "$cmux_ssh_auth_shared" || return
+                cmux_ssh_auth_signal_groups KILL "$cmux_ssh_auth_force_groups"
+                ;;
+            esac
+            cmux_ssh_auth_signal_records KILL "$cmux_ssh_auth_shared"
+          }
+
           cmux_ssh_auth_freeze_attempt=0
           cmux_ssh_auth_tree_frozen=
           while [ "$cmux_ssh_auth_freeze_attempt" -lt 4 ]; do
@@ -251,7 +304,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             fi
             cmux_ssh_auth_freeze_attempt=$((cmux_ssh_auth_freeze_attempt + 1))
           done
-          if [ -z "$cmux_ssh_auth_tree_frozen" ]; then exit 0; fi
+          if [ -z "$cmux_ssh_auth_tree_frozen" ]; then
+            cmux_ssh_auth_force_validated_frozen
+            exit 0
+          fi
 
           case "$cmux_ssh_auth_parent_group" in
             '') /bin/cp "$cmux_ssh_auth_owned" "$cmux_ssh_auth_shared" || exit 0 ;;
@@ -263,25 +319,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 '$4 == cmux_parent_group { print }' "$cmux_ssh_auth_owned" > "$cmux_ssh_auth_shared" || exit 0
               ;;
           esac
-
-          cmux_ssh_auth_signal_groups() {
-            cmux_ssh_auth_group_signal="$1"
-            cmux_ssh_auth_group_source="$2"
-            while IFS= read -r cmux_group; do
-              case "$cmux_group" in ''|0|*[!0-9]*) continue ;; esac
-              /bin/kill -"$cmux_ssh_auth_group_signal" -- "-$cmux_group" >/dev/null 2>&1 || true
-            done < "$cmux_ssh_auth_group_source"
-          }
-
-          cmux_ssh_auth_signal_records() {
-            cmux_ssh_auth_record_signal="$1"
-            cmux_ssh_auth_record_source="$2"
-            /usr/bin/sort -nr -k1,1 -k2,2nr "$cmux_ssh_auth_record_source" | \
-              while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_started cmux_state; do
-                case "$cmux_pid" in ''|*[!0-9]*) continue ;; esac
-                kill -"$cmux_ssh_auth_record_signal" "$cmux_pid" >/dev/null 2>&1 || true
-              done
-          }
 
           # Only the nested PTY groups receive TERM. Shared wrappers remain
           # stopped so their handlers cannot fork processes into the caller's group.
@@ -336,10 +373,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           if [ -s "$cmux_ssh_auth_shared" ]; then
             cmux_ssh_auth_take_snapshot || exit 0
             cmux_ssh_auth_extract_identity_matches "$cmux_ssh_auth_shared" || exit 0
-            cmux_ssh_auth_freeze_file "$cmux_ssh_auth_live" || exit 0
-            cmux_ssh_auth_take_snapshot || exit 0
-            cmux_ssh_auth_extract_identity_matches "$cmux_ssh_auth_frozen" || exit 0
-            cmux_ssh_auth_signal_records KILL "$cmux_ssh_auth_live"
+            /usr/bin/awk '$6 ~ /T/' "$cmux_ssh_auth_live" > "$cmux_ssh_auth_members" || exit 0
+            cmux_ssh_auth_signal_records KILL "$cmux_ssh_auth_members"
           fi
           cmux_ssh_auth_cleanup
         )
