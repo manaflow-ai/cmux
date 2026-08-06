@@ -157,9 +157,20 @@ fn append_once(
     request_id: &str,
     timeout: Duration,
 ) -> Result<(), AppendAttemptError> {
-    let mut stream = transport::connect(socket)
-        .with_context(|| format!("connect to {}", socket.display()))
-        .map_err(AppendAttemptError::Retryable)?;
+    let mut stream = transport::connect(socket).map_err(|error| {
+        let transient = matches!(
+            error.kind(),
+            io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+        );
+        let error = anyhow!(error).context(format!("connect to {}", socket.display()));
+        if transient {
+            AppendAttemptError::Retryable(error)
+        } else {
+            // No listener means this terminal is no longer attached to a live
+            // cmux-tui. Retrying a stale path only delays synchronous providers.
+            AppendAttemptError::Fatal(error)
+        }
+    })?;
     stream
         .set_read_timeout(Some(timeout))
         .map_err(|error| AppendAttemptError::Retryable(error.into()))?;

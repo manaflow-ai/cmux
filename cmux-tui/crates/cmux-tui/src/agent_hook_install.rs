@@ -922,7 +922,7 @@ fn visit_strings(value: &Value, predicate: &mut impl FnMut(&str) -> bool) -> boo
 
 fn hook_command(provider: &str, event: &str) -> String {
     format!(
-        "\"${{CMUX_TUI_HOOK:-:}}\" {} {} >/dev/null 2>&1 || :; printf '{{}}\\n' # {COMMAND_MARKER}",
+        "\"${{CMUX_TUI_HOOK:-:}}\" {} {} 2>/dev/null || :; printf '{{}}\\n' # {COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
     )
@@ -1138,10 +1138,10 @@ mod tests {
     }
 
     #[test]
-    fn grok_compatibility_imports_do_not_duplicate_claude_or_cursor_hooks() {
+    fn grok_compatibility_deduplication_does_not_expand_hook_commands() {
         for provider in ["claude", "cursor"] {
             let command = hook_command(provider, "Stop");
-            assert!(command.contains("GROK_HOOK_EVENT"), "{provider}: {command}");
+            assert!(!command.contains("GROK_HOOK_EVENT"), "{provider}: {command}");
         }
         let grok = hook_command("grok", "Stop");
         assert!(!grok.contains("GROK_HOOK_EVENT"), "{grok}");
