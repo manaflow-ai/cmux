@@ -3209,13 +3209,15 @@ final class Workspace: Identifiable, ObservableObject {
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
-        conversationTransferLauncherOwnershipRegistry: OneShotTerminalLauncherOwnershipRegistry = OneShotTerminalLauncherOwnershipRegistry()
+        conversationTransferLauncherOwnershipRegistry: OneShotTerminalLauncherOwnershipRegistry? = nil
     ) {
         self.id = id ?? UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
-        self.conversationTransferLauncherOwnershipRegistry = conversationTransferLauncherOwnershipRegistry
+        self.conversationTransferLauncherOwnershipRegistry =
+            conversationTransferLauncherOwnershipRegistry
+            ?? OneShotTerminalLauncherOwnershipRegistry()
         self.settings = settings
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
