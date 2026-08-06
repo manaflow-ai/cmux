@@ -478,10 +478,6 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      # cmuxTests share process-global AppKit, account, socket, and store state.
-      # Xcode copies TEST_RUNNER_-prefixed values into the app test host with
-      # the prefix removed. Keep each shard serial while four jobs stay parallel.
-      TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
       # Keep one-off focused gates on the lightest measured shard so shard 1 no
       # longer carries the full shard plus every extra regression guard.
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "4"
