@@ -29,11 +29,6 @@
       <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A5001050" BuildableName="cmux.app" BlueprintName="cmux" ReferencedContainer="container:cmux.xcodeproj"/>
     </MacroExpansion>
     <EnvironmentVariables>
-      <EnvironmentVariable key="HOME" value="$(CMUX_APP_HOST_HOME)" isEnabled="YES"/>
-      <EnvironmentVariable key="CFFIXED_USER_HOME" value="$(CMUX_APP_HOST_HOME)" isEnabled="YES"/>
-      <EnvironmentVariable key="XDG_CONFIG_HOME" value="$(CMUX_APP_HOST_XDG_CONFIG_HOME)" isEnabled="YES"/>
-      <EnvironmentVariable key="CMUX_APP_HOST_EXPECTED_HOME" value="$(CMUX_APP_HOST_HOME)" isEnabled="YES"/>
-      <EnvironmentVariable key="CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME" value="$(CMUX_APP_HOST_XDG_CONFIG_HOME)" isEnabled="YES"/>
       <EnvironmentVariable key="SWIFT_BACKTRACE" value="interactive=no,timeout=0s,symbolicate=off,color=no" isEnabled="YES"/>
     </EnvironmentVariables>
   </TestAction>

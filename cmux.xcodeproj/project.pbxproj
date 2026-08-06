@@ -11135,8 +11135,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Debug";
-				CMUX_APP_HOST_HOME = "$(HOME)";
-				CMUX_APP_HOST_XDG_CONFIG_HOME = "$(XDG_CONFIG_HOME:default=$(HOME)/.config)";
 				CMUX_AUTH_CALLBACK_SCHEME = "cmux-dev";
 				CMUX_IROH_RELAY_POLICY_KEY_ID = "cmux-staging-relay-policy-2026-07";
 				CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID = "cmux-staging-relay-policy-2026-08";
@@ -11187,8 +11185,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CMUX_APP_HOST_HOME = "$(HOME)";
-				CMUX_APP_HOST_XDG_CONFIG_HOME = "$(XDG_CONFIG_HOME:default=$(HOME)/.config)";
 				CMUX_AUTH_CALLBACK_SCHEME = cmux;
 				CMUX_IROH_RELAY_POLICY_KEY_ID = "cmux-production-relay-policy-2026-07";
 				CMUX_IROH_RELAY_POLICY_NEXT_KEY_ID = "cmux-production-relay-policy-2026-08";

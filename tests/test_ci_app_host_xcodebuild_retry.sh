@@ -16,13 +16,7 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME:-<unset>}" \
     >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
-  config_home=""
-  for arg in "$@"; do
-    case "$arg" in
-      CMUX_APP_HOST_HOME=*) config_home="${arg#CMUX_APP_HOST_HOME=}" ;;
-    esac
-  done
-  [ -n "$config_home" ] || config_home="${HOME:-/tmp}"
+  config_home="${TEST_RUNNER_HOME:-${HOME:-/tmp}}"
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || config_home=/Users/runner
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
   echo "cmux DEV [config] config: path=$config_home/$config_suffix"
@@ -81,14 +75,6 @@ runner_marker_count="$(grep -cx '1' "$TMP_DIR/test-runner-env.log" || true)"
 if [ "$runner_marker_count" -eq 0 ] || [ "$runner_marker_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-env.log"
   echo "FAIL: expected every app-host launch to receive TEST_RUNNER_CMUX_TEST_PROCESS=1"
-  exit 1
-fi
-
-home_setting_count="$(grep -Fxc "CMUX_APP_HOST_HOME=$APP_HOST_HOME" "$TMP_DIR/xcodebuild-args.log" || true)"
-xdg_setting_count="$(grep -Fxc "CMUX_APP_HOST_XDG_CONFIG_HOME=$APP_HOST_XDG_CONFIG_HOME" "$TMP_DIR/xcodebuild-args.log" || true)"
-if [ "$home_setting_count" -ne "$invocation_count" ] || [ "$xdg_setting_count" -ne "$invocation_count" ]; then
-  cat "$TMP_DIR/xcodebuild-args.log"
-  echo "FAIL: every app-host xcodebuild invocation must receive isolated launch-home build settings"
   exit 1
 fi
 

@@ -31,9 +31,10 @@ fi
 
 # xcodebuild must retain the console user's real HOME so Xcode and its package
 # toolchains remain available. Capture isolation only after the lock re-exec,
-# pass it as build settings, then remove the app-host-only redirects from the
-# driver environment. The cmux-unit TestAction applies them to the launched app.
-app_host_xcodebuild_settings=()
+# then pass it through Xcode's TEST_RUNNER_ environment channel. Xcode strips
+# that prefix when it launches the test runner, so the app host receives the
+# redirects without exposing them to the xcodebuild driver.
+app_host_test_runner_environment=()
 app_host_home=""
 if [ -n "${CFFIXED_USER_HOME:-}" ]; then
   if [ -z "${XDG_CONFIG_HOME:-}" ]; then
@@ -41,9 +42,12 @@ if [ -n "${CFFIXED_USER_HOME:-}" ]; then
     exit 1
   fi
   app_host_home="$CFFIXED_USER_HOME"
-  app_host_xcodebuild_settings+=(
-    "CMUX_APP_HOST_HOME=$CFFIXED_USER_HOME"
-    "CMUX_APP_HOST_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
+  app_host_test_runner_environment+=(
+    "TEST_RUNNER_HOME=$CFFIXED_USER_HOME"
+    "TEST_RUNNER_CFFIXED_USER_HOME=$CFFIXED_USER_HOME"
+    "TEST_RUNNER_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
+    "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=$CFFIXED_USER_HOME"
+    "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
   )
   unset CFFIXED_USER_HOME XDG_CONFIG_HOME
 fi
@@ -102,10 +106,11 @@ while [ "$attempt" -le "$max_attempts" ]; do
   # a clean slate.
   kill_stale_app_host
   set +e
-  TEST_RUNNER_CMUX_TEST_PROCESS=1 \
+  env \
+    TEST_RUNNER_CMUX_TEST_PROCESS=1 \
+    "${app_host_test_runner_environment[@]}" \
     CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
-    scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@" \
-      "${app_host_xcodebuild_settings[@]}"
+    scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@"
   status=$?
   set -e
 
