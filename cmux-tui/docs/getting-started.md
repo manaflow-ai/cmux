@@ -93,7 +93,7 @@ The usual default is `$XDG_RUNTIME_DIR/cmux-tui-<uid>/main.sock` when `XDG_RUNTI
 
 ## Platforms and XDG
 
-The packaged cmux-tui frontend supports macOS and Linux. Those frontends can also attach to native x86_64 Windows OpenSSH machines, where terminal surfaces use ConPTY; WSL is optional. The TUI config path resolves `CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `$XDG_CONFIG_HOME/cmux/cmux-tui.json` or `~/.config/cmux/cmux-tui.json`. Existing `mux.json` files remain supported and are used when `cmux-tui.json` is absent.
+The packaged cmux-tui frontend supports macOS and Linux. Those frontends can also attach to native x86_64 Windows OpenSSH machines, where terminals use ConPTY; WSL is optional. The TUI config path resolves `CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `$XDG_CONFIG_HOME/cmux/cmux-tui.json` or `~/.config/cmux/cmux-tui.json`. Existing `mux.json` files remain supported and are used when `cmux-tui.json` is absent.
 
 Launched Chrome profile paths are platform-specific. On macOS the default is `~/Library/Application Support/cmux-tui/chrome-profile`. On Linux and other non-macOS targets, `XDG_DATA_HOME` is used when set, then `~/.local/share/cmux-tui/chrome-profile`.
 

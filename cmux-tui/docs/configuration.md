@@ -165,7 +165,7 @@ SSH machine targets support macOS, Linux, and native x86_64 Windows OpenSSH host
 }
 ```
 
-The SSH target uses the same managed connection as `cmux-tui ssh`. It probes `binary`, starts or reuses the named remote mux and sidecar, and retains a reconnecting local bridge while that machine is selected. Packaged releases can install their pinned binary when the probe reports it missing or incompatible. Source builds require the exact matching binary to be preinstalled. SSH is noninteractive with strict host-key checking, disabled agent and X11 forwarding, and disabled port forwarding. See [Machines](machines.md) for rail behavior and setup details.
+The SSH target uses the same managed connection as `cmux-tui ssh`. It probes `binary`, starts or reuses the named remote mux and sidecar, and retains every successful machine connection until that target is removed or cmux-tui exits. Packaged releases can install their pinned binary when the probe reports it missing or incompatible. Source builds require the exact matching binary to be preinstalled. SSH is noninteractive with strict host-key checking, disabled agent and X11 forwarding, and disabled port forwarding. See [Machines](machines.md) for rail behavior and setup details.
 
 ### Dynamic machine provider
 
