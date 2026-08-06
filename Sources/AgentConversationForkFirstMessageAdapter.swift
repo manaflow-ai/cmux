@@ -5,7 +5,7 @@ import Foundation
 /// update prompts remain interactive and cancel pending submission.
 struct AgentConversationForkFirstMessageAdapter {
     private static let heredocDelimiter = "CMUX_CONVERSATION_FIRST_MESSAGE"
-    private static let blockingPromptPattern = #"(?i)(authentication required|enter .*api key|sign[ -]?in|log[ -]?in|login required|trust (this|the|these)|hooks need review|update required|must update|migration required|complete (setup|onboarding)|choose .*account)"#
+    private static let blockingPromptPattern = #"(?i)(authentication required|enter .*api key|sign[ -]?in|log[ -]?in|login required|trust (this|the|these)|hooks need review|update (available|required)|upgrade now|must update|migration required|complete (setup|onboarding)|choose .*account)"#
 
     static func startupCommand(
         interactiveCommand: String,

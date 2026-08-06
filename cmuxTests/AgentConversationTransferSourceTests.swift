@@ -270,7 +270,7 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
-    func installedTargetDiscoveryRejectsExecutableAliasWithoutHarnessIdentity() async throws {
+    func selectedTargetRejectsExecutableAliasWithoutHarnessIdentity() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let executable = root.appendingPathComponent("cbc")
@@ -288,7 +288,12 @@ struct AgentConversationTransferSourceTests {
             includeStandardSearchDirectories: false
         ).discover()
 
-        #expect(targets.isEmpty)
+        let target = try #require(targets.first)
+        await #expect {
+            try await target.validatedForTransfer()
+        } throws: { error in
+            error as? AgentConversationForkRequestError == .targetExecutableUnverified
+        }
     }
 
     @Test
@@ -317,7 +322,8 @@ struct AgentConversationTransferSourceTests {
             includeStandardSearchDirectories: false
         ).discover()
 
-        let target = try #require(targets.first { $0.harness == .codebuddy })
+        let discoveredTarget = try #require(targets.first { $0.harness == .codebuddy })
+        let target = try await discoveredTarget.validatedForTransfer()
         #expect(target.executablePath == validExecutable.path)
     }
 

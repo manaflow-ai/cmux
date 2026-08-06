@@ -9,6 +9,7 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
     case grok
     case opencode
     case omp
+    case campfire
     case pi
     case amp
     case cursor
@@ -19,6 +20,7 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
     case copilot
     case codebuddy
     case factory
+    case kimi
 
     var id: String { rawValue }
 
@@ -52,8 +54,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         let interactiveCommand: String? = switch self {
         case .current:
             nil
-        case .claude, .codex, .grok, .opencode, .omp, .pi, .amp, .cursor,
-             .gemini, .antigravity, .codebuddy, .factory:
+        case .claude, .codex, .grok, .opencode, .omp, .campfire, .pi, .amp,
+             .cursor, .gemini, .antigravity, .codebuddy, .factory, .kimi:
             "exec \(executable)"
         case .kiro:
             // The cmux profile is optional and installed separately. Preserve
@@ -90,7 +92,7 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             "Ask anything\\.\\.\\."
         case .omp:
             "Recent sessions"
-        case .pi:
+        case .campfire, .pi:
             "\\(sub\\).*%"
         case .amp:
             "ctrl\\+o.*for commands"
@@ -108,6 +110,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             "(auto|manual).*mode on|Context [0-9]+% left"
         case .factory:
             "Shift.*Tab|Context [0-9]+% left"
+        case .kimi:
+            "What would you like to do\\?"
         }
     }
 
@@ -155,8 +159,9 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .claude: .claude
         case .codex: .codex
         case .opencode: .opencode
-        case .current, .grok, .omp, .pi, .amp, .cursor, .gemini, .kiro,
-             .antigravity, .hermesAgent, .copilot, .codebuddy, .factory:
+        case .current, .grok, .omp, .campfire, .pi, .amp, .cursor, .gemini,
+             .kiro, .antigravity, .hermesAgent, .copilot, .codebuddy, .factory,
+             .kimi:
             nil
         }
     }
@@ -175,6 +180,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ["grok", "grok-macos-aarch64", "grok-macos-aarch"]
         case .omp:
             ["omp"]
+        case .campfire:
+            ["campfire"]
         case .pi:
             ["pi", "pi-coding-agent"]
         case .amp:
@@ -195,6 +202,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ["codebuddy", "cbc"]
         case .factory:
             ["droid", "factory"]
+        case .kimi:
+            ["kimi", "kimi-cli", "kimi-code"]
         }
     }
 
@@ -202,10 +211,12 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         executableNames.first ?? rawValue
     }
 
-    /// A successful `--version` is only accepted when either its output or the
-    /// resolved install path identifies the expected harness. This rejects an
-    /// unrelated executable renamed to a generic alias such as `cbc`.
-    func versionProbeMatches(output: String, resolvedExecutablePath: String) -> Bool {
+    /// A successful `--version` is accepted only when its output identifies the
+    /// expected harness. Executable filenames are never identity evidence.
+    func versionProbeMatches(
+        output: String,
+        resolvedExecutablePath _: String
+    ) -> Bool {
         guard self != .current else { return false }
         let normalizedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedOutput.isEmpty,
@@ -215,8 +226,21 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
               ) != nil else {
             return false
         }
-        let identityEvidence = (normalizedOutput + "\n" + resolvedExecutablePath).lowercased()
+        let identityEvidence = normalizedOutput.lowercased()
         return versionIdentityMarkers.contains { identityEvidence.contains($0) }
+    }
+
+    /// Help output is the fallback identity probe for tools whose version
+    /// output is only a number. This runs after an explicit fork selection.
+    func helpProbeMatches(_ output: String) -> Bool {
+        guard self != .current,
+              !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        return output.range(
+            of: helpIdentityPattern,
+            options: [.caseInsensitive, .regularExpression]
+        ) != nil
     }
 
     private var versionIdentityMarkers: [String] {
@@ -233,6 +257,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ["opencode", "open-code"]
         case .omp:
             ["omp", "oh-my-pi"]
+        case .campfire:
+            ["campfire"]
         case .pi:
             ["pi-coding-agent"]
         case .amp:
@@ -253,6 +279,49 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ["codebuddy", "code-buddy"]
         case .factory:
             ["factory", "/droid"]
+        case .kimi:
+            ["kimi"]
+        }
+    }
+
+    private var helpIdentityPattern: String {
+        switch self {
+        case .current:
+            #"$^"#
+        case .claude:
+            #"Claude Code"#
+        case .codex:
+            #"Codex"#
+        case .grok:
+            #"Grok"#
+        case .opencode:
+            #"opencode"#
+        case .omp:
+            #"(^|[^A-Za-z])OMP([^A-Za-z-]|$)|oh-my-pi"#
+        case .campfire:
+            #"usage:\s*campfire"#
+        case .pi:
+            #"pi\s+-\s+AI coding assistant|pi-coding-agent"#
+        case .amp:
+            #"Amp CLI"#
+        case .cursor:
+            #"Cursor Agent"#
+        case .gemini:
+            #"Gemini CLI"#
+        case .kiro:
+            #"Kiro"#
+        case .antigravity:
+            #"Antigravity"#
+        case .hermesAgent:
+            #"Hermes Agent"#
+        case .copilot:
+            #"GitHub Copilot|Copilot CLI"#
+        case .codebuddy:
+            #"CodeBuddy|Code Buddy"#
+        case .factory:
+            #"Factory|Droid"#
+        case .kimi:
+            #"Kimi"#
         }
     }
 }

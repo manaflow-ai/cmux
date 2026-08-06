@@ -70,7 +70,8 @@ public struct SQLiteDatabaseSnapshotService {
     /// - Parameters:
     ///   - sourcePath: Path to the live source database.
     ///   - destinationPath: Path where the standalone snapshot is created.
-    ///   - maximumBytes: Optional upper bound for the logical database image.
+    ///   - maximumBytes: Optional upper bound for the logical database image
+    ///     plus bound WAL, SHM, and rollback-journal sidecars.
     /// - Throws: ``SQLiteDatabaseSnapshotError`` or ``CancellationError`` when
     ///   the snapshot cannot complete.
     public func copyDatabase(
@@ -86,8 +87,15 @@ public struct SQLiteDatabaseSnapshotService {
         try Task.checkCancellation()
         let startedAt = now()
         try checkDeadline(startedAt: startedAt)
-        let boundSource = try bindSourceDatabase(path: sourcePath)
+        let boundSource = try bindSourceDatabase(
+            path: sourcePath,
+            maximumBytes: maximumBytes
+        )
         defer { try? fileManager.removeItem(at: boundSource.directoryURL) }
+        try enforceMaximumSidecarBytes(
+            databasePath: boundSource.databaseURL.path,
+            maximumBytes: maximumBytes
+        )
 
         var sourceDatabase: OpaquePointer?
         let sourceOpenResult = sqlite3_open_v2(
@@ -160,7 +168,8 @@ public struct SQLiteDatabaseSnapshotService {
             try enforceMaximumBytes(
                 backup: activeBackup,
                 pageSize: pageSize,
-                maximumBytes: maximumBytes
+                maximumBytes: maximumBytes,
+                sourceDatabasePath: boundSource.databaseURL.path
             )
             if stepResult != SQLITE_DONE {
                 try checkDeadline(startedAt: startedAt)
@@ -222,7 +231,10 @@ public struct SQLiteDatabaseSnapshotService {
     /// unpredictable names in a private directory controlled by cmux.
     /// SQLite opens only those hard links, so replacing the caller's path after
     /// validation cannot redirect or block its path-based open.
-    private func bindSourceDatabase(path: String) throws -> (
+    private func bindSourceDatabase(
+        path: String,
+        maximumBytes: Int?
+    ) throws -> (
         databaseURL: URL,
         directoryURL: URL
     ) {
@@ -235,25 +247,50 @@ public struct SQLiteDatabaseSnapshotService {
         try sourceValidatedObserver?()
         try rejectHotRollbackJournal(path: sourceURL.path + "-journal")
 
-        let directoryURL = try createPrivateTemporaryDirectory(
-            prefix: "cmux-sqlite-source"
+        let binding = try createPrivateSourceBindingDirectory(
+            sourceURL: sourceURL,
+            sourceDescriptor: sourceDescriptor
         )
+        let directoryURL = binding.directoryURL
         do {
+            if binding.requiresCopy {
+                try enforceReadOnlySourceCopyMaximumBytes(
+                    sourcePath: sourceURL.path,
+                    sourceDescriptor: sourceDescriptor,
+                    maximumBytes: maximumBytes
+                )
+            }
             let databaseURL = directoryURL.appendingPathComponent(
                 sourceURL.lastPathComponent,
                 isDirectory: false
             )
-            try linkValidatedFile(
-                from: sourceURL.path,
-                descriptor: sourceDescriptor,
-                to: databaseURL.path,
-                label: "source database"
-            )
-            for suffix in ["-wal", "-shm", "-journal"] {
-                try linkOptionalRegularFile(
-                    from: sourceURL.path + suffix,
-                    to: databaseURL.path + suffix
+            if binding.requiresCopy {
+                try copyValidatedReadOnlyFile(
+                    from: sourceURL.path,
+                    descriptor: sourceDescriptor,
+                    to: databaseURL.path,
+                    label: "source database"
                 )
+            } else {
+                try linkValidatedFile(
+                    from: sourceURL.path,
+                    descriptor: sourceDescriptor,
+                    to: databaseURL.path,
+                    label: "source database"
+                )
+            }
+            for suffix in ["-wal", "-shm", "-journal"] {
+                if binding.requiresCopy {
+                    try copyOptionalReadOnlyFile(
+                        from: sourceURL.path + suffix,
+                        to: databaseURL.path + suffix
+                    )
+                } else {
+                    try linkOptionalRegularFile(
+                        from: sourceURL.path + suffix,
+                        to: databaseURL.path + suffix
+                    )
+                }
             }
             try rejectHotRollbackJournal(path: databaseURL.path + "-journal")
             try rejectHotRollbackJournal(path: sourceURL.path + "-journal")
@@ -262,6 +299,192 @@ public struct SQLiteDatabaseSnapshotService {
             try? fileManager.removeItem(at: directoryURL)
             throw error
         }
+    }
+
+    /// Hard links keep SQLite attached to the validated inode. Prefer cmux's
+    /// private temporary directory, then a private directory on the source
+    /// volume. A cross-volume read-only source is immutable, so copying its
+    /// validated files is the only safe fallback that does not write beside it.
+    private func createPrivateSourceBindingDirectory(
+        sourceURL: URL,
+        sourceDescriptor: Int32
+    ) throws -> (directoryURL: URL, requiresCopy: Bool) {
+        var sourceMetadata = stat()
+        guard Darwin.fstat(sourceDescriptor, &sourceMetadata) == 0 else {
+            throw SQLiteDatabaseSnapshotError.sqlite("cannot inspect source database")
+        }
+
+        let temporaryDirectory = try createPrivateTemporaryDirectory(
+            prefix: "cmux-sqlite-source"
+        )
+        var temporaryMetadata = stat()
+        guard Darwin.lstat(temporaryDirectory.path, &temporaryMetadata) == 0 else {
+            try? fileManager.removeItem(at: temporaryDirectory)
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "cannot inspect private snapshot directory"
+            )
+        }
+        if temporaryMetadata.st_dev == sourceMetadata.st_dev {
+            return (temporaryDirectory, false)
+        }
+
+        var candidateParent = sourceURL.deletingLastPathComponent()
+        while true {
+            var parentMetadata = stat()
+            guard Darwin.lstat(candidateParent.path, &parentMetadata) == 0,
+                  parentMetadata.st_dev == sourceMetadata.st_dev else {
+                break
+            }
+            if let directory = try? createPrivateDirectory(
+                in: candidateParent,
+                prefix: ".cmux-sqlite-source"
+            ) {
+                var directoryMetadata = stat()
+                if Darwin.lstat(directory.path, &directoryMetadata) == 0,
+                   directoryMetadata.st_dev == sourceMetadata.st_dev,
+                   directoryMetadata.st_mode & S_IFMT == S_IFDIR {
+                    try? fileManager.removeItem(at: temporaryDirectory)
+                    return (directory, false)
+                }
+                try? fileManager.removeItem(at: directory)
+            }
+            let nextParent = candidateParent.deletingLastPathComponent()
+            if nextParent.path == candidateParent.path { break }
+            candidateParent = nextParent
+        }
+
+        guard fileSystemIsReadOnly(at: sourceURL.path) else {
+            try? fileManager.removeItem(at: temporaryDirectory)
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "cannot create same-volume source binding"
+            )
+        }
+        return (temporaryDirectory, true)
+    }
+
+    private func fileSystemIsReadOnly(at path: String) -> Bool {
+        let values = try? URL(fileURLWithPath: path).resourceValues(
+            forKeys: [.volumeIsReadOnlyKey]
+        )
+        return values?.volumeIsReadOnly == true
+    }
+
+    private func copyOptionalReadOnlyFile(
+        from sourcePath: String,
+        to destinationPath: String
+    ) throws {
+        let descriptor = Darwin.open(
+            sourcePath,
+            O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard descriptor >= 0 else {
+            if errno == ENOENT { return }
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "cannot open source database sidecar"
+            )
+        }
+        defer { _ = Darwin.close(descriptor) }
+
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG else {
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "source database sidecar is not a regular file"
+            )
+        }
+        try copyValidatedReadOnlyFile(
+            from: sourcePath,
+            descriptor: descriptor,
+            to: destinationPath,
+            label: "source database sidecar"
+        )
+    }
+
+    private func copyValidatedReadOnlyFile(
+        from sourcePath: String,
+        descriptor: Int32,
+        to destinationPath: String,
+        label: String
+    ) throws {
+        guard validatedSourcePath(sourcePath, matches: descriptor) else {
+            throw SQLiteDatabaseSnapshotError.sqlite("\(label) changed while opening")
+        }
+        do {
+            try fileManager.copyItem(atPath: sourcePath, toPath: destinationPath)
+        } catch {
+            throw SQLiteDatabaseSnapshotError.sqlite("cannot copy \(label)")
+        }
+        guard validatedSourcePath(sourcePath, matches: descriptor) else {
+            _ = Darwin.unlink(destinationPath)
+            throw SQLiteDatabaseSnapshotError.sqlite("\(label) changed while opening")
+        }
+        var destinationMetadata = stat()
+        guard Darwin.lstat(destinationPath, &destinationMetadata) == 0,
+              destinationMetadata.st_mode & S_IFMT == S_IFREG,
+              Darwin.chmod(destinationPath, S_IRUSR | S_IWUSR) == 0 else {
+            _ = Darwin.unlink(destinationPath)
+            throw SQLiteDatabaseSnapshotError.sqlite("cannot secure \(label) copy")
+        }
+    }
+
+    private func validatedSourcePath(
+        _ path: String,
+        matches descriptor: Int32
+    ) -> Bool {
+        var descriptorMetadata = stat()
+        var pathMetadata = stat()
+        return Darwin.fstat(descriptor, &descriptorMetadata) == 0
+            && Darwin.lstat(path, &pathMetadata) == 0
+            && descriptorMetadata.st_dev == pathMetadata.st_dev
+            && descriptorMetadata.st_ino == pathMetadata.st_ino
+            && pathMetadata.st_mode & S_IFMT == S_IFREG
+    }
+
+    private func enforceReadOnlySourceCopyMaximumBytes(
+        sourcePath: String,
+        sourceDescriptor: Int32,
+        maximumBytes: Int?
+    ) throws {
+        guard let maximumBytes else { return }
+        var total = try regularFileSize(descriptor: sourceDescriptor)
+        for suffix in ["-wal", "-shm", "-journal"] {
+            let descriptor = Darwin.open(
+                sourcePath + suffix,
+                O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
+            )
+            guard descriptor >= 0 else {
+                if errno == ENOENT { continue }
+                throw SQLiteDatabaseSnapshotError.sqlite(
+                    "cannot open source database sidecar"
+                )
+            }
+            defer { _ = Darwin.close(descriptor) }
+            let size = try regularFileSize(descriptor: descriptor)
+            let (updatedTotal, overflow) = total.addingReportingOverflow(size)
+            guard !overflow else {
+                throw SQLiteDatabaseSnapshotError.snapshotTooLarge(
+                    maximumBytes: maximumBytes
+                )
+            }
+            total = updatedTotal
+        }
+        guard total <= Int64(maximumBytes) else {
+            throw SQLiteDatabaseSnapshotError.snapshotTooLarge(
+                maximumBytes: maximumBytes
+            )
+        }
+    }
+
+    private func regularFileSize(descriptor: Int32) throws -> Int64 {
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG,
+              metadata.st_size >= 0 else {
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "source database artifact is not a regular file"
+            )
+        }
+        return metadata.st_size
     }
 
     /// Opens special files without waiting for a peer and refuses symlinks.
@@ -517,16 +740,67 @@ public struct SQLiteDatabaseSnapshotService {
     private func enforceMaximumBytes(
         backup: OpaquePointer,
         pageSize: Int64,
-        maximumBytes: Int?
+        maximumBytes: Int?,
+        sourceDatabasePath: String
     ) throws {
         guard let maximumBytes else { return }
+        let maximumBytes64 = Int64(maximumBytes)
+        let sidecarBytes = try boundSidecarBytes(databasePath: sourceDatabasePath)
         let pageCount = Int64(sqlite3_backup_pagecount(backup))
         guard pageCount >= 0,
-              pageCount <= Int64(maximumBytes) / pageSize else {
+              sidecarBytes <= maximumBytes64,
+              pageCount <= (maximumBytes64 - sidecarBytes) / pageSize else {
             throw SQLiteDatabaseSnapshotError.snapshotTooLarge(
                 maximumBytes: maximumBytes
             )
         }
+    }
+
+    private func enforceMaximumSidecarBytes(
+        databasePath: String,
+        maximumBytes: Int?
+    ) throws {
+        guard let maximumBytes,
+              try boundSidecarBytes(databasePath: databasePath) > Int64(maximumBytes) else {
+            return
+        }
+        throw SQLiteDatabaseSnapshotError.snapshotTooLarge(
+            maximumBytes: maximumBytes
+        )
+    }
+
+    private func boundSidecarBytes(databasePath: String) throws -> Int64 {
+        var total: Int64 = 0
+        for suffix in ["-wal", "-shm", "-journal"] {
+            let descriptor = Darwin.open(
+                databasePath + suffix,
+                O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
+            )
+            guard descriptor >= 0 else {
+                if errno == ENOENT { continue }
+                throw SQLiteDatabaseSnapshotError.sqlite(
+                    "cannot open bound database sidecar"
+                )
+            }
+            var metadata = stat()
+            let metadataResult = Darwin.fstat(descriptor, &metadata)
+            _ = Darwin.close(descriptor)
+            guard metadataResult == 0,
+                  metadata.st_mode & S_IFMT == S_IFREG,
+                  metadata.st_size >= 0 else {
+                throw SQLiteDatabaseSnapshotError.sqlite(
+                    "bound database sidecar is not a regular file"
+                )
+            }
+            let (updatedTotal, overflow) = total.addingReportingOverflow(metadata.st_size)
+            guard !overflow else {
+                throw SQLiteDatabaseSnapshotError.sqlite(
+                    "bound database sidecar size overflow"
+                )
+            }
+            total = updatedTotal
+        }
+        return total
     }
 
     private func sqliteMessage(

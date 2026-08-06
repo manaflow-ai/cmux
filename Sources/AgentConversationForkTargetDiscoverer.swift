@@ -82,75 +82,28 @@ struct AgentConversationForkTargetDiscoverer: Sendable {
             }
             return candidates.isEmpty ? nil : candidates
         }
-        return await withTaskGroup(
-            of: (Int, AgentConversationForkTarget?).self,
-            returning: [AgentConversationForkTarget].self
-        ) { group in
-            for (index, candidates) in candidateGroups.enumerated() {
-                group.addTask {
-                    (index, await firstValidatedTarget(in: candidates))
-                }
+        return candidateGroups.compactMap { candidates in
+            guard !Task.isCancelled else { return nil }
+            let stableCandidates = candidates.filter {
+                AgentConversationForkExecutableIdentity.capture(
+                    executablePath: $0.executableURL.path,
+                    runtimeSearchPath: $0.runtimeSearchPath
+                ) != nil
             }
-            var validated = Array<AgentConversationForkTarget?>(
-                repeating: nil,
-                count: candidateGroups.count
+            guard let primary = stableCandidates.first,
+                  let primaryIdentity = AgentConversationForkExecutableIdentity.capture(
+                      executablePath: primary.executableURL.path,
+                      runtimeSearchPath: primary.runtimeSearchPath
+                  ) else {
+                return nil
+            }
+            return AgentConversationForkTarget(
+                harness: primary.harness,
+                executablePath: primary.executableURL.path,
+                runtimeSearchPath: primary.runtimeSearchPath,
+                executableIdentity: primaryIdentity,
+                executableCandidates: stableCandidates
             )
-            for await (index, target) in group {
-                validated[index] = target
-            }
-            return validated.compactMap { $0 }
         }
-    }
-
-    private func firstValidatedTarget(
-        in candidates: [AgentConversationForkTargetCandidate]
-    ) async -> AgentConversationForkTarget? {
-        for candidate in candidates {
-            if let target = await validatedTarget(candidate) {
-                return target
-            }
-        }
-        return nil
-    }
-
-    private func validatedTarget(
-        _ candidate: AgentConversationForkTargetCandidate
-    ) async -> AgentConversationForkTarget? {
-        guard !Task.isCancelled else { return nil }
-        let executablePath = candidate.executableURL.path
-        guard let identityBeforeProbe = AgentConversationForkExecutableIdentity.capture(
-            executablePath: executablePath,
-            runtimeSearchPath: candidate.runtimeSearchPath
-        ) else {
-            return nil
-        }
-        var probeEnvironment = environment
-        if let runtimeSearchPath = candidate.runtimeSearchPath {
-            probeEnvironment["PATH"] = runtimeSearchPath
-        }
-        guard let output = await AgentForkSupport.commandOutput(
-            executable: executablePath,
-            arguments: ["--version"],
-            environment: probeEnvironment,
-            workingDirectory: nil
-        ),
-              candidate.harness.versionProbeMatches(
-                  output: output,
-                  resolvedExecutablePath: identityBeforeProbe.realPath
-              ),
-              let identityAfterProbe = AgentConversationForkExecutableIdentity.capture(
-                  executablePath: executablePath,
-                  runtimeSearchPath: candidate.runtimeSearchPath
-              ),
-              identityAfterProbe == identityBeforeProbe,
-              !Task.isCancelled else {
-            return nil
-        }
-        return AgentConversationForkTarget(
-            harness: candidate.harness,
-            executablePath: executablePath,
-            runtimeSearchPath: candidate.runtimeSearchPath,
-            executableIdentity: identityAfterProbe
-        )
     }
 }

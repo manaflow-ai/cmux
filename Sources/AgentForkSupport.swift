@@ -1078,13 +1078,15 @@ enum AgentForkSupport {
         executable: String,
         arguments: [String],
         environment: [String: String]?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        acceptedExitStatuses: Set<Int32> = [0]
     ) async -> String? {
         let runner = AgentForkCommandOutputRunner(
             executable: executable,
             arguments: arguments,
             environment: environment,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            acceptedExitStatuses: acceptedExitStatuses
         )
         return await withTaskCancellationHandler {
             await runner.start()

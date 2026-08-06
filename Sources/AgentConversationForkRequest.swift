@@ -95,13 +95,11 @@ struct AgentConversationForkRequest: Equatable, Sendable {
                 || !targetHarness.usesNativeFork(for: sourceSnapshot.kind) else {
             return nil
         }
-        guard target.executableIdentityIsCurrent() else {
-            throw AgentConversationForkRequestError.targetExecutableChanged
-        }
+        let validatedTarget = try await target.validatedForTransfer()
         let handoffMessage = try await exportService.message(for: sourceSnapshot)
-        guard target.executableIdentityIsCurrent() else {
+        guard validatedTarget.executableIdentityIsCurrent() else {
             throw AgentConversationForkRequestError.targetExecutableChanged
         }
-        return target.startupCommand(handoffMessage: handoffMessage)
+        return validatedTarget.startupCommand(handoffMessage: handoffMessage)
     }
 }
