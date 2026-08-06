@@ -17,7 +17,14 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME:-<unset>}" \
     >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
   config_home="${TEST_RUNNER_HOME:-${HOME:-/tmp}}"
-  [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || config_home=/Users/runner
+  case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
+    leak) config_home=/Users/runner ;;
+    sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
+    missing-log)
+      rm -f "$CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH"
+      exit 0
+      ;;
+  esac
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
   echo "cmux DEV [config] config: path=$config_home/$config_suffix"
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
@@ -126,5 +133,41 @@ if [ "$leak_status" -ne 1 ] || ! grep -Fq \
   echo "FAIL: wrapper must reject a Ghostty config path outside the isolated app-host home"
   exit 1
 fi
+
+for regression in sibling-leak missing-log; do
+  case "$regression" in
+    sibling-leak)
+      expected_failure="FAIL: Ghostty accessed configuration outside the isolated app-host home"
+      ;;
+    missing-log)
+      expected_failure="FAIL: app-host configuration log could not be scanned"
+      ;;
+  esac
+
+  set +e
+  PATH="$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$TMP_DIR" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/$regression-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/$regression-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/$regression-xcodebuild-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/$regression-test-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE="$regression" \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  CFFIXED_USER_HOME="$APP_HOST_HOME" \
+  XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+    bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+      >"$TMP_DIR/$regression-output.log" 2>&1
+  regression_status=$?
+  set -e
+
+  if [ "$regression_status" -ne 1 ] || ! grep -Fq \
+    "$expected_failure" "$TMP_DIR/$regression-output.log"; then
+    cat "$TMP_DIR/$regression-output.log"
+    echo "FAIL: wrapper must reject $regression app-host validation"
+    exit 1
+  fi
+done
 
 echo "PASS: app-host xcodebuild wrapper retries idle timeouts"

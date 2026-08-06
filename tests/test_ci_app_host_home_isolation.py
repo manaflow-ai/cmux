@@ -75,7 +75,9 @@ def main() -> int:
         "XDG configuration redirect": (
             'echo "XDG_CONFIG_HOME=$APP_HOST_HOME/.config" >> "$GITHUB_ENV"'
         ),
-        "console-user write access": 'chmod -R a+rwX "$APP_HOST_HOME"',
+        "owner-only app-host access": (
+            'chmod -R u+rwX,go-rwx "$APP_HOST_HOME"'
+        ),
         "real Cargo toolchain home": 'echo "CARGO_HOME=${HOME}/.cargo" >> "$GITHUB_ENV"',
         "real rustup toolchain home": 'echo "RUSTUP_HOME=${HOME}/.rustup" >> "$GITHUB_ENV"',
     }
@@ -102,6 +104,21 @@ def main() -> int:
         CONSOLE_WRAPPER,
         'env HOME="$console_home"',
         "console-session Unix home preservation",
+    )
+    require(
+        CONSOLE_WRAPPER,
+        '"$runner_temp"/*',
+        "console-session app-host path boundary",
+    )
+    require(
+        CONSOLE_WRAPPER,
+        'sudo -n chown -R "$console_user" "$app_host_home"',
+        "console-user app-host ownership",
+    )
+    require(
+        CONSOLE_WRAPPER,
+        'sudo -n chmod -R u+rwX,go-rwx "$app_host_home"',
+        "console-user app-host permissions",
     )
 
     for key in (
