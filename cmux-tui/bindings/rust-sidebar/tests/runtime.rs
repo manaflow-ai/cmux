@@ -296,8 +296,8 @@ fn runtime_remains_attached_across_idle_request_timeout_and_accepts_late_snapsho
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
     let request_timeout = test_duration(Duration::from_millis(250));
-    let (release_snapshot_tx, release_snapshot_rx) = std::sync::mpsc::channel();
-    let (snapshot_sent_tx, snapshot_sent_rx) = std::sync::mpsc::channel();
+    let (release_snapshot_tx, release_snapshot_rx) = mpsc::channel();
+    let (snapshot_sent_tx, snapshot_sent_rx) = mpsc::channel();
     let server = thread::spawn(move || {
         let (control, _) = listener.accept().unwrap();
         let (mut stream, _) = listener.accept().unwrap();

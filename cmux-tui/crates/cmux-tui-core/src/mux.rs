@@ -14207,6 +14207,7 @@ fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
                 *key,
                 "CMUX_TUI_SOCKET"
                     | "CMUX_MUX_SOCKET"
+                    | "CMUX_TUI_HOOK"
                     | "CMUX_TUI_SESSION_ID"
                     | "CMUX_TUI_TERMINAL_ID"
                     | "CMUX_SIDEBAR"
@@ -18082,6 +18083,7 @@ mod tests {
             extra_env: vec![
                 ("API_BEARER_TOKEN".into(), sentinel.into()),
                 ("CMUX_TUI_SOCKET".into(), "/tmp/cmux.sock".into()),
+                ("CMUX_TUI_HOOK".into(), "/tmp/cmux-tui-hook".into()),
             ],
             ..SurfaceOptions::default()
         };
@@ -18089,8 +18091,10 @@ mod tests {
         assert!(!encoded.contains(sentinel));
         assert!(!encoded.contains("API_BEARER_TOKEN"));
         assert!(!encoded.contains("/tmp/cmux.sock"));
+        assert!(!encoded.contains("/tmp/cmux-tui-hook"));
         assert!(!encoded.contains("/bin/sh"));
         assert!(encoded.contains("CMUX_TUI_SOCKET"));
+        assert!(encoded.contains("CMUX_TUI_HOOK"));
     }
 
     #[test]

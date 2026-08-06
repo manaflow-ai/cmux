@@ -24,7 +24,7 @@ struct Args {
 fn main() -> ExitCode {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     if arguments.iter().any(|argument| matches!(argument.as_str(), "-h" | "--help")) {
-        println!("Usage: cmux-tui-hook --source <agent> --event <native-event>");
+        println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
     }
     match parse_args(arguments).and_then(run) {
@@ -37,10 +37,14 @@ fn main() -> ExitCode {
 }
 
 fn run(args: Args) -> anyhow::Result<()> {
+    if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
+        drain_native_payload()?;
+        return Ok(());
+    }
     let socket = match env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
         Some(socket) => PathBuf::from(socket),
         None => {
-            io::copy(&mut io::stdin().take(MAX_NATIVE_PAYLOAD_BYTES + 1), &mut io::sink())?;
+            drain_native_payload()?;
             return Ok(());
         }
     };
@@ -56,25 +60,24 @@ fn run(args: Args) -> anyhow::Result<()> {
     append(&socket, event)
 }
 
+fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> bool {
+    matches!(source, "claude" | "cursor") && grok_hook_event.is_some_and(|value| !value.is_empty())
+}
+
+fn drain_native_payload() -> io::Result<()> {
+    io::copy(&mut io::stdin().take(MAX_NATIVE_PAYLOAD_BYTES + 1), &mut io::sink()).map(|_| ())
+}
+
 fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {
     let mut values = args.into_iter();
-    let mut source = None;
-    let mut native_event = None;
-    while let Some(argument) = values.next() {
-        match argument.as_str() {
-            "--source" if source.is_none() => {
-                source = Some(values.next().context("--source requires a value")?);
-            }
-            "--event" if native_event.is_none() => {
-                native_event = Some(values.next().context("--event requires a value")?);
-            }
-            _ => bail!("unknown or duplicate argument {argument:?}"),
-        }
+    let source = values.next().context("agent source is required")?;
+    let native_event = values.next().context("native event is required")?;
+    if let Some(extra) = values.next() {
+        bail!("unexpected argument {extra:?}");
     }
-    Ok(Args {
-        source: source.context("--source is required")?,
-        native_event: native_event.context("--event is required")?,
-    })
+    anyhow::ensure!(!source.is_empty(), "agent source cannot be empty");
+    anyhow::ensure!(!native_event.is_empty(), "native event cannot be empty");
+    Ok(Args { source, native_event })
 }
 
 fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
@@ -96,14 +99,14 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
 }
 
 fn append(socket: &Path, event: Value) -> anyhow::Result<()> {
-    let request_id = random_prefixed("request")?;
+    let (request_id, idempotency_key) = random_identifiers()?;
     let request = json!({
         "protocol":"cmux.protocol/1",
         "type":"request",
         "id":request_id,
         "operation":"session.journal.append",
         "params":{"machine":"current","session":"current","event":event},
-        "idempotency_key":random_prefixed("mutation")?,
+        "idempotency_key":idempotency_key,
     });
     let mut encoded = serde_json::to_vec(&request)?;
     encoded.push(b'\n');
@@ -154,9 +157,20 @@ fn append_once(
     request_id: &str,
     timeout: Duration,
 ) -> Result<(), AppendAttemptError> {
-    let mut stream = transport::connect(socket)
-        .with_context(|| format!("connect to {}", socket.display()))
-        .map_err(AppendAttemptError::Retryable)?;
+    let mut stream = transport::connect(socket).map_err(|error| {
+        let transient = matches!(
+            error.kind(),
+            io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+        );
+        let error = anyhow!(error).context(format!("connect to {}", socket.display()));
+        if transient {
+            AppendAttemptError::Retryable(error)
+        } else {
+            // No listener means this terminal is no longer attached to a live
+            // cmux-tui. Retrying a stale path only delays synchronous providers.
+            AppendAttemptError::Fatal(error)
+        }
+    })?;
     stream
         .set_read_timeout(Some(timeout))
         .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
@@ -216,18 +230,16 @@ fn append_once(
     Ok(())
 }
 
-fn random_prefixed(prefix: &str) -> anyhow::Result<String> {
+fn random_identifiers() -> anyhow::Result<(String, String)> {
     let mut bytes = [0_u8; 16];
-    getrandom::fill(&mut bytes).map_err(|error| anyhow!("allocate {prefix} identity: {error}"))?;
-    let mut value = String::with_capacity(prefix.len() + 33);
-    value.push_str(prefix);
-    value.push('_');
+    getrandom::fill(&mut bytes).map_err(|error| anyhow!("allocate hook identity: {error}"))?;
+    let mut suffix = String::with_capacity(32);
     const HEX: &[u8; 16] = b"0123456789abcdef";
     for byte in bytes {
-        value.push(char::from(HEX[usize::from(byte >> 4)]));
-        value.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        suffix.push(char::from(HEX[usize::from(byte >> 4)]));
+        suffix.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
-    Ok(value)
+    Ok((format!("request_{suffix}"), format!("mutation_{suffix}")))
 }
 
 #[cfg(test)]
@@ -235,11 +247,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_explicit_source_and_event() {
+    fn parses_short_positional_source_and_event() {
         assert_eq!(
-            parse_args(["--source", "codex", "--event", "Stop"].map(str::to_owned)).unwrap(),
+            parse_args(["codex", "Stop"].map(str::to_owned)).unwrap(),
             Args { source: "codex".into(), native_event: "Stop".into() }
         );
+    }
+
+    #[test]
+    fn grok_compatibility_events_are_deduplicated_inside_the_helper() {
+        use std::ffi::OsStr;
+
+        assert!(shadowed_by_grok("claude", Some(OsStr::new("Stop"))));
+        assert!(shadowed_by_grok("cursor", Some(OsStr::new("stop"))));
+        assert!(!shadowed_by_grok("codex", Some(OsStr::new("Stop"))));
+        assert!(!shadowed_by_grok("claude", None));
     }
 
     #[test]
@@ -273,5 +295,15 @@ mod tests {
         .unwrap_err();
         assert_eq!(attempts, 1);
         assert_eq!(error.to_string(), "invalid event");
+    }
+
+    #[test]
+    fn missing_session_socket_is_immediately_inactive() {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("missing.sock");
+        let result =
+            append_once(&socket, b"{}\n", "request_missing_socket", Duration::from_millis(100));
+
+        assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
     }
 }

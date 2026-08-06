@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use anyhow::Context as _;
 use serde_json::{Map, Value, json};
 
-const COMMAND_MARKER: &str = "cmux-tui-journal-hook-v1";
-const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin-v1";
-const ACTIVATION_NOTE: &str = "Providers load hooks at process start; launch or restart agents inside a cmux-tui terminal so CMUX_TUI_SOCKET is inherited.";
+const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
+const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
+const ACTIVATION_NOTE: &str = "Providers load hooks at process start; launch or restart agents inside a cmux-tui terminal so CMUX_TUI_SOCKET and CMUX_TUI_HOOK are inherited.";
 const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_HELPER_BYTES: u64 = 128 * 1024 * 1024;
 
@@ -129,7 +129,7 @@ pub(crate) struct RunResult {
 
 #[derive(Clone, Copy)]
 enum Format {
-    Nested { timeout: u64 },
+    Nested { timeout: u64, asynchronous: bool },
     Flat { timeout: u64 },
     Plugin { template: &'static str },
     HermesPlugin { module: &'static str, manifest: &'static str },
@@ -153,7 +153,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".codex/hooks.json",
         override_env: Some("CODEX_HOME"),
         override_relative_path: "hooks.json",
-        format: Format::Nested { timeout: 1 },
+        format: Format::Nested { timeout: 1, asynchronous: false },
         events: CODEX_EVENTS,
     },
     Provider {
@@ -162,7 +162,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".claude/settings.json",
         override_env: Some("CLAUDE_CONFIG_DIR"),
         override_relative_path: "settings.json",
-        format: Format::Nested { timeout: 1 },
+        format: Format::Nested { timeout: 1, asynchronous: true },
         events: CLAUDE_EVENTS,
     },
     Provider {
@@ -171,7 +171,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".gemini/settings.json",
         override_env: None,
         override_relative_path: "settings.json",
-        format: Format::Nested { timeout: 1_000 },
+        format: Format::Nested { timeout: 1_000, asynchronous: false },
         events: GEMINI_EVENTS,
     },
     Provider {
@@ -189,7 +189,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".grok/hooks/cmux-tui-journal.json",
         override_env: Some("GROK_HOME"),
         override_relative_path: "hooks/cmux-tui-journal.json",
-        format: Format::Nested { timeout: 1 },
+        format: Format::Nested { timeout: 1, asynchronous: false },
         events: GROK_EVENTS,
     },
     Provider {
@@ -247,10 +247,7 @@ impl Context {
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .context("HOME is required to install coding-agent hooks")?;
-        let data_home = std::env::var_os("XDG_DATA_HOME")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".local/share"));
+        let data_home = runtime_data_home(&home);
         let helper_source = locate_helper_source(std::env::current_exe().ok().as_deref());
         let environment = PROVIDERS
             .iter()
@@ -274,6 +271,18 @@ impl Context {
         }
         self.home.join(provider.default_path)
     }
+}
+
+fn runtime_data_home(home: &Path) -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/share"))
+}
+
+pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").filter(|value| !value.is_empty()).map(PathBuf::from)?;
+    Some(runtime_data_home(&home).join("cmux-tui/bin/cmux-tui-hook"))
 }
 
 pub(crate) fn run(plan: &Plan) -> RunResult {
@@ -318,10 +327,10 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
         for provider in selected {
             let path = context.provider_path(provider);
             let outcome = if provider.id == "hermes-agent" {
-                run_hermes_provider(plan.action, provider, &path, &helper, context)
+                run_hermes_provider(plan.action, provider, &path, context)
             } else {
                 match plan.action {
-                    Action::Install => install_provider(provider, &path, &helper),
+                    Action::Install => install_provider(provider, &path),
                     Action::Uninstall => uninstall_provider(provider, &path),
                     Action::Status => provider_status(provider, &path),
                 }
@@ -403,12 +412,11 @@ fn run_hermes_provider(
     action: Action,
     provider: Provider,
     path: &Path,
-    helper: &Path,
     context: &Context,
 ) -> anyhow::Result<(&'static str, bool)> {
     match action {
         Action::Install => {
-            let (_, files_changed) = install_provider(provider, path, helper)?;
+            let (_, files_changed) = install_provider(provider, path)?;
             let legacy_changed = migrate_hermes_cmux_irc_tee(path)?;
             let enabled = hermes_plugin_enabled(context)?;
             if !enabled {
@@ -552,18 +560,14 @@ fn install_helper(source: &Path, destination: &Path) -> anyhow::Result<()> {
     atomic_write(destination, &bytes, Some(0o755))
 }
 
-fn install_provider(
-    provider: Provider,
-    path: &Path,
-    helper: &Path,
-) -> anyhow::Result<(&'static str, bool)> {
+fn install_provider(provider: Provider, path: &Path) -> anyhow::Result<(&'static str, bool)> {
     match provider.format {
-        Format::Nested { timeout } | Format::Flat { timeout } => {
+        Format::Nested { timeout, .. } | Format::Flat { timeout } => {
             ensure_replaceable_target(path)?;
             let nested = matches!(provider.format, Format::Nested { .. });
             let mut root = read_json_object(path)?;
             let before = serde_json::to_vec(&root)?;
-            rewrite_json_hooks(&mut root, provider, helper, nested, timeout, true)?;
+            rewrite_json_hooks(&mut root, provider, nested, timeout, true)?;
             if provider.id == "cursor" && !root.contains_key("version") {
                 root.insert("version".into(), Value::from(1));
             }
@@ -578,23 +582,21 @@ fn install_provider(
         }
         Format::Plugin { template } => {
             ensure_replaceable_target(path)?;
-            let content = render_plugin(template, helper)?;
             if let Ok(existing) = fs::read(path) {
                 anyhow::ensure!(
                     is_owned_plugin(&existing),
                     "{} exists and is not owned by cmux-tui",
                     path.display()
                 );
-                if existing == content.as_bytes() {
+                if existing == template.as_bytes() {
                     return Ok(("installed", false));
                 }
             }
-            atomic_write(path, content.as_bytes(), Some(0o600))?;
+            atomic_write(path, template.as_bytes(), Some(0o600))?;
             Ok(("installed", true))
         }
         Format::HermesPlugin { module, manifest } => {
             ensure_owned_plugin_directory(path)?;
-            let module = render_plugin(module, helper)?;
             let module_path = path.join("__init__.py");
             let manifest_path = path.join("plugin.yaml");
             let before_module = fs::read(&module_path).ok();
@@ -627,7 +629,7 @@ fn uninstall_provider(provider: Provider, path: &Path) -> anyhow::Result<(&'stat
             let nested = matches!(provider.format, Format::Nested { .. });
             let mut root = read_json_object(path)?;
             let before = serde_json::to_vec(&root)?;
-            rewrite_json_hooks(&mut root, provider, Path::new(""), nested, 0, false)?;
+            rewrite_json_hooks(&mut root, provider, nested, 0, false)?;
             let after = serde_json::to_vec(&root)?;
             if before == after {
                 return Ok(("absent", false));
@@ -716,7 +718,6 @@ fn read_json_object(path: &Path) -> anyhow::Result<Map<String, Value>> {
 fn rewrite_json_hooks(
     root: &mut Map<String, Value>,
     provider: Provider,
-    helper: &Path,
     nested: bool,
     timeout: u64,
     install: bool,
@@ -735,9 +736,14 @@ fn rewrite_json_hooks(
         return Ok(());
     }
     for event in provider.events {
-        let command = hook_command(helper, provider.id, event);
+        let command = hook_command(provider.id, event);
         let entry = if nested {
-            json!({"hooks":[{"type":"command","command":command,"timeout":timeout}]})
+            let command = if matches!(provider.format, Format::Nested { asynchronous: true, .. }) {
+                json!({"type":"command","command":command,"timeout":timeout,"async":true})
+            } else {
+                json!({"type":"command","command":command,"timeout":timeout})
+            };
+            json!({"hooks":[command]})
         } else {
             json!({"command":command,"timeout":timeout})
         };
@@ -914,15 +920,9 @@ fn visit_strings(value: &Value, predicate: &mut impl FnMut(&str) -> bool) -> boo
     }
 }
 
-fn hook_command(helper: &Path, provider: &str, event: &str) -> String {
-    let provider_guard = if matches!(provider, "claude" | "cursor") {
-        "[ -z \"${GROK_HOOK_EVENT:-}\" ] && "
-    } else {
-        ""
-    };
+fn hook_command(provider: &str, event: &str) -> String {
     format!(
-        "if {provider_guard}[ -n \"${{CMUX_TUI_SOCKET:-}}\" ]; then {} --source {} --event {} >/dev/null 2>&1 || true; fi; printf '%s\\n' '{{}}' # {COMMAND_MARKER}",
-        shell_quote(&helper.to_string_lossy()),
+        "\"${{CMUX_TUI_HOOK:-:}}\" {} {} 2>/dev/null || :; printf '{{}}\\n' # {COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
     )
@@ -930,15 +930,6 @@ fn hook_command(helper: &Path, provider: &str, event: &str) -> String {
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-fn render_plugin(template: &str, helper: &Path) -> anyhow::Result<String> {
-    let helper = serde_json::to_string(&helper.to_string_lossy().as_ref())?;
-    anyhow::ensure!(
-        template.matches("__CMUX_TUI_HELPER_JSON__").count() == 1,
-        "agent hook plugin template has an invalid helper placeholder"
-    );
-    Ok(template.replace("__CMUX_TUI_HELPER_JSON__", &helper))
 }
 
 fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
@@ -1039,9 +1030,11 @@ mod tests {
         assert!(text.contains("/tmp/cmux-irc"));
         assert!(!text.contains("cmux-tui-cmux-irc"));
         assert_eq!(text.matches(COMMAND_MARKER).count(), CODEX_EVENTS.len());
-        assert!(text.contains("CMUX_TUI_SOCKET"));
+        assert!(!text.contains("CMUX_TUI_SOCKET"));
+        assert!(text.contains("CMUX_TUI_HOOK"));
+        assert!(!text.contains(&context.installed_helper().to_string_lossy().to_string()));
         let parsed: Value = serde_json::from_str(&text).unwrap();
-        assert!(visit_strings(&parsed, &mut |value| value.contains("printf '%s\\n' '{}'")));
+        assert!(visit_strings(&parsed, &mut |value| value.contains("printf '{}\\n'")));
 
         let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
         let result = run_with_context(&uninstall, &context);
@@ -1050,6 +1043,75 @@ mod tests {
         assert!(text.contains("custom-hook"));
         assert!(text.contains("/tmp/cmux-irc"));
         assert!(!text.contains(COMMAND_MARKER));
+    }
+
+    #[test]
+    fn claude_commands_are_async_without_weakening_other_provider_receipts() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install =
+            Plan { action: Action::Install, providers: vec!["codex".into(), "claude".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+
+        for (provider, config, expected_async) in [
+            ("codex", context.home.join(".codex/hooks.json"), None),
+            ("claude", context.home.join(".claude/settings.json"), Some(true)),
+        ] {
+            let root: Value = serde_json::from_slice(&fs::read(config).unwrap()).unwrap();
+            let hook = &root["hooks"]["Stop"][0]["hooks"][0];
+            assert_eq!(hook.get("async").and_then(Value::as_bool), expected_async, "{provider}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_hook_noops_without_session_helper_and_uses_short_positional_arguments() {
+        use std::process::Command;
+
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        let capture = root.path().join("capture");
+        let helper_source = context.helper_source.as_ref().unwrap();
+        atomic_write(
+            helper_source,
+            b"#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CAPTURE\"\n",
+            Some(0o755),
+        )
+        .unwrap();
+        context.helper_source = Some(helper_source.clone());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+        let root: Value =
+            serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
+                .unwrap();
+        let command = root["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(command.len() <= 128, "hook command is {} bytes: {command}", command.len());
+        assert!(!command.contains("CMUX_TUI_SOCKET"));
+        assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
+
+        let output = Command::new("/bin/sh")
+            .args(["-c", command])
+            .env("CMUX_TUI_SOCKET", "/tmp/cmux-test.sock")
+            .env_remove("CMUX_TUI_HOOK")
+            .env("CAPTURE", &capture)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"{}\n");
+        assert!(!capture.exists(), "missing helper identity must be a process-free no-op");
+
+        let output = Command::new("/bin/sh")
+            .args(["-c", command])
+            .env_remove("CMUX_TUI_SOCKET")
+            .env("CMUX_TUI_HOOK", context.installed_helper())
+            .env("CAPTURE", &capture)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"{}\n");
+        assert_eq!(fs::read_to_string(capture).unwrap(), "codex Stop\n");
     }
 
     #[test]
@@ -1076,13 +1138,12 @@ mod tests {
     }
 
     #[test]
-    fn grok_compatibility_imports_do_not_duplicate_claude_or_cursor_hooks() {
-        let helper = Path::new("/tmp/cmux-tui-hook");
+    fn grok_compatibility_deduplication_does_not_expand_hook_commands() {
         for provider in ["claude", "cursor"] {
-            let command = hook_command(helper, provider, "Stop");
-            assert!(command.contains("GROK_HOOK_EVENT"), "{provider}: {command}");
+            let command = hook_command(provider, "Stop");
+            assert!(!command.contains("GROK_HOOK_EVENT"), "{provider}: {command}");
         }
-        let grok = hook_command(helper, "grok", "Stop");
+        let grok = hook_command("grok", "Stop");
         assert!(!grok.contains("GROK_HOOK_EVENT"), "{grok}");
     }
 
@@ -1107,7 +1168,11 @@ mod tests {
         for (path, bytes) in &snapshots {
             assert_eq!(&fs::read(path).unwrap(), bytes);
             assert!(String::from_utf8_lossy(bytes).contains(PLUGIN_MARKER));
-            assert!(String::from_utf8_lossy(bytes).contains("cmux-tui-hook"));
+            assert!(String::from_utf8_lossy(bytes).contains("CMUX_TUI_HOOK"));
+            assert!(
+                !String::from_utf8_lossy(bytes)
+                    .contains(&context.installed_helper().to_string_lossy().to_string())
+            );
         }
 
         let uninstall = Plan { action: Action::Uninstall, providers: install.providers };
@@ -1152,18 +1217,12 @@ mod tests {
             Some(0o600),
         )
         .unwrap();
-        assert_eq!(
-            install_provider(hermes, &path, &context.installed_helper()).unwrap(),
-            ("installed", true)
-        );
+        assert_eq!(install_provider(hermes, &path).unwrap(), ("installed", true));
         assert!(migrate_hermes_cmux_irc_tee(&path).unwrap());
         assert!(!fs::read_to_string(&irc).unwrap().contains("cmux-tui-cmux-irc"));
         assert!(!migrate_hermes_cmux_irc_tee(&path).unwrap());
         assert_eq!(provider_status(hermes, &path).unwrap().0, "installed");
-        assert_eq!(
-            install_provider(hermes, &path, &context.installed_helper()).unwrap(),
-            ("installed", false)
-        );
+        assert_eq!(install_provider(hermes, &path).unwrap(), ("installed", false));
         assert_eq!(uninstall_provider(hermes, &path).unwrap(), ("absent", true));
         assert!(!path.exists());
     }

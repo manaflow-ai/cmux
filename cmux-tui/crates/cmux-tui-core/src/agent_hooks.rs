@@ -515,9 +515,12 @@ fn add_agent_topology(
 ) {
     let scope = [
         ("root_agent_session_id", "session"),
+        // A session scopes the whole agent tree while provider agent IDs
+        // identify nodes inside it. Keeping that distinction stable also
+        // lets later child events reveal an explicit root-session alias.
+        ("agent_session_id", "session"),
         ("native_root_agent_id", "agent"),
         ("parent_agent_session_id", "session"),
-        ("agent_session_id", "session"),
         ("transcript_path", "transcript"),
     ]
     .into_iter()
@@ -914,6 +917,43 @@ mod tests {
                     .any(|subject| subject.kind == subject_kind && subject.id == id)
             );
         }
+    }
+
+    #[test]
+    fn progressive_root_identity_keeps_parent_and_child_in_one_tree() {
+        let root = agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "agent_id":"root-agent",
+                "root_agent_id":"root-agent"
+            }),
+        )
+        .unwrap();
+        let child = agent_hook_journal_ingress(
+            "codex",
+            "SubagentStart",
+            None,
+            json!({
+                "session_id":"tree-session",
+                "root_session_id":"tree-session",
+                "agent_id":"child-agent",
+                "parent_agent_id":"root-agent",
+                "root_agent_id":"root-agent"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(
+            child.payload["normalized"]["agent_tree_id"],
+            root.payload["normalized"]["agent_tree_id"]
+        );
+        assert_eq!(
+            child.payload["normalized"]["parent_agent_node_id"],
+            root.payload["normalized"]["agent_node_id"]
+        );
     }
 
     #[test]

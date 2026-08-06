@@ -1004,7 +1004,7 @@ mod tests {
 
     #[test]
     fn cancellable_connect_reuses_one_socket_across_poll_slices() {
-        let probe = crate::codec::ForcedPendingConnectProbe::install_until_poll(3);
+        let probe = crate::codec::ForcedPendingConnectProbe::install_with_poll_limit(3);
         let cancellation = super::super::options::CancellationToken::new();
         let options = RequestOptions::new()
             .with_timeout(Duration::from_secs(1))

@@ -1,16 +1,16 @@
-# cmux-tui-journal-plugin-v1
+# cmux-tui-journal-plugin
 import json
 import os
 import subprocess
 import threading
 
-HELPER = __CMUX_TUI_HELPER_JSON__
+HELPER = os.environ.get("CMUX_TUI_HOOK")
 
 
 def _append(native_event, payload):
     try:
         subprocess.run(
-            [HELPER, "--source", "hermes-agent", "--event", native_event],
+            [HELPER, "hermes-agent", native_event],
             input=payload,
             text=True,
             stdout=subprocess.DEVNULL,
@@ -24,7 +24,7 @@ def _append(native_event, payload):
 
 def _handler(native_event, durable_boundary=False):
     def handle(**native):
-        if not os.environ.get("CMUX_TUI_SOCKET") or not os.environ.get(
+        if not HELPER or not os.environ.get("CMUX_TUI_SOCKET") or not os.environ.get(
             "CMUX_TUI_TERMINAL_ID"
         ):
             return None
