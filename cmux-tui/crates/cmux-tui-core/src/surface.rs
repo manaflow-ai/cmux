@@ -1189,6 +1189,27 @@ impl Deref for PtySurface {
     }
 }
 
+#[cfg(test)]
+pub(crate) struct TerminalJournalUpdateGuard<'a> {
+    epoch: &'a AtomicU64,
+}
+
+#[cfg(test)]
+impl Drop for TerminalJournalUpdateGuard<'_> {
+    fn drop(&mut self) {
+        self.epoch.fetch_add(1, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+impl PtyTerminalRuntime {
+    fn begin_terminal_journal_update(&self) -> TerminalJournalUpdateGuard<'_> {
+        let previous = self.journal_capture_epoch.fetch_add(1, Ordering::AcqRel);
+        debug_assert_eq!(previous & 1, 0, "terminal journal updates must not overlap");
+        TerminalJournalUpdateGuard { epoch: &self.journal_capture_epoch }
+    }
+}
+
 /// Content runtime shared by every view placement of one terminal.
 ///
 /// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
@@ -1201,6 +1222,10 @@ pub struct PtyTerminalRuntime {
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.
     terminal_public_id: Option<Arc<TerminalPublicId>>,
     journal_generation: Arc<str>,
+    /// Even while the emulator and terminal journal agree, odd while one
+    /// output frame has updated one side but not yet reached the other.
+    #[cfg(test)]
+    journal_capture_epoch: AtomicU64,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
@@ -2124,6 +2149,8 @@ impl Surface {
                     "local-{}",
                     crate::workspace_registry::new_uuid_v4()
                 )),
+                #[cfg(test)]
+                journal_capture_epoch: AtomicU64::new(0),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2508,6 +2535,8 @@ impl Surface {
                 event_surface_id: id,
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
+                #[cfg(test)]
+                journal_capture_epoch: AtomicU64::new(0),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3371,6 +3400,8 @@ impl Surface {
                 event_surface_id: id,
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
+                #[cfg(test)]
+                journal_capture_epoch: AtomicU64::new(0),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3586,6 +3617,8 @@ impl Surface {
                 event_surface_id: id,
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
+                #[cfg(test)]
+                journal_capture_epoch: AtomicU64::new(0),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3649,6 +3682,18 @@ impl Surface {
             Surface::Pty(surface) => Some(surface),
             Surface::Browser(_) => None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn terminal_journal_capture_epoch(&self) -> Option<u64> {
+        self.as_pty().map(|pty| pty.journal_capture_epoch.load(Ordering::Acquire))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn begin_terminal_journal_update_for_test(
+        &self,
+    ) -> Option<TerminalJournalUpdateGuard<'_>> {
+        self.as_pty().map(|pty| pty.begin_terminal_journal_update())
     }
 
     pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {

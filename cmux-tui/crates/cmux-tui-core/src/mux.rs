@@ -16649,6 +16649,22 @@ mod tests {
     }
 
     #[test]
+    fn receipt_only_effect_commit_wakes_journal_subscribers() {
+        let mux = test_mux();
+        let fingerprint = begin_test_resource_effect(&mux, "receipt-only-effect", "terminal.input");
+        let before = mux.journal_event_epoch();
+        mux.commit_resource_effect(
+            "receipt-only-effect",
+            "terminal.input",
+            &fingerprint,
+            &ResourceEffectOutcome::Success(json!({})),
+            None,
+        )
+        .unwrap();
+        assert_eq!(mux.journal_event_epoch(), before + 1);
+    }
+
+    #[test]
     fn projected_effect_failure_rolls_back_revision_event_and_topology() {
         let mux = test_mux();
         let surface =

@@ -1010,4 +1010,34 @@ mod tests {
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkpoint_rejects_terminal_state_ahead_of_journal_ingress() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-checkpoint-fence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("checkpoint-fence", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id = mux
+            .seed_running_terminal_for_test(
+                "00000000000040008000000000000072",
+                "10000000000040008000000000000072",
+                &workspace.key,
+            )
+            .unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        {
+            let _pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
+            let error = capture(&mux).expect_err("checkpoint accepted unsettled terminal output");
+            assert!(error.to_string().contains("terminal journal ingress is unsettled"));
+        }
+
+        drop(surface);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

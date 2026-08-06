@@ -2917,6 +2917,56 @@ class ResourceApiTests(unittest.TestCase):
             ["session.events", "stream.cancel"],
         )
 
+    def test_journal_record_sequence_must_match_envelope_cursor(self) -> None:
+        release_connection = threading.Event()
+
+        def handler(connection, _index):
+            requests = frames(connection)
+            opened = next(requests)
+            stream_id = opened["params"]["stream_id"]
+            ok(connection, opened, {"stream_id": stream_id})
+            send_frame(
+                connection,
+                {
+                    "protocol": "cmux.protocol/1",
+                    "type": "stream_item",
+                    "stream_id": stream_id,
+                    "sequence": "1",
+                    "cursor": {"generation": SESSION, "revision": "1"},
+                    "item": {
+                        "sequence": "2",
+                        "event_id": "event_mismatched_cursor",
+                        "schema_version": 1,
+                        "kind": "agent.turn.completed",
+                        "class": "observation",
+                        "replay": "advisory",
+                        "occurred_at_ms": "1",
+                        "committed_at_ms": "2",
+                        "producer": {"kind": "agent_adapter", "id": "cmux_agents"},
+                        "authority": None,
+                        "causation_id": None,
+                        "correlation_id": None,
+                        "causation_depth": 0,
+                        "subjects": [],
+                        "sensitivity": "metadata",
+                        "payload": {},
+                        "resource_revision": None,
+                        "previous_resource_revision": None,
+                    },
+                },
+            )
+            release_connection.wait(1)
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                stream = client.session(SESSION).journal()
+                try:
+                    with self.assertRaises(cmux.ProtocolError) as raised:
+                        stream.next(timeout=1)
+                    self.assertIn("journal sequence must match", str(raised.exception))
+                finally:
+                    release_connection.set()
+
     def test_end_first_cancel_keeps_typed_decoder_until_response(self) -> None:
         observed = []
         disconnected = threading.Event()
