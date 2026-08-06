@@ -33,22 +33,22 @@ fi
 
 cleanup_app_host_home_requested=0
 case "$1" in
-  scripts/ci/cleanup-app-host-home.sh|*/scripts/ci/cleanup-app-host-home.sh)
+  scripts/ci/cleanup-app-host-home.sh|"$ci_script_dir/cleanup-app-host-home.sh")
     cleanup_app_host_home_requested=1
     ;;
 esac
 
-# App-host CI redirects Apple and XDG state while retaining the console user's
-# real HOME for Xcode and the GUI login session. Never let a reused runner's
-# personal SSH agent leak into tests that model agent forwarding explicitly.
-if [ -n "${CFFIXED_USER_HOME:-}" ]; then
+# App-host CI publishes neutral paths while retaining the console user's real
+# HOME and configuration redirects for Xcode and the GUI login session. Never
+# let a reused runner's personal SSH agent leak into isolated app-host tests.
+if [ -n "${CMUX_APP_HOST_HOME:-}" ]; then
   unset SSH_AUTH_SOCK
 fi
 
 prepare_app_host_home_for_console_user() {
   local console_user="$1"
   local cleanup_requested="$2"
-  [ -n "${CFFIXED_USER_HOME:-}" ] || return 0
+  [ -n "${CMUX_APP_HOST_HOME:-}" ] || return 0
 
   if [ -z "${RUNNER_TEMP:-}" ]; then
     echo "FAIL: app-host isolation requires a runner temporary directory" >&2
@@ -60,18 +60,18 @@ prepare_app_host_home_for_console_user() {
   # and handing it back to that same user.
   local app_host_home app_host_xdg_config_home runner_temp
   if [ "$cleanup_requested" = "1" ] \
-    && ! sudo -n test -e "$CFFIXED_USER_HOME" \
-    && ! sudo -n test -L "$CFFIXED_USER_HOME"; then
+    && ! sudo -n test -e "$CMUX_APP_HOST_HOME" \
+    && ! sudo -n test -L "$CMUX_APP_HOST_HOME"; then
     # Cleanup itself owns the already-absent case and can now run as the console
     # user without a mutable path for this preparation step to traverse.
     return 0
   fi
-  app_host_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$CFFIXED_USER_HOME")" || {
+  app_host_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$CMUX_APP_HOST_HOME")" || {
     echo "FAIL: app-host isolation directory is unavailable" >&2
     return 1
   }
   if [ "$cleanup_requested" != "1" ]; then
-    app_host_xdg_config_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "${XDG_CONFIG_HOME:-}")" || {
+    app_host_xdg_config_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "${CMUX_APP_HOST_XDG_CONFIG_HOME:-}")" || {
       echo "FAIL: app-host XDG configuration directory is unavailable" >&2
       return 1
     }
@@ -125,7 +125,7 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
     CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS \
     CMUX_APP_HOST_XCODEBUILD_ATTEMPTS \
-    CMUX_CI_APP_HOST_ISOLATION_REQUIRED CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME)
+    CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_HOME CMUX_APP_HOST_XDG_CONFIG_HOME CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME)
   env_pairs=()
   for var in "${forward[@]}"; do
     if [ -n "${!var+set}" ]; then

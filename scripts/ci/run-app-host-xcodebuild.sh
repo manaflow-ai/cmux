@@ -40,15 +40,29 @@ fi
 # redirects without exposing them to the xcodebuild driver.
 app_host_test_runner_environment=("TEST_RUNNER_CMUX_TEST_PROCESS=1")
 app_host_home=""
+app_host_home_input="${CMUX_APP_HOST_HOME:-}"
+app_host_xdg_config_home_input="${CMUX_APP_HOST_XDG_CONFIG_HOME:-}"
+uses_legacy_parent_redirects=0
 if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
-  if [ -z "${CFFIXED_USER_HOME:-}" ] || [ -z "${XDG_CONFIG_HOME:-}" ]; then
+  if [ -z "$app_host_home_input" ] || [ -z "$app_host_xdg_config_home_input" ]; then
     echo "FAIL: required app-host isolation environment is incomplete" >&2
     exit 1
   fi
 fi
-if [ -n "${CFFIXED_USER_HOME:-}" ]; then
+if [ -z "$app_host_home_input" ] && [ -z "$app_host_xdg_config_home_input" ] \
+  && { [ -n "${CFFIXED_USER_HOME:-}" ] || [ -n "${XDG_CONFIG_HOME:-}" ]; }; then
+  app_host_home_input="${CFFIXED_USER_HOME:-}"
+  app_host_xdg_config_home_input="${XDG_CONFIG_HOME:-}"
+  uses_legacy_parent_redirects=1
+fi
+if { [ -n "$app_host_home_input" ] && [ -z "$app_host_xdg_config_home_input" ]; } \
+  || { [ -z "$app_host_home_input" ] && [ -n "$app_host_xdg_config_home_input" ]; }; then
+  echo "FAIL: app-host isolation environment is incomplete" >&2
+  exit 1
+fi
+if [ -n "$app_host_home_input" ]; then
   cmux_resolve_app_host_isolation \
-    "$CFFIXED_USER_HOME" "${XDG_CONFIG_HOME:-}" || exit 1
+    "$app_host_home_input" "$app_host_xdg_config_home_input" || exit 1
   app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
   app_host_xdg_config_home="$CMUX_RESOLVED_APP_HOST_XDG_CONFIG_HOME"
   app_host_test_runner_environment+=(
@@ -60,7 +74,19 @@ if [ -n "${CFFIXED_USER_HOME:-}" ]; then
     "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=$app_host_home"
     "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=$app_host_xdg_config_home"
   )
-  unset CFFIXED_USER_HOME XDG_CONFIG_HOME
+  if [ "$uses_legacy_parent_redirects" = "1" ]; then
+    unset CFFIXED_USER_HOME XDG_CONFIG_HOME
+  fi
+fi
+
+app_host_xcodebuild_arguments=("$@")
+if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
+  # This compiled condition reaches the test bundle through Xcode build
+  # settings, independently of the TEST_RUNNER_ runtime environment channel.
+  # The test therefore fails closed if Xcode ever drops that runtime handoff.
+  app_host_xcodebuild_arguments+=(
+    "SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED"
+  )
 fi
 
 # Resolve a CI-scoped root so app-host cleanup targets every CI app-host on this
@@ -136,7 +162,8 @@ while [ "$attempt" -le "$max_attempts" ]; do
   env \
     "${app_host_test_runner_environment[@]}" \
     CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
-    scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@"
+    scripts/ci/xcodebuild_noninteractive.py xcodebuild \
+      "${app_host_xcodebuild_arguments[@]}"
   status=$?
   set -e
 

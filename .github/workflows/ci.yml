@@ -571,8 +571,8 @@ jobs:
             "$APP_HOST_HOME/Library/Logs/DiagnosticReports" \
             "$APP_HOST_HOME/Library/Preferences"
           chmod -R u+rwX,go-rwx "$APP_HOST_HOME"
-          echo "CFFIXED_USER_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"
-          echo "XDG_CONFIG_HOME=$APP_HOST_HOME/.config" >> "$GITHUB_ENV"
+          echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"
+          echo "CMUX_APP_HOST_XDG_CONFIG_HOME=$APP_HOST_HOME/.config" >> "$GITHUB_ENV"
           echo "CARGO_HOME=${HOME}/.cargo" >> "$GITHUB_ENV"
           echo "RUSTUP_HOME=${HOME}/.rustup" >> "$GITHUB_ENV"
 

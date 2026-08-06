@@ -176,7 +176,7 @@ if [ "$isolated_parent_count" -ne 0 ] \
 fi
 
 compiled_assertion_count="$(grep -Fxc \
-  'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
+  "SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED" \
   "$TMP_DIR/xcodebuild-args.log" || true)"
 if [ "$compiled_assertion_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/xcodebuild-args.log"

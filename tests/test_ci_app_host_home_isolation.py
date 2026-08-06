@@ -148,7 +148,10 @@ def main() -> int:
     for context, needle in requirements.items():
         require(setup_run, needle, context)
 
-    for leaked_redirect in ("CFFIXED_USER_HOME=", "XDG_CONFIG_HOME="):
+    for leaked_redirect in (
+        'echo "CFFIXED_USER_HOME=',
+        'echo "XDG_CONFIG_HOME=',
+    ):
         if leaked_redirect in setup_run:
             raise SystemExit(
                 "FAIL: isolated app-host setup must not export runtime redirect "
@@ -261,7 +264,7 @@ def main() -> int:
     )
     require(
         APP_HOST_WRAPPER,
-        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) "
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=\\$(inherited) "
         "CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
         "independent compiled isolation assertion",
     )

@@ -10,20 +10,23 @@ if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" != "1" ]; then
   exit 1
 fi
 
-# The setup step may fail before publishing either redirect. In that case it
+app_host_home_input="${CMUX_APP_HOST_HOME:-}"
+app_host_xdg_config_home_input="${CMUX_APP_HOST_XDG_CONFIG_HOME:-}"
+
+# The setup step may fail before publishing either neutral path. In that case it
 # created no discoverable target, so there is nothing safe to remove.
-if [ -z "${CFFIXED_USER_HOME:-}" ] && [ -z "${XDG_CONFIG_HOME:-}" ]; then
+if [ -z "$app_host_home_input" ] && [ -z "$app_host_xdg_config_home_input" ]; then
   echo "App-host isolation home was not published; cleanup skipped"
   exit 0
 fi
-if [ -z "${CFFIXED_USER_HOME:-}" ] || [ -z "${XDG_CONFIG_HOME:-}" ]; then
-  echo "FAIL: refusing app-host cleanup with incomplete isolation redirects" >&2
+if [ -z "$app_host_home_input" ] || [ -z "$app_host_xdg_config_home_input" ]; then
+  echo "FAIL: refusing app-host cleanup with incomplete isolation paths" >&2
   exit 1
 fi
 
 # A prior cleanup or failed test may already have removed both paths.
-if [ ! -e "$CFFIXED_USER_HOME" ] && [ ! -L "$CFFIXED_USER_HOME" ]; then
-  if [ ! -e "$XDG_CONFIG_HOME" ] && [ ! -L "$XDG_CONFIG_HOME" ]; then
+if [ ! -e "$app_host_home_input" ] && [ ! -L "$app_host_home_input" ]; then
+  if [ ! -e "$app_host_xdg_config_home_input" ] && [ ! -L "$app_host_xdg_config_home_input" ]; then
     echo "App-host isolation home is already absent"
     exit 0
   fi
@@ -31,12 +34,12 @@ if [ ! -e "$CFFIXED_USER_HOME" ] && [ ! -L "$CFFIXED_USER_HOME" ]; then
   exit 1
 fi
 
-app_host_home="$(cd "$CFFIXED_USER_HOME" 2>/dev/null && pwd -P)" || {
+app_host_home="$(cd "$app_host_home_input" 2>/dev/null && pwd -P)" || {
   echo "FAIL: app-host isolation directory is unavailable" >&2
   exit 1
 }
-if [ -e "$XDG_CONFIG_HOME" ] || [ -L "$XDG_CONFIG_HOME" ]; then
-  app_host_xdg_config_home="$(cd "$XDG_CONFIG_HOME" 2>/dev/null && pwd -P)" || {
+if [ -e "$app_host_xdg_config_home_input" ] || [ -L "$app_host_xdg_config_home_input" ]; then
+  app_host_xdg_config_home="$(cd "$app_host_xdg_config_home_input" 2>/dev/null && pwd -P)" || {
     echo "FAIL: app-host XDG configuration directory is unavailable" >&2
     exit 1
   }
@@ -44,7 +47,7 @@ else
   # The app host owns this mutable child and may remove it. Canonicalize its
   # existing parent, then reconstruct only the required .config leaf. Existing
   # XDG symlinks still take the branch above and are resolved before validation.
-  xdg_without_trailing_slash="${XDG_CONFIG_HOME%/}"
+  xdg_without_trailing_slash="${app_host_xdg_config_home_input%/}"
   if [ -z "$xdg_without_trailing_slash" ] \
     || [ "${xdg_without_trailing_slash##*/}" != ".config" ]; then
     echo "FAIL: app-host XDG configuration must name the isolated home .config directory" >&2
