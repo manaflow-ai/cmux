@@ -79,3 +79,28 @@ def test_browser_background_preload_uses_os_safe_window_ordering():
 
     assert "window.orderFrontRegardless()" not in panel
     assert "BrowserBackgroundPreloadHost.orderOnScreenIfSafe(window)" in panel
+
+
+def test_split_divider_cursor_refresh_does_not_destroy_kvo_observers():
+    invalidator = (ROOT / "Sources/PortalSplitDividerCacheInvalidator.swift").read_text()
+    teardown = source_slice(
+        "Sources/PortalSplitDividerCacheInvalidator.swift",
+        "private nonisolated func invalidateObservations()",
+        "\n    }\n}",
+    )
+    terminal_cursor_refresh = source_slice(
+        "Sources/TerminalWindowPortal.swift",
+        "override func resetCursorRects()",
+        "override func updateTrackingAreas()",
+    )
+    browser_cursor_refresh = source_slice(
+        "Sources/BrowserWindowPortal.swift",
+        "override func resetCursorRects()",
+        "override func updateTrackingAreas()",
+    )
+
+    assert "observations.forEach { $0.invalidate() }" in teardown
+    assert teardown.index("observations.forEach { $0.invalidate() }") < teardown.index("observations.removeAll()")
+    assert "invalidateSplitDividerRegionCache()" not in terminal_cursor_refresh
+    assert "invalidateSplitDividerRegionCache()" not in browser_cursor_refresh
+    assert "private nonisolated func invalidateObservations()" in invalidator
