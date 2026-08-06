@@ -24,9 +24,10 @@ extension Workspace {
         snapshot: SessionRestorableAgentSnapshot,
         request: AgentConversationForkRequest,
         exportService: AgentConversationExportService = .live,
-        liveAgentIndex: SharedLiveAgentIndex = .shared,
+        liveAgentIndex: SharedLiveAgentIndex? = nil,
         launcherTemporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) async -> Bool {
+        let liveAgentIndex = liveAgentIndex ?? .shared
         guard let sourcePanel = panels[panelId] as? TerminalPanel else {
             return false
         }
