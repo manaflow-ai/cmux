@@ -7,11 +7,15 @@
 
 use std::io::{self, Read as _, Write as _};
 use std::net::Shutdown;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
+use tokio::io::{
+    AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream, ReadBuf,
+};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 
@@ -19,13 +23,58 @@ const BRIDGE_CHUNK_BYTES: usize = 64 * 1024;
 const BRIDGE_QUEUE_CHUNKS: usize = 4;
 const BRIDGE_BUFFER_BYTES: usize = BRIDGE_CHUNK_BYTES * BRIDGE_QUEUE_CHUNKS;
 
-pub(crate) fn bridge(stream: uds_windows::UnixStream) -> io::Result<DuplexStream> {
+pub(crate) struct WindowsSocketBridge {
+    inner: DuplexStream,
+    shutdown: uds_windows::UnixStream,
+    closing: Arc<AtomicBool>,
+}
+
+impl AsyncRead for WindowsSocketBridge {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_read(context, buffer)
+    }
+}
+
+impl AsyncWrite for WindowsSocketBridge {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+        buffer: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        Pin::new(&mut self.get_mut().inner).poll_write(context, buffer)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(context)
+    }
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(context)
+    }
+}
+
+impl Drop for WindowsSocketBridge {
+    fn drop(&mut self) {
+        self.closing.store(true, Ordering::Release);
+        let _ = self.shutdown.shutdown(Shutdown::Both);
+    }
+}
+
+pub(crate) fn bridge(stream: uds_windows::UnixStream) -> io::Result<WindowsSocketBridge> {
     let runtime = Handle::try_current().map_err(|error| {
         io::Error::other(format!("Windows socket bridge requires a Tokio runtime: {error}"))
     })?;
     let socket_reader = stream.try_clone()?;
     let reader_shutdown = stream.try_clone()?;
     let writer_shutdown = stream.try_clone()?;
+    let bridge_shutdown = stream.try_clone()?;
     let (local, bridge) = tokio::io::duplex(BRIDGE_BUFFER_BYTES);
     let (bridge_reader, bridge_writer) = tokio::io::split(bridge);
     let (upload_tx, upload_rx) = mpsc::channel(BRIDGE_QUEUE_CHUNKS);
@@ -38,9 +87,10 @@ pub(crate) fn bridge(stream: uds_windows::UnixStream) -> io::Result<DuplexStream
     });
     runtime.spawn(relay_socket_upload(upload_rx, bridge_writer));
     runtime.spawn(relay_socket_download(bridge_reader, download_tx));
+    let bridge_closing = closing.clone();
     runtime.spawn_blocking(move || write_socket(stream, writer_shutdown, download_rx, closing));
 
-    Ok(local)
+    Ok(WindowsSocketBridge { inner: local, shutdown: bridge_shutdown, closing: bridge_closing })
 }
 
 fn read_socket(
