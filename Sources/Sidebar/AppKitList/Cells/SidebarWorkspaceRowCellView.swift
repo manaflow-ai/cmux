@@ -70,7 +70,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var pumpCancellables: [AnyCancellable] = []
     private weak var pumpWorkspace: Workspace?
     private var pumpRebuild: (@MainActor () -> Void)?
-    private var repositoryLinkPumpTask: Task<Void, Never>?
     private var isPresentationActive = true
 
 #if DEBUG
@@ -89,7 +88,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         guard pumpWorkspace !== workspace else { return }
         pumpCancellables.removeAll()
         pumpWorkspace = workspace
-        repositoryLinkPumpTask?.cancel()
         workspace.sidebarImmediateObservationPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -97,13 +95,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 MainActor.assumeIsolated { self?.pumpRebuild?() }
             }
             .store(in: &pumpCancellables)
-        let repositoryLinkChanges = workspace.sidebarMetadata.repositoryLinkChanges()
-        repositoryLinkPumpTask = Task { @MainActor in
-            for await _ in repositoryLinkChanges {
-                if Task.isCancelled { break }
-                rebuild()
-            }
-        }
         workspace.sidebarObservationPublisher
             .dropFirst()
             .debounce(for: .milliseconds(40), scheduler: DispatchQueue.main)
@@ -306,8 +297,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         pumpCancellables.removeAll()
         pumpWorkspace = nil
         pumpRebuild = nil
-        repositoryLinkPumpTask?.cancel()
-        repositoryLinkPumpTask = nil
         setPresentationActive(false)
         return postUpdateActions
     }

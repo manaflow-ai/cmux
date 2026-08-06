@@ -21,9 +21,7 @@ public import Observation
 /// replaces the former `$property`. `CombineLatest` over current-value subjects
 /// seeded with the initial values, then deduplicated, produces the identical
 /// sequence of distinct fused states the `@Published` projections did, so the
-/// debounced sidebar refresh fires at the same moments. New repository-link
-/// state instead uses Observation plus ``repositoryLinkChanges()`` so this
-/// package does not extend the legacy Combine bridge.
+/// debounced sidebar refresh fires at the same moments.
 @MainActor
 @Observable
 public final class WorkspaceSidebarMetadataModel {
@@ -77,20 +75,12 @@ public final class WorkspaceSidebarMetadataModel {
 
     /// The workspace-level repository link shown in the sidebar.
     public var repositoryLink: SidebarRepositoryLinkState? {
-        didSet {
-            if oldValue != repositoryLink {
-                notifyRepositoryLinkChanged()
-            }
-        }
+        didSet { repositoryLinkSubject.send(repositoryLink) }
     }
 
     /// Per-panel repository links keyed by panel id.
     public var panelRepositoryLinks: [UUID: SidebarRepositoryLinkState] = [:] {
-        didSet {
-            if oldValue != panelRepositoryLinks {
-                notifyRepositoryLinkChanged()
-            }
-        }
+        didSet { panelRepositoryLinksSubject.send(panelRepositoryLinks) }
     }
 
     /// Per-panel directory display labels keyed by panel id, reported via
@@ -117,13 +107,15 @@ public final class WorkspaceSidebarMetadataModel {
     @ObservationIgnored
     private lazy var panelGitBranchesSubject = CurrentValueSubject<[UUID: SidebarGitBranchState], Never>(panelGitBranches)
     @ObservationIgnored
+    private lazy var repositoryLinkSubject = CurrentValueSubject<SidebarRepositoryLinkState?, Never>(repositoryLink)
+    @ObservationIgnored
+    private lazy var panelRepositoryLinksSubject = CurrentValueSubject<[UUID: SidebarRepositoryLinkState], Never>(panelRepositoryLinks)
+    @ObservationIgnored
     private lazy var pullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(pullRequest)
     @ObservationIgnored
     private lazy var panelPullRequestsSubject = CurrentValueSubject<[UUID: SidebarPullRequestState], Never>(panelPullRequests)
     @ObservationIgnored
     private lazy var panelDirectoryDisplayLabelsSubject = CurrentValueSubject<[UUID: String], Never>(panelDirectoryDisplayLabels)
-    @ObservationIgnored
-    private var repositoryLinkChangeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     /// Creates an empty sidebar-metadata model.
     /// - Parameter limitProvider: Supplies the configured maximum number of log
@@ -169,6 +161,18 @@ public final class WorkspaceSidebarMetadataModel {
         panelGitBranchesSubject.eraseToAnyPublisher()
     }
 
+    /// Emits the current workspace repository link on subscription, then on
+    /// every change.
+    public var repositoryLinkPublisher: AnyPublisher<SidebarRepositoryLinkState?, Never> {
+        repositoryLinkSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits the current per-panel repository links on subscription, then on
+    /// every change.
+    public var panelRepositoryLinksPublisher: AnyPublisher<[UUID: SidebarRepositoryLinkState], Never> {
+        panelRepositoryLinksSubject.eraseToAnyPublisher()
+    }
+
     /// Emits the current workspace pull-request state on subscription, then on
     /// every change (replaces the legacy `Workspace.$pullRequest`).
     public var pullRequestPublisher: AnyPublisher<SidebarPullRequestState?, Never> {
@@ -179,26 +183,6 @@ public final class WorkspaceSidebarMetadataModel {
     /// every change (replaces the legacy `Workspace.$panelPullRequests`).
     public var panelPullRequestsPublisher: AnyPublisher<[UUID: SidebarPullRequestState], Never> {
         panelPullRequestsSubject.eraseToAnyPublisher()
-    }
-
-    /// Emits an initial pulse on subscription, then whenever repository-link state changes.
-    ///
-    /// Consumers re-read ``repositoryLink`` and ``panelRepositoryLinks`` after
-    /// each pulse, keeping immutable sidebar snapshots in sync without adding
-    /// new Combine subjects to this Observation model.
-    ///
-    /// - Returns: A cancellation-aware stream of repository-link invalidations.
-    public func repositoryLinkChanges() -> AsyncStream<Void> {
-        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let observerID = UUID()
-            repositoryLinkChangeObservers[observerID] = continuation
-            continuation.yield(())
-            continuation.onTermination = { [weak self] _ in
-                Task { @MainActor in
-                    self?.repositoryLinkChangeObservers[observerID] = nil
-                }
-            }
-        }
     }
 
     /// Emits the current per-panel directory display labels on subscription,
@@ -278,18 +262,6 @@ public final class WorkspaceSidebarMetadataModel {
     /// - Parameter panelRepositoryLinks: Repository-link state keyed by panel id.
     public func updatePanelRepositoryLinks(_ panelRepositoryLinks: [UUID: SidebarRepositoryLinkState]) {
         self.panelRepositoryLinks = panelRepositoryLinks
-    }
-
-    private func notifyRepositoryLinkChanged() {
-        var terminatedObserverIDs: [UUID] = []
-        for (observerID, continuation) in repositoryLinkChangeObservers {
-            if case .terminated = continuation.yield(()) {
-                terminatedObserverIDs.append(observerID)
-            }
-        }
-        for observerID in terminatedObserverIDs {
-            repositoryLinkChangeObservers[observerID] = nil
-        }
     }
 
     /// Returns the metadata blocks sorted for sidebar display: descending

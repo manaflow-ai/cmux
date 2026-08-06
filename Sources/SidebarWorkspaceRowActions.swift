@@ -59,7 +59,7 @@ struct SidebarWorkspaceRowActions {
     let onPointerFrameDisappear: () -> Void
     let onPointerDragEligibilityChange: (Bool) -> Void
 
-    static func repositoryAction(
+    static func preferredBrowserOpenAction(
         workspaceId: UUID,
         openInWorkspace: @escaping (UUID, URL) -> Bool,
         openExternally: @escaping (URL) -> Void

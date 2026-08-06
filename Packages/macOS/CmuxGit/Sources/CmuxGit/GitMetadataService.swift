@@ -38,6 +38,7 @@ public struct GitMetadataService: Sendable {
     let referenceSnapshotLimiter: GitReferenceSnapshotLimiter
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
     private let watchPlanCache: GitMetadataWatchPlanCache
+    private let repositoryLinkCache: GitRepositoryLinkCache
 
     /// Creates a git-metadata service.
     public init() {
@@ -56,6 +57,7 @@ public struct GitMetadataService: Sendable {
         self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
         self.watchPlanCache = GitMetadataWatchPlanCache()
         self.referenceSnapshotLimiter = GitReferenceSnapshotLimiter()
+        self.repositoryLinkCache = GitRepositoryLinkCache()
     }
 
     init(
@@ -66,7 +68,8 @@ public struct GitMetadataService: Sendable {
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache(),
         referenceSnapshotLimiter: GitReferenceSnapshotLimiter = GitReferenceSnapshotLimiter(),
-        watchPlanCache: GitMetadataWatchPlanCache = GitMetadataWatchPlanCache()
+        watchPlanCache: GitMetadataWatchPlanCache = GitMetadataWatchPlanCache(),
+        repositoryLinkCache: GitRepositoryLinkCache = GitRepositoryLinkCache()
     ) {
         self.fileStatusReader = fileStatusReader
         self.dirtyStatusReader = dirtyStatusReader ?? SystemGitDirtyStatusReader(
@@ -82,6 +85,7 @@ public struct GitMetadataService: Sendable {
         self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
         self.referenceSnapshotLimiter = referenceSnapshotLimiter
         self.watchPlanCache = watchPlanCache
+        self.repositoryLinkCache = repositoryLinkCache
     }
 
     /// Reads a point-in-time git snapshot for `directory`.
@@ -147,6 +151,7 @@ public struct GitMetadataService: Sendable {
             trackedChanges = await gitTrackedChangesSnapshot(repository: repository)
         }
         resolvedReferences = latestReferences
+        let repositoryLink = await gitRepositoryLink(repository: repository)
         return GitWorkspaceMetadata(
             isRepository: true,
             branch: resolvedReferences.branchName,
@@ -154,10 +159,26 @@ public struct GitMetadataService: Sendable {
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
             headSignature: resolvedReferences.headSignature,
-            repositoryLink: Self.gitRemoteVOutput(repository: repository).flatMap {
-                Self.repositoryLink(fromGitRemoteVOutput: $0)
-            }
+            repositoryLink: repositoryLink
         )
+    }
+
+    nonisolated func gitRepositoryLink(repository: ResolvedGitRepository) async -> GitRepositoryLink? {
+        if let cached = await repositoryLinkCache.cachedLink(
+            repository: repository,
+            fileStatusReader: fileStatusReader
+        ) {
+            return cached
+        }
+        let output = Self.gitRemoteVOutput(repository: repository)
+        let link = output.flatMap { Self.repositoryLink(fromGitRemoteVOutput: $0) }
+        await repositoryLinkCache.store(
+            link: link,
+            repository: repository,
+            configURLs: Self.gitConfigURLs(repository: repository),
+            fileStatusReader: fileStatusReader
+        )
+        return link
     }
 
     nonisolated func gitTrackedChangesSnapshot(
