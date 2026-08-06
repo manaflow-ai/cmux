@@ -120,4 +120,14 @@ struct AgentLaunchEnvironmentPolicyTests {
             "OPENCODE_DB": "/tmp/source-home/custom-data/opencode/custom.db",
         ])
     }
+
+    @Test("Drops relative OpenCode storage replay without captured roots")
+    func dropsRelativeOpenCodeStorageReplayWithoutCapturedRoots() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: ["OPENCODE_DB": "custom.db"],
+            kind: "opencode"
+        )
+
+        #expect(selected.isEmpty)
+    }
 }

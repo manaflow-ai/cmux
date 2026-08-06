@@ -6,10 +6,6 @@ import Testing
 
 @Suite("SQLiteDatabaseSnapshotService")
 struct SQLiteDatabaseSnapshotServiceTests {
-    private enum SnapshotFixtureError: Error {
-        case interrupted
-    }
-
     @Test(
         "Rejects FIFO sources without blocking in SQLite open",
         .timeLimit(.minutes(1))
@@ -215,11 +211,13 @@ struct SQLiteDatabaseSnapshotServiceTests {
         let interruptedService = SQLiteDatabaseSnapshotService(
             pagesPerStep: 1,
             stepObserver: {
-                throw SnapshotFixtureError.interrupted
+                throw SQLiteDatabaseSnapshotError.sqlite("fixture interruption")
             }
         )
 
-        #expect(throws: SnapshotFixtureError.interrupted) {
+        #expect(
+            throws: SQLiteDatabaseSnapshotError.sqlite("fixture interruption")
+        ) {
             try interruptedService.copyDatabase(
                 from: source.path,
                 to: destination.path

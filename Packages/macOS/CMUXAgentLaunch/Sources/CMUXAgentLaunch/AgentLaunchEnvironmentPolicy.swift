@@ -151,9 +151,14 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         if normalizedKind == "opencode",
            let configuredDatabase = normalizedValue(env["OPENCODE_DB"]),
            configuredDatabase != ":memory:" {
-            result["OPENCODE_DB"] = OpenCodeSessionResolver(
-                defaultHomeDirectory: NSHomeDirectory()
-            ).databasePath(env: env)
+            if let stableDatabasePath = stableOpenCodeDatabasePath(
+                configuredDatabase: configuredDatabase,
+                env: env
+            ) {
+                result["OPENCODE_DB"] = stableDatabasePath
+            } else {
+                result.removeValue(forKey: "OPENCODE_DB")
+            }
         }
         return result
     }
@@ -253,6 +258,32 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             return nil
         }
         return trimmed
+    }
+
+    private func stableOpenCodeDatabasePath(
+        configuredDatabase: String,
+        env: [String: String]
+    ) -> String? {
+        if let capturedPath = normalizedValue(
+            env[OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey]
+        ),
+        (capturedPath as NSString).isAbsolutePath {
+            return capturedPath
+        }
+        if (configuredDatabase as NSString).isAbsolutePath {
+            return configuredDatabase
+        }
+        let home = normalizedValue(env["HOME"])
+        let xdgDataHome = normalizedValue(env["XDG_DATA_HOME"])
+        guard home != nil || xdgDataHome != nil else { return nil }
+        if let xdgDataHome,
+           (xdgDataHome == "~" || xdgDataHome.hasPrefix("~/")),
+           home == nil {
+            return nil
+        }
+        return OpenCodeSessionResolver(
+            defaultHomeDirectory: home ?? "/"
+        ).databasePath(env: env)
     }
 
     private func isRequireOption(_ token: String) -> Bool {
