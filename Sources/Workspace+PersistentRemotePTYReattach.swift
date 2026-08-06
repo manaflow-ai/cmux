@@ -106,7 +106,7 @@ extension Workspace {
         return reattached
     }
 
-    private func persistentRemotePTYSessionIDForRestart(panelId: UUID) -> String {
+    func persistentRemotePTYSessionIDForRestart(panelId: UUID) -> String {
         if let mappedSessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId]) {
             return mappedSessionID
         }

@@ -603,7 +603,7 @@ extension Workspace {
                 },
                 resumeBinding: resumeBinding,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
-                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
+                isRemoteTerminal: retainsRemoteTerminalIdentityForSnapshot(panelId: panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: agentWasRunning
             )
@@ -6274,17 +6274,22 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    private func retainsRemoteTerminalIdentityForSnapshot(panelId: UUID) -> Bool {
+        activeRemoteTerminalSurfaceIds.contains(panelId) ||
+            normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId]) != nil ||
+            pendingRemoteTerminalChildExitSurfaceIds.contains(panelId) ||
+            remoteDisconnectPlaceholderPanelIds.contains(panelId) ||
+            endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
+    }
+
     private func remotePTYSessionIDForSnapshot(panelId: UUID) -> String? {
         guard remoteConfiguration?.preserveAfterTerminalExit == true else {
             return nil
         }
-        if let storedSessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[panelId]) {
-            return storedSessionID
-        }
-        guard activeRemoteTerminalSurfaceIds.contains(panelId) else {
+        guard retainsRemoteTerminalIdentityForSnapshot(panelId: panelId) else {
             return nil
         }
-        return Self.defaultSSHPTYSessionID(workspaceId: id, panelId: panelId)
+        return persistentRemotePTYSessionIDForRestart(panelId: panelId)
     }
 
     nonisolated static func defaultSSHPTYSessionID(workspaceId: UUID, panelId: UUID) -> String {

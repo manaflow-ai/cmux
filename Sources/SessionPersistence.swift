@@ -1428,6 +1428,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// the effective terminal resume target.
     var managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
     var textBoxDraft: SessionTextBoxInputDraftSnapshot?
+    /// Whether the panel belongs to a remote terminal lifecycle, including a
+    /// disconnected or ended persistent session retained for recovery.
     var isRemoteTerminal: Bool?
     var remotePTYSessionID: String?
     /// Whether the agent process was actively running when this snapshot was captured.
