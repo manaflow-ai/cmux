@@ -61,10 +61,22 @@ fi
 
 TMP_DIR="$(mktemp -d)"
 app_host_pid=""
+APP_HOST_HOME=""
+REPLACEMENT_LINK_HOME=""
+REPLACEMENT_VICTIM_HOME=""
 cleanup() {
   if [ -n "$app_host_pid" ]; then
     kill -KILL "$app_host_pid" 2>/dev/null || true
     wait "$app_host_pid" 2>/dev/null || true
+  fi
+  if [ -n "$REPLACEMENT_LINK_HOME" ]; then
+    rm -rf -- "$REPLACEMENT_LINK_HOME"
+  fi
+  if [ -n "$REPLACEMENT_VICTIM_HOME" ]; then
+    rm -rf -- "$REPLACEMENT_VICTIM_HOME"
+  fi
+  if [ -n "$APP_HOST_HOME" ]; then
+    rm -rf -- "$APP_HOST_HOME"
   fi
   rm -rf "$TMP_DIR"
 }
@@ -72,8 +84,10 @@ trap cleanup EXIT
 
 RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
 DERIVED_DATA_PATH="$RUNNER_TEMP_DIR/cmux-derived-data-tests-123-1-shard-1-with-a-realistically-long-self-hosted-runner-path-for-process-discovery"
-APP_HOST_HOME="$RUNNER_TEMP_DIR/ah-012345abcdef"
+APP_HOST_KEY="$(printf '%012x' "$$")"
+APP_HOST_HOME="/tmp/cmux-ah-$APP_HOST_KEY"
 FAKE_BIN="$TMP_DIR/fake-bin"
+rm -rf -- "$APP_HOST_HOME"
 mkdir -p \
   "$DERIVED_DATA_PATH/Build/Products/Debug" \
   "$APP_HOST_HOME/.config" \
@@ -109,7 +123,7 @@ fi
 wait "$app_host_pid" 2>/dev/null || true
 app_host_pid=""
 
-MISSING_XDG_HOME="$RUNNER_TEMP_DIR/ah-aabbccddeeff"
+MISSING_XDG_HOME="$APP_HOST_HOME"
 mkdir -p "$MISSING_XDG_HOME/.config"
 printf 'private\n' > "$MISSING_XDG_HOME/sentinel"
 rmdir "$MISSING_XDG_HOME/.config"
@@ -128,7 +142,7 @@ if [ -e "$MISSING_XDG_HOME" ]; then
   exit 1
 fi
 
-PARTIAL_SETUP_HOME="$RUNNER_TEMP_DIR/ah-123456abcdef"
+PARTIAL_SETUP_HOME="$APP_HOST_HOME"
 mkdir -p "$PARTIAL_SETUP_HOME"
 printf 'partially-created\n' > "$PARTIAL_SETUP_HOME/sentinel"
 set +e
@@ -153,8 +167,8 @@ fi
 
 for mutated_xdg_kind in regular-file dangling-symlink; do
   case "$mutated_xdg_kind" in
-    regular-file) MUTATED_XDG_HOME="$RUNNER_TEMP_DIR/ah-112233445566" ;;
-    dangling-symlink) MUTATED_XDG_HOME="$RUNNER_TEMP_DIR/ah-66778899aabb" ;;
+    regular-file) MUTATED_XDG_HOME="$APP_HOST_HOME" ;;
+    dangling-symlink) MUTATED_XDG_HOME="$APP_HOST_HOME" ;;
   esac
   mkdir -p "$MUTATED_XDG_HOME"
   if [ "$mutated_xdg_kind" = "regular-file" ]; then
@@ -221,6 +235,27 @@ if [ "$symlink_escape_status" -ne 1 ] || [ ! -f "$OUTSIDE_HOME/sentinel" ]; then
   exit 1
 fi
 
+REPLACEMENT_LINK_HOME="$RUNNER_TEMP_DIR/ah-abcdef123456"
+REPLACEMENT_VICTIM_HOME="$RUNNER_TEMP_DIR/ah-654321fedcba"
+mkdir -p "$REPLACEMENT_VICTIM_HOME/.config"
+printf 'other-workflow\n' > "$REPLACEMENT_VICTIM_HOME/sentinel"
+ln -s "$REPLACEMENT_VICTIM_HOME" "$REPLACEMENT_LINK_HOME"
+set +e
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+CMUX_APP_HOST_HOME="$REPLACEMENT_LINK_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$REPLACEMENT_LINK_HOME/.config" \
+  bash "$CLEANUP_SCRIPT" >"$TMP_DIR/replacement-symlink.log" 2>&1
+replacement_symlink_status=$?
+set -e
+if [ "$replacement_symlink_status" -ne 1 ] \
+  || [ ! -f "$REPLACEMENT_VICTIM_HOME/sentinel" ]; then
+  cat "$TMP_DIR/replacement-symlink.log"
+  echo "FAIL: cleanup must reject a home symlink without deleting its valid-looking target"
+  exit 1
+fi
+
 /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
   -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
   CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
@@ -228,7 +263,7 @@ fi
   CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
   bash "$CLEANUP_SCRIPT"
 
-ABSENT_HOME="$RUNNER_TEMP_DIR/ah-001122334455"
+ABSENT_HOME="$APP_HOST_HOME"
 PATH="$FAKE_BIN:$PATH" \
 CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1 \
 CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \

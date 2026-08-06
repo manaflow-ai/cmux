@@ -130,7 +130,7 @@ def main() -> int:
             "| shasum -a 256 | cut -c1-12)\""
         ),
         "short per-shard app-host home": (
-            'APP_HOST_HOME="${RUNNER_TEMP}/ah-${APP_HOST_KEY}"'
+            'APP_HOST_HOME="/tmp/cmux-ah-${APP_HOST_KEY}"'
         ),
         "neutral app-host home": (
             'echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"'
@@ -198,7 +198,7 @@ def main() -> int:
     # RemoteTmuxHost appends a fixed 55-byte suffix to HOME before OpenSSH
     # binds its transient control socket. Keep deterministic headroom on the
     # self-hosted runner instead of relying on today's decimal run-id length.
-    representative_home = "/Users/runner/work/_temp/ah-" + ("a" * 12)
+    representative_home = "/private/tmp/cmux-ah-" + ("a" * 12)
     remote_tmux_bound_path = (
         representative_home
         + "/.cmux/ssh/tmux-"
@@ -235,7 +235,7 @@ def main() -> int:
     )
     require(
         CONSOLE_WRAPPER,
-        '"$runner_temp"/*',
+        'system_temp_root="$(cd /tmp 2>/dev/null && pwd -P)"',
         "console-session app-host path boundary",
     )
     require(
@@ -333,6 +333,12 @@ def main() -> int:
         "cleanup isolation requirement": "CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
         "cleanup canonical path validation": (
             'source "$ci_script_dir/app-host-isolation.sh"'
+        ),
+        "cleanup fixed short root": (
+            'system_temp_root="$(cd /tmp 2>/dev/null && pwd -P)"'
+        ),
+        "cleanup root symlink refusal": (
+            "FAIL: refusing app-host cleanup through a home symlink"
         ),
         "cleanup runner boundary": '"$runner_temp"/*',
         "cleanup scoped process termination": "CMUX_DERIVED_DATA_PATH",
