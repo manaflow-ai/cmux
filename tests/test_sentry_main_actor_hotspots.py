@@ -52,3 +52,12 @@ def test_right_sidebar_chrome_reads_cached_shortcut_snapshot():
 
     assert "KeyboardShortcutSettings.shortcut(for:" not in sidebar
     assert "shortcut: shortcut" in sidebar
+
+
+def test_sidebar_mutation_scheduler_uses_native_main_actor_task():
+    scheduler = (ROOT / "Sources/Sidebar/AppKitList/SidebarWorkspaceTableMutationScheduler.swift").read_text()
+
+    assert "RunLoop.main.perform" not in scheduler
+    assert "MainActor.assumeIsolated" not in scheduler
+    assert "Task { @MainActor [self] in" in scheduler
+    assert "await Task.yield()" in scheduler
