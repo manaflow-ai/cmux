@@ -1,15 +1,16 @@
 import {
   claimRefreshLease,
   completeRefreshLease,
+  encryptedCredentialForAccount,
   failRefreshLease,
-  withVaultLease,
+  releaseRefreshLease,
 } from "./repository";
 import {
-  putVaultCredential,
-  readTeamVault,
-} from "./vault";
+  decryptCredential,
+  encryptCredential,
+  type EncryptedCredential,
+} from "./encryption";
 import type { CodeRouterCredential } from "./types";
-import type { VaultAccount } from "./types";
 
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENCODE_CLIENT_ID = "opencode-cli";
@@ -28,9 +29,21 @@ export async function freshCredential(input: {
   readonly accountId: string;
   readonly expectedRevision: number;
   readonly force?: boolean;
-  readonly known?: VaultAccount;
+  readonly known?: EncryptedCredential;
 }): Promise<CodeRouterCredential> {
-  const before = input.known ??
+  if (
+    input.known &&
+    input.expectedRevision > 0 &&
+    input.known.credentialRevision !== input.expectedRevision
+  ) {
+    throw new CodeRouterRefreshBusy("credential revision changed");
+  }
+  const before = input.known
+    ? {
+      envelope: input.known,
+      credential: await decryptCredential(input.known),
+    }
+    :
     await readCredential(input.teamId, input.accountId);
   if (!input.force && before.credential.expiresAt > Date.now() + REFRESH_SKEW_MS) {
     return before.credential;
@@ -39,47 +52,31 @@ export async function freshCredential(input: {
   const leaseId = await claimRefreshLease(input.accountId);
   if (!leaseId) throw new CodeRouterRefreshBusy("credential refresh already in progress");
   try {
-    // The lease winner must re-read Stack after claiming. Another request may
-    // have refreshed and rotated the token immediately before this lease.
+    // The lease winner must re-read after claiming. Another request may have
+    // refreshed and rotated the token immediately before this lease.
     const current = await readCredential(input.teamId, input.accountId);
     if (
       !input.force &&
       current.credential.expiresAt > Date.now() + REFRESH_SKEW_MS
     ) {
-      await completeRefreshLease({
-        accountId: input.accountId,
-        leaseId,
-        vaultRevision: current.revision,
-        credentialExpiresAt: new Date(current.credential.expiresAt),
-      });
+      await releaseRefreshLease(input.accountId, leaseId);
       return current.credential;
     }
 
     const refreshed = await refreshProviderCredential(current.credential);
-    const revision = await withVaultLease(input.teamId, async () => {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          return await putVaultCredential(
-            input.teamId,
-            input.accountId,
-            refreshed,
-            current.revision,
-          );
-        } catch (error) {
-          lastError = error;
-          if (attempt < 2) {
-            await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
-          }
-        }
-      }
-      throw lastError;
+    const encrypted = await encryptCredential({
+      teamId: input.teamId,
+      accountId: input.accountId,
+      provider: refreshed.provider,
+      credentialRevision: current.envelope.credentialRevision + 1,
+      credential: refreshed,
     });
     await completeRefreshLease({
       accountId: input.accountId,
       leaseId,
-      vaultRevision: revision,
-      credentialExpiresAt: new Date(refreshed.expiresAt),
+      expectedRevision: current.envelope.credentialRevision,
+      credential: refreshed,
+      encrypted,
     });
     return refreshed;
   } catch (error) {
@@ -98,9 +95,14 @@ export async function freshCredential(input: {
 }
 
 async function readCredential(teamId: string, accountId: string) {
-  const account = (await readTeamVault(teamId)).accounts[accountId];
-  if (!account) throw new CodeRouterCredentialBroken("vault credential not found");
-  return account;
+  const envelope = await encryptedCredentialForAccount(teamId, accountId);
+  if (!envelope) {
+    throw new CodeRouterCredentialBroken("encrypted credential not found");
+  }
+  return {
+    envelope,
+    credential: await decryptCredential(envelope),
+  };
 }
 
 async function refreshProviderCredential(

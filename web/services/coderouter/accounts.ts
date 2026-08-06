@@ -1,42 +1,57 @@
 import { randomUUID } from "node:crypto";
 import {
   findAccountByProviderIdentity,
+  insertAccountWithCredential,
   listAccounts,
-  upsertAccountMetadata,
-  withVaultLease,
+  replaceAccountCredential,
 } from "./repository";
-import { putVaultCredential } from "./vault";
+import { encryptCredential } from "./encryption";
 import type { CodeRouterCredential } from "./types";
 
 export async function addAccount(
   teamId: string,
   credential: CodeRouterCredential,
 ): Promise<{ accountId: string; alreadyExists: boolean }> {
-  return await withVaultLease(teamId, async () => {
-    const existing = await findAccountByProviderIdentity(
-      teamId,
-      credential.provider,
-      credential.accountId,
-    );
-    if (existing?.state === "active" || existing?.state === "refreshing") {
-      return { accountId: existing.id, alreadyExists: true };
-    }
+  const existing = await findAccountByProviderIdentity(
+    teamId,
+    credential.provider,
+    credential.accountId,
+  );
+  if (existing?.state === "active" || existing?.state === "refreshing") {
+    return { accountId: existing.id, alreadyExists: true };
+  }
 
-    const accountId = existing?.id ?? randomUUID();
-    const revision = await putVaultCredential(
-      teamId,
-      accountId,
-      credential,
-      existing?.vaultRevision,
-    );
-    await upsertAccountMetadata({
-      teamId,
-      accountId,
-      credential,
-      vaultRevision: revision,
-    });
-    return { accountId, alreadyExists: false };
+  const accountId = existing?.id ?? randomUUID();
+  const expectedRevision = existing?.vaultRevision ?? 0;
+  const encrypted = await encryptCredential({
+    teamId,
+    accountId,
+    provider: credential.provider,
+    credentialRevision: expectedRevision + 1,
+    credential,
   });
+  if (!existing) {
+    const inserted = await insertAccountWithCredential({
+      credential,
+      encrypted,
+    });
+    if (!inserted) {
+      const raced = await findAccountByProviderIdentity(
+        teamId,
+        credential.provider,
+        credential.accountId,
+      );
+      if (raced) return { accountId: raced.id, alreadyExists: true };
+      throw new Error("coderouter account insert lost a uniqueness race");
+    }
+  } else {
+    await replaceAccountCredential({
+      credential,
+      encrypted,
+      expectedRevision,
+    });
+  }
+  return { accountId, alreadyExists: false };
 }
 
 export { listAccounts };
