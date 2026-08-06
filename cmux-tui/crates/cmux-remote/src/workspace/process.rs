@@ -3107,7 +3107,7 @@ mod tests {
         tasks.spawn(std::future::pending::<Result<(), ProcessOutputTruncationReason>>());
 
         let result = tokio::time::timeout(
-            std::time::Duration::from_millis(500),
+            crate::test_observation_timeout(std::time::Duration::from_millis(500)),
             drain_output_tasks(
                 tasks,
                 activity_rx,
