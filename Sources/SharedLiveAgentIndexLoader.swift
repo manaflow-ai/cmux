@@ -17,6 +17,7 @@ struct SharedLiveAgentIndexLoader {
     private let processArgumentsProvider: @Sendable (Int) -> CmuxTopProcessArguments?
     private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator
+    private let openCodeDatabaseDescriptorPathCache: OpenCodeDatabaseDescriptorPathCache
 
     init(
         homeDirectory: String = NSHomeDirectory(),
@@ -35,7 +36,8 @@ struct SharedLiveAgentIndexLoader {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
         },
-        cachedAgentProcessValidator: CachedAgentProcessIdentityValidator = CachedAgentProcessIdentityValidator()
+        cachedAgentProcessValidator: CachedAgentProcessIdentityValidator = CachedAgentProcessIdentityValidator(),
+        openCodeDatabaseDescriptorPathCache: OpenCodeDatabaseDescriptorPathCache? = nil
     ) {
         self.homeDirectory = homeDirectory
         self.fileManager = fileManager
@@ -45,6 +47,9 @@ struct SharedLiveAgentIndexLoader {
         self.processArgumentsProvider = processArgumentsProvider
         self.processIdentityProvider = processIdentityProvider
         self.cachedAgentProcessValidator = cachedAgentProcessValidator
+        self.openCodeDatabaseDescriptorPathCache =
+            openCodeDatabaseDescriptorPathCache
+            ?? OpenCodeDatabaseDescriptorPathCache()
     }
 
     func loadSynchronously() -> RestorableAgentSessionIndex {
@@ -82,6 +87,7 @@ struct SharedLiveAgentIndexLoader {
                 processSnapshot: processSnapshot,
                 capturedAt: capturedAtProvider(),
                 reuseCompletedOpenCodeDatabasePaths: reuseCompletedOpenCodeDatabasePaths,
+                openCodeDatabaseDescriptorPathCache: openCodeDatabaseDescriptorPathCache,
                 processArgumentsProvider: processArgumentsProvider
             )
         return makeLoadResult(

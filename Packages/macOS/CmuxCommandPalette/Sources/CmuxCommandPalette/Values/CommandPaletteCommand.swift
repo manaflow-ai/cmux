@@ -21,9 +21,8 @@ public struct CommandPaletteCommand: Identifiable {
     public let dismissOnRun: Bool
     /// Finite-choice values collected interactively before running.
     public let choiceArguments: [CommandPaletteChoiceArgument]
-    /// The action executed on activation.
-    public let action: () -> Void
-    private let argumentAction: ([String: String]) -> Void
+    /// The single execution path used after optional argument collection.
+    private let execution: ([String: String]) -> Void
 
     /// Creates a command that does not consume finite-choice values.
     /// - Parameters:
@@ -58,8 +57,7 @@ public struct CommandPaletteCommand: Identifiable {
         self.keywords = keywords
         self.dismissOnRun = dismissOnRun
         self.choiceArguments = choiceArguments
-        self.action = action
-        argumentAction = { _ in action() }
+        execution = { _ in action() }
     }
 
     /// Creates a command whose action consumes collected argument values.
@@ -95,14 +93,13 @@ public struct CommandPaletteCommand: Identifiable {
         self.keywords = keywords
         self.dismissOnRun = dismissOnRun
         self.choiceArguments = choiceArguments
-        action = { argumentAction([:]) }
-        self.argumentAction = argumentAction
+        execution = argumentAction
     }
 
     /// Runs the command with values collected by the palette.
     /// - Parameter arguments: Collected values keyed by declared argument name.
     public func run(arguments: [String: String] = [:]) {
-        argumentAction(arguments)
+        execution(arguments)
     }
 
     /// Texts the search corpus indexes for this command.

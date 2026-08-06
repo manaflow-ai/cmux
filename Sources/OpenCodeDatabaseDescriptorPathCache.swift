@@ -5,8 +5,6 @@ import CMUXAgentLaunch
 /// Caches successful descriptor scans by process generation and coalesces
 /// simultaneous scans without blocking the live-index actor.
 actor OpenCodeDatabaseDescriptorPathCache {
-    static let shared = OpenCodeDatabaseDescriptorPathCache()
-
     private typealias CacheEntry = (
         path: String,
         cachedAt: Date,
@@ -20,20 +18,27 @@ actor OpenCodeDatabaseDescriptorPathCache {
     private var entries: [String: CacheEntry] = [:]
     private var pendingProbes: [String: PendingProbe] = [:]
     private var sequence: UInt64 = 0
-    private let maximumEntryCount = 64
-    private static let maximumConcurrentProbeCount = 2
+    private let maximumEntryCount: Int
+    private let maximumConcurrentProbeCount: Int
     private var availableProbePermitCount: Int
     private var probePermitWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
     private var nextProbePermitWaiterID: UInt64 = 0
     private var nextProbePermitWaiterToResume: UInt64 = 0
-    private let cacheTTL: TimeInterval = 60
+    private let cacheTTL: TimeInterval
     private let pendingProbeObserver: (@Sendable (_ reuseCompletedResult: Bool) -> Void)?
+    private var isStopped = false
 
     init(
+        maximumEntryCount: Int = 64,
+        maximumConcurrentProbeCount: Int = 2,
+        cacheTTL: TimeInterval = 60,
         pendingProbeObserver: (@Sendable (_ reuseCompletedResult: Bool) -> Void)? = nil
     ) {
+        self.maximumEntryCount = max(1, maximumEntryCount)
+        self.maximumConcurrentProbeCount = max(1, maximumConcurrentProbeCount)
+        self.cacheTTL = max(0, cacheTTL)
         self.pendingProbeObserver = pendingProbeObserver
-        availableProbePermitCount = Self.maximumConcurrentProbeCount
+        availableProbePermitCount = self.maximumConcurrentProbeCount
     }
 
     func resolve(
@@ -42,6 +47,7 @@ actor OpenCodeDatabaseDescriptorPathCache {
         reuseCompletedResult: Bool,
         probe: @escaping @Sendable () -> String?
     ) async -> String? {
+        guard !isStopped else { return nil }
         guard let processIdentity = AgentPIDProcessIdentity(pid: pid_t(processID)) else {
             return nil
         }
@@ -54,7 +60,7 @@ actor OpenCodeDatabaseDescriptorPathCache {
                let pendingProbe = pendingProbes[key] {
                 pendingProbeObserver?(true)
                 let path = await pendingProbe.task.value
-                guard !Task.isCancelled,
+                guard !Task.isCancelled, !isStopped,
                       AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
                     return nil
                 }
@@ -67,7 +73,7 @@ actor OpenCodeDatabaseDescriptorPathCache {
                 if pendingProbes[key]?.id == pendingProbe.id {
                     pendingProbes.removeValue(forKey: key)
                 }
-                guard !Task.isCancelled,
+                guard !Task.isCancelled, !isStopped,
                       AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
                     return nil
                 }
@@ -103,7 +109,8 @@ actor OpenCodeDatabaseDescriptorPathCache {
         if ownsCompletedProbe {
             pendingProbes.removeValue(forKey: key)
         }
-        guard let path,
+        guard !isStopped,
+              let path,
               AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
             return nil
         }
@@ -128,8 +135,24 @@ actor OpenCodeDatabaseDescriptorPathCache {
         return path
     }
 
+    /// Cancels detached probes and releases queued callers when the owning
+    /// live-index instance is torn down.
+    func stop() {
+        guard !isStopped else { return }
+        isStopped = true
+        entries.removeAll()
+        for pendingProbe in pendingProbes.values {
+            pendingProbe.task.cancel()
+        }
+        pendingProbes.removeAll()
+        for continuation in probePermitWaiters.values {
+            continuation.resume()
+        }
+        probePermitWaiters.removeAll()
+    }
+
     private func acquireProbePermit() async -> Bool {
-        guard !Task.isCancelled else { return false }
+        guard !Task.isCancelled, !isStopped else { return false }
         if availableProbePermitCount > 0 {
             availableProbePermitCount -= 1
             return true
@@ -139,7 +162,7 @@ actor OpenCodeDatabaseDescriptorPathCache {
         await withCheckedContinuation { continuation in
             probePermitWaiters[waiterID] = continuation
         }
-        guard !Task.isCancelled else {
+        guard !Task.isCancelled, !isStopped else {
             releaseProbePermit()
             return false
         }
@@ -147,6 +170,7 @@ actor OpenCodeDatabaseDescriptorPathCache {
     }
 
     private func releaseProbePermit() {
+        guard !isStopped else { return }
         while nextProbePermitWaiterToResume < nextProbePermitWaiterID {
             let waiterID = nextProbePermitWaiterToResume
             nextProbePermitWaiterToResume &+= 1
@@ -159,7 +183,7 @@ actor OpenCodeDatabaseDescriptorPathCache {
             return
         }
         availableProbePermitCount = min(
-            Self.maximumConcurrentProbeCount,
+            maximumConcurrentProbeCount,
             availableProbePermitCount + 1
         )
     }

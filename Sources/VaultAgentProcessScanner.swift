@@ -68,7 +68,7 @@ extension RestorableAgentSessionIndex {
         )
     }
 
-    /// Pre-resolves OpenCode database paths through the shared actor cache,
+    /// Pre-resolves OpenCode database paths through an owner-injected cache,
     /// then runs the same deterministic scanner used by synchronous restores.
     static func processDetectedSnapshotsCachingOpenCodeDatabasePaths(
         registry: CmuxVaultAgentRegistry,
@@ -76,6 +76,7 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
         reuseCompletedOpenCodeDatabasePaths: Bool = true,
+        openCodeDatabaseDescriptorPathCache: OpenCodeDatabaseDescriptorPathCache? = nil,
         processArgumentsProvider: @escaping @Sendable (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
@@ -83,6 +84,9 @@ extension RestorableAgentSessionIndex {
             openCodeDatabasePathHeldOpen(processID: $0, environment: $1)
         }
     ) async -> [PanelKey: ProcessDetectedSnapshotEntry] {
+        let openCodeDatabaseDescriptorPathCache =
+            openCodeDatabaseDescriptorPathCache
+            ?? OpenCodeDatabaseDescriptorPathCache()
         var processArgumentsByPID: [Int: CmuxTopProcessArguments] = [:]
         for process in processSnapshot.cmuxScopedProcesses() {
             if let processArguments = processArgumentsProvider(process.pid) {
@@ -104,7 +108,7 @@ extension RestorableAgentSessionIndex {
             guard observed.isOpenCodeProcess else { continue }
             let processID = process.pid
             let environment = processArguments.environment
-            if let path = await OpenCodeDatabaseDescriptorPathCache.shared.resolve(
+            if let path = await openCodeDatabaseDescriptorPathCache.resolve(
                 processID: processID,
                 environment: environment,
                 reuseCompletedResult: reuseCompletedOpenCodeDatabasePaths,

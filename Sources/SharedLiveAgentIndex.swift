@@ -193,6 +193,7 @@ final class SharedLiveAgentIndex {
 
     private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
     private let conversationTransferIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
+    private let openCodeDatabaseDescriptorPathCache: OpenCodeDatabaseDescriptorPathCache
     private let forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver
     private let forkCapabilityProbeCache: ForkCapabilityProbeResultCache
     private let customForkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)?
@@ -203,6 +204,7 @@ final class SharedLiveAgentIndex {
     init(
         indexLoader: (@Sendable () async -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         conversationTransferIndexLoader: (@Sendable () async -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
+        openCodeDatabaseDescriptorPathCache: OpenCodeDatabaseDescriptorPathCache? = nil,
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),
         forkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)? = nil,
@@ -218,11 +220,19 @@ final class SharedLiveAgentIndex {
             )
         }
     ) {
+        let openCodeDatabaseDescriptorPathCache =
+            openCodeDatabaseDescriptorPathCache
+            ?? OpenCodeDatabaseDescriptorPathCache()
+        self.openCodeDatabaseDescriptorPathCache = openCodeDatabaseDescriptorPathCache
         let defaultIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
-            await SharedLiveAgentIndexLoader().loadResult()
+            await SharedLiveAgentIndexLoader(
+                openCodeDatabaseDescriptorPathCache: openCodeDatabaseDescriptorPathCache
+            ).loadResult()
         }
         let defaultConversationTransferIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
-            await SharedLiveAgentIndexLoader().loadResult(
+            await SharedLiveAgentIndexLoader(
+                openCodeDatabaseDescriptorPathCache: openCodeDatabaseDescriptorPathCache
+            ).loadResult(
                 reuseCompletedOpenCodeDatabasePaths: false
             )
         }
@@ -312,6 +322,10 @@ final class SharedLiveAgentIndex {
             for waiter in waiters {
                 waiter.continuation.resume()
             }
+        }
+        let openCodeDatabaseDescriptorPathCache = openCodeDatabaseDescriptorPathCache
+        Task.detached {
+            await openCodeDatabaseDescriptorPathCache.stop()
         }
     }
 

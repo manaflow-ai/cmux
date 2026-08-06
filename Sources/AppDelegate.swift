@@ -806,6 +806,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
+    private let oneShotTerminalLauncherJanitor = OneShotTerminalLauncherJanitor()
     struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -1361,9 +1362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // closedPanelHistoryEntry.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
-            Task {
-                await OneShotTerminalLauncherJanitor.shared.start()
-            }
+            oneShotTerminalLauncherJanitor.start()
         }
 
         claimAuthCallbackURLSchemes()
@@ -2165,6 +2164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         connectivityInvalidationSubscriberCoordinator.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
+        oneShotTerminalLauncherJanitor.stop()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
         MobileHostService.shared.stop()
