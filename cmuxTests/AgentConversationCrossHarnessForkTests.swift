@@ -44,6 +44,7 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(interactiveCommands[.codebuddy] == "exec codebuddy")
         #expect(interactiveCommands[.factory] == "exec droid")
         #expect(try commands.values.allSatisfy { try transferredFirstMessage(from: $0) == message })
+        #expect(commands.values.allSatisfy { $0.contains("/usr/bin/expect -f /dev/fd/3 3<<") })
         #expect(commands.values.allSatisfy { !$0.contains("don't drop this") })
     }
 
