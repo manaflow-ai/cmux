@@ -422,8 +422,8 @@ import CmuxGit
             panelId: panelId,
             reason: "repositoryLinkPresent"
         )
-        await clock.waitForSleeper()
-        await clock.resumeNext()
+        await clock.waitForSleeper(seconds: 0)
+        await clock.resumeNext(seconds: 0)
         #expect(await waitUntil {
             host.events.contains {
                 if case .repositoryLink(workspaceId, panelId, _, _, _) = $0 { return true }
@@ -434,17 +434,14 @@ import CmuxGit
         #expect(await waitUntil { service.workspaceGitProbeStateByKey[probeKey] == nil })
 
         await reader.setMetadata(.repository(branch: "main"))
-        host.gitMetadataActivity = .passiveReportsOnly
-        service.sidebarGitMetadataWatchSettingsDidChange()
-        host.gitMetadataActivity = .activePolling
         let eventCountBeforeSecondProbe = host.events.count
         service.scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
             panelId: panelId,
             reason: "repositoryLinkRemoved"
         )
-        await clock.waitForSleeper()
-        await clock.resumeNext()
+        await clock.waitForSleeper(seconds: 0)
+        await clock.resumeNext(seconds: 0)
 
         #expect(await reader.waitForProbe(count: 2))
         #expect(await waitUntil {
