@@ -62,6 +62,37 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    func testWorkspaceRestoreCoalescesPaneGeometryPublication() {
+        let panelIds = (0..<4).map { _ in UUID() }
+        var snapshot = Self.localWorkspaceSnapshot(
+            title: "Geometry Batch",
+            panelId: panelIds[0]
+        )
+        snapshot.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: panelIds,
+            selectedPanelId: panelIds.last
+        ))
+        snapshot.panels = panelIds.map(Self.terminalPanelSnapshot(id:))
+        snapshot.focusedPanelId = panelIds.last
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspacePaneGeometryDidChange,
+            object: workspace,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        workspace.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(workspace.orderedPanelIds.count, panelIds.count)
+        XCTAssertEqual(notificationCount, 1)
+    }
+
     func testRestoreSessionSnapshotPreservesPersistedWorkspaceIdsAndOrder() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
