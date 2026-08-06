@@ -10,7 +10,7 @@ use crate::process;
 use crate::tui::{self, AddChoice, LoginChoice};
 
 const HELP: &str = "\
-coderouter — run Codex across your subscription pool
+coderouter - route Codex/Claude Code traffic across multiple ChatGPT Pro/Claude Max/OpenCode subscriptions and API keys.
 
 Usage:
   cr                            Show account usage across coderouter
