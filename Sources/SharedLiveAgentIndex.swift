@@ -19,6 +19,10 @@ final class SharedLiveAgentIndex {
         panelAliasesByProbeKey: [ForkProbeKey: Set<RestorableAgentSessionIndex.PanelKey>],
         sources: [DispatchSourceFileSystemObject]
     )
+    private typealias ConversationTransferRefresh = (
+        id: UUID,
+        task: Task<SharedLiveAgentIndexLoader.LoadResult, Never>
+    )
 
     private struct ForkSupportValidation {
         let identity: String
@@ -60,6 +64,7 @@ final class SharedLiveAgentIndex {
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
+    private var conversationTransferRefresh: ConversationTransferRefresh?
     private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
     private var forkExecutableWatchRecords: [ForkExecutableWatchKey: ForkExecutableWatchRecord] = [:]
     private var forkExecutableWatchKeysByProbeKey: [ForkProbeKey: ForkExecutableWatchKey] = [:]
@@ -257,6 +262,7 @@ final class SharedLiveAgentIndex {
     deinit {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
+        conversationTransferRefresh?.task.cancel()
         deferredReloadTimer?.cancel()
         forkSupportValidationExpiryTimer?.cancel()
         directoryWatchSource?.cancel()
@@ -305,14 +311,23 @@ final class SharedLiveAgentIndex {
         workspaceId: UUID,
         panelId: UUID
     ) async -> SessionRestorableAgentSnapshot? {
-        let indexLoader = self.indexLoader
-        let task = Task.detached(priority: .utility) {
-            indexLoader()
+        let refresh: ConversationTransferRefresh
+        if let inFlight = conversationTransferRefresh {
+            refresh = inFlight
+        } else {
+            let indexLoader = self.indexLoader
+            let created = ConversationTransferRefresh(
+                id: UUID(),
+                task: Task.detached(priority: .utility) {
+                    indexLoader()
+                }
+            )
+            conversationTransferRefresh = created
+            refresh = created
         }
-        let result = await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
+        let result = await refresh.task.value
+        if conversationTransferRefresh?.id == refresh.id {
+            conversationTransferRefresh = nil
         }
         guard !Task.isCancelled else { return nil }
 
@@ -320,12 +335,10 @@ final class SharedLiveAgentIndex {
             workspaceId: workspaceId,
             panelId: panelId
         )
-        guard result.forkValidatedPanels.contains(where: {
-            $0 == panelKey || $0.panelId == panelId
-        }) else {
+        guard result.forkValidatedPanels.contains(panelKey) else {
             return nil
         }
-        return result.index.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return result.index.exactSnapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
     /// Read the cached snapshot for an enabled Fork Conversation action. Never blocks.

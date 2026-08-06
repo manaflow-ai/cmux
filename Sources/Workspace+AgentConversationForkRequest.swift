@@ -47,10 +47,7 @@ extension Workspace {
             : AgentConversationSource(snapshot: snapshot).hasDeterministicTranscriptSource else {
             return false
         }
-        let transferIdentity: AgentConversationTransferIdentity?
-        if usesNativeFork {
-            transferIdentity = nil
-        } else {
+        if !usesNativeFork {
             guard let selectedTransferIdentity = AgentConversationSource(
                 snapshot: snapshot
             ).transferIdentity,
@@ -64,7 +61,6 @@ extension Workspace {
                   isRemoteTerminalSurface(panelId) == sourceIsRemote else {
                 return false
             }
-            transferIdentity = selectedTransferIdentity
         }
         let startupCommandOverride: String?
         do {
@@ -81,16 +77,6 @@ extension Workspace {
             return false
         }
 
-        if let transferIdentity {
-            guard let freshSnapshot = await liveAgentIndex.freshConversationTransferSnapshot(
-                workspaceId: id,
-                panelId: panelId
-            ),
-                  AgentConversationSource(snapshot: freshSnapshot).transferIdentity
-                    == transferIdentity else {
-                return false
-            }
-        }
         let refreshedSelection = agentConversationForkSelection(
             forPanelId: panelId,
             request: request,
