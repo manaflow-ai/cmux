@@ -83,8 +83,9 @@ for helper in ps stat id dscl launchctl sudo; do
 done
 printf 'private\n' > "$APP_HOST_HOME/sentinel"
 
-ln -s /bin/sleep "$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV"
-"$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV" 30 &
+RESOLVED_DERIVED_DATA_PATH="$(cd "$DERIVED_DATA_PATH" && pwd -P)"
+/bin/bash -c 'exec -a "$1" /bin/sleep 30' bash \
+  "$RESOLVED_DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV" &
 app_host_pid=$!
 kill -0 "$app_host_pid"
 
