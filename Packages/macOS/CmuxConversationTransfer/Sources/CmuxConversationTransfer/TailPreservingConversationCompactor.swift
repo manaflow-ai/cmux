@@ -39,6 +39,22 @@ public struct TailPreservingConversationCompactor: ConversationCompacting {
             )
         }
 
+        if eligible.count == 1, let onlyTurn = eligible.first {
+            let framingByteCount = framingByteCount(
+                of: onlyTurn,
+                formattedByteCount: formattedByteCount
+            )
+            let clippedTurn = clipped(
+                onlyTurn,
+                byteLimit: max(1, bodyBudget - framingByteCount)
+            )
+            return ConversationCompaction(
+                turns: renumbered([clippedTurn]),
+                omittedTurnCount: 0,
+                shortenedTurnCount: clippedTurn.text == onlyTurn.text ? 0 : 1
+            )
+        }
+
         let firstUserIndex = eligible.firstIndex { $0.role == .user }
         let reservedHead = firstUserIndex.map { _ in
             min(policy.initialUserByteLimit, max(256, bodyBudget / 4))

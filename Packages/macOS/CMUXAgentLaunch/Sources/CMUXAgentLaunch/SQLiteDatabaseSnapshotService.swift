@@ -3,6 +3,7 @@ import Foundation
 import SQLite3
 
 private let sqliteSourceBindingDirectoryPrefix = ".cmux-sqlite-source"
+private let sqliteSourceBindingNamespacePrefix = ".cmux-sqlite-bindings"
 private let sqliteSourceBindingLeaseName = ".cmux-binding-lease"
 private let sqliteSourceBindingLeaseVersion = 1
 private let sqliteSourceBindingLeaseMaximumBytes: off_t = 4 * 1_024
@@ -341,8 +342,12 @@ public struct SQLiteDatabaseSnapshotService {
             throw SQLiteDatabaseSnapshotError.sqlite("cannot inspect source database")
         }
 
-        removeAbandonedSourceBindingDirectories(in: fileManager.temporaryDirectory)
-        let temporaryDirectory = try createPrivateTemporaryDirectory(
+        let temporaryNamespace = try sourceBindingNamespaceDirectory(
+            in: fileManager.temporaryDirectory
+        )
+        removeAbandonedSourceBindingDirectories(in: temporaryNamespace)
+        let temporaryDirectory = try createPrivateDirectory(
+            in: temporaryNamespace,
             prefix: sqliteSourceBindingDirectoryPrefix
         )
         var temporaryMetadata = stat()
@@ -372,23 +377,25 @@ public struct SQLiteDatabaseSnapshotService {
                   parentMetadata.st_dev == sourceMetadata.st_dev else {
                 break
             }
-            removeAbandonedSourceBindingDirectories(in: candidateParent)
-            if let directory = try? createPrivateDirectory(
-                in: candidateParent,
-                prefix: sqliteSourceBindingDirectoryPrefix
-            ) {
-                var directoryMetadata = stat()
-                if Darwin.lstat(directory.path, &directoryMetadata) == 0,
-                   directoryMetadata.st_dev == sourceMetadata.st_dev,
-                   directoryMetadata.st_mode & S_IFMT == S_IFDIR,
-                   let leaseDescriptor = createSourceBindingLease(
-                       in: directory,
-                       databaseName: sourceURL.lastPathComponent
-                   ) {
-                    try? fileManager.removeItem(at: temporaryDirectory)
-                    return (directory, false, leaseDescriptor)
+            if let namespace = try? sourceBindingNamespaceDirectory(in: candidateParent) {
+                removeAbandonedSourceBindingDirectories(in: namespace)
+                if let directory = try? createPrivateDirectory(
+                    in: namespace,
+                    prefix: sqliteSourceBindingDirectoryPrefix
+                ) {
+                    var directoryMetadata = stat()
+                    if Darwin.lstat(directory.path, &directoryMetadata) == 0,
+                       directoryMetadata.st_dev == sourceMetadata.st_dev,
+                       directoryMetadata.st_mode & S_IFMT == S_IFDIR,
+                       let leaseDescriptor = createSourceBindingLease(
+                           in: directory,
+                           databaseName: sourceURL.lastPathComponent
+                       ) {
+                        try? fileManager.removeItem(at: temporaryDirectory)
+                        return (directory, false, leaseDescriptor)
+                    }
+                    try? fileManager.removeItem(at: directory)
                 }
-                try? fileManager.removeItem(at: directory)
             }
             let nextParent = candidateParent.deletingLastPathComponent()
             if nextParent.path == candidateParent.path { break }
@@ -461,6 +468,47 @@ public struct SQLiteDatabaseSnapshotService {
             return nil
         }
         return descriptor
+    }
+
+    private func sourceBindingNamespaceDirectory(in parentURL: URL) throws -> URL {
+        let namespaceURL = parentURL.appendingPathComponent(
+            "\(sqliteSourceBindingNamespacePrefix)-\(Darwin.geteuid())",
+            isDirectory: true
+        )
+        let created = Darwin.mkdir(namespaceURL.path, S_IRWXU) == 0
+        if !created, errno != EEXIST {
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "cannot create private source binding namespace"
+            )
+        }
+
+        let descriptor = Darwin.open(
+            namespaceURL.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard descriptor >= 0 else {
+            if created { _ = Darwin.rmdir(namespaceURL.path) }
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "cannot open private source binding namespace"
+            )
+        }
+        defer { _ = Darwin.close(descriptor) }
+
+        var descriptorMetadata = stat()
+        var pathMetadata = stat()
+        guard Darwin.fstat(descriptor, &descriptorMetadata) == 0,
+              Darwin.lstat(namespaceURL.path, &pathMetadata) == 0,
+              descriptorMetadata.st_dev == pathMetadata.st_dev,
+              descriptorMetadata.st_ino == pathMetadata.st_ino,
+              descriptorMetadata.st_mode & S_IFMT == S_IFDIR,
+              descriptorMetadata.st_uid == Darwin.geteuid(),
+              descriptorMetadata.st_mode & (S_IRWXG | S_IRWXO) == 0 else {
+            if created { _ = Darwin.rmdir(namespaceURL.path) }
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "private source binding namespace is not owner-controlled"
+            )
+        }
+        return namespaceURL
     }
 
     /// Removes owner-private source bindings left behind by a killed process.

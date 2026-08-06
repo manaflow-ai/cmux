@@ -248,8 +248,13 @@ struct SQLiteDatabaseSnapshotServiceTests {
         let service = SQLiteDatabaseSnapshotService(
             pagesPerStep: 1,
             stepObserver: {
+                let namespace = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(
+                        ".cmux-sqlite-bindings-\(Darwin.geteuid())",
+                        isDirectory: true
+                    )
                 let candidates = try FileManager.default.contentsOfDirectory(
-                    at: FileManager.default.temporaryDirectory,
+                    at: namespace,
                     includingPropertiesForKeys: nil
                 )
                 let binding = candidates.first { candidate in
@@ -390,7 +395,11 @@ struct SQLiteDatabaseSnapshotServiceTests {
             "cmux-sqlite-snapshot-\(UUID().uuidString)",
             isDirectory: true
         )
-        let abandonedDirectory = temporaryDirectory.appendingPathComponent(
+        let bindingNamespace = temporaryDirectory.appendingPathComponent(
+            ".cmux-sqlite-bindings-\(Darwin.geteuid())",
+            isDirectory: true
+        )
+        let abandonedDirectory = bindingNamespace.appendingPathComponent(
             ".cmux-sqlite-source-\(UUID().uuidString)",
             isDirectory: true
         )
@@ -399,6 +408,11 @@ struct SQLiteDatabaseSnapshotServiceTests {
             try? FileManager.default.removeItem(at: root)
         }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: bindingNamespace,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
         try FileManager.default.createDirectory(
             at: abandonedDirectory,
             withIntermediateDirectories: false,
