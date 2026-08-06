@@ -617,6 +617,8 @@ jobs:
           for suite in \
             AgentConversationCrossHarnessForkTests \
             AgentConversationTransferSourceTests \
+            CMUXCLIErrorOutputRegressionTests \
+            ForkParentFallbackGeneralizationTests \
             RovoDevTranscriptPreviewTests \
             SessionIndexJSONLReaderTests
           do

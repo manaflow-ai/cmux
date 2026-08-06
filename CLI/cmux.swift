@@ -28449,13 +28449,23 @@ struct CMUXCLI {
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
         var environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
-        if launcher == "hermes-agent",
-           environment["HERMES_HOME"] == nil,
-           let home = normalizedHookValue(env["HOME"]) {
-            // Default Hermes storage lives under HOME, so persist it as provenance.
-            // Resume paths re-filter this record through AgentLaunchEnvironmentPolicy,
-            // which intentionally does not replay the process-wide HOME value.
-            environment["HOME"] = home
+        if launcher == "hermes-agent" {
+            if let hermesHome = normalizedHookValue(environment["HERMES_HOME"]),
+               hermesHome == "~" || hermesHome.hasPrefix("~/"),
+               let home = normalizedHookValue(env["HOME"]),
+               home.hasPrefix("/") {
+                environment["HERMES_HOME"] = hermesHome == "~"
+                    ? home
+                    : (home as NSString).appendingPathComponent(
+                        String(hermesHome.dropFirst(2))
+                    )
+            } else if environment["HERMES_HOME"] == nil,
+                      let home = normalizedHookValue(env["HOME"]) {
+                // Default Hermes storage lives under HOME, so persist it as provenance.
+                // Resume paths re-filter this record through AgentLaunchEnvironmentPolicy,
+                // which intentionally does not replay the process-wide HOME value.
+                environment["HOME"] = home
+            }
         }
         if launcher == "opencode" || launcher == "omo" {
             // OpenCode transcript storage is rooted in XDG_DATA_HOME or HOME.

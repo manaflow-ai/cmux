@@ -84,7 +84,7 @@ struct AgentExecutableResolver {
                       !isDirectory.boolValue,
                       fileManager.isExecutableFile(atPath: candidatePath) else { continue }
                 guard !isBundledProviderExecutable(candidateURL) else { continue }
-                guard !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider) else { continue }
+                guard !isKnownCmuxCommandShim(candidateURL, provider: provider) else { continue }
                 guard !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else { continue }
                 guard seenPaths.insert(candidatePath).inserted else { continue }
                 candidates.append(candidateURL)
@@ -264,7 +264,7 @@ struct AgentExecutableResolver {
               !isDirectory.boolValue,
               fileManager.isExecutableFile(atPath: candidateURL.path),
               !isBundledProviderExecutable(candidateURL),
-              !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider),
+              !isKnownCmuxCommandShim(candidateURL, provider: provider),
               !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else {
             return nil
         }
@@ -286,17 +286,28 @@ struct AgentExecutableResolver {
         return false
     }
 
-    private func isKnownCmuxClaudeCommandShim(_ url: URL, provider: AgentSessionProviderID) -> Bool {
-        guard provider == .claude else { return false }
+    private func isKnownCmuxCommandShim(_ url: URL, provider: AgentSessionProviderID) -> Bool {
+        let shimEnvironmentKey: String
+        let shimRootEnvironmentKey: String
+        switch provider {
+        case .claude:
+            shimEnvironmentKey = "CMUX_CLAUDE_WRAPPER_SHIM"
+            shimRootEnvironmentKey = "CMUX_CLAUDE_WRAPPER_SHIM_ROOT"
+        case .codex:
+            shimEnvironmentKey = "CMUX_CODEX_WRAPPER_SHIM"
+            shimRootEnvironmentKey = "CMUX_CODEX_WRAPPER_SHIM_ROOT"
+        case .opencode:
+            return false
+        }
         let candidatePath = url.standardizedFileURL.path
-        if let shimPath = environment["CMUX_CLAUDE_WRAPPER_SHIM"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let shimPath = environment[shimEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !shimPath.isEmpty,
            candidatePath == URL(fileURLWithPath: shimPath, isDirectory: false).standardizedFileURL.path {
             return true
         }
 
         let shimRoots: [String?] = [
-            environment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"],
+            environment[shimRootEnvironmentKey],
             URL(fileURLWithPath: environment["TMPDIR"] ?? NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("cmux-cli-shims", isDirectory: true)
                 .standardizedFileURL

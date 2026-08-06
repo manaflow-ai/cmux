@@ -62,17 +62,27 @@ public struct OpenCodeSessionResolver: Sendable {
             }
         }
         if let configuredPath = normalized(env["OPENCODE_DB"]) {
-            return configuredPath == ":memory:" ? nil : databasePath(env: env)
+            guard configuredPath != ":memory:" else { return nil }
+            if isAbsoluteFilePath(configuredPath) {
+                return configuredPath
+            }
+            guard hasStableCapturedDataRoot(env: env) else { return nil }
+            return databasePath(env: env)
         }
-        let hasCapturedAbsoluteHome = normalized(env["HOME"])
-            .map(isAbsoluteFilePath) == true
-        let hasCapturedAbsoluteDataHome = normalized(env["XDG_DATA_HOME"])
-            .flatMap { absolutePath($0, home: absoluteHomeDirectory(env: env)) }
-            != nil
-        guard hasCapturedAbsoluteDataHome || hasCapturedAbsoluteHome else {
-            return nil
-        }
+        guard hasStableCapturedDataRoot(env: env) else { return nil }
         return databasePath(env: env)
+    }
+
+    private func hasStableCapturedDataRoot(env: [String: String]) -> Bool {
+        let hasAbsoluteHome = normalized(env["HOME"])
+            .map(isAbsoluteFilePath) == true
+        guard let xdgDataHome = normalized(env["XDG_DATA_HOME"]) else {
+            return hasAbsoluteHome
+        }
+        if xdgDataHome == "~" || xdgDataHome.hasPrefix("~/") {
+            return hasAbsoluteHome
+        }
+        return isAbsoluteFilePath(xdgDataHome)
     }
 
     private func absoluteHomeDirectory(env: [String: String]) -> String {
