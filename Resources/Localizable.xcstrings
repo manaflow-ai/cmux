@@ -40263,16 +40263,124 @@
     "cli.hooks.error.pinnedTargetMissing": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لـ cmux تثبيت hooks الخاصة بـ %@ من دون مقبس هدف. شغّل هذا الأمر داخل cmux، أو عيّن CMUX_SOCKET_PATH أو CMUX_TAG ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne može instalirati hookove za %@ bez ciljnog socketa. Pokrenite ovu naredbu unutar cmux-a ili postavite CMUX_SOCKET_PATH ili CMUX_TAG pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke installere hooks til %@ uden en destinationssocket. Kør denne kommando i cmux, eller angiv CMUX_SOCKET_PATH eller CMUX_TAG, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann die Hooks für %@ ohne Ziel-Socket nicht installieren. Führe diesen Befehl in cmux aus oder setze CMUX_SOCKET_PATH bzw. CMUX_TAG und versuche es erneut."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux cannot install %@ hooks without a target socket. Run this command inside cmux, or set CMUX_SOCKET_PATH or CMUX_TAG and try again."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede instalar los hooks de %@ sin un socket de destino. Ejecuta este comando dentro de cmux, o configura CMUX_SOCKET_PATH o CMUX_TAG e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas installer les hooks de %@ sans socket cible. Exécutez cette commande dans cmux, ou définissez CMUX_SOCKET_PATH ou CMUX_TAG, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non può installare gli hook di %@ senza un socket di destinazione. Esegui questo comando in cmux oppure imposta CMUX_SOCKET_PATH o CMUX_TAG e riprova."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "対象のソケットがないため、cmux は %@ の hooks をインストールできません。cmux 内でこのコマンドを実行するか、CMUX_SOCKET_PATH または CMUX_TAG を設定してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចដំឡើង hooks របស់ %@ ដោយគ្មាន socket គោលដៅបានទេ។ ដំណើរការពាក្យបញ្ជានេះនៅក្នុង cmux ឬកំណត់ CMUX_SOCKET_PATH ឬ CMUX_TAG រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 소켓 없이는 cmux가 %@ 훅을 설치할 수 없습니다. cmux 내에서 이 명령을 실행하거나 CMUX_SOCKET_PATH 또는 CMUX_TAG를 설정한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke installere hooks for %@ uten en målsocket. Kjør denne kommandoen i cmux, eller angi CMUX_SOCKET_PATH eller CMUX_TAG og prøv på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie może zainstalować hooków dla %@ bez gniazda docelowego. Uruchom to polecenie w cmux albo ustaw CMUX_SOCKET_PATH lub CMUX_TAG i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não pode instalar os hooks de %@ sem um socket de destino. Execute este comando dentro do cmux ou defina CMUX_SOCKET_PATH ou CMUX_TAG e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не может установить хуки для %@ без целевого сокета. Выполните эту команду внутри cmux или задайте CMUX_SOCKET_PATH либо CMUX_TAG и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถติดตั้ง hooks ของ %@ ได้หากไม่มีซ็อกเก็ตเป้าหมาย โปรดเรียกใช้คำสั่งนี้ภายใน cmux หรือตั้งค่า CMUX_SOCKET_PATH หรือ CMUX_TAG แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, hedef soket olmadan %@ hook'larını yükleyemez. Bu komutu cmux içinde çalıştırın veya CMUX_SOCKET_PATH ya da CMUX_TAG değerini ayarlayıp yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не може встановити хуки для %@ без цільового сокета. Виконайте цю команду в cmux або задайте CMUX_SOCKET_PATH чи CMUX_TAG і повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有目标套接字，cmux 无法安装 %@ hooks。请在 cmux 内运行此命令，或设置 CMUX_SOCKET_PATH 或 CMUX_TAG 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有目標通訊端，cmux 無法安裝 %@ hooks。請在 cmux 內執行此命令，或設定 CMUX_SOCKET_PATH 或 CMUX_TAG 後再試一次。"
           }
         }
       }

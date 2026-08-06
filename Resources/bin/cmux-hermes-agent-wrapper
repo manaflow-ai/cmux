@@ -86,6 +86,43 @@ resolve_cmux_cli() {
     return 1
 }
 
+# Run hook setup behind a hard process deadline. Hermes startup must not wait on
+# a wedged CLI or filesystem operation. macOS ships /usr/bin/perl; if it is ever
+# unavailable, skip best-effort setup instead of risking an unbounded launch.
+run_hermes_hook_installer() {
+    local timeout_seconds="${CMUX_HERMES_AGENT_HOOK_INSTALL_TIMEOUT_SECONDS:-2}"
+    if [[ ! "$timeout_seconds" =~ ^[0-9]+([.][0-9]+)?$ || ! -x /usr/bin/perl ]]; then
+        return 0
+    fi
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC="$timeout_seconds" \
+        /usr/bin/perl -MTime::HiRes=alarm -e '
+            use strict;
+            use warnings;
+
+            my $timeout = shift @ARGV;
+            my $pid = fork();
+            exit 125 unless defined $pid;
+            if ($pid == 0) {
+                exec { $ARGV[0] } @ARGV;
+                exit 127;
+            }
+
+            local $SIG{ALRM} = sub {
+                kill "TERM", $pid;
+                kill "KILL", $pid;
+            };
+            alarm($timeout);
+            my $waited;
+            do {
+                $waited = waitpid($pid, 0);
+            } while ($waited == -1 && $!{EINTR});
+            alarm(0);
+            exit 125 if $waited == -1;
+            exit(($? & 127) ? 128 + ($? & 127) : $? >> 8);
+        ' "$timeout_seconds" "$@"
+}
+
 hermes_known_subcommand() {
     case "$1" in
         chat|model|moa|fallback|secrets|migrate|gateway|proxy|lsp|setup|postinstall|\
@@ -194,10 +231,10 @@ fi
 # and ignore every failure so this integration can never break Hermes startup.
 if CMUX_HERMES_INSTALL_CLI="$(resolve_cmux_cli)"; then
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
-        "$CMUX_HERMES_INSTALL_CLI" --socket "$CMUX_SOCKET_PATH" \
+        run_hermes_hook_installer "$CMUX_HERMES_INSTALL_CLI" --socket "$CMUX_SOCKET_PATH" \
             hooks hermes-agent install --yes </dev/null >/dev/null 2>&1 || true
     else
-        "$CMUX_HERMES_INSTALL_CLI" \
+        run_hermes_hook_installer "$CMUX_HERMES_INSTALL_CLI" \
             hooks hermes-agent install --yes </dev/null >/dev/null 2>&1 || true
     fi
 fi

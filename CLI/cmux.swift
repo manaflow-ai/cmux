@@ -35654,6 +35654,15 @@ export default CMUXSessionRestore;
                 skippedNoBinary.append(def.name)
                 continue
             }
+            if !isUninstall {
+                do {
+                    try Self.validateHookInstallDispatch(for: def)
+                } catch let error as CLIError {
+                    print("  \(def.name): \(error)")
+                    skipped += 1
+                    continue
+                }
+            }
             print("  \(def.name):")
             if isUninstall {
                 try uninstallHooksForAgent(def, arguments: [])

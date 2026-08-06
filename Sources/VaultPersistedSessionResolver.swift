@@ -26,7 +26,6 @@ struct VaultPersistedSessionResolver {
         guard let cwd,
               case .persistedStore(let store) = registration.sessionIdSource,
               registration.persistedSessionStoreCapability == store,
-              store.explicitSessionID(arguments: observed.arguments) == nil,
               let key = lookupKey(store: store, environment: observed.environment, cwd: cwd) else {
             return
         }
