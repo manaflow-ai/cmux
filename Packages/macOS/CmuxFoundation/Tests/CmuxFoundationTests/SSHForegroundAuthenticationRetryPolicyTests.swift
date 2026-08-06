@@ -476,6 +476,51 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(!processState.contains("T"), "Deadline fallback left a stopped process: \(processState)")
     }
 
+    @Test func ordersDuplicateFrozenProcessRecordsWithoutCycling() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-duplicate-frozen-\(UUID().uuidString)", isDirectory: true)
+        let input = root.appendingPathComponent("frozen")
+        let output = root.appendingPathComponent("ordered")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        900001 1 900001 Thu_Aug_6_08:00:00_2026 S
+        900001 1 900001 Thu_Aug_6_08:00:00_2026 S
+        900002 900001 900001 Thu_Aug_6_08:00:01_2026 S
+        900002 900001 900001 Thu_Aug_6_08:00:01_2026 S
+        """.write(to: input, atomically: true, encoding: .utf8)
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let command = """
+        ulimit -t 1
+        \(policy.processTreeTerminationShellFunction())
+        cmux_ssh_auth_order_children_first "$CMUX_TEST_FROZEN" "$CMUX_TEST_ORDERED"
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_FROZEN": input.path,
+            "CMUX_TEST_ORDERED": output.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture, timeout: 3)
+
+        let orderedPIDs = try String(contentsOf: output, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { $0.split(separator: " ").dropFirst().first }
+        #expect(process.terminationStatus == 0)
+        #expect(orderedPIDs == ["900002", "900001"])
+    }
+
     @Test func doesNotRunSharedGroupTermHandlerDuringCleanup() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
