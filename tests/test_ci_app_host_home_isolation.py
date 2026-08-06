@@ -63,7 +63,7 @@ def require_no_test_runner_scheme_overrides(scheme: str) -> None:
         )
 
 
-def require_step(job_name: str, step_name: str) -> dict:
+def require_job(job_name: str) -> dict:
     if not isinstance(WORKFLOW, dict):
         raise SystemExit("FAIL: workflow must be a mapping")
 
@@ -74,6 +74,11 @@ def require_step(job_name: str, step_name: str) -> dict:
     job = jobs.get(job_name)
     if not isinstance(job, dict):
         raise SystemExit(f"FAIL: workflow job {job_name!r} is missing")
+    return job
+
+
+def require_step(job_name: str, step_name: str) -> dict:
+    job = require_job(job_name)
 
     steps = job.get("steps")
     if not isinstance(steps, list):
@@ -139,6 +144,27 @@ def main() -> int:
     for context, needle in requirements.items():
         require(setup_run, needle, context)
 
+    app_host_job = require_job("app-host-unit-tests")
+    app_host_job_environment = app_host_job.get("env")
+    if not isinstance(app_host_job_environment, dict) or (
+        app_host_job_environment.get("CMUX_CI_APP_HOST_ISOLATION_REQUIRED") != "1"
+    ):
+        raise SystemExit(
+            "FAIL: app-host job must independently require user configuration "
+            "isolation"
+        )
+
+    cleanup_step = require_step(
+        "app-host-unit-tests", "Clean up isolated app-host home"
+    )
+    if cleanup_step.get("if") != "${{ always() }}":
+        raise SystemExit("FAIL: app-host home cleanup must run after failures")
+    if cleanup_step.get("run") != (
+        "scripts/ci/run-in-console-session.sh "
+        "scripts/ci/cleanup-app-host-home.sh"
+    ):
+        raise SystemExit("FAIL: app-host home cleanup must run as the console user")
+
     # RemoteTmuxHost appends a fixed 55-byte suffix to HOME before OpenSSH
     # binds its transient control socket. Keep deterministic headroom on the
     # self-hosted runner instead of relying on today's decimal run-id length.
@@ -162,7 +188,8 @@ def main() -> int:
 
     require(
         CONSOLE_WRAPPER,
-        "CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME",
+        "CMUX_CI_APP_HOST_ISOLATION_REQUIRED CFFIXED_USER_HOME "
+        "XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME",
         "console-session environment forwarding",
     )
     require(
@@ -201,6 +228,16 @@ def main() -> int:
         "app-host wrapper isolation path validation",
     )
     require(
+        APP_HOST_WRAPPER,
+        'if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]',
+        "mandatory app-host isolation check",
+    )
+    require(
+        APP_HOST_WRAPPER,
+        "FAIL: required app-host isolation environment is incomplete",
+        "missing app-host isolation failure",
+    )
+    require(
         APP_HOST_ISOLATION,
         'expected_xdg_config_home="${resolved_home%/}/.config"',
         "canonical XDG isolation boundary",
@@ -230,6 +267,21 @@ def main() -> int:
         ),
     }.items():
         require(APP_HOST_WRAPPER, needle, context)
+
+    cleanup_path = ROOT / "scripts/ci/cleanup-app-host-home.sh"
+    if not cleanup_path.is_file():
+        raise SystemExit("FAIL: isolated app-host cleanup script is missing")
+    cleanup_script = cleanup_path.read_text(encoding="utf-8")
+    for context, needle in {
+        "cleanup isolation requirement": "CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
+        "cleanup canonical path validation": (
+            'source "$ci_script_dir/app-host-isolation.sh"'
+        ),
+        "cleanup runner boundary": '"$runner_temp"/*',
+        "cleanup scoped process termination": "CMUX_DERIVED_DATA_PATH",
+        "cleanup exact target removal": 'rm -rf -- "$app_host_home"',
+    }.items():
+        require(cleanup_script, needle, context)
 
     print("PASS: app-host XCTest receives an isolated launch home")
     return 0

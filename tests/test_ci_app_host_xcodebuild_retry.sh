@@ -78,6 +78,34 @@ if [ "$non_isolated_status" -ne 0 ] \
 fi
 
 set +e
+/usr/bin/env -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$TMP_DIR" \
+  CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/missing-isolation-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/missing-isolation-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/missing-isolation-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/missing-isolation-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=success \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/missing-isolation-output.log" 2>&1
+missing_isolation_status=$?
+set -e
+
+if [ "$missing_isolation_status" -ne 1 ] \
+  || ! grep -Fq \
+    "FAIL: required app-host isolation environment is incomplete" \
+    "$TMP_DIR/missing-isolation-output.log" \
+  || [ -s "$TMP_DIR/missing-isolation-xcodebuild-args.log" ]; then
+  cat "$TMP_DIR/missing-isolation-output.log"
+  echo "FAIL: mandatory isolation must reject missing redirects before xcodebuild"
+  exit 1
+fi
+
+set +e
 PATH="$TMP_DIR:$PATH" \
 RUNNER_TEMP="$TMP_DIR" \
 CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/xcodebuild-args.log" \
