@@ -29,6 +29,10 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
   echo "cmux DEV [config] config: path=$config_home/$config_suffix"
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
+  if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ]; then
+    echo 'cmux DEV message = "socket.listener.start"'
+    exit 0
+  fi
   sleep 10
   exit 0
 fi
@@ -38,12 +42,39 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/xcodebuild"
+BASH32_BIN_DIR="$TMP_DIR/bash32-bin"
+mkdir -p "$BASH32_BIN_DIR"
+ln -s /bin/bash "$BASH32_BIN_DIR/bash"
 
 APP_HOST_HOME="$TMP_DIR/app-host-home"
 APP_HOST_XDG_CONFIG_HOME="$APP_HOST_HOME/.config"
 mkdir -p "$APP_HOST_XDG_CONFIG_HOME"
 RESOLVED_APP_HOST_HOME="$(cd "$APP_HOST_HOME" && pwd -P)"
 RESOLVED_APP_HOST_XDG_CONFIG_HOME="$(cd "$APP_HOST_XDG_CONFIG_HOME" && pwd -P)"
+
+set +e
+/usr/bin/env -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$TMP_DIR" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/non-isolated-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/non-isolated-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/non-isolated-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/non-isolated-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=success \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/non-isolated-output.log" 2>&1
+non_isolated_status=$?
+set -e
+
+if [ "$non_isolated_status" -ne 0 ] \
+  || [ "$(grep -cx 'test' "$TMP_DIR/non-isolated-xcodebuild-args.log" 2>/dev/null || true)" -ne 1 ]; then
+  cat "$TMP_DIR/non-isolated-output.log"
+  echo "FAIL: macOS Bash 3.2 must launch xcodebuild when isolation is disabled"
+  exit 1
+fi
 
 set +e
 PATH="$TMP_DIR:$PATH" \
