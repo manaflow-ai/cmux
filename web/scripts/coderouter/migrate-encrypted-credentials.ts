@@ -33,9 +33,12 @@ for (const teamId of teams) {
       verified += 1;
     }
     const source = await readTeamVault(teamId);
-    if (Object.keys(source.accounts).length !== encrypted.length) {
+    const encryptedIds = new Set(encrypted.map((value) => value.accountId));
+    const missing = Object.keys(source.accounts)
+      .filter((accountId) => !encryptedIds.has(accountId));
+    if (missing.length > 0) {
       throw new Error(
-        `refusing to delete source for team ${teamId}: account counts differ`,
+        `refusing to delete source for team ${teamId}: ${missing.length} source accounts are not encrypted`,
       );
     }
     await clearTeamVault(teamId);
