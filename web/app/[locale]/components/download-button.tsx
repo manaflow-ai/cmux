@@ -41,6 +41,7 @@ export function DownloadButton({
   const t = useTranslations("common");
   const tp = useTranslations("platforms");
   const tb = useTranslations("browserDownloads");
+  const tf = useTranslations("footer");
   const tw = useTranslations("waitlist");
   const pathname = usePathname();
   const isSmall = size === "sm";
@@ -224,7 +225,9 @@ export function DownloadButton({
                   className={menuItemClass}
                 >
                   <BrowserIcon />
-                  <span className="flex-1 text-left">{tb("eyebrow")}</span>
+                  <span className="flex-1 text-left">
+                    {tb("eyebrow")} {tf("nightly")}
+                  </span>
                 </Menu.Item>
                 {DOWNLOAD_PLATFORMS.map((platform) => (
                   <Menu.Item

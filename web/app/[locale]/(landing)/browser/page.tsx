@@ -24,9 +24,12 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "browserDownloads" });
+  const [t, footer] = await Promise.all([
+    getTranslations({ locale, namespace: "browserDownloads" }),
+    getTranslations({ locale, namespace: "footer" }),
+  ]);
   const alternates = buildAlternates(locale, "/browser");
-  const title = `${t("eyebrow")} — ${t("releaseTitle")}`;
+  const title = `${t("eyebrow")} ${footer("nightly")}`;
   const description = t("tagline");
 
   return {
@@ -44,12 +47,14 @@ export async function generateMetadata({
 }
 
 export default async function BrowserPage() {
-  const [t, common, platforms, unavailable] = await Promise.all([
+  const [t, common, platforms, unavailable, footer] = await Promise.all([
     getTranslations("browserDownloads"),
     getTranslations("common"),
     getTranslations("platforms"),
     getTranslations("vault.detail"),
+    getTranslations("footer"),
   ]);
+  const title = `${t("eyebrow")} ${footer("nightly")}`;
   const cards = [
     {
       platform: "macos" as const,
@@ -96,7 +101,7 @@ export default async function BrowserPage() {
               {t("releaseTitle")}
             </p>
             <h1 className="text-2xl font-semibold tracking-tight">
-              {t("eyebrow")}
+              {title}
             </h1>
           </div>
         </div>
