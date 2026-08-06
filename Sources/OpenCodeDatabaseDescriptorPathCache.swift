@@ -83,13 +83,19 @@ actor OpenCodeDatabaseDescriptorPathCache {
         )
         pendingProbes[key] = pendingProbe
         let path = await pendingProbe.task.value
-        if pendingProbes[key]?.id == pendingProbe.id {
+        let ownsCompletedProbe = pendingProbes[key]?.id == pendingProbe.id
+        if ownsCompletedProbe {
             pendingProbes.removeValue(forKey: key)
         }
         guard let path,
               AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
             return nil
         }
+
+        // A freshness-critical request may have retired this probe while it
+        // was running. Its original caller can consume the result, but it must
+        // not overwrite the newer probe's cache entry after actor reentrancy.
+        guard ownsCompletedProbe else { return path }
 
         sequence &+= 1
         entries[key] = (
