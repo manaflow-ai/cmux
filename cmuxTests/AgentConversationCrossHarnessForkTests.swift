@@ -16,6 +16,21 @@ import Testing
 @Suite(.serialized)
 struct AgentConversationCrossHarnessForkTests {
     @Test
+    func advertisedTargetsCoverEveryInteractiveCodingHarness() {
+        let targets = Set(
+            AgentConversationForkTargetHarness.allCases
+                .filter { $0 != .current }
+                .map(\.rawValue)
+        )
+        let modelRuntimesRequiringLaunchArguments = Set(["ollama"])
+        let expected = Set(
+            CmuxTaskManagerCodingAgentDefinition.builtIns.map(\.id)
+        ).subtracting(modelRuntimesRequiringLaunchArguments)
+
+        #expect(targets == expected)
+    }
+
+    @Test
     func everyAdvertisedHarnessBuildsAnInteractiveTransferCommand() throws {
         let message = "User: don't drop this\nAI: preserved"
         let commands = Dictionary(uniqueKeysWithValues: try AgentConversationForkTargetHarness.allCases
