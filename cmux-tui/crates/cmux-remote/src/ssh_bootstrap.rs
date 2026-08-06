@@ -16,6 +16,9 @@ const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
 // their exact response so the first resident-owner upgrade can proceed.
 const LEGACY_WINDOWS_REMOTE_STOP_UNSUPPORTED: &str =
     "cmux-tui: remote-stop is not implemented on Windows yet";
+// Older helpers expose this Winsock result only through their bounded stderr.
+// The recovery predicate also requires the named local mux socket.
+const WINDOWS_STALE_MUX_SOCKET_OS_ERROR: &str = "(os error 10050)";
 pub const WINDOWS_REMOTE_BINARY: &str = r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe";
 pub const WINDOWS_COMPANION_FILENAME: &str = "cmux-tui-x86_64-pc-windows-gnu.exe";
 
@@ -538,10 +541,7 @@ impl SshBootstrapper {
             }
         };
         let stderr = sanitize(&String::from_utf8_lossy(&output.stderr));
-        if output.status != 0
-            && !(target.shell == SshRemoteShell::WindowsCmd
-                && stderr == LEGACY_WINDOWS_REMOTE_STOP_UNSUPPORTED)
-        {
+        if output.status != 0 && !legacy_windows_stop_is_absent(target, &stderr) {
             return Err(BootstrapError::Remote { status: output.status, stderr });
         }
         Ok(())
@@ -680,6 +680,12 @@ impl SshBootstrapper {
         };
         Ok(RemoteOutput { status: status.code().unwrap_or(255), stdout, stderr })
     }
+}
+
+fn legacy_windows_stop_is_absent(target: &SshRemoteTarget, stderr: &str) -> bool {
+    target.shell == SshRemoteShell::WindowsCmd
+        && (stderr == LEGACY_WINDOWS_REMOTE_STOP_UNSUPPORTED
+            || (stderr.contains("mux.sock") && stderr.contains(WINDOWS_STALE_MUX_SOCKET_OS_ERROR)))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1106,6 +1112,19 @@ mod tests {
             .stop_daemon_target(&target, "main", Some(r"%LOCALAPPDATA%\cmux\state"))
             .await
             .unwrap();
+    }
+
+    #[test]
+    fn windows_upgrade_does_not_hide_unrelated_network_errors() {
+        let target = SshRemoteTarget {
+            binary: WINDOWS_REMOTE_BINARY.into(),
+            shell: SshRemoteShell::WindowsCmd,
+        };
+
+        assert!(!legacy_windows_stop_is_absent(
+            &target,
+            "SSH transport failed before remote-stop (os error 10050)",
+        ));
     }
 
     #[cfg(unix)]

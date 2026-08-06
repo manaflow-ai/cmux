@@ -31,6 +31,8 @@ const OWNER_START_TIMEOUT: Duration = Duration::from_secs(10);
 const OWNER_START_LOCK_TIMEOUT: Duration = Duration::from_secs(15);
 const OWNER_LOG_TAIL_BYTES: u64 = 8 * 1024;
 const OWNER_READY: &str = "cmux-tui-windows-owner-ready-v1";
+// WSAENETDOWN is how Windows reports connect() against an orphaned AF_UNIX path.
+const WINDOWS_STALE_AF_UNIX_SOCKET_ERROR: i32 = 10_050;
 const REMOTE_COMMANDS: &[&str] = &[
     "connect",
     "ssh",
@@ -446,14 +448,7 @@ fn parse_session_options(args: &[String], command: &str) -> anyhow::Result<Remot
 fn identify_mux_owner(socket: &Path, session: &str) -> anyhow::Result<Option<MuxIdentity>> {
     let stream = match cmux_tui_core::platform::transport::connect(socket) {
         Ok(stream) => stream,
-        Err(error)
-            if matches!(
-                error.kind(),
-                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-            ) =>
-        {
-            return Ok(None);
-        }
+        Err(error) if mux_socket_is_absent(&error) => return Ok(None),
         Err(error) => {
             return Err(error).with_context(|| format!("could not inspect {}", socket.display()));
         }
@@ -470,6 +465,11 @@ fn identify_mux_owner(socket: &Path, session: &str) -> anyhow::Result<Option<Mux
         .context("mux owner identity omitted its generation")?
         .to_owned();
     Ok(Some(MuxIdentity { pid, generation }))
+}
+
+fn mux_socket_is_absent(error: &io::Error) -> bool {
+    matches!(error.kind(), io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused)
+        || error.raw_os_error() == Some(WINDOWS_STALE_AF_UNIX_SOCKET_ERROR)
 }
 
 fn control_request(
