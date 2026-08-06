@@ -3,10 +3,11 @@ import AppKit
 @MainActor
 final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     typealias Completion = (NSApplication.ModalResponse, NSControl.StateValue) -> Void
+    typealias OrderOutWindow = @MainActor (NSWindow) -> Void
 
     private let alert: NSAlert
     private let presentingWindowProvider: () -> NSWindow?
-    private let orderOutWindow: (NSWindow) -> Void
+    private let orderOutWindow: OrderOutWindow
     private let completion: Completion
     private var didFinish = false
     private var presentedAsStandalone = false
@@ -15,7 +16,7 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     init(
         alert: NSAlert? = nil,
         presentingWindowProvider: (() -> NSWindow?)? = nil,
-        orderOutWindow: @escaping (NSWindow) -> Void = { $0.orderOut(nil) },
+        orderOutWindow: @escaping OrderOutWindow = { $0.orderOut(nil) },
         completion: @escaping Completion
     ) {
         self.alert = alert ?? Self.makeAlert()

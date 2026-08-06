@@ -4,7 +4,7 @@ import Foundation
 
 @MainActor
 enum KeyboardLayout {
-    static let didChangeNotification = Notification.Name("KeyboardLayoutDidChange")
+    nonisolated static let didChangeNotification = Notification.Name("KeyboardLayoutDidChange")
 
     /// Test-only override for the current input source ID.
     #if DEBUG
@@ -17,7 +17,7 @@ enum KeyboardLayout {
     )
     @MainActor private static let snapshotCache = KeyboardLayoutSnapshotCache(
         initialSnapshot: .usBootstrap,
-        loader: systemLoader.loadCurrentSnapshot
+        loader: { systemLoader.loadCurrentSnapshot() }
     ) { _ in
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
