@@ -242,6 +242,7 @@ final class SidebarRowTextView: NSTextField {
     var onOpenLink: ((URL) -> Void)?
     private var pendingLinkURL: URL?
     private var cachedLinkHitLayout: LinkHitLayout?
+    private var accessibilityLinks: [SidebarRowTextAccessibilityLink] = []
 
     override var isFlipped: Bool { true }
 
@@ -279,12 +280,27 @@ final class SidebarRowTextView: NSTextField {
         color: NSColor,
         linkColor: NSColor
     ) {
+        accessibilityLinks.removeAll(keepingCapacity: true)
         let mutable = NSMutableAttributedString(attributedString: NSAttributedString(source))
         let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.addAttribute(.font, value: font, range: fullRange)
         mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
         applyRowOwnedLinkStyling(to: mutable, linkColor: linkColor)
         attributedStringValue = mutable
+    }
+
+    /// Configures non-Markdown fallback text and removes stale link semantics
+    /// left by a previous pooled-row configuration.
+    func configurePlainText(_ text: String, font: NSFont, color: NSColor) {
+        accessibilityLinks.removeAll(keepingCapacity: true)
+        stringValue = text
+        self.font = font
+        textColor = color
+    }
+
+    override func layout() {
+        super.layout()
+        updateAccessibilityLinkFrames()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -312,7 +328,15 @@ final class SidebarRowTextView: NSTextField {
         guard let pending = pendingLinkURL else { return }
         pendingLinkURL = nil
         guard linkURL(at: point) == pending else { return }
-        onOpenLink?(pending)
+        openLink(pending)
+    }
+
+    /// Shared activation path for pointer and accessibility link actions.
+    @discardableResult
+    func openLink(_ url: URL) -> Bool {
+        guard let onOpenLink else { return false }
+        onOpenLink(url)
+        return true
     }
 
     func measuredHeight(width: CGFloat) -> CGFloat {
@@ -383,16 +407,48 @@ final class SidebarRowTextView: NSTextField {
                 mutable.removeAttribute(.underlineStyle, range: run.range)
                 continue
             }
+            let accessibilityLink = SidebarRowTextAccessibilityLink(
+                owner: self,
+                characterRange: run.range,
+                label: mutable.attributedSubstring(from: run.range).string,
+                url: url
+            )
+            accessibilityLinks.append(accessibilityLink)
             mutable.addAttributes(
                 [
                     .sidebarRowLink: url,
-                    .accessibilityLink: url,
+                    .accessibilityLink: accessibilityLink,
                     .foregroundColor: linkColor,
                     .underlineStyle: NSUnderlineStyle.single.rawValue,
                     .underlineColor: linkColor,
                 ],
                 range: run.range
             )
+        }
+    }
+
+    private func updateAccessibilityLinkFrames() {
+        guard !accessibilityLinks.isEmpty else { return }
+        let textRect = cell?.titleRect(forBounds: bounds) ?? bounds
+        guard textRect.width > 0, textRect.height > 0 else { return }
+        let layout = linkHitLayout(textRectSize: textRect.size)
+        let layoutManager = layout.layoutManager
+        let textContainer = layout.textContainer
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let fullRange = NSRange(location: 0, length: attributedStringValue.length)
+
+        for accessibilityLink in accessibilityLinks {
+            let characterRange = NSIntersectionRange(accessibilityLink.characterRange, fullRange)
+            guard characterRange.length > 0 else { continue }
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: characterRange,
+                actualCharacterRange: nil
+            )
+            var frame = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            frame.origin.x += textRect.minX + usedRect.minX
+            frame.origin.y += textRect.minY + usedRect.minY
+            accessibilityLink.setAccessibilityFrameInParentSpace(frame)
         }
     }
 

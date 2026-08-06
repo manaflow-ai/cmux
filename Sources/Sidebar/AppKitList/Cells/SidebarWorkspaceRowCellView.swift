@@ -485,9 +485,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     linkColor: palette.linkText
                 )
             } else {
-                descriptionView.stringValue = display
-                descriptionView.font = .systemFont(ofSize: model.scaled(10.5))
-                descriptionView.textColor = model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                descriptionView.configurePlainText(
+                    display,
+                    font: .systemFont(ofSize: model.scaled(10.5)),
+                    color: model.isActive
+                        ? palette.secondary(0.84)
+                        : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                )
             }
         }
 
@@ -761,6 +765,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         Self.pool(&markdownBlocks, count: blocks.count, parent: contentContainer) { SidebarRowTextView(lines: 12) }
         for (index, block) in blocks.enumerated() {
             let view = markdownBlocks[index]
+            view.onOpenLink = { [weak self] url in
+                guard let self else { return }
+                self.actions?.commands.updateSelection()
+                self.actions?.onOpenStatusURL(url)
+            }
             let display = block.markdown.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
             if let rendered = SidebarMetadataMarkdownRenderer.rendered(display) {
                 view.configureAttributedText(
@@ -770,9 +779,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     linkColor: palette.linkText
                 )
             } else {
-                view.stringValue = display
-                view.font = .systemFont(ofSize: model.scaled(10))
-                view.textColor = model.isActive ? palette.secondary(0.8) : .secondaryLabelColor
+                view.configurePlainText(
+                    display,
+                    font: .systemFont(ofSize: model.scaled(10)),
+                    color: model.isActive ? palette.secondary(0.8) : .secondaryLabelColor
+                )
             }
         }
     }

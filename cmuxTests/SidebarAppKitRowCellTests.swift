@@ -579,7 +579,13 @@ struct SidebarAppKitRowCellTests {
                 for: NSRange(location: 0, length: textView.attributedStringValue.length)
             )
         )
-        #expect(Self.linkURL(from: accessibilityValue.attribute(.accessibilityLink, at: 0, effectiveRange: nil)) == url)
+        let accessibilityLink = try #require(
+            accessibilityValue.attribute(.accessibilityLink, at: 0, effectiveRange: nil)
+                as? SidebarRowTextAccessibilityLink
+        )
+        #expect(accessibilityLink.accessibilityRole() == .link)
+        #expect(accessibilityLink.accessibilityURL() == url)
+        #expect(!accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
 
         let raster = try Self.raster(of: textView, background: selectionBackground)
         let systemLink = try #require(
@@ -628,7 +634,8 @@ struct SidebarAppKitRowCellTests {
             isActive: isActive,
             metadataBlocks: [Self.metadataBlock("Docs [cmux](\(url.absoluteString))")]
         )
-        let cell = Self.configuredCell(model: model)
+        var openedURL: URL?
+        let cell = Self.configuredCell(model: model, onOpenStatusURL: { openedURL = $0 })
         Self.layoutCell(cell, model: model)
         let textView = try #require(Self.descriptionTextView(in: cell, showing: "Docs cmux"))
         let attributed = textView.attributedStringValue
@@ -641,11 +648,15 @@ struct SidebarAppKitRowCellTests {
                 for: NSRange(location: 0, length: attributed.length)
             )
         )
-        #expect(
-            Self.linkURL(
-                from: accessibilityValue.attribute(.accessibilityLink, at: linkLocation, effectiveRange: nil)
-            ) == url
+        let accessibilityLink = try #require(
+            accessibilityValue.attribute(.accessibilityLink, at: linkLocation, effectiveRange: nil)
+                as? SidebarRowTextAccessibilityLink
         )
+        #expect(accessibilityLink.accessibilityRole() == .link)
+        #expect(accessibilityLink.accessibilityURL() == url)
+        #expect(!accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(accessibilityLink.accessibilityPerformPress())
+        #expect(openedURL == url)
         #expect(
             attributed.attribute(.underlineStyle, at: linkLocation, effectiveRange: nil) as? Int
                 == NSUnderlineStyle.single.rawValue
