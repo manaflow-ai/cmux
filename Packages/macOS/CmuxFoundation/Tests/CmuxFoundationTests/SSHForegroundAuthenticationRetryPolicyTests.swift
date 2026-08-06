@@ -240,7 +240,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-tree-\(UUID().uuidString)", isDirectory: true)
         let leafScript = root.appendingPathComponent("leaf.sh")
         let leafPIDFile = root.appendingPathComponent("leaf.pid")
-        let signalLog = root.appendingPathComponent("signal.log")
         let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try createSecureGroupDirectory(at: groupDirectory)
@@ -248,8 +247,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         try """
         #!/bin/sh
-        trap '' HUP INT
-        trap 'printf "%s\\n" term > "$CMUX_TEST_SIGNAL_LOG"' TERM
+        trap '' HUP INT TERM
         printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
         while :; do /bin/sleep 30; done
         """.write(to: leafScript, atomically: true, encoding: .utf8)
@@ -257,12 +255,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
-            in: "/bin/sh \"$CMUX_TEST_LEAF_SCRIPT\""
+            in: "/usr/bin/script -q /dev/null /bin/sh \"$CMUX_TEST_LEAF_SCRIPT\""
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
+        trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
         cmux_test_ready_attempt=0
         while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
           /bin/sleep 0.01
@@ -271,7 +270,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         test -s "$CMUX_TEST_LEAF_PID" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
-        test "$(/bin/cat "$CMUX_TEST_SIGNAL_LOG" 2>/dev/null || true)" = term
+        trap - EXIT
         """
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -279,7 +278,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
             "CMUX_TEST_LEAF_PID": leafPIDFile.path,
-            "CMUX_TEST_SIGNAL_LOG": signalLog.path,
             "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
@@ -302,7 +300,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
 
         #expect(process.terminationStatus == 0)
-        #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
         #expect(Darwin.kill(leafPID, 0) != 0)
     }
 
@@ -690,7 +687,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
     }
 
-    @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
+    @Test func doesNotRunAuthenticationTermHandlerDuringOwnedGroupCleanup() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-replacement-\(UUID().uuidString)", isDirectory: true)
@@ -713,7 +710,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
-            trap '/usr/bin/nohup /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM
+            trap '/usr/bin/nohup /usr/bin/script -q /dev/null /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
             """
@@ -722,6 +719,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(policy.processTreeTerminationShellFunction())
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
+        trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
           /bin/sleep 0.01
@@ -735,7 +733,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           /bin/sleep 0.01
           cmux_test_replacement_attempt=$((cmux_test_replacement_attempt + 1))
         done
-        test -s "$CMUX_TEST_REPLACEMENT_PID"
+        test ! -s "$CMUX_TEST_REPLACEMENT_PID"
+        trap - EXIT
         """
 
         let process = Process()
@@ -756,18 +755,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try process.run()
         try waitForExit(process, stderrCapture: stderrCapture)
 
-        let replacementPID = try #require(Int32(
-            String(contentsOf: replacementPIDFile, encoding: .utf8)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        ))
-        defer { Darwin.kill(replacementPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(replacementPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
+        let replacementPID = (try? String(contentsOf: replacementPIDFile, encoding: .utf8))
+            .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        if let replacementPID {
+            Darwin.kill(replacementPID, SIGKILL)
         }
 
         #expect(process.terminationStatus == 0)
-        #expect(Darwin.kill(replacementPID, 0) != 0)
+        #expect(replacementPID == nil)
     }
 
     @Test func restoresTerminalModesWhenTerminatingForegroundAuthenticationTree() throws {
@@ -775,7 +770,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-termios-\(UUID().uuidString)", isDirectory: true)
         let readyMarker = root.appendingPathComponent("ready")
-        let signalLog = root.appendingPathComponent("signal.log")
         let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try createSecureGroupDirectory(at: groupDirectory)
@@ -784,8 +778,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
-            trap '' HUP INT
-            trap 'printf "%s\\n" term > "$CMUX_TEST_SIGNAL_LOG"; exit 143' TERM
+            trap '' HUP INT TERM
+            /bin/stty -echo
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
             """
@@ -813,7 +807,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_READY_MARKER": readyMarker.path,
-            "CMUX_TEST_SIGNAL_LOG": signalLog.path,
             "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
@@ -826,7 +819,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try waitForExit(process, stderrCapture: stderrCapture)
 
         #expect(process.terminationStatus == 0)
-        #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
     }
 
     @Test func keepsDiagnosticStateBoundedWhileCommandIsRunning() throws {
