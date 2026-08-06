@@ -930,6 +930,8 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		if _, hasTabID := terminalFields["tab_id"]; !hasTabID {
 			return fmt.Errorf("omitted required field tab_id")
 		}
+		// strictDecode ran TabID.UnmarshalJSON for tab_id and every tab_ids
+		// element, so every non-null identity reaching this fallback is valid.
 		if _, hasTabIDs := terminalFields["tab_ids"]; !hasTabIDs {
 			if decoded.TabID == nil {
 				decoded.TabIDs = []TabID{}
