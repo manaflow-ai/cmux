@@ -530,6 +530,9 @@ extension CmxIrohHostRuntimeTests {
         #expect(await factory.observedConfigurations().count == 1)
         #expect(clock.observedSleepDeadlines() == [
             now.addingTimeInterval(600),
+            now.addingTimeInterval(
+                CmxIrohPathHint.maximumPrivateHintTTL - 15 * 60
+            ),
         ])
         await runtime.stop()
     }
