@@ -58,7 +58,7 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(interactiveCommands[.antigravity] == "exec agy")
         #expect(interactiveCommands[.rovodev] == "exec acli rovodev run")
         #expect(interactiveCommands[.hermesAgent] == "exec hermes chat --tui")
-        #expect(interactiveCommands[.copilot] == "exec copilot --interactive")
+        #expect(interactiveCommands[.copilot] == "exec copilot")
         #expect(interactiveCommands[.codebuddy] == "exec codebuddy")
         #expect(interactiveCommands[.factory] == "exec droid")
         #expect(interactiveCommands[.qoder] == "exec qodercli")
