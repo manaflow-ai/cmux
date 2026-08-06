@@ -1049,6 +1049,11 @@
           "default": true,
           "description": "Show the workspace working directory."
         },
+        "showLastInteractionInsteadOfPath": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replace the branch/directory line on workspace rows with a relative time since the last submitted prompt. Rows with no submitted prompt yet keep the branch/directory line."
+        },
         "showPullRequests": {
           "type": "boolean",
           "default": true,

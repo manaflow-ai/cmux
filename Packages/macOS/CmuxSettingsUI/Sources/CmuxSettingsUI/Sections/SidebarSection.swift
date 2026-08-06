@@ -19,6 +19,7 @@ public struct SidebarSection: View {
     @State var showNotification: DefaultsValueModel<Bool>
     @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
+    @State private var showLastInteraction: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
     @State private var prClickable: DefaultsValueModel<Bool>
@@ -48,6 +49,7 @@ public struct SidebarSection: View {
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
         _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
+        _showLastInteraction = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLastInteractionInsteadOfPath))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
         _prClickable = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable))
@@ -82,6 +84,7 @@ public struct SidebarSection: View {
             branchVerticalLayout,
             stackBranchDir,
             pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
+            showLastInteraction,
             showPR,
             watchGit,
             prClickable,
@@ -357,6 +360,18 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showLastInteractionInsteadOfPath"),
+                String(localized: "settings.app.showLastInteractionInsteadOfPath", defaultValue: "Show Last Interaction Instead of Path"),
+                subtitle: String(localized: "settings.app.showLastInteractionInsteadOfPath.subtitle", defaultValue: "Replace the branch/directory line with the time since the last submitted prompt.")
+            ) {
+                Toggle("", isOn: Binding(get: { showLastInteraction.current }, set: { showLastInteraction.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(hideAll.current || !showBranchDir.current)
             SettingsCardDivider()
 
             SettingsCardRow(

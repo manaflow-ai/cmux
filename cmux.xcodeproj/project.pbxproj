@@ -1881,6 +1881,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		AABBCC000000000000000202 /* SidebarInlineRenameKeyResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000201 /* SidebarInlineRenameKeyResolver.swift */; };
 		AABBCC000000000000000206 /* SidebarInlineRenameKeyResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000205 /* SidebarInlineRenameKeyResolverTests.swift */; };
 		AABBCC000000000000000212 /* SidebarInlineRenameTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000211 /* SidebarInlineRenameTextField.swift */; };
+		1A57C0010000000000000001 /* SidebarLastInteractionTimeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A57C0020000000000000002 /* SidebarLastInteractionTimeFormatter.swift */; };
+		1A57C0030000000000000003 /* SidebarLastInteractionTimestampTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A57C0040000000000000004 /* SidebarLastInteractionTimestampTests.swift */; };
 		B804A0290000000000000029 /* SidebarLayoutModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0290000000000000029 /* SidebarLayoutModel.swift */; };
 		5732A0115732A0115732A011 /* SidebarLazyContractProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0115732B0115732B011 /* SidebarLazyContractProbe.swift */; };
 		5732A0125732A0125732A012 /* SidebarLazyContractProbeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0125732B0125732B012 /* SidebarLazyContractProbeKey.swift */; };
@@ -4481,6 +4483,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		AABBCC000000000000000201 /* SidebarInlineRenameKeyResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarInlineRenameKeyResolver.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000205 /* SidebarInlineRenameKeyResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarInlineRenameKeyResolverTests.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000211 /* SidebarInlineRenameTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarInlineRenameTextField.swift; sourceTree = "<group>"; };
+		1A57C0020000000000000002 /* SidebarLastInteractionTimeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarLastInteractionTimeFormatter.swift; sourceTree = "<group>"; };
+		1A57C0040000000000000004 /* SidebarLastInteractionTimestampTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarLastInteractionTimestampTests.swift; sourceTree = "<group>"; };
 		B804B0290000000000000029 /* SidebarLayoutModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarLayoutModel.swift; sourceTree = "<group>"; };
 		5732B0115732B0115732B011 /* SidebarLazyContractProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/SidebarLazyContractProbe.swift; sourceTree = "<group>"; };
 		5732B0125732B0125732B012 /* SidebarLazyContractProbeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/SidebarLazyContractProbeKey.swift"; sourceTree = "<group>"; };
@@ -5655,6 +5659,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */,
 					C0DE86060000000000000004 /* CommandPaletteRestoreFocusTarget.swift */,
 					F7216001000000000000002 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift */,
+					1A57C0020000000000000002 /* SidebarLastInteractionTimeFormatter.swift */,
 					8430B0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift */,
 					8430B0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift */,
 					8430B0020000000000000002 /* SidebarWorkspaceDetailSettings.swift */,
@@ -7825,6 +7830,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7AB34300000000000000006 /* SidebarWorkspaceDropPlannerTests.swift */,
 				B804D0010000000000000001 /* SidebarWorkspaceTableTests.swift */,
 				B804D0020000000000000002 /* SidebarSelectionCoalescerTests.swift */,
+				1A57C0040000000000000004 /* SidebarLastInteractionTimestampTests.swift */,
 				B804D0030000000000000003 /* SidebarAppKitRowCellTests.swift */,
 				B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */,
 				B8624D010000000000000001 /* SidebarHiddenPresentationTests.swift */,
@@ -9553,6 +9559,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				AABBCC000000000000000204 /* SidebarInlineRenameField.swift in Sources */,
 				AABBCC000000000000000202 /* SidebarInlineRenameKeyResolver.swift in Sources */,
 				AABBCC000000000000000212 /* SidebarInlineRenameTextField.swift in Sources */,
+				1A57C0010000000000000001 /* SidebarLastInteractionTimeFormatter.swift in Sources */,
 				B804A0290000000000000029 /* SidebarLayoutModel.swift in Sources */,
 				5732A0115732A0115732A011 /* SidebarLazyContractProbe.swift in Sources */,
 				5732A0125732A0125732A012 /* SidebarLazyContractProbeKey.swift in Sources */,
@@ -10821,6 +10828,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8624C010000000000000001 /* SidebarHiddenPresentationTests.swift in Sources */,
 				51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */,
 				AABBCC000000000000000206 /* SidebarInlineRenameKeyResolverTests.swift in Sources */,
+				1A57C0030000000000000003 /* SidebarLastInteractionTimestampTests.swift in Sources */,
 				D41A7C01D41A7C01D41A7C01 /* SidebarLazyLayoutScaleTests.swift in Sources */,
 				385C6BA7E78DB87460E5D930 /* SidebarMarkdownRendererTests.swift in Sources */,
 				CB23911D7E131E8FBC9B82B6 /* SidebarOrderingTests.swift in Sources */,

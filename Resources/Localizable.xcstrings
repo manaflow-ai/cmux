@@ -155195,6 +155195,40 @@
         }
       }
     },
+    "settings.app.showLastInteractionInsteadOfPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Last Interaction Instead of Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスの代わりに最終操作時刻を表示"
+          }
+        }
+      }
+    },
+    "settings.app.showLastInteractionInsteadOfPath.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace the branch/directory line with the time since the last submitted prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチ/ディレクトリ行を、最後にプロンプトを送信してからの経過時間に置き換えます。"
+          }
+        }
+      }
+    },
     "settings.app.showLog": {
       "extractionState": "manual",
       "localizations": {
@@ -184963,6 +184997,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "sidebar.showBranchDirectory git branch cwd path directory folder repo sidebar 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 導覽 左側 詳細資訊 隱藏 版面 編輯器 檔案 程式碼 開啟 路徑 分支 目錄 資料夾 儲存庫 github 拉取請求 合併 審查 App"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.show-last-interaction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showLastInteractionInsteadOfPath last interaction relative time ago prompt submitted timestamp sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showLastInteractionInsteadOfPath 最終操作 経過時間 相対時間 タイムスタンプ プロンプト送信 サイドバー"
           }
         }
       }
@@ -218570,6 +218621,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "實心填充"
+          }
+        }
+      }
+    },
+    "sidebar.lastInteraction.days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldd"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld日"
+          }
+        }
+      }
+    },
+    "sidebar.lastInteraction.hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld時間"
+          }
+        }
+      }
+    },
+    "sidebar.lastInteraction.minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld分"
+          }
+        }
+      }
+    },
+    "sidebar.lastInteraction.now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今"
           }
         }
       }

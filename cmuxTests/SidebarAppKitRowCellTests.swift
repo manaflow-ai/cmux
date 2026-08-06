@@ -29,6 +29,7 @@ struct SidebarAppKitRowCellTests {
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
             latestConversationMessage: nil,
+            lastInteractionAt: nil,
             metadataEntries: metadataEntries,
             metadataBlocks: [],
             latestLog: nil,

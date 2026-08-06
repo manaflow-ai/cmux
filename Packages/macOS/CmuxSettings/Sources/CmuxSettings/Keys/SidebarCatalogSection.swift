@@ -78,6 +78,16 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowBranchDirectory"
     )
 
+    /// Replaces the branch/directory line on sidebar workspace rows with a
+    /// relative "time since the last submitted prompt" label
+    /// (`sidebar.showLastInteractionInsteadOfPath`). Rows whose workspace has
+    /// no submitted prompt yet keep the branch/directory line. Defaults to off.
+    public let showLastInteractionInsteadOfPath = DefaultsKey<Bool>(
+        id: "sidebar.showLastInteractionInsteadOfPath",
+        defaultValue: false,
+        userDefaultsKey: "sidebarShowLastInteractionInsteadOfPath"
+    )
+
     public let showPullRequests = DefaultsKey<Bool>(
         id: "sidebar.showPullRequests",
         defaultValue: true,

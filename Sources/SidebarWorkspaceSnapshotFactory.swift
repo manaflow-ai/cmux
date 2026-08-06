@@ -89,6 +89,7 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
+            lastInteractionAt: workspace.latestSubmittedAt,
             metadataEntries: detailVisibility.showsMetadata
                 ? workspace.sidebarStatusEntriesInDisplayOrder()
                 : [],

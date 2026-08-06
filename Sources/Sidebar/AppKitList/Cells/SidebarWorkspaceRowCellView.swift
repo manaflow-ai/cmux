@@ -68,6 +68,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     var isEditing = false
     private var pumpCancellables: [AnyCancellable] = []
     private var isPresentationActive = true
+    private var lastInteractionRelabelTimer: Timer?
 
 #if DEBUG
     /// Test seam: observes every full model application (configure, pump,
@@ -288,6 +289,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contextMenuDidClose = nil
         contextMenuVisible = false
         pumpCancellables.removeAll()
+        lastInteractionRelabelTimer?.invalidate()
+        lastInteractionRelabelTimer = nil
         setPresentationActive(false)
         return postUpdateActions
     }
@@ -801,8 +804,27 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let snapshot = model.snapshot
         let settings = model.settings
         let showsSection = settings.visibleAuxiliaryDetails.showsBranchDirectory
+        let lastInteractionAt: Date? = showsSection
+            && settings.branchDirectory.showsLastInteractionInsteadOfPath
+            ? snapshot.lastInteractionAt
+            : nil
+        lastInteractionRelabelTimer?.invalidate()
+        lastInteractionRelabelTimer = nil
         var lines: [SidebarRowIconTextLine.BranchLineContent] = []
-        if showsSection {
+        if let lastInteractionAt {
+            // Last-interaction mode replaces the whole branch/directory
+            // section with one relative-time line; workspaces that never had
+            // a submitted prompt keep the branch/directory presentation below.
+            let now = Date()
+            lines.append(.init(
+                branch: nil,
+                directoryCandidates: [SidebarLastInteractionTimeFormatter.label(from: lastInteractionAt, to: now)],
+                stacked: false
+            ))
+            scheduleLastInteractionRelabel(
+                at: SidebarLastInteractionTimeFormatter.nextTransitionDate(from: lastInteractionAt, after: now)
+            )
+        } else if showsSection {
             if settings.branchDirectory.branchLayout == .vertical {
                 for line in snapshot.branchDirectoryLines {
                     lines.append(.init(
@@ -827,21 +849,42 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 ))
             }
         }
-        let showsIcon = showsSection && settings.showsGitBranchIcon
-            && (settings.branchDirectory.branchLayout == .vertical
-                ? snapshot.branchLinesContainBranch
-                : snapshot.compactGitBranchSummaryText != nil || !snapshot.compactBranchDirectoryCandidates.isEmpty)
+        // The clock icon is the mode's identity cue, so it shows regardless
+        // of the git-branch-icon preference.
+        let showsIcon = lastInteractionAt != nil
+            || (showsSection && settings.showsGitBranchIcon
+                && (settings.branchDirectory.branchLayout == .vertical
+                    ? snapshot.branchLinesContainBranch
+                    : snapshot.compactGitBranchSummaryText != nil || !snapshot.compactBranchDirectoryCandidates.isEmpty))
         branchIconView.isHidden = !(showsIcon && !lines.isEmpty)
         if !branchIconView.isHidden {
             branchIconView.image = RenderableSystemSymbol.configuredAppKitImage(
-                systemName: "arrow.triangle.branch", pointSize: model.scaled(9), weight: nil
+                systemName: lastInteractionAt != nil ? "clock" : "arrow.triangle.branch",
+                pointSize: model.scaled(9), weight: nil
             )
             branchIconView.contentTintColor = palette.secondary(0.6)
         }
         Self.pool(&branchLines, count: lines.count, parent: contentContainer) { SidebarRowIconTextLine() }
+        let lineToolTip = lastInteractionAt.map { SidebarLastInteractionTimeFormatter.absoluteLabel(for: $0) }
         for (index, content) in lines.enumerated() {
             branchLines[index].configureBranchLine(content, model: model, palette: palette)
+            branchLines[index].toolTip = lineToolTip
         }
+    }
+
+    /// Re-runs the branch/directory configure exactly when the relative
+    /// "last interaction" label changes bucket, so the line keeps ticking
+    /// without any snapshot churn. The configure re-schedules the next fire.
+    private func scheduleLastInteractionRelabel(at fireDate: Date) {
+        let timer = Timer(fire: fireDate, interval: 0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let model = self.model else { return }
+                self.configureBranchDirectory(model: model, palette: self.palette(model))
+            }
+        }
+        timer.tolerance = 1
+        RunLoop.main.add(timer, forMode: .common)
+        lastInteractionRelabelTimer = timer
     }
 
     private func configurePullRequestsAndPorts(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {

@@ -64,6 +64,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.branchLayout` | `"vertical"` or `"inline"` | `"vertical"` | Show git branch details stacked vertically or inline. |
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |
+| `sidebar.showLastInteractionInsteadOfPath` | boolean | `false` | Replace the branch/directory line on workspace rows with a relative time since the last submitted prompt. Rows with no submitted prompt yet keep the branch/directory line. |
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
 | `sidebar.makePullRequestsClickable` | boolean | `true` | Allow sidebar pull request metadata to open links when clicked. |
 | `sidebar.openPullRequestLinksInCmuxBrowser` | boolean | `true` | Open sidebar pull request links in the embedded cmux browser. |
