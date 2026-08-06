@@ -624,36 +624,16 @@ impl DaemonServices {
         stream: ServiceStream,
         upload_budget: MuxUploadBudget,
     ) -> Result<(), ServicesError> {
-        use std::net::Shutdown;
-
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
         let socket = uds_windows::UnixStream::connect(path)?;
-        let socket_reader = socket.try_clone()?;
-        let socket_shutdown = socket.try_clone()?;
-        let (local, bridge) = tokio::io::duplex(COPY_CHUNK * 4);
+        let local = crate::windows_socket::bridge(socket)?;
         let (local_reader, local_writer) = tokio::io::split(local);
-        let (bridge_reader, bridge_writer) = tokio::io::split(bridge);
-        let runtime = tokio::runtime::Handle::current();
-        let upload = tokio::task::spawn_blocking({
-            let runtime = runtime.clone();
-            move || copy_windows_socket_to_async(socket_reader, bridge_writer, runtime)
-        });
-        let download = tokio::task::spawn_blocking(move || {
-            copy_async_to_windows_socket(bridge_reader, socket, runtime)
-        });
 
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
-        let pump =
-            pump_mux_server_with_budget(stream, local_reader, local_writer, upload_budget).await;
-        let _ = socket_shutdown.shutdown(Shutdown::Both);
-        let (upload, download) = tokio::join!(upload, download);
-        pump?;
-        upload.map_err(ServicesError::RequestTask)??;
-        download.map_err(ServicesError::RequestTask)??;
-        Ok(())
+        pump_mux_server_with_budget(stream, local_reader, local_writer, upload_budget).await
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -666,46 +646,6 @@ impl DaemonServices {
             .reject("unsupported".to_string(), "mux control bridge is unavailable".to_string())
             .await?;
         Ok(())
-    }
-}
-
-#[cfg(windows)]
-fn copy_windows_socket_to_async(
-    mut socket: uds_windows::UnixStream,
-    mut destination: tokio::io::WriteHalf<tokio::io::DuplexStream>,
-    runtime: tokio::runtime::Handle,
-) -> std::io::Result<()> {
-    use std::io::Read;
-    use tokio::io::AsyncWriteExt;
-
-    let mut buffer = vec![0_u8; COPY_CHUNK];
-    loop {
-        let size = socket.read(&mut buffer)?;
-        if size == 0 {
-            return runtime.block_on(destination.shutdown());
-        }
-        runtime.block_on(destination.write_all(&buffer[..size]))?;
-    }
-}
-
-#[cfg(windows)]
-fn copy_async_to_windows_socket(
-    mut source: tokio::io::ReadHalf<tokio::io::DuplexStream>,
-    mut socket: uds_windows::UnixStream,
-    runtime: tokio::runtime::Handle,
-) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::net::Shutdown;
-    use tokio::io::AsyncReadExt;
-
-    let mut buffer = vec![0_u8; COPY_CHUNK];
-    loop {
-        let size = runtime.block_on(source.read(&mut buffer))?;
-        if size == 0 {
-            return socket.shutdown(Shutdown::Write);
-        }
-        socket.write_all(&buffer[..size])?;
-        socket.flush()?;
     }
 }
 

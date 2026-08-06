@@ -1,8 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::io;
-#[cfg(windows)]
-use std::net::Shutdown;
 use std::net::SocketAddr;
 #[cfg(any(unix, windows))]
 use std::path::{Path, PathBuf};
@@ -1689,17 +1687,19 @@ pub async fn serve_windows_local(
                     }
                     Ok((stream, _)) => {
                         let daemon = daemon.clone();
-                        let bridge_runtime = runtime.clone();
                         runtime.spawn(async move {
-                            let inbound = match windows_local_inbound(
-                                stream,
-                                bridge_runtime,
-                                maximum_frame_bytes,
-                            ) {
+                            let inbound = match windows_local_inbound(stream, maximum_frame_bytes) {
                                 Ok(inbound) => inbound,
-                                Err(_) => return,
+                                Err(error) => {
+                                    eprintln!(
+                                        "cmux-tui: Windows remote carrier setup failed: {error}"
+                                    );
+                                    return;
+                                }
                             };
-                            let _ = daemon.accept(inbound).await;
+                            if let Err(error) = daemon.accept(inbound).await {
+                                eprintln!("cmux-tui: Windows remote carrier failed: {error}");
+                            }
                         });
                     }
                     Err(_) if thread_shutdown.load(Ordering::Acquire) => break Ok(()),
@@ -1721,24 +1721,10 @@ pub async fn serve_windows_local(
 #[cfg(windows)]
 fn windows_local_inbound(
     stream: uds_windows::UnixStream,
-    runtime: tokio::runtime::Handle,
     maximum_frame_bytes: usize,
 ) -> io::Result<InboundLink> {
-    let socket_reader = stream.try_clone()?;
-    let upload_shutdown = stream.try_clone()?;
-    let download_shutdown = stream.try_clone()?;
-    let (local, bridge) = tokio::io::duplex(maximum_frame_bytes.saturating_mul(2).max(8 * 1024));
+    let local = crate::windows_socket::bridge(stream)?;
     let (local_reader, local_writer) = tokio::io::split(local);
-    let (bridge_reader, bridge_writer) = tokio::io::split(bridge);
-    let upload_runtime = runtime.clone();
-    tokio::task::spawn_blocking(move || {
-        let _ = copy_windows_socket_to_async(socket_reader, bridge_writer, upload_runtime);
-        let _ = upload_shutdown.shutdown(Shutdown::Both);
-    });
-    tokio::task::spawn_blocking(move || {
-        let _ = copy_async_to_windows_socket(bridge_reader, stream, runtime);
-        let _ = download_shutdown.shutdown(Shutdown::Both);
-    });
     let link = LengthDelimitedLink::new(
         "windows-owner-local",
         maximum_frame_bytes,
@@ -1746,45 +1732,6 @@ fn windows_local_inbound(
         local_writer,
     );
     Ok(InboundLink::owner_only_local(Box::new(link)))
-}
-
-#[cfg(windows)]
-fn copy_windows_socket_to_async(
-    mut socket: uds_windows::UnixStream,
-    mut destination: tokio::io::WriteHalf<tokio::io::DuplexStream>,
-    runtime: tokio::runtime::Handle,
-) -> io::Result<()> {
-    use std::io::Read as _;
-    use tokio::io::AsyncWriteExt as _;
-
-    let mut buffer = vec![0_u8; 64 * 1024];
-    loop {
-        let size = socket.read(&mut buffer)?;
-        if size == 0 {
-            return runtime.block_on(destination.shutdown());
-        }
-        runtime.block_on(destination.write_all(&buffer[..size]))?;
-    }
-}
-
-#[cfg(windows)]
-fn copy_async_to_windows_socket(
-    mut source: tokio::io::ReadHalf<tokio::io::DuplexStream>,
-    mut socket: uds_windows::UnixStream,
-    runtime: tokio::runtime::Handle,
-) -> io::Result<()> {
-    use std::io::Write as _;
-    use tokio::io::AsyncReadExt as _;
-
-    let mut buffer = vec![0_u8; 64 * 1024];
-    loop {
-        let size = runtime.block_on(source.read(&mut buffer))?;
-        if size == 0 {
-            return socket.shutdown(Shutdown::Write);
-        }
-        socket.write_all(&buffer[..size])?;
-        socket.flush()?;
-    }
 }
 
 #[derive(Debug)]
@@ -1861,6 +1808,8 @@ impl From<SessionError> for DaemonError {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    use std::net::Shutdown;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use async_trait::async_trait;

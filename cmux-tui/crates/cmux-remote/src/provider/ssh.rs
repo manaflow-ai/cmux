@@ -1,14 +1,16 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::Mutex;
+use tokio::io::AsyncReadExt as _;
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
+use tokio::sync::{Mutex, Notify};
+use tokio::task::JoinHandle;
 
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
@@ -19,6 +21,8 @@ use crate::provider::{
 };
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+const SSH_DIAGNOSTIC_DRAIN_TIMEOUT: Duration = Duration::from_millis(100);
+const SSH_DIAGNOSTIC_BYTES: usize = 8 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SshRemoteShell {
@@ -260,26 +264,17 @@ impl LinkGroup for SshLinkGroup {
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let mut child = command
+        let child = command
             .spawn()
             .map_err(|error| ProviderError::Transport(format!("could not start ssh: {error}")))?;
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| ProviderError::Transport("ssh stdin was not piped".into()))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| ProviderError::Transport("ssh stdout was not piped".into()))?;
-        let inner = LengthDelimitedLink::new(
+        let link = SshProcessLink::from_child(
             self.description.clone(),
             self.config.maximum_frame_bytes,
-            stdout,
-            stdin,
-        );
-        Ok(Box::new(SshProcessLink { inner, child: Mutex::new(Some(child)) }))
+            child,
+        )?;
+        Ok(Box::new(link))
     }
 
     async fn close(&self) -> Result<(), ProviderError> {
@@ -291,6 +286,126 @@ impl LinkGroup for SshLinkGroup {
 struct SshProcessLink {
     inner: LengthDelimitedLink<ChildStdout, ChildStdin>,
     child: Mutex<Option<Child>>,
+    diagnostics: Arc<SshDiagnostics>,
+    diagnostics_task: Mutex<Option<JoinHandle<()>>>,
+}
+
+#[derive(Default)]
+struct SshDiagnostics {
+    tail: StdMutex<VecDeque<u8>>,
+    finished: AtomicBool,
+    finished_notify: Notify,
+}
+
+impl SshDiagnostics {
+    fn push(&self, chunk: &[u8]) {
+        let mut tail = self.tail.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if chunk.len() >= SSH_DIAGNOSTIC_BYTES {
+            tail.clear();
+            tail.extend(&chunk[chunk.len() - SSH_DIAGNOSTIC_BYTES..]);
+            return;
+        }
+        let overflow = tail.len().saturating_add(chunk.len()).saturating_sub(SSH_DIAGNOSTIC_BYTES);
+        tail.drain(..overflow);
+        tail.extend(chunk);
+    }
+
+    fn finish(&self) {
+        self.finished.store(true, Ordering::Release);
+        self.finished_notify.notify_waiters();
+    }
+
+    async fn wait_finished(&self) {
+        loop {
+            let finished = self.finished_notify.notified();
+            if self.finished.load(Ordering::Acquire) {
+                return;
+            }
+            finished.await;
+        }
+    }
+
+    fn summary(&self) -> Option<String> {
+        let bytes = self
+            .tail
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        let normalized = String::from_utf8_lossy(&bytes)
+            .chars()
+            .map(|character| if character.is_control() { ' ' } else { character })
+            .collect::<String>();
+        let compact = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+        (!compact.is_empty()).then_some(compact)
+    }
+}
+
+impl SshProcessLink {
+    fn from_child(
+        description: String,
+        maximum_frame_bytes: usize,
+        mut child: Child,
+    ) -> Result<Self, ProviderError> {
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| ProviderError::Transport("ssh stdin was not piped".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ProviderError::Transport("ssh stdout was not piped".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| ProviderError::Transport("ssh stderr was not piped".into()))?;
+        let diagnostics = Arc::new(SshDiagnostics::default());
+        let diagnostics_task = tokio::spawn(drain_ssh_diagnostics(stderr, diagnostics.clone()));
+        Ok(Self {
+            inner: LengthDelimitedLink::new(description, maximum_frame_bytes, stdout, stdin),
+            child: Mutex::new(Some(child)),
+            diagnostics,
+            diagnostics_task: Mutex::new(Some(diagnostics_task)),
+        })
+    }
+
+    async fn carrier_closed_error(&self) -> LinkError {
+        let _ =
+            tokio::time::timeout(SSH_DIAGNOSTIC_DRAIN_TIMEOUT, self.diagnostics.wait_finished())
+                .await;
+        let detail = self
+            .diagnostics
+            .summary()
+            .unwrap_or_else(|| "SSH carrier closed without diagnostics".into());
+        LinkError::Transport(format!("SSH carrier closed: {detail}"))
+    }
+
+    async fn finish_diagnostics(&self) {
+        let _ =
+            tokio::time::timeout(SSH_DIAGNOSTIC_DRAIN_TIMEOUT, self.diagnostics.wait_finished())
+                .await;
+        if let Some(mut task) = self.diagnostics_task.lock().await.take()
+            && tokio::time::timeout(SSH_DIAGNOSTIC_DRAIN_TIMEOUT, &mut task).await.is_err()
+        {
+            task.abort();
+        }
+    }
+}
+
+async fn drain_ssh_diagnostics(mut stderr: ChildStderr, diagnostics: Arc<SshDiagnostics>) {
+    let mut buffer = [0_u8; 1024];
+    loop {
+        match stderr.read(&mut buffer).await {
+            Ok(0) => break,
+            Ok(size) => diagnostics.push(&buffer[..size]),
+            Err(error) => {
+                diagnostics.push(format!("could not read SSH diagnostics: {error}").as_bytes());
+                break;
+            }
+        }
+    }
+    diagnostics.finish();
 }
 
 impl fmt::Debug for SshProcessLink {
@@ -314,7 +429,11 @@ impl FrameLink for SshProcessLink {
     }
 
     async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
-        self.inner.receive().await
+        match self.inner.receive().await {
+            Ok(Some(frame)) => Ok(Some(frame)),
+            Ok(None) | Err(LinkError::Closed) => Err(self.carrier_closed_error().await),
+            Err(error) => Err(error),
+        }
     }
 
     async fn close(&self) -> Result<(), LinkError> {
@@ -329,6 +448,7 @@ impl FrameLink for SshProcessLink {
                 let _ = child.wait().await;
             }
         }
+        self.finish_diagnostics().await;
         Ok(())
     }
 }
@@ -403,15 +523,10 @@ mod tests {
             .env("CMUX_TEST_OUTCOME", &outcome)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let mut child = command.spawn().unwrap();
-        let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let link = SshProcessLink {
-            inner: LengthDelimitedLink::new("ssh://test", 1024, stdout, stdin),
-            child: Mutex::new(Some(child)),
-        };
+        let child = command.spawn().unwrap();
+        let link = SshProcessLink::from_child("ssh://test".into(), 1024, child).unwrap();
 
         link.close().await.unwrap();
 
@@ -428,13 +543,9 @@ mod tests {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        let mut child = command.spawn().unwrap();
-        let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let link = SshProcessLink {
-            inner: LengthDelimitedLink::new("ssh://windows-diagnostic-test", 1024, stdout, stdin),
-            child: Mutex::new(Some(child)),
-        };
+        let child = command.spawn().unwrap();
+        let link = SshProcessLink::from_child("ssh://windows-diagnostic-test".into(), 1024, child)
+            .unwrap();
 
         let received = tokio::time::timeout(Duration::from_secs(2), link.receive())
             .await

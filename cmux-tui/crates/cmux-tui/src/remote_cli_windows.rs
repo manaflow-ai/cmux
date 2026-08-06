@@ -163,7 +163,7 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
     let options = parse_remote_link(args)?;
     let paths = windows_session_paths(&options)?;
     ensure_mux_owner(&options, &paths)?;
-    proxy_windows_stdio(&paths.link_socket)
+    proxy_windows_stdio(&paths)
 }
 
 fn windows_session_paths(options: &RemoteLinkOptions) -> anyhow::Result<WindowsSessionPaths> {
@@ -260,7 +260,9 @@ async fn serve_remote_mux_owner(
                             Some(mux_socket.clone()),
                         );
                         tokio::task::spawn_local(async move {
-                            let _ = services.serve_client(client).await;
+                            if let Err(error) = services.serve_client(client).await {
+                                eprintln!("cmux-tui: Windows remote services failed: {error}");
+                            }
                         });
                     }
                 }
@@ -533,9 +535,10 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     }
 }
 
-fn proxy_windows_stdio(link: &Path) -> anyhow::Result<()> {
-    let socket = uds_windows::UnixStream::connect(link)
-        .with_context(|| format!("could not attach Windows carrier to {}", link.display()))?;
+fn proxy_windows_stdio(paths: &WindowsSessionPaths) -> anyhow::Result<()> {
+    let socket = uds_windows::UnixStream::connect(&paths.link_socket).with_context(|| {
+        format!("could not attach Windows carrier to {}", paths.link_socket.display())
+    })?;
     let mut upload_socket = socket.try_clone()?;
     let upload_shutdown = socket.try_clone()?;
     std::thread::Builder::new().name("windows-carrier-upload".into()).spawn(move || {
@@ -552,7 +555,8 @@ fn proxy_windows_stdio(link: &Path) -> anyhow::Result<()> {
         .context("Windows remote carrier stopped")
         .map(|_| ());
     let _ = download_socket.shutdown(Shutdown::Both);
-    result
+    result?;
+    Err(owner_start_error(paths, "Windows session owner closed the carrier"))
 }
 
 fn windows_daemon_name() -> String {
