@@ -1,25 +1,26 @@
 "use client";
 
 import { PostHogProvider as PHProvider } from "posthog-js/react";
+import { useUser } from "@stackframe/stack";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useLayoutEffect, Suspense } from "react";
 import { posthog } from "../lib/posthog-client";
 import {
+  STACK_IDENTITY_STORAGE_KEY,
   syncStackAnalyticsIdentity,
   type StackAnalyticsIdentity,
 } from "../../services/analytics/stackIdentity";
 
-function PageviewTracker() {
+function PageviewTracker({ authRevision }: { authRevision?: string }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   useLayoutEffect(() => {
     if (!pathname || !posthog) return;
 
-    const controller = new AbortController();
-    // Drop every PostHog event while auth is unresolved. This covers
-    // autocapture and captures from other components, not only pageviews.
-    posthog.set_config({ before_send: () => null });
+    let activeController: AbortController | null = null;
+    let generation = 0;
+    let pageviewPending = true;
     const identityStorage = {
       getItem: (key: string) =>
         window.sessionStorage.getItem(key) ?? window.localStorage.getItem(key),
@@ -42,15 +43,22 @@ function PageviewTracker() {
       syncStackAnalyticsIdentity(posthog, identityStorage, null);
     };
 
-    // Resolve auth before each route's pageview. This preserves anonymous
-    // pre-sign-in history through identify(), and prevents the first pageview
-    // after sign-out from remaining attached to the previous Stack account.
-    void fetch("/api/analytics/identity", {
-      cache: "no-store",
-      credentials: "same-origin",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
+    const resolveIdentity = async () => {
+      const currentGeneration = ++generation;
+      activeController?.abort();
+      const controller = new AbortController();
+      activeController = controller;
+      // Drop every event while auth is unresolved. This covers autocapture and
+      // captures from other components, not only the pending pageview.
+      posthog.set_config({ before_send: () => null });
+
+      try {
+        const response = await fetch("/api/analytics/identity", {
+          cache: "no-store",
+          credentials: "same-origin",
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted || currentGeneration !== generation) return;
         if (!response.ok) {
           clearUnresolvedIdentity();
           return;
@@ -58,7 +66,7 @@ function PageviewTracker() {
         const payload = await response.json() as {
           user?: { id?: unknown; plan?: unknown } | null;
         };
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || currentGeneration !== generation) return;
         let identity: StackAnalyticsIdentity | null;
         if (payload.user === null) {
           identity = null;
@@ -75,25 +83,64 @@ function PageviewTracker() {
         }
         posthog.set_config({ before_send: (event) => event });
         syncStackAnalyticsIdentity(posthog, identityStorage, identity);
-        if (!controller.signal.aborted) capturePageview();
-      })
-      .catch(() => {
+        if (pageviewPending) {
+          pageviewPending = false;
+          capturePageview();
+        }
+      } catch {
         // Fail closed: an unresolved auth state must not attribute this route
         // or later autocapture to an identity retained from before a logout.
-        if (!controller.signal.aborted) clearUnresolvedIdentity();
-      });
+        if (!controller.signal.aborted && currentGeneration === generation) {
+          clearUnresolvedIdentity();
+        }
+      }
+    };
 
-    return () => controller.abort();
-  }, [pathname, searchParams]);
+    const revalidateVisibleIdentity = () => {
+      if (document.visibilityState === "visible") void resolveIdentity();
+    };
+    const revalidateCrossTabIdentity = (event: StorageEvent) => {
+      if (event.key === STACK_IDENTITY_STORAGE_KEY) void resolveIdentity();
+    };
+
+    // Route changes cover normal sign-in/sign-out redirects. Focus,
+    // visibility, online, and storage events cover session expiry, account
+    // changes without navigation, and changes made in another tab.
+    void resolveIdentity();
+    window.addEventListener("focus", revalidateVisibleIdentity);
+    window.addEventListener("online", revalidateVisibleIdentity);
+    window.addEventListener("storage", revalidateCrossTabIdentity);
+    document.addEventListener("visibilitychange", revalidateVisibleIdentity);
+
+    return () => {
+      generation += 1;
+      activeController?.abort();
+      window.removeEventListener("focus", revalidateVisibleIdentity);
+      window.removeEventListener("online", revalidateVisibleIdentity);
+      window.removeEventListener("storage", revalidateCrossTabIdentity);
+      document.removeEventListener("visibilitychange", revalidateVisibleIdentity);
+    };
+  }, [authRevision, pathname, searchParams]);
 
   return null;
 }
 
-export function PostHogProvider({ children }: { children: React.ReactNode }) {
+function StackPageviewTracker() {
+  const authenticatedUser = useUser({ or: "return-null" });
+  return <PageviewTracker authRevision={authenticatedUser?.id} />;
+}
+
+export function PostHogProvider({
+  children,
+  observesStackAuth = false,
+}: {
+  children: React.ReactNode;
+  observesStackAuth?: boolean;
+}) {
   return (
     <PHProvider client={posthog}>
       <Suspense fallback={null}>
-        <PageviewTracker />
+        {observesStackAuth ? <StackPageviewTracker /> : <PageviewTracker />}
       </Suspense>
       {children}
     </PHProvider>
