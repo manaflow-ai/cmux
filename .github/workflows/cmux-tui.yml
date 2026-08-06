@@ -275,6 +275,10 @@ jobs:
           rustup target add x86_64-pc-windows-gnu
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
+      - name: Verify bounded Windows carrier behavior
+        working-directory: cmux-tui
+        run: cargo test -p cmux-remote --target x86_64-pc-windows-gnu --locked windows_ -- --nocapture
+
       - name: Build libghostty-vt for Windows GNU
         shell: bash
         working-directory: ghostty
@@ -285,10 +289,6 @@ jobs:
       - name: cargo build cmux-tui for Windows GNU
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
-
-      - name: Verify Windows owner carrier handshake
-        working-directory: cmux-tui
-        run: cargo test -p cmux-remote --target x86_64-pc-windows-gnu --locked daemon::tests::windows_local_carrier_completes_authenticated_handshake -- --exact --nocapture
 
       - name: Verify Windows remote owner lifecycle
         working-directory: cmux-tui

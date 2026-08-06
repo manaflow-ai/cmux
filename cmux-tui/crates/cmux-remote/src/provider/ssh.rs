@@ -418,6 +418,33 @@ mod tests {
         assert_eq!(std::fs::read_to_string(outcome).unwrap(), "graceful");
     }
 
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_ssh_eof_reports_remote_stderr() {
+        let mut command = Command::new("cmd.exe");
+        command
+            .args(["/D", "/S", "/C", "echo CMUX_WINDOWS_OWNER_DIAGNOSTIC 1>&2"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = command.spawn().unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let link = SshProcessLink {
+            inner: LengthDelimitedLink::new("ssh://windows-diagnostic-test", 1024, stdout, stdin),
+            child: Mutex::new(Some(child)),
+        };
+
+        let received = tokio::time::timeout(Duration::from_secs(2), link.receive())
+            .await
+            .expect("SSH diagnostic fixture did not close stdout");
+        link.close().await.unwrap();
+        let error = received.expect_err("SSH EOF discarded the remote diagnostic");
+
+        assert!(error.to_string().contains("CMUX_WINDOWS_OWNER_DIAGNOSTIC"), "{error}");
+    }
+
     #[test]
     fn destination_preserves_user_for_dial_but_description_redacts_it() {
         let endpoint = url::Url::parse("ssh://alice@example.com:2222").unwrap();
