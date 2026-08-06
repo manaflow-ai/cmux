@@ -83,6 +83,7 @@ interface StreamState<Value> {
   readonly id: StreamId;
   attachmentLease?: string;
   readonly decode: (value: unknown) => Value;
+  readonly validate?: (value: unknown, cursor: Cursor | undefined) => void;
   readonly cancelRoute: Readonly<{
     machine: string;
     session: string;
@@ -238,6 +239,7 @@ export class ResourceProtocol {
     params: Readonly<Record<string, unknown>>,
     decode: (value: unknown) => Value,
     options: RequestOptions = {},
+    validate?: (value: Value, cursor: Cursor | undefined) => void,
   ): Promise<ResourceStream<Value>> {
     if (operation.class !== "stream_open") {
       throw new TypeError(`${operation.name} is not a stream operation`);
@@ -254,6 +256,9 @@ export class ResourceProtocol {
     const state: StreamState<Value> = {
       id,
       decode,
+      validate: validate === undefined
+        ? undefined
+        : (value, cursor) => validate(value as Value, cursor),
       cancelRoute: Object.freeze({
         machine: params.machine,
         session: params.session,
@@ -762,7 +767,7 @@ export class ResourceProtocol {
       if (value.type === "stream_item") {
         if (state.end) return;
         try {
-          const item = decodeStreamItemEnvelope(value, id, state.decode);
+          const item = decodeStreamItemEnvelope(value, id, state.decode, state.validate);
           if (state.cancellation?.end) {
             throw new CmuxProtocolError(
               "stream item received after end envelope",
@@ -1421,6 +1426,7 @@ function decodeStreamItemEnvelope<Value>(
   value: Record<string, unknown>,
   expectedId: StreamId,
   decode: (value: unknown) => Value,
+  validate?: (value: Value, cursor: Cursor | undefined) => void,
 ): StreamItem<Value> {
   requireShape(
     value,
@@ -1435,13 +1441,16 @@ function decodeStreamItemEnvelope<Value>(
   ) {
     throw new CmuxProtocolError("invalid stream item envelope");
   }
+  const cursor = Object.hasOwn(value, "cursor")
+    ? decodeCursor(value.cursor)
+    : undefined;
+  const decoded = decode(value.item);
+  validate?.(decoded, cursor);
   return Object.freeze({
     streamId: expectedId,
     sequence: decimalString(requireString(value.sequence, "sequence")),
-    ...(Object.hasOwn(value, "cursor")
-      ? { cursor: decodeCursor(value.cursor) }
-      : {}),
-    value: decode(value.item),
+    ...(cursor === undefined ? {} : { cursor }),
+    value: decoded,
   });
 }
 

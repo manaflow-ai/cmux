@@ -5,6 +5,7 @@ import type {
 import type {
   Command,
   Cursor,
+  JournalClass,
   JsonValue,
   LayoutDocument,
 } from "./models.js";
@@ -79,7 +80,7 @@ export interface SessionJournalOptions extends RequestOptions {
   readonly start?: "tail" | "beginning";
   readonly follow?: boolean;
   readonly kinds?: readonly string[];
-  readonly classes?: readonly ("state" | "observation" | "effect" | "checkpoint")[];
+  readonly classes?: readonly JournalClass[];
   readonly subjects?: readonly JournalSubjectFilter[];
   readonly maxSensitivity?: "public" | "metadata" | "sensitive";
   readonly regex?: JournalRegexFilter;

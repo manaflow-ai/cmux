@@ -4144,6 +4144,7 @@ impl Mux {
             self.publish_resource_event();
         } else {
             drop(registry);
+            self.publish_journal_event();
         }
         Ok(revision)
     }
@@ -4811,11 +4812,15 @@ impl Mux {
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
         let mut sequence = checkpoint.source_sequence;
+        let mut target_head = None;
         let head_sequence = loop {
             let page = self.session_journal_after(sequence, 1024)?;
-            let head = page.head_sequence;
+            let head = *target_head.get_or_insert(page.head_sequence);
             let empty = page.records.is_empty();
             for record in page.records {
+                if record.sequence > head {
+                    break;
+                }
                 sequence = record.sequence;
                 reducer.apply(&record)?;
             }

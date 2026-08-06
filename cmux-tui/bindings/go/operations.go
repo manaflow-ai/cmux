@@ -379,6 +379,9 @@ func (s *Session) Events(ctx context.Context, options SessionEventsOptions) (*St
 	return openStream(ctx, s.client, wirev1.SessionEvents, input, decodeSessionEvent)
 }
 func (s *Session) Journal(ctx context.Context, options SessionJournalOptions) (*Stream[SessionJournalRecord], error) {
+	if err := options.validate(); err != nil {
+		return nil, err
+	}
 	input := s.route.params()
 	if options.Cursor != nil {
 		input[wirev1.FieldCursor] = options.Cursor
@@ -393,8 +396,23 @@ func (s *Session) Journal(ctx context.Context, options SessionJournalOptions) (*
 		input["filter"] = options.Filter
 	}
 	merge(input, options.Extra)
-	return openStream(
-		ctx, s.client, wirev1.SessionJournalSubscribe, input, decodeSessionJournalRecord,
+	return openDecodedStream(
+		ctx,
+		s.client,
+		wirev1.SessionJournalSubscribe,
+		input,
+		func(raw json.RawMessage, cursor *Cursor) (SessionJournalRecord, error) {
+			record, err := decodeSessionJournalRecord(raw)
+			if err != nil {
+				return SessionJournalRecord{}, err
+			}
+			if cursor == nil || cursor.Revision != record.Sequence {
+				return SessionJournalRecord{}, &ProtocolError{
+					Message: "journal sequence must match its stream cursor",
+				}
+			}
+			return record, nil
+		},
 	)
 }
 func (s *Session) Ping(ctx context.Context, options SessionPingOptions) (PingResult, error) {

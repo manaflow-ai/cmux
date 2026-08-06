@@ -1596,8 +1596,13 @@ impl WorkspaceRegistry {
             Some(previous_topology),
             Some(previous_resource_revision),
             Some(sqlite_resource_revision),
-        ) = (previous_topology.as_ref(), previous_resource_revision, sqlite_resource_revision)
-        {
+            Some(resource_revision),
+        ) = (
+            previous_topology.as_ref(),
+            previous_resource_revision,
+            sqlite_resource_revision,
+            resource_revision,
+        ) {
             tx.execute(
                 "INSERT INTO resource_mutations(
                    origin, idempotency_key, operation, fingerprint, result_json, committed_revision
@@ -1619,7 +1624,7 @@ impl WorkspaceRegistry {
             )?;
             append_resource_journal_record(
                 &tx,
-                resource_revision.expect("resource revision for projected workspace mutation"),
+                resource_revision,
                 previous_resource_revision,
                 &mutation.origin,
                 &mutation.id,

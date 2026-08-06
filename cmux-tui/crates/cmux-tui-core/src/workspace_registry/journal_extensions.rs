@@ -363,15 +363,6 @@ pub(super) fn create_journal_extensions_schema(
            sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
            sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0)
          );
-         CREATE TABLE IF NOT EXISTS journal_event_index (
-           event_id TEXT PRIMARY KEY NOT NULL,
-           sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
-           causation_depth INTEGER NOT NULL CHECK(causation_depth >= 0),
-           causation_id TEXT,
-           causal_hook_id TEXT
-         );
-         INSERT OR IGNORE INTO journal_event_index(event_id, sequence, causation_depth)
-           SELECT event_id, sequence, causation_depth FROM session_journal;
          CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
            BEFORE UPDATE ON journal_segments
          BEGIN

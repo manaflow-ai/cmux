@@ -159,6 +159,7 @@ fn resource_event_replay_pages_a_far_behind_cursor() {
 fn resource_event_replay_reads_checkpointed_sealed_segments() {
     let root = temp_root("sealed-resource-replay");
     let mut registry = WorkspaceRegistry::open(&root, "sealed-resource-replay").unwrap();
+    let database = registry.session_journal_database_path().unwrap();
     seed_workspace(&mut registry, "sealed-resource-replay-event");
     let through = registry.session_journal_after(0, 32).unwrap().head_sequence;
     registry
@@ -181,15 +182,38 @@ fn resource_event_replay_reads_checkpointed_sealed_segments() {
         JournalSegmentSealStart::Prepare(plan) => plan,
         JournalSegmentSealStart::Replay(_) => panic!("first segment seal unexpectedly replayed"),
     };
-    let reader = SessionJournalReader::open(
-        &registry.session_journal_database_path().expect("persistent registry has a path"),
-    )
-    .unwrap();
+    let reader = SessionJournalReader::open(&database).unwrap();
     let prepared = plan.prepare(&reader).unwrap();
     registry
         .commit_journal_segment_seal(prepared, "client_test", "sealed_resource_segment")
         .unwrap()
         .expect("segment boundary remained stable");
+
+    drop(reader);
+    drop(registry);
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             CREATE TABLE legacy_journal_event_index (
+               event_id TEXT PRIMARY KEY NOT NULL,
+               sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
+               causation_depth INTEGER NOT NULL CHECK(causation_depth >= 0),
+               causation_id TEXT,
+               causal_hook_id TEXT
+             );
+             INSERT INTO legacy_journal_event_index
+               SELECT event_id, sequence, causation_depth, causation_id, causal_hook_id
+               FROM journal_event_index;
+             DROP TABLE journal_event_index;
+             ALTER TABLE legacy_journal_event_index RENAME TO journal_event_index;
+             DELETE FROM meta WHERE key = 'journal_event_index_resource_v1';
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let registry = WorkspaceRegistry::open(&root, "sealed-resource-replay").unwrap();
 
     let page = registry.resource_events_after(0).unwrap();
     assert_eq!(page.head_revision, 1);
@@ -197,7 +221,6 @@ fn resource_event_replay_reads_checkpointed_sealed_segments() {
     assert_eq!(page.batches[0].previous_revision, 0);
     assert_eq!(page.batches[0].revision, 1);
 
-    drop(reader);
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }

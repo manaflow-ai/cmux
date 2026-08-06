@@ -1,5 +1,10 @@
 package cmux
 
+import (
+	"fmt"
+	"unicode/utf8"
+)
+
 // Extra fields are copied before typed fields are applied. This permits
 // forward-compatible callers without allowing Extra to override typed fields.
 type ReadOptions struct{ Extra map[string]JSONValue }
@@ -83,10 +88,20 @@ type JournalSubjectFilter struct {
 	Kind *string `json:"kind,omitempty"`
 	ID   *string `json:"id,omitempty"`
 }
+type JournalRegexField string
+
+const (
+	JournalRegexFieldKind           JournalRegexField = "kind"
+	JournalRegexFieldSubjects       JournalRegexField = "subjects"
+	JournalRegexFieldPayload        JournalRegexField = "payload"
+	JournalRegexFieldRecord         JournalRegexField = "record"
+	JournalRegexFieldTerminalOutput JournalRegexField = "terminal_output"
+)
+
 type JournalRegexFilter struct {
-	Pattern       string `json:"pattern"`
-	Field         string `json:"field,omitempty"`
-	CaseSensitive *bool  `json:"case_sensitive,omitempty"`
+	Pattern       string            `json:"pattern"`
+	Field         JournalRegexField `json:"field,omitempty"`
+	CaseSensitive *bool             `json:"case_sensitive,omitempty"`
 }
 type JournalFilter struct {
 	Kinds          []string               `json:"kinds,omitempty"`
@@ -102,6 +117,52 @@ type SessionJournalOptions struct {
 	Follow *bool
 	Filter *JournalFilter
 }
+
+func (o SessionJournalOptions) validate() error {
+	if o.Cursor != nil && o.Start != nil {
+		return fmt.Errorf("%w: journal cursor and start are mutually exclusive", ErrInvalidArgument)
+	}
+	if o.Start != nil && *o.Start != JournalStartTail && *o.Start != JournalStartBeginning {
+		return fmt.Errorf("%w: journal start must be tail or beginning", ErrInvalidArgument)
+	}
+	if o.Filter == nil {
+		return nil
+	}
+	if o.Filter.MaxSensitivity != nil {
+		switch *o.Filter.MaxSensitivity {
+		case JournalSensitivityPublic, JournalSensitivityMetadata, JournalSensitivitySensitive:
+		case JournalSensitivitySecret:
+			return fmt.Errorf("%w: secret journal records are unavailable", ErrInvalidArgument)
+		default:
+			return fmt.Errorf("%w: journal sensitivity is invalid", ErrInvalidArgument)
+		}
+	}
+	for _, class := range o.Filter.Classes {
+		switch class {
+		case JournalClassState, JournalClassObservation, JournalClassEffect, JournalClassCheckpoint:
+		default:
+			return fmt.Errorf("%w: journal class is invalid", ErrInvalidArgument)
+		}
+	}
+	for _, subject := range o.Filter.Subjects {
+		if subject.Kind == nil && subject.ID == nil {
+			return fmt.Errorf("%w: journal subject filters require kind or id", ErrInvalidArgument)
+		}
+	}
+	if regex := o.Filter.Regex; regex != nil {
+		if !utf8.ValidString(regex.Pattern) || len(regex.Pattern) < 1 || len(regex.Pattern) > 1024 {
+			return fmt.Errorf("%w: journal regex must contain 1 to 1024 UTF-8 bytes", ErrInvalidArgument)
+		}
+		switch regex.Field {
+		case "", JournalRegexFieldKind, JournalRegexFieldSubjects, JournalRegexFieldPayload,
+			JournalRegexFieldRecord, JournalRegexFieldTerminalOutput:
+		default:
+			return fmt.Errorf("%w: journal regex field is invalid", ErrInvalidArgument)
+		}
+	}
+	return nil
+}
+
 type SessionPingOptions struct{ ReadOptions }
 type SessionShutdownOptions struct {
 	MutationOptions

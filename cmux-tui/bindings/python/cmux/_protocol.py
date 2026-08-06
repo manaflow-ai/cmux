@@ -141,10 +141,14 @@ class _StreamState(Generic[ItemT]):
         stream_id: StreamId,
         decode_item: Callable[[Any], ItemT],
         cancel_route: Mapping[str, str],
+        validate_item: Optional[
+            Callable[[ItemT, Optional[Cursor]], None]
+        ] = None,
     ) -> None:
         self.stream_id = stream_id
         self.attachment_lease: Optional[str] = None
         self.decode_item = decode_item
+        self.validate_item = validate_item
         self.cancel_route = dict(cancel_route)
         # The extra queue entry is reserved for the end-of-stream control message.
         self.values: "queue.Queue[object]" = queue.Queue(MAX_STREAM_MESSAGES + 1)
@@ -276,10 +280,13 @@ class _StreamState(Generic[ItemT]):
     ) -> bool:
         """Queues one item without blocking. Returns false after local overflow."""
         try:
+            decoded_item = self.decode_item(payload)
+            if self.validate_item is not None:
+                self.validate_item(decoded_item, cursor)
             item = StreamItem(
                 self.stream_id,
                 sequence,
-                self.decode_item(payload),
+                decoded_item,
                 cursor,
             )
         except (KeyError, TypeError, ValueError, ProtocolError) as error:
@@ -681,6 +688,9 @@ class ProtocolConnection:
         *,
         timeout: Optional[float] = None,
         cancel_event: Optional[_CancellationSignal] = None,
+        validate_item: Optional[
+            Callable[[ItemT, Optional[Cursor]], None]
+        ] = None,
     ) -> "ResourceStream[ItemT]":
         stream_id = StreamId(f"stream_{secrets.token_hex(16)}")
         cancel_route = {
@@ -696,6 +706,7 @@ class ProtocolConnection:
             stream_id,
             decode_item,
             cancel_route,
+            validate_item,
         )
         with self._lock:
             if self._closed:

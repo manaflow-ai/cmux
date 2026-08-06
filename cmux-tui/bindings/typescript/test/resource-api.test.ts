@@ -247,6 +247,75 @@ async function waitForOperation(
   }
 }
 
+test("journal options reject invalid combinations before transport", () => {
+  const transport = new FakeTransport(() => {
+    assert.fail("invalid journal options reached the transport");
+  });
+  const client = new Client({ transport });
+  const session = client.session(SESSION);
+
+  assert.throws(
+    () => void session.journal({
+      cursor: { generation: String(SESSION), revision: decimalString("1") },
+      start: "tail",
+    }),
+    /mutually exclusive/,
+  );
+  assert.throws(
+    () => void session.journal({ subjects: [{}] }),
+    /require kind or id/,
+  );
+  assert.throws(
+    () => void session.journal({ regex: { pattern: "" } }),
+    /1 to 1024 UTF-8 bytes/,
+  );
+  assert.equal(transport.requests.length, 0);
+  client.close();
+});
+
+test("journal records must match their envelope cursor", async () => {
+  let streamId = "";
+  const transport = new FakeTransport((request, current) => {
+    if (request.operation !== "session.journal.subscribe") return;
+    streamId = (request.params as Envelope).stream_id as string;
+    current.ok(request, { stream_id: streamId });
+    setTimeout(() => current.emit({
+      protocol: "cmux.protocol/1",
+      type: "stream_item",
+      stream_id: streamId,
+      sequence: "1",
+      cursor: { generation: String(SESSION), revision: "1" },
+      item: {
+        sequence: "2",
+        event_id: "event_mismatched_cursor",
+        schema_version: 1,
+        kind: "agent.turn.completed",
+        class: "observation",
+        replay: "advisory",
+        occurred_at_ms: "1",
+        committed_at_ms: "2",
+        producer: { kind: "agent_adapter", id: "cmux_agents" },
+        authority: null,
+        causation_id: null,
+        correlation_id: null,
+        causation_depth: 0,
+        subjects: [],
+        sensitivity: "metadata",
+        payload: {},
+        resource_revision: null,
+        previous_resource_revision: null,
+      },
+    }), 0);
+  });
+  const client = new Client({ transport });
+  const stream = await client.session(SESSION).journal();
+  await assert.rejects(
+    () => stream.next(),
+    /journal sequence must match its stream cursor/,
+  );
+  client.close();
+});
+
 test("resource protocol releases cancellation handles at dispatch", async () => {
   for (const synchronous of [true, false]) {
     const transport = new DispatchHandleTransport(synchronous);

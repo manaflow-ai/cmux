@@ -43,7 +43,7 @@ type Stream[T any] struct {
 	id              StreamID
 	attachmentLease string
 	route           *streamRoute
-	decode          func(json.RawMessage) (T, error)
+	decode          func(json.RawMessage, *Cursor) (T, error)
 
 	mu            sync.Mutex
 	finished      bool
@@ -107,7 +107,7 @@ func (s *Stream[T]) consume(message streamMessage) (StreamItem[T], error) {
 		s.markFinished(end)
 		return zero, end
 	}
-	value, err := s.decode(message.envelope.Item)
+	value, err := s.decode(message.envelope.Item, message.envelope.Cursor)
 	if err != nil {
 		return zero, err
 	}
@@ -151,8 +151,8 @@ func (s *Stream[T]) Cancel(ctx context.Context) error {
 
 func (s *Stream[T]) cancel(ctx context.Context) error {
 	s.client.mu.Lock()
-	ownsCleanup := s.route.beginExplicitCancel(func(raw json.RawMessage) error {
-		_, err := s.decode(raw)
+	ownsCleanup := s.route.beginExplicitCancel(func(envelope streamEnvelope) error {
+		_, err := s.decode(envelope.Item, envelope.Cursor)
 		return err
 	})
 	if !ownsCleanup {
@@ -329,7 +329,7 @@ func (s *Stream[T]) consumeCancelMessage(
 				Message: "stream cancellation received a mismatched stream item",
 			}
 		}
-		if _, err := s.decode(message.envelope.Item); err != nil {
+		if _, err := s.decode(message.envelope.Item, message.envelope.Cursor); err != nil {
 			return nil, false, err
 		}
 		return nil, false, nil
@@ -361,6 +361,22 @@ func openStream[T any](
 	operation wirev1.Operation,
 	params map[string]any,
 	decode func(json.RawMessage) (T, error),
+) (*Stream[T], error) {
+	return openDecodedStream(
+		ctx,
+		client,
+		operation,
+		params,
+		func(raw json.RawMessage, _ *Cursor) (T, error) { return decode(raw) },
+	)
+}
+
+func openDecodedStream[T any](
+	ctx context.Context,
+	client *Client,
+	operation wirev1.Operation,
+	params map[string]any,
+	decode func(json.RawMessage, *Cursor) (T, error),
 ) (*Stream[T], error) {
 	id, err := newStreamID()
 	if err != nil {
