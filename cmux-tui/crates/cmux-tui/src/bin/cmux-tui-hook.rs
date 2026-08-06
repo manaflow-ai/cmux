@@ -37,10 +37,14 @@ fn main() -> ExitCode {
 }
 
 fn run(args: Args) -> anyhow::Result<()> {
+    if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
+        drain_native_payload()?;
+        return Ok(());
+    }
     let socket = match env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
         Some(socket) => PathBuf::from(socket),
         None => {
-            io::copy(&mut io::stdin().take(MAX_NATIVE_PAYLOAD_BYTES + 1), &mut io::sink())?;
+            drain_native_payload()?;
             return Ok(());
         }
     };
@@ -54,6 +58,14 @@ fn run(args: Args) -> anyhow::Result<()> {
     )?;
     let event = serde_json::to_value(ingress)?;
     append(&socket, event)
+}
+
+fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> bool {
+    matches!(source, "claude" | "cursor") && grok_hook_event.is_some_and(|value| !value.is_empty())
+}
+
+fn drain_native_payload() -> io::Result<()> {
+    io::copy(&mut io::stdin().take(MAX_NATIVE_PAYLOAD_BYTES + 1), &mut io::sink()).map(|_| ())
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {
@@ -229,6 +241,16 @@ mod tests {
             parse_args(["codex", "Stop"].map(str::to_owned)).unwrap(),
             Args { source: "codex".into(), native_event: "Stop".into() }
         );
+    }
+
+    #[test]
+    fn grok_compatibility_events_are_deduplicated_inside_the_helper() {
+        use std::ffi::OsStr;
+
+        assert!(shadowed_by_grok("claude", Some(OsStr::new("Stop"))));
+        assert!(shadowed_by_grok("cursor", Some(OsStr::new("stop"))));
+        assert!(!shadowed_by_grok("codex", Some(OsStr::new("Stop"))));
+        assert!(!shadowed_by_grok("claude", None));
     }
 
     #[test]

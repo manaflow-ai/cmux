@@ -921,13 +921,8 @@ fn visit_strings(value: &Value, predicate: &mut impl FnMut(&str) -> bool) -> boo
 }
 
 fn hook_command(provider: &str, event: &str) -> String {
-    let provider_guard = if matches!(provider, "claude" | "cursor") {
-        "[ -z \"${GROK_HOOK_EVENT:-}\" ] && "
-    } else {
-        ""
-    };
     format!(
-        "{provider_guard}[ -n \"${{CMUX_TUI_SOCKET:-}}\" ] && [ -x \"${{CMUX_TUI_HOOK:-}}\" ] && \"${{CMUX_TUI_HOOK}}\" {} {} >/dev/null 2>&1 || true; printf '%s\\n' '{{}}' # {COMMAND_MARKER}",
+        "\"${{CMUX_TUI_HOOK:-:}}\" {} {} >/dev/null 2>&1 || :; printf '{{}}\\n' # {COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
     )
@@ -1035,11 +1030,11 @@ mod tests {
         assert!(text.contains("/tmp/cmux-irc"));
         assert!(!text.contains("cmux-tui-cmux-irc"));
         assert_eq!(text.matches(COMMAND_MARKER).count(), CODEX_EVENTS.len());
-        assert!(text.contains("CMUX_TUI_SOCKET"));
+        assert!(!text.contains("CMUX_TUI_SOCKET"));
         assert!(text.contains("CMUX_TUI_HOOK"));
         assert!(!text.contains(&context.installed_helper().to_string_lossy().to_string()));
         let parsed: Value = serde_json::from_str(&text).unwrap();
-        assert!(visit_strings(&parsed, &mut |value| value.contains("printf '%s\\n' '{}'")));
+        assert!(visit_strings(&parsed, &mut |value| value.contains("printf '{}\\n'")));
 
         let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
         let result = run_with_context(&uninstall, &context);
