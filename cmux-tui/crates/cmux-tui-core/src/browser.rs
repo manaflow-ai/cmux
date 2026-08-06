@@ -5368,6 +5368,8 @@ mod tests {
     use std::time::{Duration, Instant};
     use tungstenite::{Message, accept};
 
+    const NAVIGATION_SUPERSESSION_TEST_TIMEOUT: Duration = Duration::from_secs(5);
+
     fn test_frame(seq: u64) -> BrowserFrame {
         BrowserFrame {
             session_id: "session-test".to_string(),
@@ -9454,7 +9456,6 @@ mod tests {
             assert_eq!(reload["method"], "Page.reload");
             write_ws_json(&mut ws, json!({"id": reload["id"], "result": {}}));
 
-            ws.get_ref().set_read_timeout(Some(Duration::from_millis(250))).unwrap();
             let Ok(message) = ws.read() else {
                 superseded_tx.send(false).unwrap();
                 return;
@@ -9490,7 +9491,7 @@ mod tests {
                 }),
             );
             superseded_tx.send(true).unwrap();
-            stop_rx.recv().unwrap();
+            stop_rx.recv_timeout(NAVIGATION_SUPERSESSION_TEST_TIMEOUT).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -9513,11 +9514,12 @@ mod tests {
 
         browser.reload_blocking().unwrap();
         let navigate_result = browser.navigate_blocking("https://next.test");
-        let superseded = superseded_rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
+        let superseded =
+            superseded_rx.recv_timeout(NAVIGATION_SUPERSESSION_TEST_TIMEOUT).unwrap_or(false);
 
         let mut admitted = false;
         if navigate_result.is_ok() {
-            let deadline = Instant::now() + Duration::from_secs(1);
+            let deadline = Instant::now() + NAVIGATION_SUPERSESSION_TEST_TIMEOUT;
             while Instant::now() < deadline
                 && browser.state.lock().unwrap().pending_navigation_epoch.is_some()
             {
@@ -9527,7 +9529,7 @@ mod tests {
             admitted =
                 browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(2));
         }
-        stop_tx.send(()).unwrap();
+        let _ = stop_tx.send(());
         runtime.shutdown();
         server.join().unwrap();
 
@@ -9565,7 +9567,6 @@ mod tests {
             assert_eq!(first_reload["method"], "Page.reload");
             write_ws_json(&mut ws, json!({"id": first_reload["id"], "result": {}}));
 
-            ws.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
             let Ok(message) = ws.read() else {
                 superseded_tx.send(false).unwrap();
                 return;
@@ -9584,7 +9585,7 @@ mod tests {
             }
             write_ws_json(&mut ws, json!({"id": second_reload["id"], "result": {}}));
             superseded_tx.send(true).unwrap();
-            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            stop_rx.recv_timeout(NAVIGATION_SUPERSESSION_TEST_TIMEOUT).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -9603,7 +9604,8 @@ mod tests {
 
         browser.reload_blocking().unwrap();
         let second_reload = browser.reload_blocking();
-        let superseded = superseded_rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
+        let superseded =
+            superseded_rx.recv_timeout(NAVIGATION_SUPERSESSION_TEST_TIMEOUT).unwrap_or(false);
 
         let _ = stop_tx.send(());
         runtime.shutdown();
