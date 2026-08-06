@@ -92,7 +92,8 @@ fn codex_routes_directly_to_vercel_without_a_daemon() {
 fn opencode_uses_the_vercel_rewritten_provider_catalog() {
     use std::os::unix::fs::PermissionsExt;
 
-    let server = MockServer::start(1, |path| match path {
+    let server = MockServer::start(2, |path| match path {
+        "/api/coderouter/session" => json!({}),
         "/api/coderouter/opencode/config" => json!({
             "provider": {
                 "go": {
@@ -140,7 +141,10 @@ fn opencode_uses_the_vercel_rewritten_provider_catalog() {
 fn pi_uses_an_ephemeral_coderouter_provider() {
     use std::os::unix::fs::PermissionsExt;
 
-    let server = MockServer::start(1, |path| {
+    let server = MockServer::start(2, |path| {
+        if path == "/api/coderouter/session" {
+            return json!({});
+        }
         assert!(path.starts_with("/v1/models?client_version="));
         json!({
             "models": [{
@@ -181,7 +185,8 @@ fn pi_uses_an_ephemeral_coderouter_provider() {
 
 #[test]
 fn bare_command_lists_vercel_accounts_without_debug_timing() {
-    let server = MockServer::start(1, |path| match path {
+    let server = MockServer::start(2, |path| match path {
+        "/api/coderouter/session" => json!({}),
         "/api/coderouter/accounts" => json!({
             "usageAgeSeconds": 8,
             "cacheMaxAgeSeconds": 15,
@@ -250,8 +255,64 @@ fn bare_command_lists_vercel_accounts_without_debug_timing() {
 }
 
 #[test]
+fn revoked_route_token_is_renewed_without_browser_login() {
+    let server = MockServer::start_status(5, |path| match path {
+        "/api/coderouter/session" => (401, json!({ "error": "unauthorized" })),
+        "/stack/auth/oauth/token" => (
+            200,
+            json!({
+                "access_token": "fresh-access",
+                "refresh_token": "fresh-refresh"
+            }),
+        ),
+        "/api/cli/config" => (
+            200,
+            json!({
+                "version": 3,
+                "auth": {
+                    "apiUrl": "__BASE__/stack",
+                    "projectId": "project",
+                    "publishableClientKey": "publishable",
+                    "confirmUrl": "__BASE__/confirm"
+                },
+                "coderouter": {
+                    "sessionUrl": "__BASE__/api/coderouter/renew",
+                    "openaiBaseUrl": "__BASE__/v1"
+                }
+            }),
+        ),
+        "/api/coderouter/renew" => (
+            200,
+            json!({
+                "token": "renewed-route-secret",
+                "expiresAt": "2026-10-01T00:00:00Z",
+                "openaiBaseUrl": "__BASE__/v1"
+            }),
+        ),
+        "/api/coderouter/accounts" => (200, json!({ "accounts": [] })),
+        _ => panic!("unexpected path {path}"),
+    });
+    let root = TempDir::new().unwrap();
+    write_config(&root, &server.base_url);
+
+    Command::cargo_bin("cr")
+        .unwrap()
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No accounts configured."));
+
+    let config: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.path().join("coderouter/config.json")).unwrap())
+            .unwrap();
+    assert_eq!(config["routeToken"], "renewed-route-secret");
+    assert_eq!(config["stackRefreshToken"], "fresh-refresh");
+}
+
+#[test]
 fn remove_deletes_the_selected_subscription() {
-    let server = MockServer::start(3, |path| match path {
+    let server = MockServer::start(4, |path| match path {
+        "/api/coderouter/session" => json!({}),
         "/api/coderouter/accounts" => json!({
             "accounts": [{
                 "id": "00000000-0000-4000-8000-000000000001",
@@ -283,7 +344,7 @@ fn remove_deletes_the_selected_subscription() {
 }
 
 #[test]
-fn login_uses_native_stack_and_vercel_session_exchange() {
+fn login_persists_an_explicit_self_hosted_server() {
     let server = MockServer::start(6, |path| match path {
         "/api/cli/config" => json!({
             "version": 3,
@@ -325,8 +386,7 @@ fn login_uses_native_stack_and_vercel_session_exchange() {
 
     Command::cargo_bin("cr")
         .unwrap()
-        .args(["login", "--no-browser"])
-        .env("CODEROUTER_API_URL", &server.base_url)
+        .args(["login", "--no-browser", "--server", &server.base_url])
         .env("CODEROUTER_DATA_DIR", root.path())
         .assert()
         .success()
@@ -339,6 +399,8 @@ fn login_uses_native_stack_and_vercel_session_exchange() {
         serde_json::from_slice(&fs::read(root.path().join("coderouter/config.json")).unwrap())
             .unwrap();
     assert_eq!(config["routeToken"], "route-secret");
+    assert_eq!(config["apiUrl"], server.base_url);
+    assert_eq!(config["openaiBaseUrl"], format!("{}/v1", server.base_url));
 }
 
 #[test]
@@ -454,6 +516,35 @@ impl MockServer {
                     .respond(Response::from_string(body).with_header(
                         Header::from_bytes("content-type", "application/json").unwrap(),
                     ))
+                    .unwrap();
+            }
+        });
+        Self { base_url }
+    }
+
+    fn start_status(
+        requests: usize,
+        handler: impl Fn(&str) -> (u16, serde_json::Value) + Send + 'static,
+    ) -> Self {
+        let server = Server::http("127.0.0.1:0").unwrap();
+        let address = server.server_addr().to_ip().unwrap();
+        let base_url = format!("http://{address}");
+        let replacement = base_url.clone();
+        thread::spawn(move || {
+            for _ in 0..requests {
+                let request = server.recv().unwrap();
+                let (status, value) = handler(request.url());
+                let body = serde_json::to_string(&value)
+                    .unwrap()
+                    .replace("__BASE__", &replacement);
+                request
+                    .respond(
+                        Response::from_string(body)
+                            .with_status_code(status)
+                            .with_header(
+                                Header::from_bytes("content-type", "application/json").unwrap(),
+                            ),
+                    )
                     .unwrap();
             }
         });

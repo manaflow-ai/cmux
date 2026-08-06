@@ -25,6 +25,7 @@ Usage:
   cr add opencode               Add OpenCode Go
   cr remove [account] [--yes]   Remove a subscription
   cr login | logout             Manage this machine's coderouter login
+  cr login --server <URL>        Sign in to a self-hosted coderouter server
   cr login --code [code|URL]    Sign in without opening a local browser
   cr accounts                   List shared subscriptions and usage
   cr usage                      Show subscription usage
@@ -91,10 +92,6 @@ fn run_routed_pi(args: &[OsString]) -> Result<i32, Error> {
             "`cr pi` fixes the provider to coderouter; use bare `pi` for another provider".into(),
         ));
     }
-    let config = crate::config::load()?;
-    if !config.logged_in() {
-        return Err(Error::Usage("not signed in; run `cr login`".into()));
-    }
     let pi = process::find_on_path("pi").ok_or_else(|| {
         Error::Usage(
             "Pi is not installed or is not on PATH; install Pi before running `cr pi`".into(),
@@ -102,6 +99,7 @@ fn run_routed_pi(args: &[OsString]) -> Result<i32, Error> {
     })?;
     let loading = crate::loading::DelayedSpinner::new("Preparing Pi");
     let models = control_plane::codex_models()?;
+    let config = crate::config::load()?;
     let extension = pi_provider_extension(&config.openai_base_url, &models)?;
     let mut file = tempfile::Builder::new()
         .prefix("coderouter-pi-")
@@ -213,10 +211,10 @@ fn selected_model(args: &[OsString]) -> Result<Option<&str>, Error> {
 }
 
 fn run_routed_codex(args: &[OsString]) -> Result<i32, Error> {
-    let config = crate::config::load()?;
-    if !config.logged_in() {
-        return Err(Error::Usage("not signed in; run `cr login`".into()));
-    }
+    let loading = crate::loading::DelayedSpinner::new("Preparing Codex");
+    let result = control_plane::ensure_route_config();
+    loading.finish();
+    let config = result?;
     let codex = resolve_real_codex()?;
     let provider = vec![
         process::os("-c"),
@@ -409,10 +407,13 @@ fn run_remove(args: &[OsString]) -> Result<i32, Error> {
 }
 
 fn run_login(rest: &[OsString]) -> Result<i32, Error> {
+    let (rest, server) = login_server_argument(rest)?;
     if rest.is_empty() {
         match tui::choose_login_action()? {
-            LoginChoice::Browser => control_plane::login(false)?,
-            LoginChoice::Code => control_plane::login_with_code(&prompt_login_code()?)?,
+            LoginChoice::Browser => control_plane::login_at(false, server.as_deref())?,
+            LoginChoice::Code => {
+                control_plane::login_with_code_at(&prompt_login_code()?, server.as_deref())?
+            }
             LoginChoice::Cancel => return Ok(0),
         }
         return Ok(0);
@@ -420,14 +421,15 @@ fn run_login(rest: &[OsString]) -> Result<i32, Error> {
     if rest.first().and_then(|arg| arg.to_str()) == Some("--code") {
         if rest.len() > 2 {
             return Err(Error::Usage(
-                "usage: cr login [--no-browser|--device-auth|--code [code-or-URL]]".into(),
+                "usage: cr login [--server URL] [--no-browser|--device-auth|--code [code-or-URL]]"
+                    .into(),
             ));
         }
         let code = match rest.get(1).and_then(|arg| arg.to_str()) {
             Some(value) => value.to_owned(),
             None => prompt_login_code()?,
         };
-        control_plane::login_with_code(&code)?;
+        control_plane::login_with_code_at(&code, server.as_deref())?;
         return Ok(0);
     }
     let no_browser = rest.iter().any(|arg| {
@@ -443,11 +445,42 @@ fn run_login(rest: &[OsString]) -> Result<i32, Error> {
         )
     }) {
         return Err(Error::Usage(
-            "usage: cr login [--no-browser|--device-auth|--code [code-or-URL]]".into(),
+            "usage: cr login [--server URL] [--no-browser|--device-auth|--code [code-or-URL]]"
+                .into(),
         ));
     }
-    control_plane::login(no_browser)?;
+    control_plane::login_at(no_browser, server.as_deref())?;
     Ok(0)
+}
+
+fn login_server_argument(rest: &[OsString]) -> Result<(Vec<OsString>, Option<String>), Error> {
+    let mut filtered = Vec::with_capacity(rest.len());
+    let mut server = None;
+    let mut index = 0;
+    while index < rest.len() {
+        let value = rest[index].to_string_lossy();
+        let candidate = if value == "--server" {
+            index += 1;
+            rest.get(index)
+                .and_then(|value| value.to_str())
+                .map(str::to_owned)
+                .ok_or_else(|| Error::Usage("`--server` requires a URL".into()))?
+        } else if let Some(value) = value.strip_prefix("--server=") {
+            if value.is_empty() {
+                return Err(Error::Usage("`--server` requires a URL".into()));
+            }
+            value.to_owned()
+        } else {
+            filtered.push(rest[index].clone());
+            index += 1;
+            continue;
+        };
+        if server.replace(candidate).is_some() {
+            return Err(Error::Usage("`--server` may only be supplied once".into()));
+        }
+        index += 1;
+    }
+    Ok((filtered, server))
 }
 
 fn prompt_login_code() -> Result<String, Error> {
@@ -498,6 +531,7 @@ fn run_doctor(rest: &[OsString]) -> Result<i32, Error> {
         }
     );
     println!("{:<20} {}", "data plane", config.openai_base_url);
+    println!("{:<20} {}", "control plane", config.api_url);
     println!("{:<20} none", "local daemon");
     Ok(if config.logged_in() { 0 } else { 1 })
 }
@@ -573,6 +607,18 @@ mod tests {
     fn agent_arguments_require_an_explicit_agent_command() {
         let error = run(args(&["cr", "--yolo"])).unwrap_err();
         assert!(error.to_string().contains("cr codex"));
+    }
+
+    #[test]
+    fn login_accepts_an_explicit_self_hosted_server() {
+        let (remaining, server) = login_server_argument(&args(&[
+            "--device-auth",
+            "--server",
+            "https://router.example.com/",
+        ]))
+        .unwrap();
+        assert_eq!(remaining, args(&["--device-auth"]));
+        assert_eq!(server.as_deref(), Some("https://router.example.com/"));
     }
 
     #[test]

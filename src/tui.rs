@@ -1,6 +1,6 @@
 use std::io::{self, IsTerminal};
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -140,6 +140,9 @@ fn choose_remove(
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        if is_cancel_key(key) {
+            return Ok(None);
+        }
         let selected = state.selected().unwrap_or(0);
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -149,7 +152,6 @@ fn choose_remove(
                 state.select(Some((selected + 1) % accounts.len()));
             }
             KeyCode::Enter => return Ok(Some(accounts[selected].clone())),
-            KeyCode::Esc | KeyCode::Char('q') => return Ok(None),
             _ => {}
         }
     }
@@ -168,6 +170,9 @@ fn choose_login(
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        if is_cancel_key(key) {
+            return Ok(LoginChoice::Cancel);
+        }
         let selected = state.selected().unwrap_or(0);
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -177,7 +182,6 @@ fn choose_login(
                 state.select(Some((selected + 1) % choices.len()));
             }
             KeyCode::Enter => return Ok(choices[selected]),
-            KeyCode::Esc | KeyCode::Char('q') => return Ok(LoginChoice::Cancel),
             _ => {}
         }
     }
@@ -193,6 +197,9 @@ fn choose(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<AddCh
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        if is_cancel_key(key) {
+            return Ok(AddChoice::Cancel);
+        }
         let selected = state.selected().unwrap_or(0);
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
@@ -204,10 +211,14 @@ fn choose(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<AddCh
             KeyCode::Char('1') => return Ok(ITEMS[0].0),
             KeyCode::Char('2') => return Ok(ITEMS[1].0),
             KeyCode::Enter => return Ok(ITEMS[selected].0),
-            KeyCode::Esc | KeyCode::Char('q') => return Ok(AddChoice::Cancel),
             _ => {}
         }
     }
+}
+
+fn is_cancel_key(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Esc | KeyCode::Char('q'))
+        || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
 }
 
 fn draw_add(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
@@ -253,7 +264,7 @@ fn draw_add(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
     );
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "↑/↓ move  enter select  esc cancel",
+            "↑/↓ move  enter select  esc/ctrl-c cancel",
             Style::default().fg(Color::DarkGray),
         )),
         footer,
@@ -309,7 +320,7 @@ fn draw_login(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
     );
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "↑/↓ move  enter select  esc cancel",
+            "↑/↓ move  enter select  esc/ctrl-c cancel",
             Style::default().fg(Color::DarkGray),
         )),
         footer,
@@ -347,7 +358,7 @@ fn draw_remove(frame: &mut ratatui::Frame<'_>, state: &mut ListState, accounts: 
     );
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "↑/↓ move  enter select  esc cancel",
+            "↑/↓ move  enter select  esc/ctrl-c cancel",
             Style::default().fg(Color::DarkGray),
         )),
         footer,
@@ -370,6 +381,19 @@ mod tests {
         assert!(screen.contains("OpenCode Go"));
         assert!(!screen.contains("Claude"));
         assert!(screen.contains("encrypted"));
+        assert!(screen.contains("ctrl-c cancel"));
+    }
+
+    #[test]
+    fn ctrl_c_is_a_cancel_key() {
+        assert!(is_cancel_key(KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        )));
+        assert!(!is_cancel_key(KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::NONE,
+        )));
     }
 
     #[test]

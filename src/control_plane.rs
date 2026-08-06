@@ -99,8 +99,12 @@ pub struct OpenCodeConfig {
 }
 
 pub fn login(no_browser: bool) -> Result<(), Error> {
+    login_at(no_browser, None)
+}
+
+pub fn login_at(no_browser: bool, server: Option<&str>) -> Result<(), Error> {
     let starting = crate::loading::DelayedSpinner::new("Starting coderouter authorization");
-    let api_url = api_url()?;
+    let api_url = api_url_for(server)?;
     let client = client(REQUEST_TIMEOUT)?;
     let public = load_public_config(&client, &api_url)?;
 
@@ -159,9 +163,9 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
     complete_login(&api_url, &client, &public, &refresh_token)
 }
 
-pub fn login_with_code(value: &str) -> Result<(), Error> {
+pub fn login_with_code_at(value: &str, server: Option<&str>) -> Result<(), Error> {
     let exchanging = crate::loading::DelayedSpinner::new("Exchanging coderouter sign-in code");
-    let api_url = api_url()?;
+    let api_url = api_url_for(server)?;
     let client = client(REQUEST_TIMEOUT)?;
     let public = load_public_config(&client, &api_url)?;
     let code = code_from_value(value)?;
@@ -303,11 +307,49 @@ pub fn refreshed_config() -> Result<Config, Error> {
     Ok(current)
 }
 
-pub fn accounts() -> Result<Value, Error> {
+pub fn ensure_route_config() -> Result<Config, Error> {
     let current = config::load()?;
     if !current.logged_in() {
         return Err(Error::Usage("not signed in; run `cr login`".into()));
     }
+    let client = client(REQUEST_TIMEOUT)?;
+    let response = client
+        .get(format!(
+            "{}/api/coderouter/session",
+            current.api_url.trim_end_matches('/')
+        ))
+        .bearer_auth(&current.route_token)
+        .send()
+        .map_err(network_error("validate coderouter route session"))?;
+    if response.status().is_success() {
+        return Ok(current);
+    }
+    // Older compatible self-hosts may not expose the validation endpoint.
+    if matches!(response.status().as_u16(), 404 | 405) {
+        return Ok(current);
+    }
+    if response.status().as_u16() != 401 {
+        return response_json::<Value>(response, "validate coderouter route session")
+            .map(|_| current);
+    }
+
+    let mut current = refreshed_config()?;
+    let public = load_public_config(&client, &current.api_url)?;
+    let route: RouteSession = response_json(
+        authenticated(client.post(&public.coderouter.session_url), &current)
+            .send()
+            .map_err(network_error("renew coderouter route session"))?,
+        "renew coderouter route session",
+    )?;
+    current.route_token = route.token;
+    current.route_token_expires_at = route.expires_at;
+    current.openai_base_url = route.openai_base_url;
+    config::save(&current)?;
+    Ok(current)
+}
+
+pub fn accounts() -> Result<Value, Error> {
+    let current = ensure_route_config()?;
     response_json(
         client(REQUEST_TIMEOUT)?
             .get(format!(
@@ -322,10 +364,7 @@ pub fn accounts() -> Result<Value, Error> {
 }
 
 pub fn codex_models() -> Result<Vec<CodexModel>, Error> {
-    let current = config::load()?;
-    if !current.logged_in() {
-        return Err(Error::Usage("not signed in; run `cr login`".into()));
-    }
+    let current = ensure_route_config()?;
     let value: Value = response_json(
         client(REQUEST_TIMEOUT)?
             .get(format!(
@@ -410,10 +449,7 @@ pub fn upload_credential(credential: &Value) -> Result<Value, Error> {
 }
 
 pub fn opencode_config() -> Result<OpenCodeConfig, Error> {
-    let current = config::load()?;
-    if !current.logged_in() {
-        return Err(Error::Usage("not signed in; run `cr login`".into()));
-    }
+    let current = ensure_route_config()?;
     let value: Value = response_json(
         client(REQUEST_TIMEOUT)?
             .get(format!(
@@ -618,9 +654,11 @@ fn auth_from_config(current: &Config) -> AuthConfig {
     }
 }
 
-fn api_url() -> Result<String, Error> {
-    let value = std::env::var("CODEROUTER_API_URL")
-        .unwrap_or_else(|_| DEFAULT_API_URL.to_owned())
+fn api_url_for(server: Option<&str>) -> Result<String, Error> {
+    let value = server
+        .map(str::to_owned)
+        .or_else(|| std::env::var("CODEROUTER_API_URL").ok())
+        .unwrap_or_else(|| DEFAULT_API_URL.to_owned())
         .trim_end_matches('/')
         .to_owned();
     let url = reqwest::Url::parse(&value)
@@ -632,7 +670,7 @@ fn api_url() -> Result<String, Error> {
             .is_some_and(|ip| ip.is_loopback());
     if url.scheme() != "https" && !(url.scheme() == "http" && loopback) {
         return Err(Error::Usage(
-            "CODEROUTER_API_URL must use HTTPS except on loopback".into(),
+            "coderouter server URL must use HTTPS except on loopback".into(),
         ));
     }
     Ok(value)
@@ -653,6 +691,22 @@ fn response_json<T: serde::de::DeserializeOwned>(
     let status = response.status();
     if !status.is_success() {
         let body = response.text().unwrap_or_default();
+        if status.as_u16() == 402
+            && serde_json::from_str::<Value>(&body)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("error")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+                .as_deref()
+                == Some("pro_required")
+        {
+            return Err(Error::Usage(
+                "hosted coderouter requires cmux Pro; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`".into(),
+            ));
+        }
         return Err(Error::Backend(format!(
             "{action}: HTTP {status}{}",
             if body.trim().is_empty() {
