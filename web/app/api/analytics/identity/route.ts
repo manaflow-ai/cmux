@@ -6,9 +6,7 @@ export const dynamic = "force-dynamic";
 
 type IdentityRouteDependencies = {
   readonly isConfigured: () => boolean;
-  readonly getUser: (
-    request: Request,
-  ) => Promise<{
+  readonly getUser: () => Promise<{
     readonly id: string;
     readonly isAnonymous: boolean;
     readonly clientReadOnlyMetadata?: unknown;
@@ -17,12 +15,7 @@ type IdentityRouteDependencies = {
 
 const defaultDependencies: IdentityRouteDependencies = {
   isConfigured: isStackConfigured,
-  getUser: (request) => getStackServerApp().getUser({
-      or: "return-null",
-      tokenStore: request as unknown as {
-        headers: { get(name: string): string | null };
-      },
-    }),
+  getUser: () => getStackServerApp().getUser({ or: "return-null" }),
 };
 
 export const GET = makeAnalyticsIdentityHandler();
@@ -31,9 +24,10 @@ export function makeAnalyticsIdentityHandler(
   dependencies: IdentityRouteDependencies = defaultDependencies,
 ) {
   return async function GET(request: Request): Promise<NextResponse> {
+    void request;
     if (!dependencies.isConfigured()) return identityResponse(null);
 
-    const user = await dependencies.getUser(request);
+    const user = await dependencies.getUser();
     // Stack anonymous checkout users must not replace PostHog's browser-level
     // anonymous identity. They become canonical only after account conversion.
     return identityResponse(user && !user.isAnonymous
