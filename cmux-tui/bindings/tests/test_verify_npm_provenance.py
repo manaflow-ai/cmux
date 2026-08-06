@@ -233,7 +233,7 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
         for name in environment:
             self.assertNotIn("TOKEN", name.upper())
 
-    def test_accepts_all_required_bootstrap_dist_tags(self) -> None:
+    def test_accepts_npm_latest_for_the_sole_bootstrap_release(self) -> None:
         metadata = self.metadata()
         metadata["dist-tags"]["latest"] = self.version
         completed = (
@@ -267,6 +267,9 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
     def test_accepts_a_stable_latest_tag_after_bootstrap(self) -> None:
         metadata = self.metadata()
         metadata["dist-tags"]["latest"] = "1.0.0"
+        stable_release = dict(metadata["versions"][self.version])
+        stable_release["version"] = "1.0.0"
+        metadata["versions"]["1.0.0"] = stable_release
         completed = (
             subprocess.CompletedProcess([], 0, stdout="", stderr=""),
             subprocess.CompletedProcess(
@@ -294,6 +297,29 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
                 required_dist_tags=("latest",),
                 **self.verification_options(),
             )
+
+    def test_rejects_bootstrap_latest_after_a_stable_release_exists(self) -> None:
+        metadata = self.metadata()
+        metadata["dist-tags"]["latest"] = self.version
+        stable_release = dict(metadata["versions"][self.version])
+        stable_release["version"] = "1.0.0"
+        metadata["versions"]["1.0.0"] = stable_release
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            side_effect=self.registry_response(metadata=metadata),
+        ), mock.patch.object(provenance.subprocess, "run") as run, \
+            self.assertRaisesRegex(provenance.ProvenanceError, "prerelease"):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.repository_url,
+                self.repository_directory,
+                self.artifact,
+                required_dist_tags=("latest",),
+                **self.verification_options(),
+            )
+        run.assert_not_called()
 
     def test_rejects_a_missing_required_bootstrap_dist_tag(self) -> None:
         with mock.patch.object(

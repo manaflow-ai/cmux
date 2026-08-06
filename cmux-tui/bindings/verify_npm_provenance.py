@@ -111,6 +111,15 @@ def _validate_metadata(
         for required_tag in required_dist_tags
     ):
         raise ProvenanceError("npm required dist-tag is missing")
+    for required_tag in required_dist_tags:
+        tagged_version = tags[required_tag]
+        if not isinstance(versions.get(tagged_version), dict):
+            raise ProvenanceError("npm required dist-tag names an unknown release")
+        if required_tag == "latest" and "-" in tagged_version:
+            # npm requires a latest tag even when the ownership bootstrap is
+            # the project's sole release. A later release must replace it.
+            if tagged_version != version or len(versions) != 1:
+                raise ProvenanceError("npm latest dist-tag names a prerelease")
 
     repository = release.get("repository")
     if not isinstance(repository, dict) or repository != {
