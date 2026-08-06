@@ -70,8 +70,14 @@ use std::ffi::CStr;
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::net::Shutdown;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(unix)]
+use std::sync::atomic::AtomicI32;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Context;
@@ -94,6 +100,10 @@ use zeroize::Zeroize;
 
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 #[cfg(unix)]
+static SIGNAL_WAKE_READER: AtomicI32 = AtomicI32::new(-1);
+#[cfg(unix)]
+static SIGNAL_WAKE_WRITER: AtomicI32 = AtomicI32::new(-1);
+#[cfg(unix)]
 const MACHINE_PROVIDER_TOKEN_ENV: &str = "CMUX_MACHINE_PROVIDER_TOKEN";
 const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORITY";
 
@@ -105,6 +115,15 @@ unsafe extern "C" {
 #[cfg(unix)]
 extern "C" fn handle_signal(_: libc::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::Release);
+    let writer = SIGNAL_WAKE_WRITER.load(Ordering::Relaxed);
+    if writer >= 0 {
+        let byte = 1_u8;
+        // SAFETY: write(2) is async-signal-safe, `writer` is a process-lifetime
+        // socket descriptor, and the one-byte source remains valid for the call.
+        unsafe {
+            let _ = libc::write(writer, std::ptr::from_ref(&byte).cast(), 1);
+        }
+    }
 }
 
 pub(crate) fn shutdown_requested() -> bool {
@@ -113,10 +132,27 @@ pub(crate) fn shutdown_requested() -> bool {
 
 #[cfg(unix)]
 fn install_signal_handlers() -> io::Result<()> {
+    let (wake_reader, wake_writer) = UnixStream::pair()?;
+    for descriptor in [wake_reader.as_raw_fd(), wake_writer.as_raw_fd()] {
+        // UnixStream currently creates close-on-exec descriptors, but enforce
+        // the ownership contract before these descriptors become process-wide.
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    wake_writer.set_nonblocking(true)?;
+    SIGNAL_WAKE_READER.store(wake_reader.as_raw_fd(), Ordering::Release);
+    SIGNAL_WAKE_WRITER.store(wake_writer.as_raw_fd(), Ordering::Release);
     unsafe {
         let mut action = std::mem::zeroed::<libc::sigaction>();
         action.sa_sigaction = handle_signal as *const () as libc::sighandler_t;
         if libc::sigemptyset(&mut action.sa_mask) != 0 {
+            SIGNAL_WAKE_READER.store(-1, Ordering::Release);
+            SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
             return Err(io::Error::last_os_error());
         }
         // Termination must interrupt startup and teardown syscalls. In
@@ -125,11 +161,41 @@ fn install_signal_handlers() -> io::Result<()> {
         action.sa_flags = 0;
         for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
+                SIGNAL_WAKE_READER.store(-1, Ordering::Release);
+                SIGNAL_WAKE_WRITER.store(-1, Ordering::Release);
                 return Err(io::Error::last_os_error());
             }
         }
     }
+    // The signal handler and one cancellation watcher own these descriptors
+    // for the process lifetime. CLI exit and daemon shutdown reclaim them.
+    std::mem::forget(wake_reader);
+    std::mem::forget(wake_writer);
     Ok(())
+}
+
+#[cfg(unix)]
+pub(crate) fn wait_for_shutdown_signal() {
+    if shutdown_requested() {
+        return;
+    }
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    if reader < 0 {
+        return;
+    }
+    let mut byte = 0_u8;
+    loop {
+        // SAFETY: `reader` is the process-lifetime socket descriptor installed
+        // before signal handlers, and the one-byte destination is writable.
+        let result = unsafe { libc::read(reader, std::ptr::from_mut(&mut byte).cast(), 1) };
+        if result > 0 || shutdown_requested() {
+            return;
+        }
+        if result < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        return;
+    }
 }
 
 // No POSIX signals on Windows; Ctrl-C arrives as console input and the

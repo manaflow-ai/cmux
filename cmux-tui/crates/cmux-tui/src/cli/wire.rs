@@ -1,4 +1,6 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::net::Shutdown;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -71,15 +73,34 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             Err(exit_code) => return exit_code,
         }
     }
-    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan));
+    #[cfg(unix)]
+    let signal_interrupt_armed = plan.stream && arm_signal_interrupt(reader.get_ref().as_ref());
+    #[cfg(not(unix))]
+    let signal_interrupt_armed = false;
+    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, signal_interrupt_armed));
     if let Err(error) = reader.get_mut().write_all(&encoded).and_then(|_| {
         reader.get_mut().write_all(b"\n")?;
         reader.get_mut().flush()
     }) {
+        if plan.stream && crate::shutdown_requested() {
+            return 0;
+        }
         eprintln!("transport error: {error}");
         return 3;
     }
     run_response(&mut reader, &global, &plan, &request_id)
+}
+
+#[cfg(unix)]
+fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
+    let Ok(stream) = stream.try_clone_box() else { return false };
+    std::thread::Builder::new()
+        .name("cmux-cli-signal-interrupt".into())
+        .spawn(move || {
+            crate::wait_for_shutdown_signal();
+            let _ = stream.shutdown(Shutdown::Both);
+        })
+        .is_ok()
 }
 
 fn required_server_capability(plan: &RequestPlan) -> Option<&'static str> {
@@ -163,9 +184,9 @@ fn require_server_capability(
     Err(print_local_error(&error, global.output, 1))
 }
 
-fn response_read_timeout(plan: &RequestPlan) -> Option<Duration> {
+fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Option<Duration> {
     if plan.stream {
-        return Some(Duration::from_millis(250));
+        return (!signal_interrupt_armed).then_some(Duration::from_millis(250));
     }
     if matches!(
         &plan.operation,
@@ -240,6 +261,9 @@ fn run_response(
                 return 3;
             }
             Err(error) => {
+                if plan.stream && crate::shutdown_requested() {
+                    return 0;
+                }
                 eprintln!("{error}");
                 return 3;
             }
@@ -727,10 +751,22 @@ mod tests {
                 idempotency_key: None,
                 stream: false,
             };
-            assert_eq!(response_read_timeout(&bounded), Some(Duration::from_secs(7)));
+            assert_eq!(response_read_timeout(&bounded, false), Some(Duration::from_secs(7)));
 
             let unbounded = RequestPlan { params: json!({}), ..bounded };
-            assert_eq!(response_read_timeout(&unbounded), None);
+            assert_eq!(response_read_timeout(&unbounded, false), None);
         }
+    }
+
+    #[test]
+    fn stream_timeout_polling_is_only_a_signal_watcher_fallback() {
+        let stream = RequestPlan {
+            operation: WireOperation::Typed(ResourceOperation::SessionJournalSubscribe),
+            params: json!({}),
+            idempotency_key: None,
+            stream: true,
+        };
+        assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
+        assert_eq!(response_read_timeout(&stream, true), None);
     }
 }
