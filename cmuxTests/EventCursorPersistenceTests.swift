@@ -32,7 +32,7 @@ final class EventCursorPersistenceTests {
 
         let outputPipe = Pipe()
         let process = Process()
-        process.executableURL = URL(
+        process.executableURL = try URL(
             fileURLWithPath: BundledCLITestSupport.bundledCLIPath(for: Self.self)
         )
         process.arguments = [
