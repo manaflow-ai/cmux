@@ -1,65 +1,47 @@
-import { unstable_cache } from "next/cache";
 import {
   listAccounts,
   listEncryptedCredentials,
   markAccountCooldown,
 } from "./repository";
 import { freshCredential } from "./refresh";
+import { fetchProviderRead } from "./providerFetch";
+import { reportCoderouterFailure } from "./observability";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
-const USAGE_CACHE_MS = 15_000;
-const MAX_CACHED_TEAMS = 256;
-const usageCache = new Map<string, {
-  readonly expiresAt: number;
-  readonly accounts: Awaited<ReturnType<typeof loadAccountsWithUsage>>;
-}>();
 const usageRequests = new Map<
   string,
   Promise<Awaited<ReturnType<typeof loadAccountsWithUsage>>>
 >();
-const sharedAccountsWithUsage = unstable_cache(
-  loadAccountsWithUsage,
-  ["coderouter-usage-v1"],
-  { revalidate: USAGE_CACHE_MS / 1_000 },
-);
 
 export async function accountsWithUsage(teamId: string) {
-  const cached = usageCache.get(teamId);
-  if (cached && cached.expiresAt > Date.now()) return cached.accounts;
   const pending = usageRequests.get(teamId);
   if (pending) return await pending;
 
-  // Vercel's encrypted data cache is shared across function instances. It
-  // stores only account summaries and provider usage, never credentials.
-  const request = sharedAccountsWithUsage(teamId);
+  // Provider reads fan out in parallel. Coalesce only requests that are
+  // concurrently in flight; completed quota data is never served from cache.
+  const request = loadAccountsWithUsage(teamId);
   usageRequests.set(teamId, request);
   try {
-    const accounts = await request;
-    if (usageCache.size >= MAX_CACHED_TEAMS && !usageCache.has(teamId)) {
-      const oldest = usageCache.keys().next().value;
-      if (oldest !== undefined) usageCache.delete(oldest);
-    }
-    usageCache.delete(teamId);
-    usageCache.set(teamId, {
-      expiresAt: Date.now() + USAGE_CACHE_MS,
-      accounts,
-    });
-    return accounts;
+    return await request;
   } finally {
     usageRequests.delete(teamId);
   }
 }
 
 async function loadAccountsWithUsage(teamId: string) {
+  const startedAt = performance.now();
   // Account metadata and encrypted envelopes are independent RDS reads.
+  const rdsStartedAt = performance.now();
   const [accounts, credentials] = await Promise.all([
     listAccounts(teamId),
     listEncryptedCredentials(teamId),
   ]);
+  const rdsMs = performance.now() - rdsStartedAt;
   const credentialsByAccount = new Map(
     credentials.map((credential) => [credential.accountId, credential]),
   );
-  return await Promise.all(accounts.map(async (account) => {
+  const providerStartedAt = performance.now();
+  const withUsage = await Promise.all(accounts.map(async (account) => {
     if (account.provider !== "codex" || account.state !== "active") {
       return account;
     }
@@ -71,7 +53,7 @@ async function loadAccountsWithUsage(teamId: string) {
         known: credentialsByAccount.get(account.id),
       });
       if (credential.provider !== "codex") return account;
-      const response = await fetch(CODEX_USAGE_URL, {
+      const response = await fetchProviderRead(() => fetch(CODEX_USAGE_URL, {
         headers: {
           authorization: `Bearer ${credential.accessToken}`,
           "chatgpt-account-id": credential.accountId,
@@ -79,8 +61,13 @@ async function loadAccountsWithUsage(teamId: string) {
         },
         cache: "no-store",
         signal: AbortSignal.timeout(5_000),
-      });
+      }));
       if (!response.ok) {
+        reportCoderouterFailure(
+          response.status === 429 ? "provider_rate_limit" : "provider_usage",
+          new Error("provider usage request failed"),
+          { provider: account.provider, status: response.status },
+        );
         return { ...account, usageError: `HTTP ${response.status}` };
       }
       const usage: unknown = await response.json();
@@ -89,10 +76,24 @@ async function loadAccountsWithUsage(teamId: string) {
         await markAccountCooldown(account.id, cooldownMs);
       }
       return { ...account, usage };
-    } catch {
+    } catch (error) {
+      reportCoderouterFailure("provider_usage", error, {
+        provider: account.provider,
+      });
       return { ...account, usageError: "unavailable" };
     }
   }));
+  return {
+    accounts: withUsage,
+    usageAsOf: new Date().toISOString(),
+    usageGeneratedAtMs: Date.now(),
+    cacheMaxAgeSeconds: 0,
+    timing: {
+      rdsMs,
+      providerMs: performance.now() - providerStartedAt,
+      totalMs: performance.now() - startedAt,
+    },
+  };
 }
 
 function usageCooldown(value: unknown): number | null {

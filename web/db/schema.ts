@@ -460,9 +460,9 @@ export const subrouterTenants = pgTable(
 );
 
 /**
- * Non-secret routing metadata for CodeRouter accounts. Provider credentials
- * live only in the Stack team server-metadata vault; Postgres coordinates
- * selection and rotating refresh-token leases.
+ * Non-secret routing metadata for coderouter accounts. Provider credentials
+ * live in the envelope-encrypted coderouterCredentials table; this table
+ * coordinates selection and rotating refresh-token leases.
  */
 export const coderouterAccounts = pgTable(
   "coderouter_accounts",
@@ -509,6 +509,7 @@ export const coderouterRouteTokens = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
     tokenHash: text("token_hash").notNull(),
     label: text("label").notNull().default("cli"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -519,6 +520,10 @@ export const coderouterRouteTokens = pgTable(
   (table) => [
     uniqueIndex("coderouter_route_tokens_hash_unique").on(table.tokenHash),
     index("coderouter_route_tokens_team_expiry_idx").on(table.teamId, table.expiresAt),
+    index("coderouter_route_tokens_user_expiry_idx").on(
+      table.stackUserId,
+      table.expiresAt,
+    ),
   ],
 );
 

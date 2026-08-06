@@ -336,6 +336,14 @@ type TerminalMoveOptions struct {
 	DestinationPane      Selector[PaneID]
 	Index                uint32
 }
+type TerminalProjectOptions struct {
+	MutationOptions
+	DestinationWorkspace Selector[WorkspaceID]
+	DestinationScreen    Selector[ScreenID]
+	DestinationPane      Selector[PaneID]
+	Index                uint32
+	Name                 *string
+}
 type TerminalAttachOptions struct {
 	StreamOptions
 	Cols     *uint16

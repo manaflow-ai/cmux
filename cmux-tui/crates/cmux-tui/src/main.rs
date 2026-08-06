@@ -73,6 +73,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use anyhow::Context;
 use cmux_tui_core::resource::TerminalPublicId;
 use cmux_tui_core::{Mux, ProviderWorkspaceAuthority, SurfaceOptions};
 #[cfg(unix)]
@@ -110,18 +111,32 @@ pub(crate) fn shutdown_requested() -> bool {
 }
 
 #[cfg(unix)]
-fn install_signal_handlers() {
+fn install_signal_handlers() -> io::Result<()> {
     unsafe {
-        libc::signal(libc::SIGTERM, handle_signal as *const () as libc::sighandler_t);
-        libc::signal(libc::SIGINT, handle_signal as *const () as libc::sighandler_t);
-        libc::signal(libc::SIGHUP, handle_signal as *const () as libc::sighandler_t);
+        let mut action = std::mem::zeroed::<libc::sigaction>();
+        action.sa_sigaction = handle_signal as *const () as libc::sighandler_t;
+        if libc::sigemptyset(&mut action.sa_mask) != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // Termination must interrupt startup and teardown syscalls. In
+        // particular, reopening `/dev/tty` can block forever after the host
+        // PTY disappears if the handler is installed with SA_RESTART.
+        action.sa_flags = 0;
+        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            if libc::sigaction(signal, &action, std::ptr::null_mut()) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
     }
+    Ok(())
 }
 
 // No POSIX signals on Windows; Ctrl-C arrives as console input and the
 // TUI's normal quit path handles shutdown.
 #[cfg(not(unix))]
-fn install_signal_handlers() {}
+fn install_signal_handlers() -> io::Result<()> {
+    Ok(())
+}
 
 #[cfg(target_os = "linux")]
 fn linux_environment_variable_present(name: &[u8]) -> bool {
@@ -1000,7 +1015,13 @@ fn main() {
         eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
         std::process::exit(1);
     }
-    install_signal_handlers();
+    if let Err(error) = install_signal_handlers() {
+        eprintln!(
+            "cmux-tui: {}",
+            localization::catalog().runtime.signal_handlers_failed(&error.to_string())
+        );
+        std::process::exit(1);
+    }
     #[cfg(target_os = "linux")]
     if let Some(exit_code) = provider_authority::try_run(&raw_args) {
         std::process::exit(exit_code);
@@ -1490,7 +1511,12 @@ fn run_server(
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime)
     } else {
-        run_tui(Session::Local(mux.clone()), args.session, None)
+        match RemoteSession::connect(&socket_path)
+            .context("connect the interactive client to its session server")
+        {
+            Ok(remote) => run_tui(Session::Remote(remote), args.session, None),
+            Err(error) => Err(error),
+        }
     };
     #[cfg(unix)]
     if let Some(runtime) = remote_runtime {

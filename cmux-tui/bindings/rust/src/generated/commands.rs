@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR 17f8e86213cd09bd9ae05960964c3240f2a92aa4e086f7542bf6211bce9ff350.
+// cmux-tui mux protocol 10, IR 95b6c2dc8101ca1690c39b3dd40e32565dd23e01ed9fabe55270c56ba5532f91.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -348,6 +348,37 @@ pub struct CopyRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreateSurfaceWithReceiptRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub argv: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    pub operation: String,
+    pub origin: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::Id>,
+    pub receipt: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub rows: Optional<u16>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub selector_fallbacks: Option<Vec<T::ResourceSelectors>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub selectors: Optional<T::ResourceSelectors>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub width: Optional<f32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
+pub type CreateSurfaceWithReceiptResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CreateTerminalRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -400,6 +431,16 @@ pub struct CreateWorkspaceRequest {
 
 #[rustfmt::skip]
 pub type CreateWorkspaceResult = T::WorkspaceMutationResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DetachAttachedViewRequest {
+    pub lease: String,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type DetachAttachedViewResult = T::AttachedViewOutcomeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -738,6 +779,16 @@ pub struct ReadScrollbackRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReleaseAttachedViewSizeRequest {
+    pub lease: String,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type ReleaseAttachedViewSizeResult = T::AttachedViewOutcomeResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReleaseSurfaceSizeRequest {
     pub surface: T::Id,
 }
@@ -829,6 +880,18 @@ pub struct ReportAgentRequest {
     pub state: T::AgentState,
     pub surface: T::Id,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResizeAttachedViewRequest {
+    pub cols: u16,
+    pub lease: String,
+    pub rows: u16,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type ResizeAttachedViewResult = T::AttachedViewResizeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1293,6 +1356,10 @@ impl CmuxClient {
         self.execute(&COPY_METADATA, &request)
     }
 
+    pub fn create_surface_with_receipt(&mut self, request: CreateSurfaceWithReceiptRequest) -> Result<CreateSurfaceWithReceiptResult> {
+        self.execute(&CREATE_SURFACE_WITH_RECEIPT_METADATA, &request)
+    }
+
     pub fn create_terminal(&mut self, request: CreateTerminalRequest) -> Result<CreateTerminalResult> {
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("create-terminal", 9)?;
@@ -1302,6 +1369,10 @@ impl CmuxClient {
 
     pub fn create_workspace(&mut self, request: CreateWorkspaceRequest) -> Result<CreateWorkspaceResult> {
         self.execute(&CREATE_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn detach_attached_view(&mut self, request: DetachAttachedViewRequest) -> Result<DetachAttachedViewResult> {
+        self.execute(&DETACH_ATTACHED_VIEW_METADATA, &request)
     }
 
     pub fn detach_client(&mut self, request: DetachClientRequest) -> Result<DetachClientResult> {
@@ -1444,6 +1515,10 @@ impl CmuxClient {
         self.execute(&READ_SCROLLBACK_METADATA, &request)
     }
 
+    pub fn release_attached_view_size(&mut self, request: ReleaseAttachedViewSizeRequest) -> Result<ReleaseAttachedViewSizeResult> {
+        self.execute(&RELEASE_ATTACHED_VIEW_SIZE_METADATA, &request)
+    }
+
     pub fn release_surface_size(&mut self, request: ReleaseSurfaceSizeRequest) -> Result<ReleaseSurfaceSizeResult> {
         self.execute(&RELEASE_SURFACE_SIZE_METADATA, &request)
     }
@@ -1490,6 +1565,10 @@ impl CmuxClient {
 
     pub fn report_agent(&mut self, request: ReportAgentRequest) -> Result<T::ReportAgentResult> {
         self.execute(&REPORT_AGENT_METADATA, &request)
+    }
+
+    pub fn resize_attached_view(&mut self, request: ResizeAttachedViewRequest) -> Result<ResizeAttachedViewResult> {
+        self.execute(&RESIZE_ATTACHED_VIEW_METADATA, &request)
     }
 
     pub fn resize_surface(&mut self, request: ResizeSurfaceRequest) -> Result<T::ResizeSurfaceResult> {
