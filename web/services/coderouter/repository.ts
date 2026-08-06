@@ -1,11 +1,13 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, gt, isNull, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import {
   coderouterAccounts,
+  coderouterCredentials,
   coderouterRouteTokens,
   coderouterVaultLeases,
 } from "../../db/schema";
+import type { EncryptedCredential } from "./encryption";
 import type {
   CodeRouterAccountSummary,
   CodeRouterCredential,
@@ -18,6 +20,10 @@ const REFRESH_LEASE_MS = 30_000;
 
 export class CodeRouterLeaseBusy extends Error {
   readonly _tag = "CodeRouterLeaseBusy";
+}
+
+export class CodeRouterCredentialRace extends Error {
+  readonly _tag = "CodeRouterCredentialRace";
 }
 
 export function routeTokenHash(token: string): string {
@@ -45,20 +51,15 @@ export async function authenticateRouteToken(
 ): Promise<{ teamId: string } | null> {
   if (!/^crt_[A-Za-z0-9_-]{40,}$/.test(token)) return null;
   const [row] = await cloudDb()
-    .select({ id: coderouterRouteTokens.id, teamId: coderouterRouteTokens.teamId })
-    .from(coderouterRouteTokens)
+    .update(coderouterRouteTokens)
+    .set({ lastUsedAt: now })
     .where(and(
       eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
       gt(coderouterRouteTokens.expiresAt, now),
       isNull(coderouterRouteTokens.revokedAt),
     ))
-    .limit(1);
-  if (!row) return null;
-  await cloudDb()
-    .update(coderouterRouteTokens)
-    .set({ lastUsedAt: now })
-    .where(eq(coderouterRouteTokens.id, row.id));
-  return { teamId: row.teamId };
+    .returning({ teamId: coderouterRouteTokens.teamId });
+  return row ?? null;
 }
 
 export async function revokeRouteToken(
@@ -96,6 +97,182 @@ export async function listAccounts(
       ...row,
       credentialExpiresAt: row.credentialExpiresAt?.toISOString() ?? null,
     })));
+}
+
+export async function listCoderouterTeamIds(): Promise<readonly string[]> {
+  return await cloudDb()
+    .selectDistinct({ teamId: coderouterAccounts.teamId })
+    .from(coderouterAccounts)
+    .then((rows) => rows.map((row) => row.teamId));
+}
+
+export async function listEncryptedCredentials(
+  teamId: string,
+): Promise<readonly EncryptedCredential[]> {
+  return await cloudDb()
+    .select({
+      accountId: coderouterCredentials.accountId,
+      teamId: coderouterCredentials.teamId,
+      provider: coderouterCredentials.provider,
+      credentialRevision: coderouterCredentials.credentialRevision,
+      algorithm: coderouterCredentials.algorithm,
+      ciphertext: coderouterCredentials.ciphertext,
+      nonce: coderouterCredentials.nonce,
+      authTag: coderouterCredentials.authTag,
+      encryptedDataKey: coderouterCredentials.encryptedDataKey,
+      kmsKeyId: coderouterCredentials.kmsKeyId,
+    })
+    .from(coderouterCredentials)
+    .where(eq(coderouterCredentials.teamId, teamId))
+    .then((rows) => rows.map(encryptedCredentialRow));
+}
+
+export async function encryptedCredentialForAccount(
+  teamId: string,
+  accountId: string,
+): Promise<EncryptedCredential | null> {
+  const [row] = await cloudDb()
+    .select({
+      accountId: coderouterCredentials.accountId,
+      teamId: coderouterCredentials.teamId,
+      provider: coderouterCredentials.provider,
+      credentialRevision: coderouterCredentials.credentialRevision,
+      algorithm: coderouterCredentials.algorithm,
+      ciphertext: coderouterCredentials.ciphertext,
+      nonce: coderouterCredentials.nonce,
+      authTag: coderouterCredentials.authTag,
+      encryptedDataKey: coderouterCredentials.encryptedDataKey,
+      kmsKeyId: coderouterCredentials.kmsKeyId,
+    })
+    .from(coderouterCredentials)
+    .where(and(
+      eq(coderouterCredentials.teamId, teamId),
+      eq(coderouterCredentials.accountId, accountId),
+    ))
+    .limit(1);
+  return row ? encryptedCredentialRow(row) : null;
+}
+
+export async function insertAccountWithCredential(input: {
+  readonly credential: CodeRouterCredential;
+  readonly encrypted: EncryptedCredential;
+}): Promise<boolean> {
+  const db = cloudDb();
+  return await db.transaction(async (tx) => {
+    const label = credentialLabel(input.credential);
+    const [inserted] = await tx
+      .insert(coderouterAccounts)
+      .values({
+        id: input.encrypted.accountId,
+        teamId: input.encrypted.teamId,
+        provider: input.credential.provider,
+        providerAccountId: input.credential.accountId,
+        label,
+        state: "active",
+        vaultRevision: input.encrypted.credentialRevision,
+        credentialExpiresAt: new Date(input.credential.expiresAt),
+        updatedAt: new Date(),
+      })
+      .onConflictDoNothing({
+        target: [
+          coderouterAccounts.teamId,
+          coderouterAccounts.provider,
+          coderouterAccounts.providerAccountId,
+        ],
+      })
+      .returning({ id: coderouterAccounts.id });
+    if (!inserted) return false;
+    await tx.insert(coderouterCredentials).values(encryptedValues(input.encrypted));
+    return true;
+  });
+}
+
+export async function replaceAccountCredential(input: {
+  readonly credential: CodeRouterCredential;
+  readonly encrypted: EncryptedCredential;
+  readonly expectedRevision: number;
+}): Promise<void> {
+  await cloudDb().transaction(async (tx) => {
+    const [updatedCredential] = await tx
+      .update(coderouterCredentials)
+      .set({
+        ...encryptedValues(input.encrypted),
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(coderouterCredentials.accountId, input.encrypted.accountId),
+        eq(coderouterCredentials.teamId, input.encrypted.teamId),
+        eq(coderouterCredentials.credentialRevision, input.expectedRevision),
+      ))
+      .returning({ accountId: coderouterCredentials.accountId });
+    if (!updatedCredential) {
+      throw new CodeRouterCredentialRace("credential revision changed");
+    }
+    const [updatedAccount] = await tx
+      .update(coderouterAccounts)
+      .set({
+        label: credentialLabel(input.credential),
+        state: "active",
+        vaultRevision: input.encrypted.credentialRevision,
+        credentialExpiresAt: new Date(input.credential.expiresAt),
+        refreshLeaseId: null,
+        refreshLeaseExpiresAt: null,
+        lastFailureCode: null,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(coderouterAccounts.id, input.encrypted.accountId),
+        eq(coderouterAccounts.teamId, input.encrypted.teamId),
+        eq(coderouterAccounts.vaultRevision, input.expectedRevision),
+      ))
+      .returning({ id: coderouterAccounts.id });
+    if (!updatedAccount) {
+      throw new CodeRouterCredentialRace("account revision changed");
+    }
+  });
+}
+
+export async function importEncryptedCredential(input: {
+  readonly credential: CodeRouterCredential;
+  readonly encrypted: EncryptedCredential;
+}): Promise<void> {
+  await cloudDb().transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(coderouterCredentials)
+      .values(encryptedValues(input.encrypted))
+      .onConflictDoNothing({
+        target: coderouterCredentials.accountId,
+      })
+      .returning({ accountId: coderouterCredentials.accountId });
+    if (!inserted) {
+      await tx
+        .update(coderouterCredentials)
+        .set({
+          ...encryptedValues(input.encrypted),
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(coderouterCredentials.accountId, input.encrypted.accountId),
+          lt(
+            coderouterCredentials.credentialRevision,
+            input.encrypted.credentialRevision,
+          ),
+        ));
+    }
+    await tx
+      .update(coderouterAccounts)
+      .set({
+        label: credentialLabel(input.credential),
+        vaultRevision: input.encrypted.credentialRevision,
+        credentialExpiresAt: new Date(input.credential.expiresAt),
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(coderouterAccounts.id, input.encrypted.accountId),
+        eq(coderouterAccounts.teamId, input.encrypted.teamId),
+        lt(coderouterAccounts.vaultRevision, input.encrypted.credentialRevision),
+      ));
+  });
 }
 
 export async function upsertAccountMetadata(input: {
@@ -255,23 +432,64 @@ export async function claimRefreshLease(
 export async function completeRefreshLease(input: {
   readonly accountId: string;
   readonly leaseId: string;
-  readonly vaultRevision: number;
-  readonly credentialExpiresAt: Date;
+  readonly expectedRevision: number;
+  readonly credential: CodeRouterCredential;
+  readonly encrypted: EncryptedCredential;
 }): Promise<void> {
+  await cloudDb().transaction(async (tx) => {
+    const [updatedCredential] = await tx
+      .update(coderouterCredentials)
+      .set({
+        ...encryptedValues(input.encrypted),
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(coderouterCredentials.accountId, input.accountId),
+        eq(coderouterCredentials.credentialRevision, input.expectedRevision),
+      ))
+      .returning({ accountId: coderouterCredentials.accountId });
+    if (!updatedCredential) {
+      throw new CodeRouterCredentialRace("credential refresh lost revision race");
+    }
+    const [completed] = await tx
+      .update(coderouterAccounts)
+      .set({
+        state: "active",
+        vaultRevision: input.encrypted.credentialRevision,
+        credentialExpiresAt: new Date(input.credential.expiresAt),
+        refreshLeaseId: null,
+        refreshLeaseExpiresAt: null,
+        lastFailureCode: null,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(coderouterAccounts.id, input.accountId),
+        eq(coderouterAccounts.refreshLeaseId, input.leaseId),
+        eq(coderouterAccounts.vaultRevision, input.expectedRevision),
+      ))
+      .returning({ id: coderouterAccounts.id });
+    if (!completed) {
+      throw new CodeRouterCredentialRace("credential refresh lost lease");
+    }
+  });
+}
+
+export async function releaseRefreshLease(
+  accountId: string,
+  leaseId: string,
+): Promise<void> {
   await cloudDb()
     .update(coderouterAccounts)
     .set({
       state: "active",
-      vaultRevision: input.vaultRevision,
-      credentialExpiresAt: input.credentialExpiresAt,
       refreshLeaseId: null,
       refreshLeaseExpiresAt: null,
       lastFailureCode: null,
       updatedAt: new Date(),
     })
     .where(and(
-      eq(coderouterAccounts.id, input.accountId),
-      eq(coderouterAccounts.refreshLeaseId, input.leaseId),
+      eq(coderouterAccounts.id, accountId),
+      eq(coderouterAccounts.refreshLeaseId, leaseId),
     ));
 }
 
@@ -319,7 +537,7 @@ export async function withVaultLease<T>(
       .from(coderouterVaultLeases)
       .where(eq(coderouterVaultLeases.teamId, teamId))
       .limit(1);
-    if (active) throw new CodeRouterLeaseBusy("Stack vault is busy");
+    if (active) throw new CodeRouterLeaseBusy("coderouter vault is busy");
     await tx.insert(coderouterVaultLeases).values({
       teamId,
       leaseId,
@@ -338,4 +556,46 @@ export async function withVaultLease<T>(
       ))
       .catch(() => undefined);
   }
+}
+
+function credentialLabel(credential: CodeRouterCredential): string {
+  return credential.email ||
+    (credential.provider === "opencode-go" ? credential.orgName : undefined) ||
+    credential.accountId;
+}
+
+function encryptedValues(encrypted: EncryptedCredential) {
+  return {
+    accountId: encrypted.accountId,
+    teamId: encrypted.teamId,
+    provider: encrypted.provider,
+    credentialRevision: encrypted.credentialRevision,
+    algorithm: encrypted.algorithm,
+    ciphertext: encrypted.ciphertext,
+    nonce: encrypted.nonce,
+    authTag: encrypted.authTag,
+    encryptedDataKey: encrypted.encryptedDataKey,
+    kmsKeyId: encrypted.kmsKeyId,
+  };
+}
+
+function encryptedCredentialRow(row: {
+  accountId: string;
+  teamId: string;
+  provider: CodeRouterProvider;
+  credentialRevision: number;
+  algorithm: string;
+  ciphertext: string;
+  nonce: string;
+  authTag: string;
+  encryptedDataKey: string;
+  kmsKeyId: string;
+}): EncryptedCredential {
+  if (row.algorithm !== "aes-256-gcm") {
+    throw new Error("unsupported coderouter credential encryption algorithm");
+  }
+  return {
+    ...row,
+    algorithm: "aes-256-gcm",
+  };
 }

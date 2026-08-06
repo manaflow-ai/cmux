@@ -757,8 +757,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
-    /// The user's connection-method choice. `nil` (previews/tests without one)
-    /// behaves like the default automatic method.
+    /// The user's connection-method choice. The shipping app always injects
+    /// this at the composition root (`AppCompositionRoot` holds it
+    /// non-optional), so a user-selected Tailscale Only choice can never be
+    /// dropped at runtime. `nil` exists only for DEBUG previews, the
+    /// hide-computers verifier, and unit-test fixtures, which have no user
+    /// preference and behave like the default automatic method.
     let connectionMethodStore: MobileConnectionMethodStore?
     /// Single compatibility authority shared by registry, persistence, and live connections.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
@@ -1553,6 +1557,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         browserStreamEvents?.configureBrowserStreamRestart { [weak self] panelID in
             await self?.forceRestartMobileBrowserStream(panelID: panelID)
         }
+        startObservingConnectionMethodChanges()
     }
 
     isolated deinit {
@@ -1560,6 +1565,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         automaticReconnectRetryTask?.cancel()
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
+        connectionMethodObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
@@ -2017,6 +2023,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     var networkPathObservationStarted = false
     var networkPathObservationTask: Task<Void, Never>?
+    var connectionMethodObservationTask: Task<Void, Never>?
     let connectionRecoveryOwner = MobileConnectionRecoveryOwner()
     var lastReconnectStackUserID: String?
     /// Whether the scene is in the active phase. Set by
@@ -2041,6 +2048,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case subscriptionStartFailed
         case transportWriteTimedOut
         case automaticBackoffExpired
+        case connectionMethodChanged
 
         var reschedulesSecondaryAggregation: Bool { self != .presencePush }
 
@@ -2058,6 +2066,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .subscriptionStartFailed: 7
             case .transportWriteTimedOut: 8
             case .automaticBackoffExpired: 9
+            case .connectionMethodChanged: 10
             }
         }
 
@@ -2072,6 +2081,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .subscriptionStartFailed: return "subscriptionStartFailed"
             case .transportWriteTimedOut: return "transportWriteTimedOut"
             case .automaticBackoffExpired: return "automaticBackoffExpired"
+            case .connectionMethodChanged: return "connectionMethodChanged"
             }
         }
     }
@@ -2492,7 +2502,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if hasKnownStoredMac {
             setHasKnownPairedMac(true, generation: generation)
         }
-        let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
+        let tailscaleOnly = connectionMethodStore?.method == .tailscale
+        let irohReconnectIsBlocked = tailscaleOnly
+            || automaticIrohReconnectIsBlocked(accountID: scope.userID)
         // Capture one coherent post-request view of the registry and paired-Mac
         // store. The store read happens after the registry await, so an
         // authenticated Presence write that lands during the request wins. The
@@ -2522,7 +2534,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
+            let irohReconnectIsBlocked = tailscaleOnly
+                || automaticIrohReconnectIsBlocked(accountID: scope.userID)
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
             }
@@ -2556,7 +2569,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 )
             }
-            if connectionState != .connected,
+            if connectionState != .connected, !tailscaleOnly,
                !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
@@ -2595,7 +2608,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // saved candidate failed. This keeps a healthy saved Mac from sitting
         // behind an unrelated account-wide discovery request.
         var zeroTouchCandidates: [MobilePairedMac] = []
-        if connectionState != .connected,
+        if connectionState != .connected, !tailscaleOnly,
            !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
                 scope: scope,
@@ -8466,10 +8479,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let irohRoutes = supportedRoutes.filter { route in
             route.kind == .iroh
         }
-        // The user's explicit Tailscale method relaxes only the Iroh pin's
-        // ORDER: authorized Tailscale routes dial first and Iroh remains the
-        // fallback. Routes without a grant or a user-entered code stay
-        // undialable regardless of the preference.
+        // The explicit Tailscale method is strict: only authorized Tailscale
+        // destinations may be dialed, and an unavailable route leaves the app
+        // disconnected instead of silently switching to Iroh.
         if connectionMethodStore?.method == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
                 Self.legacyTailscaleAuthorizationEvidence(
@@ -8482,12 +8494,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         authorizations: userTailscalePairingAuthorizations
                     ) != nil
             }
-            if !authorizedTailscale.isEmpty {
-                let rest = supportedRoutes.filter { route in
-                    route.kind != .iroh && route.kind != .tailscale
-                }
-                return authorizedTailscale + irohRoutes + rest
-            }
+            return authorizedTailscale
         }
         return irohRoutes.isEmpty ? supportedRoutes : irohRoutes
     }

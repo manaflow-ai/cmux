@@ -11,7 +11,11 @@ mock.module("../services/coderouter/repository", () => ({
   }),
   markAccountCooldown: async () => {},
   listAccounts: async () => [],
+  listEncryptedCredentials: async () => [],
+  encryptedCredentialForAccount: async () => null,
   findAccountByProviderIdentity: async () => null,
+  insertAccountWithCredential: async () => true,
+  replaceAccountCredential: async () => {},
   upsertAccountMetadata: async () => {},
   withVaultLease: async (_teamId: string, operation: () => unknown) =>
     await operation(),
@@ -39,7 +43,7 @@ afterAll(() => {
 
 const { proxyCodexModels } = await import("../services/coderouter/codexProxy");
 
-describe("CodeRouter models proxy", () => {
+describe("coderouter models proxy", () => {
   test("forwards Codex model discovery through the authenticated account", async () => {
     const response = await proxyCodexModels(
       new Request("https://coderouter.dev/v1/models?client_version=0.146.0", {

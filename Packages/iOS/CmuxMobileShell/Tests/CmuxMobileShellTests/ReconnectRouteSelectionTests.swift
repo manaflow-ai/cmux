@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -541,51 +542,123 @@ import Testing
         return store
     }
 
-    @Test func tailscalePreferencePromotesGrantedRouteAheadOfIrohPin() throws {
+    @Test func tailscaleMethodUsesOnlyGrantedTailscaleRoute() throws {
         let tailscale = try tailscale()
         let routes = MobileShellComposite.storedReconnectRoutes(
             [tailscale, try iroh()],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
-            tailscalePreference: MobileShellComposite.TailscaleRoutePreference(
+            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
                 macDeviceID: "test-mac",
                 grantRoutes: [tailscale]
             )
         )
 
-        // The granted Tailscale destination dials first; Iroh stays as the
-        // fallback instead of being exclusive.
-        #expect(routes.map(\.kind) == [.tailscale, .iroh])
+        #expect(routes.map(\.kind) == [.tailscale])
     }
 
-    @Test func tailscalePreferenceWithoutGrantKeepsIrohExclusivePin() throws {
-        // A preference flip alone grants nothing: without a device-local grant
-        // the Iroh pin still drops every raw host/port fallback.
+    @Test func tailscaleMethodWithoutGrantRejectsEveryRoute() throws {
         let routes = MobileShellComposite.storedReconnectRoutes(
             [try tailscale(), try iroh()],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
-            tailscalePreference: MobileShellComposite.TailscaleRoutePreference(
+            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
                 macDeviceID: "test-mac",
                 grantRoutes: []
             )
         )
 
-        #expect(routes.map(\.kind) == [.iroh])
+        #expect(routes.isEmpty)
     }
 
-    @Test func tailscalePreferenceIgnoresGrantForDifferentDestination() throws {
+    @Test func tailscaleMethodRejectsMismatchedGrantWithoutIrohFallback() throws {
         let otherDestination = try tailscale(50907)
         let routes = MobileShellComposite.storedReconnectRoutes(
             [try tailscale(), try iroh()],
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true,
-            tailscalePreference: MobileShellComposite.TailscaleRoutePreference(
+            tailscaleRequirement: MobileShellComposite.TailscaleRouteRequirement(
                 macDeviceID: "test-mac",
                 grantRoutes: [otherDestination]
             )
         )
 
-        #expect(routes.map(\.kind) == [.iroh])
+        #expect(routes.isEmpty)
+    }
+
+    @Test func changingToUnavailableTailscaleDropsLiveIrohWithoutFallback() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        // The factory boxes the live Iroh transport it hands out, so the test
+        // can observe physical teardown, not just the store's logical route.
+        let liveTransportBox = TransportBox()
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: liveTransportBox,
+            failingKinds: [.tailscale]
+        )
+        let tailscale = try tailscale()
+        let iroh = try iroh()
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [tailscale, iroh],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        try await pairedStore.authorizeUserTailscaleRoutes(
+            macDeviceID: "test-mac",
+            instanceTag: "default",
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [tailscale]
+        )
+        let methodDefaults = UserDefaults(
+            suiteName: "connection-method-live-switch-\(UUID().uuidString)"
+        )!
+        let methodStore = MobileConnectionMethodStore(defaults: methodDefaults)
+        let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh, .tailscale]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            connectionMethodStore: methodStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "connection-method-pairing-hint-\(UUID().uuidString)"
+            )!,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        await store.loadPairedMacs()
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.activeRoute?.kind == .iroh)
+        #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
+
+        methodStore.method = .tailscale
+
+        // `activeRoute == nil` only proves the store cleared its logical
+        // route; the dropped live Iroh transport must also finish closing so
+        // no physical cleanup work is still pending when the test completes.
+        let applied = try await pollUntil {
+            let liveTransportClosed =
+                await liveTransportBox.get()?.isClosedForTesting() == true
+            return factory.attemptedKinds().contains(.tailscale)
+                && store.connectionState == .disconnected
+                && store.activeRoute == nil
+                && liveTransportClosed
+        }
+        #expect(applied)
+        #expect(store.activeRoute == nil)
+        #expect(factory.attemptedKinds().filter { $0 == .iroh }.count == 1)
     }
 }
