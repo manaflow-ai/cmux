@@ -18354,6 +18354,22 @@ mod tests {
     }
 
     #[test]
+    fn deadline_fanout_rejects_work_after_the_shared_deadline() {
+        let pool = DeadlineFanoutPool::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let operation_calls = calls.clone();
+        let deadline = Instant::now().checked_sub(Duration::from_millis(1)).unwrap();
+
+        let results = bounded_deadline_map(&pool, &[1_u8], deadline, move |item, _| {
+            operation_calls.fetch_add(1, Ordering::AcqRel);
+            *item
+        });
+
+        assert!(matches!(results.as_slice(), [DeadlineMapResult::Unscheduled]));
+        assert_eq!(calls.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
     fn fanout_completion_after_the_shared_deadline_remains_retryable() {
         let deadline = Instant::now();
         let pending = DeadlinePending {
