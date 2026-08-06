@@ -398,10 +398,14 @@ enum MenuBarBadgeLabelFormatter {
 enum MenuBarNotificationLineFormatter {
     static let defaultMaxMenuTextWidth: CGFloat = 280
     static let defaultMaxMenuTextLines = 3
+    private static let menuTimeFormatStyle = Date.FormatStyle(
+        date: .omitted,
+        time: .shortened
+    )
 
     static func plainTitle(notification: TerminalNotification, tabTitle: String?) -> String {
         let dot = notification.isRead ? "  " : "● "
-        let timeText = notification.createdAt.formatted(date: .omitted, time: .shortened)
+        let timeText = notification.createdAt.formatted(menuTimeFormatStyle)
         var lines: [String] = []
         lines.append("\(dot)\(notification.title)  \(timeText)")
 
