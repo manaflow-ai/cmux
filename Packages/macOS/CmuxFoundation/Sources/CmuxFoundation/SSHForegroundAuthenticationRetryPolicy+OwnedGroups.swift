@@ -248,7 +248,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
             > "$cmux_ssh_auth_resume_groups" || return 1
           while IFS= read -r cmux_ssh_auth_group; do
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
-            /bin/kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
+            kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
           done < "$cmux_ssh_auth_resume_groups"
 
           /bin/mv -f -- "$cmux_ssh_auth_next_owned_groups" "$cmux_ssh_auth_owned_groups"
@@ -261,9 +261,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
           while IFS= read -r cmux_ssh_auth_group; do
             cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
-            if /bin/kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1; then
+            if kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1; then
               if ! printf '%s\n' "$cmux_ssh_auth_group" >> "$cmux_ssh_auth_signaled_groups"; then
-                /bin/kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
+                kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
                 return 1
               fi
             fi
@@ -285,15 +285,15 @@ extension SSHForegroundAuthenticationRetryPolicy {
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) continue ;;
             esac
-            /bin/kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || continue
+            kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || continue
             if ! printf '%s\n' "$cmux_ssh_auth_pid" >> "$cmux_ssh_auth_signaled_processes"; then
-              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+              kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
               return 1
             fi
             if ! printf '%s %s %s %s %s\n' "$cmux_ssh_auth_pid" \
               "$cmux_ssh_auth_parent" "$cmux_ssh_auth_group" "$cmux_ssh_auth_started" \
               "$cmux_ssh_auth_state" >> "$cmux_ssh_auth_frozen_processes"; then
-              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+              kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
               return 1
             fi
           done < "$cmux_ssh_auth_ordered_processes"
@@ -324,8 +324,8 @@ extension SSHForegroundAuthenticationRetryPolicy {
           while IFS= read -r cmux_ssh_auth_group; do
             cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
-            /bin/kill -KILL -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || \
-              /bin/kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
+            kill -KILL -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || \
+              kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
           done < "$cmux_ssh_auth_owned_groups"
 
           /usr/bin/awk '
@@ -344,8 +344,8 @@ extension SSHForegroundAuthenticationRetryPolicy {
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) continue ;;
             esac
-            /bin/kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || \
-              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+            kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || \
+              kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
           done < "$cmux_ssh_auth_ordered_processes"
         }
 
@@ -353,13 +353,13 @@ extension SSHForegroundAuthenticationRetryPolicy {
           if [ -s "$cmux_ssh_auth_signaled_groups" ]; then
             while IFS= read -r cmux_ssh_auth_group; do
               case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
-              /bin/kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
+              kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
             done < "$cmux_ssh_auth_signaled_groups"
           fi
           if [ -s "$cmux_ssh_auth_signaled_processes" ]; then
             while IFS= read -r cmux_ssh_auth_pid; do
               case "$cmux_ssh_auth_pid" in ''|0|*[!0-9]*) continue ;; esac
-              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+              kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
             done < "$cmux_ssh_auth_signaled_processes"
           fi
         }
@@ -389,7 +389,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) cmux_ssh_auth_frozen_incomplete=1; continue ;;
             esac
-            /bin/kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || return 1
+            kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || return 1
           done < "$cmux_ssh_auth_ordered_processes"
           [ "$cmux_ssh_auth_frozen_incomplete" = 0 ]
         }
