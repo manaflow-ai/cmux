@@ -1,10 +1,54 @@
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import Foundation
 import Testing
 
 @testable import CmuxMobileShell
 
 @Suite struct TerminalRawInputOrderingTests {
+    @MainActor
+    @Test func returnKeyExposesCommandSendProgressAndSettlement() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalInput(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        store.sendTerminalRawInput(
+            Data("\r".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+        await router.awaitFirstTerminalInputReached()
+
+        #expect(
+            store.terminalSendStatus(forTerminalID: RoutingHostRouter.terminalA)
+                == .sending
+        )
+
+        await router.releaseFirstTerminalInput()
+        #expect(await waitForTerminalSendStatus(
+            .sent,
+            store: store,
+            terminalID: RoutingHostRouter.terminalA
+        ))
+    }
+
+    @MainActor
+    @Test func rejectedReturnKeyExposesCommandSendFailure() async throws {
+        let router = RoutingHostRouter()
+        await router.setRejectTerminalInput(at: 0)
+        let store = try await makeRoutingConnectedStore(router: router)
+
+        store.sendTerminalRawInput(
+            Data("\r".utf8),
+            surfaceID: RoutingHostRouter.terminalA
+        )
+
+        #expect(await waitForTerminalSendStatus(
+            .failed,
+            store: store,
+            terminalID: RoutingHostRouter.terminalA
+        ))
+    }
+
     @MainActor
     @Test func orderedIrohFallbackPipelinesAtMostFourRequests() async throws {
         let router = RoutingHostRouter()
@@ -473,6 +517,21 @@ import Testing
         }
         return false
     }
+}
+
+@MainActor
+private func waitForTerminalSendStatus(
+    _ expected: MobileTerminalSendStatus,
+    store: MobileShellComposite,
+    terminalID: String
+) async -> Bool {
+    for _ in 0..<200 {
+        if store.terminalSendStatus(forTerminalID: terminalID) == expected {
+            return true
+        }
+        await Task.yield()
+    }
+    return false
 }
 
 private actor RawInputBarrierTerminalLane: MobileTerminalLaneConnection {
