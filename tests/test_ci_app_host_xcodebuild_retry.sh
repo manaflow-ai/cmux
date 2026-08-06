@@ -110,6 +110,36 @@ if [ "$isolated_runner_count" -ne "$invocation_count" ]; then
   exit 1
 fi
 
+EXTERNAL_XDG_CONFIG_HOME="$TMP_DIR/external-xdg"
+mkdir -p "$EXTERNAL_XDG_CONFIG_HOME"
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$TMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/external-xdg-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/external-xdg-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/external-xdg-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/external-xdg-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=leak \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CFFIXED_USER_HOME="$APP_HOST_HOME" \
+XDG_CONFIG_HOME="$EXTERNAL_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/external-xdg-output.log" 2>&1
+external_xdg_status=$?
+set -e
+
+if [ "$external_xdg_status" -ne 1 ] \
+  || ! grep -Fq \
+    "FAIL: app-host XDG configuration must be the isolated home .config directory" \
+    "$TMP_DIR/external-xdg-output.log" \
+  || [ -s "$TMP_DIR/external-xdg-xcodebuild-args.log" ]; then
+  cat "$TMP_DIR/external-xdg-output.log"
+  echo "FAIL: wrapper must reject external XDG configuration before xcodebuild"
+  exit 1
+fi
+
 set +e
 PATH="$TMP_DIR:$PATH" \
 RUNNER_TEMP="$TMP_DIR" \

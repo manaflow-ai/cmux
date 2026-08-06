@@ -2,6 +2,8 @@
 """Guard app-host XCTest against persistent console-user configuration."""
 
 from pathlib import Path
+import xml.etree.ElementTree as ET
+
 import yaml
 
 
@@ -18,10 +20,40 @@ UNIT_SCHEME = (
     ROOT / "cmux.xcodeproj/xcshareddata/xcschemes/cmux-unit.xcscheme"
 ).read_text(encoding="utf-8")
 
+TEST_RUNNER_ENVIRONMENT_KEYS = (
+    "HOME",
+    "CFFIXED_USER_HOME",
+    "XDG_CONFIG_HOME",
+    "CMUX_APP_HOST_ISOLATION_REQUIRED",
+    "CMUX_APP_HOST_EXPECTED_HOME",
+    "CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME",
+)
+
 
 def require(text: str, needle: str, context: str) -> None:
     if needle not in text:
         raise SystemExit(f"FAIL: {context} is missing {needle!r}")
+
+
+def scheme_environment_override_keys(scheme: str) -> set[str]:
+    try:
+        root = ET.fromstring(scheme)
+    except ET.ParseError as error:
+        raise SystemExit(f"FAIL: cmux-unit scheme is malformed: {error}") from error
+
+    return {
+        key
+        for element in root.iter("EnvironmentVariable")
+        if (key := element.get("key")) in TEST_RUNNER_ENVIRONMENT_KEYS
+    }
+
+
+def require_no_test_runner_scheme_overrides(scheme: str) -> None:
+    overrides = sorted(scheme_environment_override_keys(scheme))
+    if overrides:
+        raise SystemExit(
+            "FAIL: cmux-unit scheme must not override " + ", ".join(overrides)
+        )
 
 
 def require_step(job_name: str, step_name: str) -> dict:
@@ -57,6 +89,18 @@ def require_step(job_name: str, step_name: str) -> dict:
 
 
 def main() -> int:
+    override_fixture = """\
+<Scheme>
+  <EnvironmentVariables>
+    <EnvironmentVariable key="TEST_RUNNER_HOME" value="/tmp/ambient"/>
+  </EnvironmentVariables>
+</Scheme>
+"""
+    if scheme_environment_override_keys(override_fixture) != {"TEST_RUNNER_HOME"}:
+        raise SystemExit(
+            "FAIL: scheme guard must reject TEST_RUNNER_HOME overrides"
+        )
+
     setup_step = require_step(
         "app-host-unit-tests", "Prepare isolated app-host home"
     )
@@ -121,17 +165,7 @@ def main() -> int:
         "console-user app-host permissions",
     )
 
-    for key in (
-        "HOME",
-        "CFFIXED_USER_HOME",
-        "XDG_CONFIG_HOME",
-        "CMUX_APP_HOST_EXPECTED_HOME",
-        "CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME",
-    ):
-        if f'EnvironmentVariable key="{key}"' in UNIT_SCHEME:
-            raise SystemExit(
-                f"FAIL: cmux-unit scheme must not override TEST_RUNNER_{key}"
-            )
+    require_no_test_runner_scheme_overrides(UNIT_SCHEME)
 
     for context, needle in {
         "app-host HOME test-runner redirect": (
