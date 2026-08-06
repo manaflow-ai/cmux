@@ -38,9 +38,6 @@ enum SSHPTYAttachStartupCommandBuilder {
                 foregroundAuth,
                 sshExecutable: sshExecutable
             )
-            lines.append(
-                SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction()
-            )
         }
         lines.append("cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen | /usr/bin/tr '[:upper:]' '[:lower:]') || exit 1")
         lines += [

@@ -13,6 +13,8 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
     ///
     /// The surrounding script supplies `cmux_ssh_attach_foreground_auth` when
     /// `reauthenticates` is true and supplies `cmux_ssh_attach_signal_exit`.
+    /// The builder emits the authentication-group ownership helpers needed by
+    /// the reauthentication state machine.
     ///
     /// - Parameters:
     ///   - command: Shell command that performs one PTY attachment attempt.
@@ -41,7 +43,10 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let noProgressStatus = SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue
         let sessionRunningStatus = SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue
         let transientStatus = SSHPTYAttachExitCode.retryableTransient.rawValue
-        var lines = [
+        var lines = reauthenticates
+            ? [authPolicy.processTreeTerminationShellFunction()]
+            : []
+        lines += [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
             "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
