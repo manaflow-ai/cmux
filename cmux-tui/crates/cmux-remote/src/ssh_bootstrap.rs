@@ -12,6 +12,10 @@ use tokio::process::{Child, Command};
 use crate::provider::{SshRemoteShell, SshRemoteTarget};
 
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
+// Carrier-scoped Windows builds had no resident process to stop. Accept only
+// their exact response so the first resident-owner upgrade can proceed.
+const LEGACY_WINDOWS_REMOTE_STOP_UNSUPPORTED: &str =
+    "cmux-tui: remote-stop is not implemented on Windows yet";
 pub const WINDOWS_REMOTE_BINARY: &str = r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe";
 pub const WINDOWS_COMPANION_FILENAME: &str = "cmux-tui-x86_64-pc-windows-gnu.exe";
 
@@ -507,11 +511,12 @@ impl SshBootstrapper {
                 self.run_remote([command.as_str()]).await?
             }
         };
-        if output.status != 0 {
-            return Err(BootstrapError::Remote {
-                status: output.status,
-                stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
-            });
+        let stderr = sanitize(&String::from_utf8_lossy(&output.stderr));
+        if output.status != 0
+            && !(target.shell == SshRemoteShell::WindowsCmd
+                && stderr == LEGACY_WINDOWS_REMOTE_STOP_UNSUPPORTED)
+        {
+            return Err(BootstrapError::Remote { status: output.status, stderr });
         }
         Ok(())
     }
