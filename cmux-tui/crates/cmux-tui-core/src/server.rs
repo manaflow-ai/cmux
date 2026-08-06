@@ -18242,6 +18242,66 @@ mod tests {
     }
 
     #[test]
+    fn browser_receipt_targets_an_exact_empty_workspace_without_focus_state() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap().workspace;
+        let selectors = mux.resource_selectors_for_workspace(Some(workspace)).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            client,
+            Command::SetClientInfo {
+                name: Some("native browser bootstrap".to_string()),
+                kind: Some("native-browser".to_string()),
+                capabilities: Some(vec![CREATION_RECEIPTS_CAPABILITY.to_string()]),
+            },
+            &writer,
+        )
+        .unwrap();
+        let command = || {
+            Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+                operation: "new-browser-tab".to_string(),
+                origin: "native-browser-bootstrap-test".to_string(),
+                receipt: "browser-workspace-receipt-00000001".to_string(),
+                selectors: Some(selectors.clone()),
+                selector_fallbacks: Vec::new(),
+                pane: None,
+                workspace: None,
+                argv: None,
+                cwd: None,
+                url: Some("about:blank".to_string()),
+                width: None,
+                cols: None,
+                rows: None,
+            }))
+        };
+
+        let first = handle_command(&mux, client, command(), &writer).unwrap();
+        assert_eq!(first["replayed"], false);
+        let surface = first["surface"].as_u64().expect("creation omitted its surface");
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["workspaces"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["screens"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["panes"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["tabs"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["tabs"][0]["content_kind"], "browser");
+
+        let replay = handle_command(&mux, client, command(), &writer).unwrap();
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["surface"].as_u64(), Some(surface));
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&mux).unwrap()["tabs"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        mux.close_surface(surface).unwrap();
+        mux.shutdown();
+    }
+
+    #[test]
     fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
         let mux = test_mux();
         let fallback = mux.new_workspace(None, Some((100, 30))).unwrap();
