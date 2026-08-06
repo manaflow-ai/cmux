@@ -11,7 +11,9 @@ import {
   type StackAnalyticsIdentity,
 } from "../../services/analytics/stackIdentity";
 
-function PageviewTracker({ authRevision }: { authRevision?: string }) {
+const STACK_AUTH_CHANGED_EVENT = "cmux:stack-auth-changed";
+
+function PageviewTracker() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const lastCapturedUrl = useRef<string | null>(null);
@@ -56,7 +58,7 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
       finishPendingPageview();
     };
 
-    const resolveIdentity = async () => {
+    const resolveIdentity = async (gateWhilePending: boolean) => {
       const currentGeneration = ++generation;
       activeController?.abort();
       const controller = new AbortController();
@@ -66,9 +68,12 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
         timedOut = true;
         controller.abort();
       }, 5_000);
-      // Drop every event while auth is unresolved. This covers autocapture and
-      // captures from other components, not only the pending pageview.
-      posthog.set_config({ before_send: () => null });
+      if (gateWhilePending) {
+        // Auth changes close the gate immediately. Passive focus/online
+        // refreshes keep an already-resolved identity live until they prove it
+        // changed, so routine refocuses do not discard user events.
+        posthog.set_config({ before_send: () => null });
+      }
 
       try {
         const response = await fetch("/api/analytics/identity", {
@@ -78,7 +83,7 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
         });
         if (controller.signal.aborted || currentGeneration !== generation) return;
         if (!response.ok) {
-          recoverAsAnonymous();
+          if (gateWhilePending) recoverAsAnonymous();
           return;
         }
         const payload = await response.json() as {
@@ -94,7 +99,7 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
             typeof payload.user?.id !== "string"
             || (plan !== "free" && plan !== "pro" && plan !== "team")
           ) {
-            recoverAsAnonymous();
+            if (gateWhilePending) recoverAsAnonymous();
             return;
           }
           identity = { id: payload.user.id, plan };
@@ -109,7 +114,7 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
           currentGeneration === generation
           && (!controller.signal.aborted || timedOut)
         ) {
-          recoverAsAnonymous();
+          if (gateWhilePending) recoverAsAnonymous();
         }
       } finally {
         window.clearTimeout(timeoutId);
@@ -119,20 +124,22 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
 
     const revalidateVisibleIdentity = () => {
       if (document.visibilityState === "visible" && !activeController) {
-        void resolveIdentity();
+        void resolveIdentity(false);
       }
     };
     const revalidateCrossTabIdentity = (event: StorageEvent) => {
-      if (event.key === STACK_IDENTITY_STORAGE_KEY) void resolveIdentity();
+      if (event.key === STACK_IDENTITY_STORAGE_KEY) void resolveIdentity(true);
     };
+    const revalidateStackAuthIdentity = () => void resolveIdentity(true);
 
     // Route changes cover normal sign-in/sign-out redirects. Focus,
     // visibility, online, and storage events cover session expiry, account
     // changes without navigation, and changes made in another tab.
-    void resolveIdentity();
+    void resolveIdentity(true);
     window.addEventListener("focus", revalidateVisibleIdentity);
     window.addEventListener("online", revalidateVisibleIdentity);
     window.addEventListener("storage", revalidateCrossTabIdentity);
+    window.addEventListener(STACK_AUTH_CHANGED_EVENT, revalidateStackAuthIdentity);
     document.addEventListener("visibilitychange", revalidateVisibleIdentity);
 
     return () => {
@@ -141,16 +148,33 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
       window.removeEventListener("focus", revalidateVisibleIdentity);
       window.removeEventListener("online", revalidateVisibleIdentity);
       window.removeEventListener("storage", revalidateCrossTabIdentity);
+      window.removeEventListener(STACK_AUTH_CHANGED_EVENT, revalidateStackAuthIdentity);
       document.removeEventListener("visibilitychange", revalidateVisibleIdentity);
     };
-  }, [authRevision, pathname, searchParams]);
+  }, [pathname, searchParams]);
 
   return null;
 }
 
-function StackPageviewTracker() {
+function StackAuthObserver() {
   const authenticatedUser = useUser({ or: "return-null" });
-  return <PageviewTracker authRevision={authenticatedUser?.id} />;
+  const previousUserId = useRef<string | undefined>(undefined);
+  const initialized = useRef(false);
+
+  useLayoutEffect(() => {
+    const userId = authenticatedUser?.id;
+    if (!initialized.current) {
+      initialized.current = true;
+      previousUserId.current = userId;
+      return;
+    }
+    if (previousUserId.current !== userId) {
+      previousUserId.current = userId;
+      window.dispatchEvent(new Event(STACK_AUTH_CHANGED_EVENT));
+    }
+  }, [authenticatedUser?.id]);
+
+  return null;
 }
 
 export function PostHogProvider({
@@ -163,8 +187,13 @@ export function PostHogProvider({
   return (
     <PHProvider client={posthog}>
       <Suspense fallback={null}>
-        {observesStackAuth ? <StackPageviewTracker /> : <PageviewTracker />}
+        <PageviewTracker />
       </Suspense>
+      {observesStackAuth ? (
+        <Suspense fallback={null}>
+          <StackAuthObserver />
+        </Suspense>
+      ) : null}
       {children}
     </PHProvider>
   );
