@@ -6529,7 +6529,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
         XCTAssertEqual(
             startupCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
+            "/usr/bin/ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
         )
     }
 
