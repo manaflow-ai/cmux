@@ -4803,7 +4803,9 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
         nsView.panelId = panelId
         BrowserOmnibarNativeFieldRegistry.shared.register(nsView, panelId: panelId)
-        nsView.placeholderString = placeholder
+        if nsView.placeholderString != placeholder {
+            nsView.placeholderString = placeholder
+        }
         if nsView.font?.pointSize != fontSize {
             nsView.font = .systemFont(ofSize: fontSize)
         }
