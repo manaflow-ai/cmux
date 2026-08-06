@@ -972,6 +972,47 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test func recoverySweepDoesNotStarveGroupsAfterEightPersistentFailures() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-recovery-fairness-\(UUID().uuidString)", isDirectory: true)
+        let callsFile = root.appendingPathComponent("calls")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        for index in 0..<9 {
+            let groupDirectory = root.appendingPathComponent(
+                String(format: "cmux-ssh-auth-group.%02d", index),
+                isDirectory: true
+            )
+            try createSecureGroupDirectory(at: groupDirectory)
+            try "999999|888888|Thu_Jan_1_00:00:00_1970\n".write(
+                to: groupDirectory.appendingPathComponent("identity"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_launch_owned_auth_group_reaper() {
+          CMUX_SSH_AUTH_REAPER_LAUNCHED=1
+          /usr/bin/basename "$1" >> "$CMUX_TEST_RECOVERY_CALLS"
+        }
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_resume_failed_auth_group_reapers || exit 98
+        cmux_ssh_resume_failed_auth_group_reapers || exit 97
+        /usr/bin/grep -qx 'cmux-ssh-auth-group.08' "$CMUX_TEST_RECOVERY_CALLS" || exit 96
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_TEST_RECOVERY_CALLS": callsFile.path,
+            "TMPDIR": root.path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func anchorValidationFailurePreservesPublishedOwnershipState() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
