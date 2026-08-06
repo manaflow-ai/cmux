@@ -61,10 +61,11 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
       activeController?.abort();
       const controller = new AbortController();
       activeController = controller;
-      const requestSignal = AbortSignal.any([
-        controller.signal,
-        AbortSignal.timeout(5_000),
-      ]);
+      let timedOut = false;
+      const timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, 5_000);
       // Drop every event while auth is unresolved. This covers autocapture and
       // captures from other components, not only the pending pageview.
       posthog.set_config({ before_send: () => null });
@@ -73,7 +74,7 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
         const response = await fetch("/api/analytics/identity", {
           cache: "no-store",
           credentials: "same-origin",
-          signal: requestSignal,
+          signal: controller.signal,
         });
         if (controller.signal.aborted || currentGeneration !== generation) return;
         if (!response.ok) {
@@ -104,10 +105,14 @@ function PageviewTracker({ authRevision }: { authRevision?: string }) {
       } catch {
         // Fail closed: an unresolved auth state must not attribute this route
         // or later autocapture to an identity retained from before a logout.
-        if (!controller.signal.aborted && currentGeneration === generation) {
+        if (
+          currentGeneration === generation
+          && (!controller.signal.aborted || timedOut)
+        ) {
           recoverAsAnonymous();
         }
       } finally {
+        window.clearTimeout(timeoutId);
         if (currentGeneration === generation) activeController = null;
       }
     };
