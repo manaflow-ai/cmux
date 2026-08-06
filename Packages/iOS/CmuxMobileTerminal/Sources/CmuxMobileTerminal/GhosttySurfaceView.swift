@@ -1123,7 +1123,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @discardableResult
     private func synchronizeKeyboardFloorFromTracker() -> Bool {
         guard window != nil else { return false }
+        synchronizeKeyboardVisibilityFromTracker()
         return applyKeyboardOverlapFloor(keyboardFrameTracker.overlap(in: self))
+    }
+
+    /// Reconciles the responder-facing visibility bit — and with it the
+    /// toolbar's keyboard-toggle glyph — with the tracked keyboard state.
+    ///
+    /// A surface (re)mounted after the keyboard changed never receives the
+    /// notification that flipped it, so leaving a workspace with the keyboard
+    /// up and re-entering it otherwise shows the stale hide-keyboard glyph
+    /// (and the toggle would resign a keyboard that is not there) until the
+    /// next real transition. Change-guarded so the glyph cross-dissolve only
+    /// runs on actual flips, not every layout pass.
+    private func synchronizeKeyboardVisibilityFromTracker() {
+        let visible = keyboardFrameTracker.isVisible(in: self)
+        guard visible != keyboardVisible else { return }
+        keyboardVisible = visible
+        inputProxy.setKeyboardShown(visible)
     }
 
     /// Updates the renderer's overlap model from the guide's target top edge,

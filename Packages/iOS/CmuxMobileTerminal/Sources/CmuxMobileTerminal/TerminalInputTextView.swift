@@ -351,11 +351,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
-        dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
+        // Born in the keyboard-DOWN state: a freshly (re)mounted surface has no
+        // keyboard until something focuses, and `setKeyboardShown(_:)` flips the
+        // glyph on real transitions. Constructing with the chevron-down glyph
+        // showed a stale "hide keyboard" toggle whenever a workspace was
+        // re-entered with the keyboard dismissed.
+        dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
         dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
-        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")
+        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.showKeyboard", defaultValue: "Show Keyboard")
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         self.dismissButton = dismissButton
 

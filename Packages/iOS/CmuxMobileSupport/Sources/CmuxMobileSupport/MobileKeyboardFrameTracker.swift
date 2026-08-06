@@ -85,5 +85,12 @@ public final class MobileKeyboardFrameTracker {
     public func overlap(in view: UIView) -> CGFloat {
         latestTransition?.overlap(in: view) ?? 0
     }
+
+    /// Returns whether the tracked keyboard is visible to `view` (including
+    /// floating/split iPad keyboards that reserve no bottom space), or false
+    /// while the keyboard state is unknown or the view is detached.
+    public func isVisible(in view: UIView) -> Bool {
+        latestTransition?.isVisible(in: view) ?? false
+    }
 }
 #endif
