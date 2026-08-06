@@ -87,6 +87,71 @@ struct BrowserControlServiceEvaluationScriptTests {
         }
     }
 
+    @Test("an unavailable selected frame never falls back to the top document")
+    func unavailableFrameProducesExplicitError() throws {
+        let documentSetups = [
+            "var document = {secret: 'top-secret', querySelector: () => null};",
+            "var document = {secret: 'top-secret', querySelector: () => ({})};",
+            """
+            var document = {
+              secret: 'top-secret',
+              querySelector: () => ({
+                get contentDocument() { throw new Error('cross-origin'); }
+              })
+            };
+            """,
+        ]
+
+        for documentSetup in documentSetups {
+            let envelope = try evaluate(
+                "document.secret",
+                frameSelector: "#selected-frame",
+                documentSetup: documentSetup
+            )
+            #expect(envelope[service.evalEnvelope.typeKey] as? String == service.evalEnvelope.typeError)
+            #expect(envelope[service.evalEnvelope.errorCodeKey] as? String == "frame_unavailable")
+        }
+    }
+
+    @Test("result budget rejects before reading a property beyond the node cap")
+    func nodeBudgetStopsBeforeOverflowGetter() throws {
+        let envelope = try evaluate(
+            """
+            (() => {
+              const value = {};
+              for (let index = 0; index < 9999; index += 1) {
+                value[`p${index}`] = index;
+              }
+              Object.defineProperty(value, 'overflow', {
+                enumerable: true,
+                get() { throw new Error('overflow getter must not run'); }
+              });
+              return value;
+            })()
+            """
+        )
+
+        #expect(envelope[service.evalEnvelope.typeKey] as? String == service.evalEnvelope.typeError)
+        #expect(envelope[service.evalEnvelope.errorCodeKey] as? String == "result_too_complex")
+    }
+
+    @Test("aggregate string and key payloads are bounded")
+    func oversizedTextProducesExplicitError() throws {
+        let oversizedString = try evaluate("'x'.repeat(1000001)")
+        #expect(oversizedString[service.evalEnvelope.typeKey] as? String == service.evalEnvelope.typeError)
+        #expect(oversizedString[service.evalEnvelope.errorCodeKey] as? String == "result_too_complex")
+
+        let oversizedKey = try evaluate("({['k'.repeat(1000001)]: 1})")
+        #expect(oversizedKey[service.evalEnvelope.typeKey] as? String == service.evalEnvelope.typeError)
+        #expect(oversizedKey[service.evalEnvelope.errorCodeKey] as? String == "result_too_complex")
+
+        let aggregateStrings = try evaluate(
+            "({first: 'a'.repeat(400000), second: 'b'.repeat(400000), third: 'c'.repeat(400000)})"
+        )
+        #expect(aggregateStrings[service.evalEnvelope.typeKey] as? String == service.evalEnvelope.typeError)
+        #expect(aggregateStrings[service.evalEnvelope.errorCodeKey] as? String == "result_too_complex")
+    }
+
     @Test("DOMRect-branded values are flattened before bridging")
     func domRectIsFlattened() throws {
         let envelope = try evaluate(
@@ -216,18 +281,22 @@ struct BrowserControlServiceEvaluationScriptTests {
         #expect(value["__proto__"] as? String == "ordinary-value")
     }
 
-    private func evaluate(_ script: String) throws -> [String: Any] {
+    private func evaluate(
+        _ script: String,
+        frameSelector: String? = nil,
+        documentSetup: String = "var document = {};"
+    ) throws -> [String: Any] {
         let context = try #require(JSContext())
         var exceptionMessage: String?
         context.exceptionHandler = { _, exception in
             exceptionMessage = exception?.toString()
         }
-        context.evaluateScript("var document = {};")
+        context.evaluateScript(documentSetup)
 
         let body = service.evaluationScript(
             script: script,
             useEval: true,
-            frameSelector: nil
+            frameSelector: frameSelector
         )
         let promise = try #require(context.evaluateScript("(async () => {\n\(body)\n})()"))
         var resolved: JSValue?
