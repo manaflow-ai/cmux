@@ -9,9 +9,18 @@ cat > "$TMP_DIR/xcodebuild" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$@" >> "$CMUX_CAPTURE_XCODEBUILD_ARGS"
 printf '%s\n' "${TEST_RUNNER_CMUX_TEST_PROCESS:-<unset>}" >> "$CMUX_CAPTURE_TEST_RUNNER_ENV"
+config_home="$CFFIXED_USER_HOME"
+[ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || config_home=/Users/runner
+config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
+echo "cmux DEV [config] config: path=$config_home/$config_suffix"
+[ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
 sleep 10
 SH
 chmod +x "$TMP_DIR/xcodebuild"
+
+APP_HOST_HOME="$TMP_DIR/app-host-home"
+APP_HOST_XDG_CONFIG_HOME="$APP_HOST_HOME/.config"
+mkdir -p "$APP_HOST_XDG_CONFIG_HOME"
 
 set +e
 PATH="$TMP_DIR:$PATH" \
@@ -20,6 +29,8 @@ CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/xcodebuild-args.log" \
 CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/test-runner-env.log" \
 CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
 CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=0.1 \
+CFFIXED_USER_HOME="$APP_HOST_HOME" \
+XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
   bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test >"$TMP_DIR/output.log" 2>&1
 status=$?
 set -e
@@ -48,6 +59,36 @@ runner_marker_count="$(grep -cx '1' "$TMP_DIR/test-runner-env.log" || true)"
 if [ "$runner_marker_count" -eq 0 ] || [ "$runner_marker_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-env.log"
   echo "FAIL: expected every app-host launch to receive TEST_RUNNER_CMUX_TEST_PROCESS=1"
+  exit 1
+fi
+
+home_setting_count="$(grep -Fxc "CMUX_APP_HOST_HOME=$APP_HOST_HOME" "$TMP_DIR/xcodebuild-args.log" || true)"
+xdg_setting_count="$(grep -Fxc "CMUX_APP_HOST_XDG_CONFIG_HOME=$APP_HOST_XDG_CONFIG_HOME" "$TMP_DIR/xcodebuild-args.log" || true)"
+if [ "$home_setting_count" -ne "$invocation_count" ] || [ "$xdg_setting_count" -ne "$invocation_count" ]; then
+  cat "$TMP_DIR/xcodebuild-args.log"
+  echo "FAIL: every app-host xcodebuild invocation must receive isolated launch-home build settings"
+  exit 1
+fi
+
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$TMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/leak-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/leak-test-runner-env.log" \
+CMUX_MOCK_XCODEBUILD_MODE=leak \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CFFIXED_USER_HOME="$APP_HOST_HOME" \
+XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test >"$TMP_DIR/leak-output.log" 2>&1
+leak_status=$?
+set -e
+
+if [ "$leak_status" -ne 1 ] || ! grep -Fq \
+  "FAIL: Ghostty accessed configuration outside the isolated app-host home" \
+  "$TMP_DIR/leak-output.log"; then
+  cat "$TMP_DIR/leak-output.log"
+  echo "FAIL: wrapper must reject a Ghostty config path outside the isolated app-host home"
   exit 1
 fi
 
