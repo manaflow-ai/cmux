@@ -42,18 +42,11 @@ app_host_test_runner_environment=("TEST_RUNNER_CMUX_TEST_PROCESS=1")
 app_host_home=""
 app_host_home_input="${CMUX_APP_HOST_HOME:-}"
 app_host_xdg_config_home_input="${CMUX_APP_HOST_XDG_CONFIG_HOME:-}"
-uses_legacy_parent_redirects=0
 if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
   if [ -z "$app_host_home_input" ] || [ -z "$app_host_xdg_config_home_input" ]; then
     echo "FAIL: required app-host isolation environment is incomplete" >&2
     exit 1
   fi
-fi
-if [ -z "$app_host_home_input" ] && [ -z "$app_host_xdg_config_home_input" ] \
-  && { [ -n "${CFFIXED_USER_HOME:-}" ] || [ -n "${XDG_CONFIG_HOME:-}" ]; }; then
-  app_host_home_input="${CFFIXED_USER_HOME:-}"
-  app_host_xdg_config_home_input="${XDG_CONFIG_HOME:-}"
-  uses_legacy_parent_redirects=1
 fi
 if { [ -n "$app_host_home_input" ] && [ -z "$app_host_xdg_config_home_input" ]; } \
   || { [ -z "$app_host_home_input" ] && [ -n "$app_host_xdg_config_home_input" ]; }; then
@@ -74,9 +67,6 @@ if [ -n "$app_host_home_input" ]; then
     "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=$app_host_home"
     "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=$app_host_xdg_config_home"
   )
-  if [ "$uses_legacy_parent_redirects" = "1" ]; then
-    unset CFFIXED_USER_HOME XDG_CONFIG_HOME
-  fi
 fi
 
 app_host_xcodebuild_arguments=("$@")
@@ -120,9 +110,8 @@ validate_app_host_config_paths() {
     return 1
   fi
 
-  local expected_root="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty"
-  local matches scan_status line
-  if matches="$(grep -E '\[(config|default)\].*path=.*Library/Application Support/com\.mitchellh\.ghostty' "$log_path")"; then
+  local matches scan_status line reported_path
+  if matches="$(grep -E '\[(config|default)\].*path=' "$log_path")"; then
     scan_status=0
   else
     scan_status=$?
@@ -137,8 +126,9 @@ validate_app_host_config_paths() {
   fi
 
   while IFS= read -r line; do
-    case "$line" in
-      *"path=$expected_root/"*) ;;
+    reported_path="${line#*path=}"
+    case "$reported_path" in
+      "$app_host_home"|"${app_host_home%/}/"*) ;;
       *)
         echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
         echo "$line" >&2
