@@ -17368,6 +17368,16 @@ private extension NSApplication {
         ) {
             return
         }
+        let preferredWindow = event.window
+            ?? AppDelegate.shared?.shortcutRoutingActiveWindow
+            ?? keyWindow
+            ?? mainWindow
+        if preferredWindow?.cmuxRouteApplicationUndoRedoCommandEquivalent(event) == true {
+#if DEBUG
+            cmuxDebugLog("app.sendEvent routed undo/redo before AppKit menu dispatch")
+#endif
+            return
+        }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
             if AppDelegate.shared?.handleFocusedFileExplorerOpenSelectionShortcut(
                 event,
@@ -17806,6 +17816,21 @@ private extension NSWindow {
             originalDispatchMs = (ProcessInfo.processInfo.systemUptime - originalDispatchStart) * 1000.0
         }
 #endif
+    }
+
+    fileprivate func cmuxRouteApplicationUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        guard event.cmuxIsUndoRedoCommandEquivalent else { return false }
+
+        let terminalView = firstResponder.cmuxTerminalKeyEquivalentOwningGhosttyView()
+        let webView = firstResponder.flatMap {
+            Self.cmuxOwningWebView(for: $0, in: self, event: event)
+        }
+        return cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
+            event,
+            terminalView: terminalView,
+            webView: webView,
+            browserWebKitKeyDownReentry: webView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
+        )
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
