@@ -10,29 +10,11 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             command: "cmux_test_attach",
             reauthenticates: true
         ).joined(separator: "\n")
-        let stateFileNames = [
-            "identity",
-            "identity.new",
-            "anchor",
-            "cancel",
-            "processes",
-            "processes.stopped",
-            "owned",
-            "owned.next",
-            "groups",
-            "groups.next",
-            "groups.resume",
-            "frozen",
-            "individuals",
-            "ordered",
-            "signaled.groups",
-            "signaled.pids",
-            "reaper.failed",
-            "reaper.failed.new",
-        ]
-
-        for stateFileName in stateFileNames {
+        for stateFileName in SSHForegroundAuthenticationRetryPolicy.groupStateFileNames {
             #expect(script.contains("\"$CMUX_SSH_AUTH_GROUP_DIR/\(stateFileName)\""))
+        }
+        for stateFileName in SSHForegroundAuthenticationRetryPolicy.reaperLockStateFileNames {
+            #expect(script.contains("\"$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock/\(stateFileName)\""))
         }
         #expect(script.contains(
             "wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; " +

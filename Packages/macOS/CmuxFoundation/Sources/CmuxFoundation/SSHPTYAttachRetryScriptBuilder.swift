@@ -12,17 +12,23 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
     /// Builds shell lines that retry PTY attachment and optional foreground authentication.
     ///
     /// The surrounding script supplies `cmux_ssh_attach_foreground_auth` when
-    /// `reauthenticates` is true and installs `cmux_ssh_attach_signal_exit`
-    /// before these lines execute.
+    /// `reauthenticates` is true and supplies `cmux_ssh_attach_signal_exit`.
     ///
     /// - Parameters:
     ///   - command: Shell command that performs one PTY attachment attempt.
     ///   - reauthenticates: Whether status 255 requires foreground authentication before reattaching.
+    ///   - retryLoopSetupLines: Lines installed after cleanup helpers exist and before retry work starts.
     /// - Returns: macOS `/bin/sh` lines implementing the shared retry state machine.
-    public func lines(command: String, reauthenticates: Bool) -> [String] {
+    public func lines(
+        command: String,
+        reauthenticates: Bool,
+        retryLoopSetupLines: [String] = []
+    ) -> [String] {
         let reauthenticate = reauthenticates ? "cmux_ssh_attach_reauth_required=1" : ":"
         let authPolicy = SSHForegroundAuthenticationRetryPolicy()
-        let authGroupStateRemovalCommand = authPolicy.processGroupStateRemovalShellCommand()
+        let authGroupCleanupBody = authPolicy.authenticationGroupDirectoryCleanupShellBody(
+            terminatesPublishedGroup: reauthenticates
+        )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .attach)
         let initialReauthentication = reauthenticates ? 1 : 0
         let noProgressPolicy = SSHPTYAttachExitCode.noProgressShellPolicy()
@@ -35,9 +41,6 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let noProgressStatus = SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue
         let sessionRunningStatus = SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue
         let transientStatus = SSHPTYAttachExitCode.retryableTransient.rawValue
-        let publishedAuthenticationCleanup = reauthenticates
-            ? "if [ -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then cmux_ssh_terminate_owned_auth_group; if [ -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then cmux_ssh_launch_owned_auth_group_reaper \"$CMUX_SSH_AUTH_GROUP_DIR\"; fi; fi"
-            : ":"
         var lines = [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
@@ -58,9 +61,10 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "cmux_ssh_attach_auth_launching=0",
             "CMUX_SSH_AUTH_GROUP_DIR=",
             "export CMUX_SSH_AUTH_GROUP_DIR",
-            "cmux_ssh_attach_remove_auth_group_dir() { if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(publishedAuthenticationCleanup); if [ ! -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then \(authGroupStateRemovalCommand); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; }",
+            "cmux_ssh_attach_remove_auth_group_dir() { \(authGroupCleanupBody) }",
         ])
         lines.append(contentsOf: backoffBuilder.stateInitializationLines)
+        lines.append(contentsOf: retryLoopSetupLines)
         lines.append(contentsOf: [
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
