@@ -730,6 +730,8 @@ func browserNewTabNavigationSeed(
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
     let websiteDataStore: WKWebsiteDataStore
+    let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
+    let filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator
 }
 
 enum BrowserFileSystemAccessBridge {
@@ -956,29 +958,45 @@ enum BrowserFileSystemAccessBridge {
     """
 }
 
-func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL? {
-    guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
-    let path = fileURL.path
-    var isDirectory: ObjCBool = false
-    if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
-        return fileURL
-    }
-
-    let parent = fileURL.deletingLastPathComponent()
-    guard !parent.path.isEmpty, parent.path.hasPrefix("/") else { return nil }
-    return parent
-}
-
 @MainActor
 @discardableResult
-func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
+func browserLoadRequest(
+    _ request: URLRequest,
+    in webView: WKWebView,
+    localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
+    validatedReadableFileURL: URL? = nil
+) -> WKNavigation? {
     guard let url = request.url else { return nil }
     webView.applyBrowserUserAgentPolicy(for: url)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
-        guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
+        let navigationURL: URL
+        let readAccessURL: URL
+        switch localFileReadAccessPolicy {
+        case .fileOnly:
+            // A file-only load has no safe synchronous fallback. Its caller
+            // must supply the exact URL produced by the bounded regular-file
+            // probe, including any query or fragment retained for navigation.
+            guard validatedReadableFileURL == url else { return nil }
+            guard let resolvedReadAccessURL = localFileReadAccessPolicy
+                .readAccessURL(forResolvedNavigationURL: url) else {
+                return nil
+            }
+            navigationURL = url
+            readAccessURL = resolvedReadAccessURL
+        case .containingDirectory:
+            guard let resolvedReadAccessURL = localFileReadAccessPolicy
+                .readAccessURL(for: url) else {
+                return nil
+            }
+            navigationURL = url
+            readAccessURL = resolvedReadAccessURL
+        }
         webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
-        return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
+        return webView.loadFileURL(
+            navigationURL,
+            allowingReadAccessTo: readAccessURL
+        )
     }
     webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
     return webView.load(browserPreparedNavigationRequest(request))
@@ -2722,6 +2740,11 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    let localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy
+    private(set) var filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator
+    private var terminalFileReuseIdentity: BrowserLocalFileIdentity?
+    private var terminalFileReusePaths: Set<String> = []
+    private var terminalFileReuseAllowsNextCommitAlias = false
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
 
@@ -2750,14 +2773,15 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
     @Published private(set) var webViewInstanceID: UUID = UUID()
-    private(set) var hasRecoverableWebContentTermination = false {
+    /// A failed navigation with a preserved target that the user can retry.
+    private(set) var hasRecoverableNavigationFailure = false {
         willSet {
-            if newValue != hasRecoverableWebContentTermination {
+            if newValue != hasRecoverableNavigationFailure {
                 objectWillChange.send()
             }
         }
     }
-    private var pendingWebContentRecoveryURL: URL?
+    private var pendingNavigationRecoveryURL: URL?
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
@@ -3161,6 +3185,26 @@ final class BrowserPanel: Panel, ObservableObject {
         let onNavigationStarted: ((WKNavigation?) -> Void)?
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
+    private var pendingFileOnlyNavigation: (
+        id: UUID,
+        request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        onNavigationStarted: ((WKNavigation?) -> Void)?
+    )?
+    private var pendingFileOnlyNativeNavigation: (
+        id: UUID,
+        targetURL: URL,
+        reportsFailureAsRecovery: Bool,
+        isTargetCurrent: () -> Bool,
+        perform: () -> WKNavigation?
+    )?
+    private var pendingFileOnlyNewTabNavigation: (
+        id: UUID,
+        request: URLRequest,
+        fileURL: URL,
+        bypassInsecureHTTPHostOnce: String?
+    )?
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
@@ -3430,7 +3474,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator
         )
     }
 
@@ -3850,6 +3896,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 // discarded. didCommit does not fire for same-document (pushState)
                 // navigations, so a persisting SPA video keeps its frame id.
                 self.resetMediaPlaybackTracking()
+                self.reconcileTerminalFileReuseIdentity(with: webView.url)
                 self.publishCommittedURL(from: webView)
                 self.applyMuteState(to: webView, reason: "navigationCommit")
                 if self.shouldTreatCommitAsDiscardedRestoreCommit(from: webView) {
@@ -4115,6 +4162,8 @@ final class BrowserPanel: Panel, ObservableObject {
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
+        filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
@@ -4123,18 +4172,27 @@ final class BrowserPanel: Panel, ObservableObject {
         self.id = UUID()
         self.mobileBrowserDialogBroker = MobileBrowserDialogBroker(panelID: self.id.uuidString)
         self.workspaceId = workspaceId
+        self.localFileReadAccessPolicy = localFileReadAccessPolicy
+        self.filesystemResolutionCoordinator = filesystemResolutionCoordinator
+            ?? WordPathFilesystemResolutionCoordinator()
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
-        self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
-        self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
-        self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
+        // Restricted local-file panels must never inherit a remote workspace's
+        // proxy or website data store. The policy-derived fallback also
+        // preserves that invariant for restored sessions.
+        let resolvedBypassRemoteProxy =
+            bypassRemoteProxy || localFileReadAccessPolicy == .fileOnly
+        let usesRemoteContext = isRemoteWorkspace && !resolvedBypassRemoteProxy
+        self.bypassesRemoteWorkspaceProxy = resolvedBypassRemoteProxy
+        self.remoteProxyEndpoint = resolvedBypassRemoteProxy ? nil : proxyEndpoint
+        self.usesRemoteWorkspaceProxy = usesRemoteContext
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
         self.usesTransparentBackground = transparentBackground
         let websiteDataStore = explicitWebsiteDataStore ?? (
-            isRemoteWorkspace
+            usesRemoteContext
                 ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
                 : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         )
@@ -4150,8 +4208,9 @@ final class BrowserPanel: Panel, ObservableObject {
             preservesExplicitEphemeralWebsiteDataStore
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if let prewarmed = Self.claimedPrewarmedWebView(
-            isRemoteWorkspace: isRemoteWorkspace,
+        if localFileReadAccessPolicy == .containingDirectory,
+           let prewarmed = Self.claimedPrewarmedWebView(
+            isRemoteWorkspace: usesRemoteContext,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
             initialURL: initialURL,
@@ -4794,6 +4853,52 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId = newWorkspaceId
     }
 
+    func updateFilesystemResolutionCoordinator(
+        _ coordinator: WordPathFilesystemResolutionCoordinator
+    ) {
+        guard filesystemResolutionCoordinator !== coordinator else { return }
+        let navigationToResume = pendingFileOnlyNavigation
+        let nativeNavigationToResume = pendingFileOnlyNativeNavigation
+        let newTabNavigationToResume = pendingFileOnlyNewTabNavigation
+        pendingFileOnlyNavigation = nil
+        pendingFileOnlyNativeNavigation = nil
+        pendingFileOnlyNewTabNavigation = nil
+        if let navigationToResume {
+            filesystemResolutionCoordinator.cancelPending(id: navigationToResume.id)
+        }
+        if let nativeNavigationToResume {
+            filesystemResolutionCoordinator.cancelPending(id: nativeNavigationToResume.id)
+        }
+        if let newTabNavigationToResume {
+            filesystemResolutionCoordinator.cancelPending(id: newTabNavigationToResume.id)
+        }
+        closeAllPopupControllers()
+        filesystemResolutionCoordinator = coordinator
+        if let navigationToResume {
+            enqueueFileOnlyNavigation(
+                request: navigationToResume.request,
+                recordTypedNavigation: navigationToResume.recordTypedNavigation,
+                preserveRestoredSessionHistory: navigationToResume.preserveRestoredSessionHistory,
+                onNavigationStarted: navigationToResume.onNavigationStarted
+            )
+        }
+        if let nativeNavigationToResume {
+            enqueueFileOnlyNativeNavigation(
+                to: nativeNavigationToResume.targetURL,
+                reportsFailureAsRecovery: nativeNavigationToResume.reportsFailureAsRecovery,
+                isTargetCurrent: nativeNavigationToResume.isTargetCurrent,
+                perform: nativeNavigationToResume.perform
+            )
+        }
+        if let newTabNavigationToResume {
+            resolveFileOnlyNewTabNavigation(
+                request: newTabNavigationToResume.request,
+                fileURL: newTabNavigationToResume.fileURL,
+                bypassInsecureHTTPHostOnce: newTabNavigationToResume.bypassInsecureHTTPHostOnce
+            )
+        }
+    }
+
     var explicitEphemeralWebsiteDataStoreForSibling: WKWebsiteDataStore? {
         preservesExplicitEphemeralWebsiteDataStore ? websiteDataStore : nil
     }
@@ -4806,10 +4911,11 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
         workspaceId = newWorkspaceId
-        usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
+        let usesRemoteContext = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
+        usesRemoteWorkspaceProxy = usesRemoteContext
         let targetStore = preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
-            : isRemoteWorkspace
+            : usesRemoteContext
                 ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
                 : BrowserProfileStore.shared.websiteDataStore(for: profileID)
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
@@ -4840,6 +4946,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserProfileStore.shared.noteUsed(resolvedProfileID)
             return false
         }
+        cancelPendingFileOnlyNavigation()
 
         let previousWebView = webView
         let wasRenderable = shouldRenderWebView
@@ -4858,7 +4965,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelDeveloperToolsRestoreRetry()
 
         detachWebViewObservers()
-        clearWebContentTerminationRecovery()
+        clearNavigationRecovery()
         clearBrowserFocusMode(reason: "profileSwitch")
         faviconTask?.cancel()
         faviconTask = nil
@@ -5381,6 +5488,7 @@ final class BrowserPanel: Panel, ObservableObject {
         waitForManualRecovery: Bool = false
     ) {
         guard oldWebView === webView else { return }
+        cancelPendingFileOnlyNavigation()
 
         let wasRenderable = shouldRenderWebView
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
@@ -5455,11 +5563,11 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if shouldShowManualRecovery, let restoreURL {
-            pendingWebContentRecoveryURL = restoreURL
-            hasRecoverableWebContentTermination = true
+            pendingNavigationRecoveryURL = restoreURL
+            hasRecoverableNavigationFailure = true
             refreshNavigationAvailability()
         } else {
-            clearWebContentTerminationRecovery()
+            clearNavigationRecovery()
             if shouldRestoreURL, let restoreURL {
                 navigateWithoutInsecureHTTPPrompt(
                     to: restoreURL,
@@ -5486,16 +5594,16 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func recoverTerminatedWebContent(
+    func recoverFailedNavigation(
         reason: String = "manual",
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) -> Bool {
-        guard hasRecoverableWebContentTermination else { return false }
-        let recoveryURL = pendingWebContentRecoveryURL
-        clearWebContentTerminationRecovery()
+        guard hasRecoverableNavigationFailure else { return false }
+        let recoveryURL = pendingNavigationRecoveryURL
+        clearNavigationRecovery()
 #if DEBUG
         cmuxDebugLog(
-            "browser.webcontent.recover panel=\(id.uuidString.prefix(5)) " +
+            "browser.navigation.recover panel=\(id.uuidString.prefix(5)) " +
             "reason=\(reason) url=\(recoveryURL?.absoluteString ?? "nil")"
         )
 #endif
@@ -5510,11 +5618,6 @@ final class BrowserPanel: Panel, ObservableObject {
             cachePolicy: cachePolicy
         )
         return true
-    }
-
-    private func clearWebContentTerminationRecovery() {
-        pendingWebContentRecoveryURL = nil
-        hasRecoverableWebContentTermination = false
     }
 
 #if DEBUG
@@ -5599,6 +5702,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func close() {
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
+        cancelPendingFileOnlyNavigation()
         automationNavigationCoordinator.invalidate()
         navigationDelegate?.cancelPendingAuthenticationPrompts()
         mobileBrowserDialogBroker.resolveAll()
@@ -6037,6 +6141,36 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
+    func openValidatedTerminalFile(
+        _ fileURL: URL,
+        identity: BrowserLocalFileIdentity,
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
+    ) -> Bool {
+        // Terminal file routing receives the canonical readable-file URL from
+        // TerminalLinkOpenCoordinator's bounded probe, so creation and reuse
+        // both load it without repeating the filesystem operation.
+        guard localFileReadAccessPolicy == .fileOnly, fileURL.isFileURL else { return false }
+        cancelPendingFileOnlyNavigation()
+        forgetTerminalFileReuseIdentity()
+        let request = URLRequest(
+            url: fileURL,
+            cachePolicy: cachePolicy
+        )
+        let navigation = startNavigation(
+            request: request,
+            originalURL: fileURL,
+            recordTypedNavigation: false,
+            preserveRestoredSessionHistory: false,
+            validatedReadableFileURL: fileURL
+        )
+        if navigation == nil {
+            noteFileOnlyNavigationResolutionFailure(request: request)
+        }
+        rememberTerminalFileForReuse(fileURL, identity: identity)
+        return true
+    }
+
+    @discardableResult
     func navigateWithoutInsecureHTTPPrompt(
         request: URLRequest,
         recordTypedNavigation: Bool,
@@ -6047,6 +6181,38 @@ final class BrowserPanel: Panel, ObservableObject {
             onNavigationStarted?(nil)
             return nil
         }
+        clearNavigationRecovery()
+        // Invalidate reuse when navigation is requested, before an asynchronous
+        // file-only probe begins. The workspace may record the initial terminal
+        // file identity while that probe is still running.
+        forgetTerminalFileReuseIdentity()
+        if localFileReadAccessPolicy == .fileOnly, url.isFileURL {
+            enqueueFileOnlyNavigation(
+                request: request,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+                onNavigationStarted: onNavigationStarted
+            )
+            return nil
+        }
+        cancelPendingFileOnlyNavigation()
+        return startNavigation(
+            request: request,
+            originalURL: url,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            onNavigationStarted: onNavigationStarted
+        )
+    }
+
+    private func startNavigation(
+        request: URLRequest,
+        originalURL: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        validatedReadableFileURL: URL? = nil,
+        onNavigationStarted: ((WKNavigation?) -> Void)? = nil
+    ) -> WKNavigation? {
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
@@ -6057,7 +6223,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 onNavigationStarted: onNavigationStarted
             )
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
-            currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
+            currentURL = Self.remoteProxyDisplayURL(for: originalURL) ?? originalURL
             navigationDelegate?.recordAttemptedRequest(request)
             refreshBackgroundAppearance()
             shouldRenderWebView = true
@@ -6065,11 +6231,253 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         return performNavigation(
             request: request,
-            originalURL: url,
+            originalURL: originalURL,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            validatedReadableFileURL: validatedReadableFileURL,
+            onNavigationStarted: onNavigationStarted
+        )
+    }
+
+    private func enqueueFileOnlyNavigation(
+        request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool,
+        onNavigationStarted: ((WKNavigation?) -> Void)?
+    ) {
+        guard let originalURL = request.url, originalURL.isFileURL else {
+            onNavigationStarted?(nil)
+            return
+        }
+        guard originalURL.browserIsLocalFileURL else {
+            cancelPendingFileOnlyNavigation()
+            noteFileOnlyNavigationResolutionFailure(request: request)
+            onNavigationStarted?(nil)
+            return
+        }
+        cancelPendingFileOnlyNavigation()
+        let id = UUID()
+        pendingFileOnlyNavigation = (
+            id: id,
+            request: request,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
             onNavigationStarted: onNavigationStarted
         )
+        filesystemResolutionCoordinator.submitCoalesced(
+            id: id,
+            coalescingKey: self.id,
+            work: {
+                let result = await WordPathFilesystemProbe()
+                    .firstExistingPath(in: [originalURL.path])
+                let navigationURL = result.flatMap { result -> URL? in
+                    guard result.isReadableRegularFile else { return nil }
+                    return BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                        for: originalURL,
+                        resolvedFileURL: URL(fileURLWithPath: result.resolvedPath)
+                    )
+                }
+                return { @MainActor [weak self] in
+                    self?.finishFileOnlyNavigation(id: id, navigationURL: navigationURL)
+                }
+            },
+            discarded: { [weak self] in
+                self?.discardFileOnlyNavigation(id: id)
+            },
+            rejected: { [weak self] in
+                self?.finishFileOnlyNavigation(id: id, navigationURL: nil)
+            }
+        )
+    }
+
+    private func finishFileOnlyNavigation(id: UUID, navigationURL: URL?) {
+        guard let pendingFileOnlyNavigation,
+              pendingFileOnlyNavigation.id == id else {
+            return
+        }
+        self.pendingFileOnlyNavigation = nil
+        guard let navigationURL else {
+            noteFileOnlyNavigationResolutionFailure(
+                request: pendingFileOnlyNavigation.request
+            )
+            pendingFileOnlyNavigation.onNavigationStarted?(nil)
+            return
+        }
+        var resolvedRequest = pendingFileOnlyNavigation.request
+        resolvedRequest.url = navigationURL
+        _ = startNavigation(
+            request: resolvedRequest,
+            originalURL: navigationURL,
+            recordTypedNavigation: pendingFileOnlyNavigation.recordTypedNavigation,
+            preserveRestoredSessionHistory: pendingFileOnlyNavigation.preserveRestoredSessionHistory,
+            validatedReadableFileURL: navigationURL,
+            onNavigationStarted: pendingFileOnlyNavigation.onNavigationStarted
+        )
+        if let identity = BrowserLocalFileIdentity(resolvedURL: navigationURL) {
+            rememberTerminalFileForReuse(navigationURL, identity: identity)
+        }
+    }
+
+    private func discardFileOnlyNavigation(id: UUID) {
+        guard let pendingFileOnlyNavigation,
+              pendingFileOnlyNavigation.id == id else {
+            return
+        }
+        self.pendingFileOnlyNavigation = nil
+        pendingFileOnlyNavigation.onNavigationStarted?(nil)
+    }
+
+    private func noteFileOnlyNavigationResolutionFailure(request: URLRequest) {
+        guard let url = request.url else { return }
+        navigationDelegate?.stopAndSuppressActiveMainFrameNavigation(in: webView)
+        loadingGeneration &+= 1
+        loadingEndScheduler.cancel()
+        loadingStartedAt = nil
+        isLoading = false
+        estimatedProgress = 0
+        pendingNavigationRecoveryURL = url
+        hasRecoverableNavigationFailure = true
+        currentURL = url
+        pageTitle = url.absoluteString
+        faviconPNGData = nil
+        lastFaviconURLString = nil
+        isMainFrameProvisionalNavigationActive = false
+        navigationDelegate?.recordAttemptedRequest(request, displayURL: url)
+        hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
+        shouldRenderWebView = true
+        _ = reactivateDiscardedWebViewWithoutNavigation(reason: "file_only_navigation_failed")
+        refreshBackgroundAppearance()
+        refreshNavigationAvailability()
+        reevaluateHiddenWebViewDiscardScheduling(reason: "file_only_navigation_failed")
+    }
+
+    private func clearNavigationRecovery() {
+        pendingNavigationRecoveryURL = nil
+        hasRecoverableNavigationFailure = false
+    }
+
+    private func cancelPendingFileOnlyNavigation() {
+        if let pendingFileOnlyNavigation {
+            self.pendingFileOnlyNavigation = nil
+            pendingFileOnlyNavigation.onNavigationStarted?(nil)
+            filesystemResolutionCoordinator.cancelPending(
+                id: pendingFileOnlyNavigation.id
+            )
+        }
+        if let pendingFileOnlyNativeNavigation {
+            self.pendingFileOnlyNativeNavigation = nil
+            filesystemResolutionCoordinator.cancelPending(
+                id: pendingFileOnlyNativeNavigation.id
+            )
+        }
+        cancelPendingFileOnlyNewTabNavigation()
+    }
+
+    private func cancelPendingFileOnlyNewTabNavigation() {
+        guard let pendingFileOnlyNewTabNavigation else { return }
+        self.pendingFileOnlyNewTabNavigation = nil
+        filesystemResolutionCoordinator.cancelPending(
+            id: pendingFileOnlyNewTabNavigation.id
+        )
+    }
+
+    private func enqueueFileOnlyNativeNavigation(
+        to targetURL: URL,
+        reportsFailureAsRecovery: Bool,
+        isTargetCurrent: @escaping () -> Bool,
+        perform: @escaping () -> WKNavigation?
+    ) {
+        guard targetURL.browserIsLocalFileURL else {
+            finishRejectedFileOnlyNativeNavigation(
+                targetURL: targetURL,
+                reportsFailureAsRecovery: reportsFailureAsRecovery
+            )
+            return
+        }
+        cancelPendingFileOnlyNavigation()
+        let id = UUID()
+        pendingFileOnlyNativeNavigation = (
+            id,
+            targetURL,
+            reportsFailureAsRecovery,
+            isTargetCurrent,
+            perform
+        )
+        filesystemResolutionCoordinator.submitCoalesced(
+            id: id,
+            coalescingKey: self.id,
+            work: {
+                let result = await WordPathFilesystemProbe()
+                    .firstExistingPath(in: [targetURL.path])
+                let navigationURL = result.flatMap { result -> URL? in
+                    guard result.isReadableRegularFile else { return nil }
+                    return BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                        for: targetURL,
+                        resolvedFileURL: URL(fileURLWithPath: result.resolvedPath)
+                    )
+                }
+                return { @MainActor [weak self] in
+                    self?.finishFileOnlyNativeNavigation(
+                        id: id,
+                        navigationURL: navigationURL
+                    )
+                }
+            },
+            discarded: { [weak self] in
+                self?.discardFileOnlyNativeNavigation(id: id)
+            },
+            rejected: { [weak self] in
+                self?.finishFileOnlyNativeNavigation(id: id, navigationURL: nil)
+            }
+        )
+    }
+
+    private func finishFileOnlyNativeNavigation(id: UUID, navigationURL: URL?) {
+        guard let pendingFileOnlyNativeNavigation,
+              pendingFileOnlyNativeNavigation.id == id else {
+            return
+        }
+        self.pendingFileOnlyNativeNavigation = nil
+        let targetURL = pendingFileOnlyNativeNavigation.targetURL
+        guard navigationURL?.absoluteString == targetURL.absoluteString else {
+            finishRejectedFileOnlyNativeNavigation(
+                targetURL: targetURL,
+                reportsFailureAsRecovery:
+                    pendingFileOnlyNativeNavigation.reportsFailureAsRecovery
+            )
+            return
+        }
+        guard pendingFileOnlyNativeNavigation.isTargetCurrent(),
+              navigationDelegate?.authorizeValidatedFileOnlyNavigation(targetURL) == true else {
+            refreshNavigationAvailability()
+            return
+        }
+        webView.applyBrowserUserAgentPolicy(for: targetURL)
+        if pendingFileOnlyNativeNavigation.perform() == nil {
+            navigationDelegate?.cancelValidatedFileOnlyNavigationAllowance()
+            finishRejectedFileOnlyNativeNavigation(
+                targetURL: targetURL,
+                reportsFailureAsRecovery:
+                    pendingFileOnlyNativeNavigation.reportsFailureAsRecovery
+            )
+        }
+    }
+
+    private func discardFileOnlyNativeNavigation(id: UUID) {
+        guard pendingFileOnlyNativeNavigation?.id == id else { return }
+        pendingFileOnlyNativeNavigation = nil
+        refreshNavigationAvailability()
+    }
+
+    private func finishRejectedFileOnlyNativeNavigation(
+        targetURL: URL,
+        reportsFailureAsRecovery: Bool
+    ) {
+        if reportsFailureAsRecovery {
+            noteFileOnlyNavigationResolutionFailure(request: URLRequest(url: targetURL))
+        } else {
+            refreshNavigationAvailability()
+        }
     }
 
     private func resumePendingRemoteNavigationIfNeeded() {
@@ -6101,10 +6509,11 @@ final class BrowserPanel: Panel, ObservableObject {
         originalURL: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool,
+        validatedReadableFileURL: URL? = nil,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         cancelHiddenWebViewDiscard()
-        clearWebContentTerminationRecovery()
+        clearNavigationRecovery()
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
@@ -6122,8 +6531,24 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         noteDiscardedWebViewRestoreNavigationStarted()
         userStoppedLoadSinceWebViewReplacement = false
-        let startedNavigation = browserLoadRequest(effectiveRequest, in: webView)
+        let authorizedFileOnlyNavigation = validatedReadableFileURL.flatMap { validatedURL -> URL? in
+            guard localFileReadAccessPolicy == .fileOnly,
+                  effectiveRequest.url == validatedURL,
+                  navigationDelegate?.authorizeValidatedFileOnlyNavigation(validatedURL) == true else {
+                return nil
+            }
+            return validatedURL
+        }
+        let startedNavigation = browserLoadRequest(
+            effectiveRequest,
+            in: webView,
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
+            validatedReadableFileURL: validatedReadableFileURL
+        )
         if startedNavigation == nil {
+            if authorizedFileOnlyNavigation != nil {
+                navigationDelegate?.cancelValidatedFileOnlyNavigationAllowance()
+            }
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
             pendingDiscardRestoreNavigation = startedNavigation
@@ -6429,7 +6854,11 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isClosing: isClosingWebViewLifecycle,
             isVisibleInUI: isWebViewVisibleInUI,
             shouldRenderWebView: shouldRenderWebView,
-            hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
+            hasPendingRemoteNavigation:
+                pendingRemoteNavigation != nil ||
+                pendingFileOnlyNavigation != nil ||
+                pendingFileOnlyNativeNavigation != nil ||
+                pendingFileOnlyNewTabNavigation != nil,
             hasCurrentURL: (currentURL ?? Self.remoteProxyDisplayURL(for: webView.url)) != nil,
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
@@ -6489,8 +6918,11 @@ extension BrowserPanel {
         isDownloading ||
         activeDownloadCount != 0 ||
         preferredDeveloperToolsVisible ||
-        hasRecoverableWebContentTermination ||
-        pendingWebContentRecoveryURL != nil ||
+        hasRecoverableNavigationFailure ||
+        pendingNavigationRecoveryURL != nil ||
+        pendingFileOnlyNavigation != nil ||
+        pendingFileOnlyNativeNavigation != nil ||
+        pendingFileOnlyNewTabNavigation != nil ||
         webView.cmuxBrowserViewportAttachmentSuperview != nil
     }
 
@@ -6498,7 +6930,8 @@ extension BrowserPanel {
         reason: String,
         forceWebViewReplacement: Bool = false
     ) {
-        guard forceWebViewReplacement || needsWorkspaceContextReset else {
+        let shouldReset = forceWebViewReplacement || needsWorkspaceContextReset
+        guard shouldReset else {
             resetWebViewLifecycleMetadata()
 #if DEBUG
             cmuxDebugLog(
@@ -6508,6 +6941,8 @@ extension BrowserPanel {
 #endif
             return
         }
+        cancelPendingFileOnlyNavigation()
+        forgetTerminalFileReuseIdentity()
 
 #if DEBUG
         cmuxDebugLog(
@@ -6527,7 +6962,7 @@ extension BrowserPanel {
         cancelDetachedDeveloperToolsWindowDismissal()
         developerToolsDockControlNormalizationTask?.cancel()
         developerToolsDockControlNormalizationTask = nil
-        clearWebContentTerminationRecovery()
+        clearNavigationRecovery()
 
         loadingEndScheduler.cancel()
         faviconTask?.cancel()
@@ -6616,6 +7051,7 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 
 extension BrowserPanel {
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
+        cancelPendingFileOnlyNavigation()
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
@@ -6639,6 +7075,7 @@ extension BrowserPanel {
     /// Go back in history
     func goBack() {
         guard canGoBack else { return }
+        forgetTerminalFileReuseIdentity()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6658,21 +7095,20 @@ extension BrowserPanel {
                     preserveRestoredSessionHistory: true
                 )
             case .nativeGoBack:
-                webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.backItem?.url)
-                webView.goBack()
+                performBackNavigation()
             case .nativeGoForward, .refreshOnly:
                 refreshNavigationAvailability()
             }
             return
         }
 
-        webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.backItem?.url)
-        webView.goBack()
+        performBackNavigation()
     }
 
     /// Go forward in history
     func goForward() {
         guard canGoForward else { return }
+        forgetTerminalFileReuseIdentity()
         reactivateDiscardedWebViewWithoutNavigation(reason: "goForward")
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
@@ -6684,8 +7120,7 @@ extension BrowserPanel {
             )
             switch decision {
             case .nativeGoForward:
-                webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.forwardItem?.url)
-                webView.goForward()
+                performForwardNavigation()
             case .navigate(let targetURL):
                 refreshNavigationAvailability()
                 navigateWithoutInsecureHTTPPrompt(
@@ -6699,8 +7134,55 @@ extension BrowserPanel {
             return
         }
 
-        webView.applyBrowserUserAgentPolicy(for: webView.backForwardList.forwardItem?.url)
-        webView.goForward()
+        performForwardNavigation()
+    }
+
+    private func performBackNavigation() {
+        guard let targetURL = webView.backForwardList.backItem?.url else {
+            refreshNavigationAvailability()
+            return
+        }
+        let targetURLString = targetURL.absoluteString
+        performHistoryNavigation(
+            to: targetURL,
+            isTargetCurrent: { [weak self] in
+                self?.webView.backForwardList.backItem?.url.absoluteString == targetURLString
+            },
+            perform: { [weak self] in self?.webView.goBack() }
+        )
+    }
+
+    private func performForwardNavigation() {
+        guard let targetURL = webView.backForwardList.forwardItem?.url else {
+            refreshNavigationAvailability()
+            return
+        }
+        let targetURLString = targetURL.absoluteString
+        performHistoryNavigation(
+            to: targetURL,
+            isTargetCurrent: { [weak self] in
+                self?.webView.backForwardList.forwardItem?.url.absoluteString == targetURLString
+            },
+            perform: { [weak self] in self?.webView.goForward() }
+        )
+    }
+
+    private func performHistoryNavigation(
+        to targetURL: URL,
+        isTargetCurrent: @escaping () -> Bool,
+        perform: @escaping () -> WKNavigation?
+    ) {
+        if localFileReadAccessPolicy == .fileOnly, targetURL.isFileURL {
+            enqueueFileOnlyNativeNavigation(
+                to: targetURL,
+                reportsFailureAsRecovery: false,
+                isTargetCurrent: isTargetCurrent,
+                perform: perform
+            )
+            return
+        }
+        webView.applyBrowserUserAgentPolicy(for: targetURL)
+        _ = perform()
     }
 
     /// Open a link in a new browser surface in the same pane
@@ -6713,6 +7195,106 @@ extension BrowserPanel {
 
     /// Opens a request in a sibling browser tab without dropping request metadata.
     func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
+        if localFileReadAccessPolicy == .fileOnly,
+           let fileURL = request.url,
+           fileURL.isFileURL {
+            resolveFileOnlyNewTabNavigation(
+                request: request,
+                fileURL: fileURL,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            )
+            return
+        }
+        openResolvedLinkInNewTab(
+            request: request,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        )
+    }
+
+    private func resolveFileOnlyNewTabNavigation(
+        request: URLRequest,
+        fileURL: URL,
+        bypassInsecureHTTPHostOnce: String?
+    ) {
+        guard fileURL.browserIsLocalFileURL else {
+            openResolvedLinkInNewTab(
+                request: request,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            )
+            return
+        }
+        cancelPendingFileOnlyNewTabNavigation()
+        let id = UUID()
+        pendingFileOnlyNewTabNavigation = (
+            id,
+            request,
+            fileURL,
+            bypassInsecureHTTPHostOnce
+        )
+        filesystemResolutionCoordinator.submit(
+            id: id,
+            isUserInitiated: true,
+            work: {
+                let result = await WordPathFilesystemProbe()
+                    .firstExistingPath(in: [fileURL.path])
+                let resolvedFileURL = result.flatMap {
+                    $0.isReadableRegularFile
+                        ? URL(fileURLWithPath: $0.resolvedPath)
+                        : nil
+                }
+                return { @MainActor [weak self] in
+                    self?.finishFileOnlyNewTabNavigation(
+                        id: id,
+                        request: request,
+                        fileURL: fileURL,
+                        resolvedFileURL: resolvedFileURL,
+                        bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+                    )
+                }
+            },
+            discarded: { [weak self] in
+                self?.discardFileOnlyNewTabNavigation(id: id)
+            }
+        )
+    }
+
+    private func finishFileOnlyNewTabNavigation(
+        id: UUID,
+        request: URLRequest,
+        fileURL: URL,
+        resolvedFileURL: URL?,
+        bypassInsecureHTTPHostOnce: String?
+    ) {
+        guard pendingFileOnlyNewTabNavigation?.id == id else { return }
+        pendingFileOnlyNewTabNavigation = nil
+        guard let resolvedFileURL,
+              let navigationURL = BrowserLocalFileReadAccessPolicy.fileOnly.navigationURL(
+                  for: fileURL,
+                  resolvedFileURL: resolvedFileURL
+              ) else {
+            openResolvedLinkInNewTab(
+                request: request,
+                bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            )
+            return
+        }
+        var resolvedRequest = request
+        resolvedRequest.url = navigationURL
+        openResolvedLinkInNewTab(
+            request: resolvedRequest,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        )
+    }
+
+    private func discardFileOnlyNewTabNavigation(id: UUID) {
+        guard pendingFileOnlyNewTabNavigation?.id == id else { return }
+        pendingFileOnlyNewTabNavigation = nil
+    }
+
+    private func openResolvedLinkInNewTab(
+        request: URLRequest,
+        bypassInsecureHTTPHostOnce: String?
+    ) {
         guard let seed = browserNewTabNavigationSeed(
             from: request,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
@@ -6761,6 +7343,8 @@ extension BrowserPanel {
             focus: true,
             preferredProfileID: profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            bypassRemoteProxy: bypassesRemoteWorkspaceProxyForTabDuplication,
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
             websiteDataStore: explicitEphemeralWebsiteDataStoreForSibling
         ) else {
 #if DEBUG
@@ -6782,6 +7366,74 @@ extension BrowserPanel {
             ?? currentURL
     }
 
+    var effectiveURLForTerminalFileReuse: URL? {
+        if isMainFrameProvisionalNavigationActive {
+            return Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
+                ?? navigationDelegate?.lastAttemptedURL
+        }
+        return restorableDisplayURLForCurrentErrorPage(liveURL: webView.url)
+            ?? webView.url
+            ?? currentURL
+    }
+
+    func canReuseTerminalFile(
+        _ fileURL: URL,
+        identity: BrowserLocalFileIdentity
+    ) -> Bool {
+        guard localFileReadAccessPolicy == .fileOnly,
+              bypassesRemoteWorkspaceProxyForTabDuplication,
+              terminalFileReuseIdentity == identity,
+              terminalFileReusePaths.contains(fileURL.standardizedFileURL.path) else {
+            return false
+        }
+        if isMainFrameProvisionalNavigationActive {
+            guard let attemptedPath = navigationDelegate?.lastAttemptedURL?
+                .standardizedFileURL.path else {
+                return false
+            }
+            return terminalFileReusePaths.contains(attemptedPath)
+        }
+        return true
+    }
+
+    func rememberTerminalFileForReuse(
+        _ fileURL: URL,
+        identity: BrowserLocalFileIdentity
+    ) {
+        terminalFileReuseIdentity = identity
+        terminalFileReusePaths = [fileURL.standardizedFileURL.path]
+        if let effectiveURL = effectiveURLForTerminalFileReuse,
+           effectiveURL.isFileURL {
+            terminalFileReusePaths.insert(effectiveURL.standardizedFileURL.path)
+        }
+        terminalFileReuseAllowsNextCommitAlias = true
+    }
+
+    private func reconcileTerminalFileReuseIdentity(with committedURL: URL?) {
+        guard terminalFileReuseIdentity != nil else { return }
+        guard let committedURL, committedURL.isFileURL else {
+            forgetTerminalFileReuseIdentity()
+            return
+        }
+        let committedPath = committedURL.standardizedFileURL.path
+        if terminalFileReusePaths.contains(committedPath) {
+            terminalFileReuseAllowsNextCommitAlias = false
+            return
+        }
+        guard terminalFileReuseAllowsNextCommitAlias else {
+            forgetTerminalFileReuseIdentity()
+            return
+        }
+        terminalFileReusePaths.insert(committedPath)
+        terminalFileReuseAllowsNextCommitAlias = false
+    }
+
+    private func forgetTerminalFileReuseIdentity() {
+        terminalFileReuseIdentity = nil
+        terminalFileReusePaths.removeAll(keepingCapacity: true)
+        terminalFileReuseAllowsNextCommitAlias = false
+    }
+
     var bypassesRemoteWorkspaceProxyForTabDuplication: Bool {
         bypassesRemoteWorkspaceProxy
     }
@@ -6796,7 +7448,7 @@ extension BrowserPanel {
     }
 
     private func prepareForReload(reason: String, mode: BrowserPanelReloadMode) -> Bool {
-        if recoverTerminatedWebContent(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
+        if recoverFailedNavigation(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
             return true
         }
         if restoreDiscardedWebViewIfNeeded(reason: reason, cachePolicy: mode.recoveryCachePolicy, forceRestartPendingRestore: true) {
@@ -6829,12 +7481,40 @@ extension BrowserPanel {
         if prepareForReload(reason: "reload", mode: .soft) {
             return nil
         }
+        if let targetURL = webView.url,
+           localFileReadAccessPolicy == .fileOnly,
+           targetURL.isFileURL {
+            let targetURLString = targetURL.absoluteString
+            enqueueFileOnlyNativeNavigation(
+                to: targetURL,
+                reportsFailureAsRecovery: true,
+                isTargetCurrent: { [weak self] in
+                    self?.webView.url?.absoluteString == targetURLString
+                },
+                perform: { [weak self] in self?.webView.reload() }
+            )
+            return nil
+        }
         return webView.reload()
     }
 
     /// Reload the current page, bypassing WebKit's cache.
     func hardReload() {
         if prepareForReload(reason: "hardReload", mode: .hard) {
+            return
+        }
+        if let targetURL = webView.url,
+           localFileReadAccessPolicy == .fileOnly,
+           targetURL.isFileURL {
+            let targetURLString = targetURL.absoluteString
+            enqueueFileOnlyNativeNavigation(
+                to: targetURL,
+                reportsFailureAsRecovery: true,
+                isTargetCurrent: { [weak self] in
+                    self?.webView.url?.absoluteString == targetURLString
+                },
+                perform: { [weak self] in self?.webView.reloadFromOrigin() }
+            )
             return
         }
         webView.reloadFromOrigin()
@@ -6844,6 +7524,7 @@ extension BrowserPanel {
     func stopLoading() {
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
         userStoppedLoadSinceWebViewReplacement = true
+        cancelPendingFileOnlyNavigation()
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
     }

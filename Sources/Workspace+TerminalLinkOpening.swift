@@ -1,9 +1,14 @@
+import CmuxBrowser
 import CmuxPanes
 import Foundation
 
 extension Workspace: TerminalLinkOpenContainer {
     var terminalLinkContainerDebugName: String {
         "workspace:\(id.uuidString)"
+    }
+
+    func terminalLinkContainsPanel(_ sourcePanelId: UUID) -> Bool {
+        surfaceOwnershipTarget(for: sourcePanelId) != nil
     }
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
@@ -22,10 +27,17 @@ extension Workspace: TerminalLinkOpenContainer {
         )
     }
 
+    func terminalLinkSnapshotTerminalPanel(for sourcePanelId: UUID) -> TerminalPanel? {
+        guard !terminalLinkIsRemoteTerminal(sourcePanelId) else { return nil }
+        return controlTerminalPanel(for: sourcePanelId)
+    }
+
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
         filePath: String,
-        fallback: @escaping @MainActor @Sendable () -> Void
+        resolvedFileURL: URL?,
+        fallback: @escaping @MainActor @Sendable () -> Void,
+        completion: @escaping @MainActor @Sendable () -> Void
     ) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
         CommandClickFileOpenRouter.deferredOpenFileInCmux(
@@ -33,7 +45,9 @@ extension Workspace: TerminalLinkOpenContainer {
             preferredWorkspaceId: id,
             surfaceId: target.containerPanelID,
             filePath: filePath,
-            fallback: fallback
+            resolvedFileURL: resolvedFileURL,
+            fallback: fallback,
+            completion: completion
         )
         return true
     }
@@ -48,5 +62,32 @@ extension Workspace: TerminalLinkOpenContainer {
             orientation: .horizontal,
             url: url
         ) != nil
+    }
+
+    func openOrFocusTerminalBrowserFileLink(resolvedURL: URL, sourcePanelId: UUID) -> Bool {
+        guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
+        return TerminalHTMLFileBrowserAction.openOrFocusResolvedFile(
+            resolvedURL,
+            browserPanels: panels.values.compactMap { $0 as? BrowserPanel },
+            focusExisting: { focusPanel($0.id) },
+            createBrowser: {
+                if let targetPane = preferredRightSideTargetPane(
+                    fromPanelId: target.containerPanelID
+                ) {
+                    return newBrowserSurface(
+                        inPane: targetPane,
+                        focus: true,
+                        bypassRemoteProxy: true,
+                        localFileReadAccessPolicy: .fileOnly
+                    )
+                }
+                return newBrowserSplit(
+                    from: target.containerPanelID,
+                    orientation: .horizontal,
+                    bypassRemoteProxy: true,
+                    localFileReadAccessPolicy: .fileOnly
+                )
+            }
+        )
     }
 }

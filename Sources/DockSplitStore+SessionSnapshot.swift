@@ -304,7 +304,8 @@ extension DockSplitStore {
                 forwardHistoryURLStrings: history.forwardHistoryURLStrings,
                 transparentBackground: browser.sessionSnapshotTransparentBackground,
                 diffViewerToken: diffViewer?.token,
-                diffViewerRequestPath: diffViewer?.requestPath
+                diffViewerRequestPath: diffViewer?.requestPath,
+                localFileReadAccessPolicy: browser.localFileReadAccessPolicy
             )
         default:
             return nil

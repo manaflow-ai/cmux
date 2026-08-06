@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxCore
 import CmuxPanes
 import WebKit
@@ -68,6 +69,8 @@ extension Workspace {
             focus: true,
             preferredProfileID: panel.profileID,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+            bypassRemoteProxy: panel.bypassesRemoteWorkspaceProxyForTabDuplication,
+            localFileReadAccessPolicy: panel.localFileReadAccessPolicy,
             websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
         ) != nil
     }
@@ -85,6 +88,8 @@ extension Workspace {
                 focus: true,
                 preferredProfileID: panel.profileID,
                 bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce,
+                bypassRemoteProxy: panel.bypassesRemoteWorkspaceProxyForTabDuplication,
+                localFileReadAccessPolicy: panel.localFileReadAccessPolicy,
                 websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
             ) != nil
         }
@@ -122,9 +127,12 @@ extension DockSplitStore {
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
         transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool? = nil,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
+        let resolvedBypassRemoteProxy = bypassRemoteProxy ?? settings.bypassRemoteProxy
         let panel = BrowserPanel(
             workspaceId: workspaceId,
             profileID: preferredProfileID,
@@ -133,9 +141,13 @@ extension DockSplitStore {
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             transparentBackground: transparentBackground,
             proxyEndpoint: settings.proxyEndpoint,
-            bypassRemoteProxy: settings.bypassRemoteProxy,
+            bypassRemoteProxy: resolvedBypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
+            remoteWebsiteDataStoreIdentifier: settings.isRemoteWorkspace && !resolvedBypassRemoteProxy
+                ? settings.remoteWebsiteDataStoreIdentifier
+                : nil,
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator,
             websiteDataStore: websiteDataStore
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
@@ -147,6 +159,7 @@ extension DockSplitStore {
     /// A transferred panel may still carry closures owned by its old Workspace
     /// or Dock, so configuration is intentionally safe to repeat.
     func configureBrowserPanel(_ panel: BrowserPanel) {
+        panel.updateFilesystemResolutionCoordinator(filesystemResolutionCoordinator)
         AppDelegate.shared?.auth?.browserAppSession.register(panel)
         panel.webViewDidRequestClose = { [weak self, weak panel] in
             guard let self, let panel else { return }

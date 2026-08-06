@@ -271,6 +271,34 @@ struct DockWorkingDirectoryInheritanceTests {
         }
     }
 
+    @Test("Restored agent link CWD uses its resume directory without process inspection")
+    @MainActor
+    func restoredAgentLinkDirectoryUsesResumeDirectoryWithoutProcessInspection() async throws {
+        var liveDirectoryQueries = 0
+        let resolver = TerminalWorkingDirectoryResolver(liveDirectoryProvider: { _ in
+            liveDirectoryQueries += 1
+            return nil
+        })
+        try await withDock(
+            inheritanceEnabled: true,
+            terminalWorkingDirectoryResolver: resolver
+        ) { store, rootPane, root, sourceDirectory in
+            let sourcePanelId = try #require(store.newSurface(
+                kind: .terminal,
+                inPane: rootPane,
+                workingDirectory: root.path,
+                focus: true
+            ))
+            let sourcePanel = try terminalPanel(in: store, panelId: sourcePanelId)
+            sourcePanel.surface.recordReportedWorkingDirectory(root.path)
+            store.restoredAgentLifecycle.resumeStatesByPanelId[sourcePanelId] = .autoResumeCommandRunning
+            store.restoredResumeSessionWorkingDirectoriesByPanelId[sourcePanelId] = sourceDirectory.path
+
+            #expect(store.terminalLinkHoverWorkingDirectory(for: sourcePanelId) == sourceDirectory.path)
+            #expect(liveDirectoryQueries == 0)
+        }
+    }
+
     @Test("Remote Dock directory is not inherited by a new local terminal")
     @MainActor
     func remoteDirectoryDoesNotBecomeLocalStartupDirectory() async throws {

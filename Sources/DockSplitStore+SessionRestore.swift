@@ -354,7 +354,8 @@ extension DockSplitStore {
         let browser = makeBrowserPanel(
             url: nil,
             preferredProfileID: browserSnapshot.profileID,
-            transparentBackground: browserSnapshot.transparentBackground ?? false
+            transparentBackground: browserSnapshot.transparentBackground ?? false,
+            localFileReadAccessPolicy: browserSnapshot.localFileReadAccessPolicy ?? .containingDirectory
         )
         guard attachSessionRestoredPanel(browser, snapshot: snapshot, inPane: paneId) != nil else {
             return nil

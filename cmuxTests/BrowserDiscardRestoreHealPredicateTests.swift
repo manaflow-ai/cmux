@@ -33,7 +33,7 @@ struct BrowserDiscardRestoreHealPredicateTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
-            hasRecoverableWebContentTermination: false,
+            hasRecoverableNavigationFailure: false,
             userStoppedLoad: false,
             isShowingErrorPage: false,
             intentURL: intentURL
@@ -46,7 +46,7 @@ struct BrowserDiscardRestoreHealPredicateTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: true,
             isNavigationBlockedPendingConsent: false,
-            hasRecoverableWebContentTermination: false,
+            hasRecoverableNavigationFailure: false,
             userStoppedLoad: false,
             isShowingErrorPage: false,
             intentURL: intentURL
@@ -59,7 +59,7 @@ struct BrowserDiscardRestoreHealPredicateTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
-            hasRecoverableWebContentTermination: false,
+            hasRecoverableNavigationFailure: false,
             userStoppedLoad: false,
             isShowingErrorPage: false,
             intentURL: aboutBlankURL
@@ -72,7 +72,7 @@ struct BrowserDiscardRestoreHealPredicateTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
-            hasRecoverableWebContentTermination: false,
+            hasRecoverableNavigationFailure: false,
             userStoppedLoad: false,
             isShowingErrorPage: false,
             intentURL: intentURL
@@ -85,7 +85,7 @@ struct BrowserDiscardRestoreHealPredicateTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
-            hasRecoverableWebContentTermination: false,
+            hasRecoverableNavigationFailure: false,
             userStoppedLoad: false,
             isShowingErrorPage: false,
             intentURL: nil
@@ -98,7 +98,7 @@ struct BrowserDiscardRestoreHealPredicateTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: true,
-            hasRecoverableWebContentTermination: false,
+            hasRecoverableNavigationFailure: false,
             userStoppedLoad: false,
             isShowingErrorPage: false,
             intentURL: intentURL
@@ -113,7 +113,7 @@ struct BrowserDiscardRestoreHealPredicateTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
-            hasRecoverableWebContentTermination: true,
+            hasRecoverableNavigationFailure: true,
             userStoppedLoad: false,
             isShowingErrorPage: false,
             intentURL: intentURL
@@ -128,7 +128,7 @@ struct BrowserDiscardRestoreHealPredicateTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
-            hasRecoverableWebContentTermination: false,
+            hasRecoverableNavigationFailure: false,
             userStoppedLoad: true,
             isShowingErrorPage: false,
             intentURL: intentURL
@@ -143,7 +143,7 @@ struct BrowserDiscardRestoreHealPredicateTests {
             isMainFrameProvisionalNavigationActive: false,
             hasCommittedDocument: false,
             isNavigationBlockedPendingConsent: false,
-            hasRecoverableWebContentTermination: false,
+            hasRecoverableNavigationFailure: false,
             userStoppedLoad: false,
             isShowingErrorPage: true,
             intentURL: intentURL

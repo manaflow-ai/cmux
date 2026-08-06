@@ -631,7 +631,8 @@ extension Workspace {
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
                 transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
                 diffViewerToken: diffViewerComponents?.token,
-                diffViewerRequestPath: diffViewerComponents?.requestPath
+                diffViewerRequestPath: diffViewerComponents?.requestPath,
+                localFileReadAccessPolicy: browserPanel.localFileReadAccessPolicy
             )
             markdownSnapshot = nil
             filePreviewSnapshot = nil
@@ -642,7 +643,10 @@ extension Workspace {
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
-            markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            markdownSnapshot = SessionMarkdownPanelSnapshot(
+                filePath: markdownPanel.filePath,
+                resolvedFilePath: markdownPanel.resolvedFilePath
+            )
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
@@ -652,7 +656,10 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
-            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreviewPanel.filePath,
+                resolvedFilePath: filePreviewPanel.resolvedFilePath
+            )
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
             projectSnapshot = nil
@@ -1765,7 +1772,8 @@ extension Workspace {
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration,
-                transparentBackground: snapshot.browser?.transparentBackground ?? false
+                transparentBackground: snapshot.browser?.transparentBackground ?? false,
+                localFileReadAccessPolicy: snapshot.browser?.localFileReadAccessPolicy ?? .containingDirectory
             ) else {
                 return nil
             }
@@ -1773,10 +1781,13 @@ extension Workspace {
             return browserPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
-                  let markdownPanel = newMarkdownSurface(
+                let markdownPanel = newMarkdownSurface(
                     inPane: paneId,
                     filePath: filePath,
-                    focus: false
+                    focus: false,
+                    resolvedFileURL: snapshot.markdown?.resolvedFilePath.map {
+                        URL(fileURLWithPath: $0)
+                    }
                   ) else {
                 return nil
             }
@@ -1784,10 +1795,13 @@ extension Workspace {
             return markdownPanel.id
         case .filePreview:
             guard let filePath = snapshot.filePreview?.filePath,
-                  let filePreviewPanel = newFilePreviewSurface(
+                let filePreviewPanel = newFilePreviewSurface(
                     inPane: paneId,
                     filePath: filePath,
-                    focus: false
+                    focus: false,
+                    resolvedFileURL: snapshot.filePreview?.resolvedFilePath.map {
+                        URL(fileURLWithPath: $0)
+                    }
                   ) else {
                 return nil
             }
@@ -2108,6 +2122,7 @@ final class Workspace: Identifiable, ObservableObject {
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
     let id: UUID
+    let filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator
     /// Restart-stable workspace identifier persisted for durable deep links.
     private(set) var stableId = UUID()
     /// Durable idempotency key for task-composer workspace creation.
@@ -2209,6 +2224,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let existing = _dockSplit { return existing }
         let store = DockSplitStore(
             workspaceId: id,
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 guard let self else { return .local }
@@ -3207,9 +3223,12 @@ final class Workspace: Identifiable, ObservableObject {
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
+        filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.id = id ?? UUID()
+        self.filesystemResolutionCoordinator = filesystemResolutionCoordinator
+            ?? WordPathFilesystemResolutionCoordinator()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
@@ -3287,7 +3306,8 @@ final class Workspace: Identifiable, ObservableObject {
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
                 omnibarVisible: initialBrowserOmnibarVisible,
-                transparentBackground: initialBrowserTransparentBackground
+                transparentBackground: initialBrowserTransparentBackground,
+                filesystemResolutionCoordinator: self.filesystemResolutionCoordinator
             )
             configureBrowserPanel(browserPanel)
             panels[browserPanel.id] = browserPanel
@@ -3915,6 +3935,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
+        terminalPanel.hostedView.surfaceView.updateWordPathFilesystemResolutionCoordinator(
+            filesystemResolutionCoordinator
+        )
         terminalPanel.surface.onFontSizeLineageChanged = { [weak self, weak terminalPanel] lineage in
             guard let self, let terminalPanel,
                   self.lastTerminalConfigInheritancePanelId == terminalPanel.id,
@@ -3937,6 +3960,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configureBrowserPanel(_ browserPanel: BrowserPanel) {
+        browserPanel.updateFilesystemResolutionCoordinator(filesystemResolutionCoordinator)
         AppDelegate.shared?.auth?.browserAppSession.register(browserPanel)
         browserPanel.webViewDidRequestClose = { [weak self, weak browserPanel] in
             guard let self, let browserPanel else { return }
@@ -8465,6 +8489,7 @@ final class Workspace: Identifiable, ObservableObject {
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
         initialDividerPosition: CGFloat? = nil,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         // No local browser surfaces in a remote tmux mirror workspace (it is a
@@ -8512,6 +8537,8 @@ final class Workspace: Identifiable, ObservableObject {
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator,
             websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
@@ -8587,6 +8614,7 @@ final class Workspace: Identifiable, ObservableObject {
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
@@ -8628,6 +8656,8 @@ final class Workspace: Identifiable, ObservableObject {
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
+            filesystemResolutionCoordinator: filesystemResolutionCoordinator,
             websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
@@ -8741,34 +8771,52 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Open the markdown viewer for `filePath`, reusing an existing
     /// `MarkdownPanel` in this workspace that already shows the same file.
-    /// Paths are compared after symlink resolution so `./README.md` and a
-    /// symlink pointing at the same file focus the same viewer.
+    /// Ordinary paths are compared after symlink resolution. Callers that
+    /// already resolved the file can supply that canonical URL to keep the
+    /// main actor off the filesystem.
     /// Returns `nil` when no existing viewer matches and split creation
     /// fails, so callers can fall back to the preferred editor / system opener.
     @discardableResult
     func openOrFocusMarkdownSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        resolvedFileURL: URL? = nil
     ) -> MarkdownPanel? {
-        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        let routedFilePath = resolvedFileURL?.standardizedFileURL.path ?? filePath
+        let routedAliasPath = URL(fileURLWithPath: filePath).standardizedFileURL.path
+        let canonical = resolvedFileURL != nil
+            ? routedFilePath
+            : (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let md = panel as? MarkdownPanel else { continue }
-            if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
+            let existingCanonical = resolvedFileURL != nil
+                ? md.resolvedFilePath
+                    ?? URL(fileURLWithPath: md.filePath).standardizedFileURL.path
+                : (md.filePath as NSString).resolvingSymlinksInPath
+            if existingCanonical == canonical
+                || (resolvedFileURL != nil
+                    && URL(fileURLWithPath: md.filePath).standardizedFileURL.path == routedAliasPath) {
                 focusPanel(existingId)
                 return md
             }
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return newMarkdownSurface(
+                inPane: targetPane,
+                filePath: routedFilePath,
+                focus: true,
+                resolvedFileURL: resolvedFileURL
+            )
         }
 
         return newMarkdownSplit(
             from: panelId,
             orientation: .horizontal,
             insertFirst: false,
-            filePath: filePath,
-            focus: true
+            filePath: routedFilePath,
+            focus: true,
+            resolvedFileURL: resolvedFileURL
         )
     }
 
@@ -8778,7 +8826,8 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         filePath: String,
         focus: Bool = true,
-        fontSize: Double? = nil
+        fontSize: Double? = nil,
+        resolvedFileURL: URL? = nil
     ) -> MarkdownPanel? {
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -8792,7 +8841,12 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
+        let markdownPanel = MarkdownPanel(
+            workspaceId: id,
+            filePath: filePath,
+            fontSize: fontSize,
+            resolvedFileURL: resolvedFileURL
+        )
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -8841,13 +8895,18 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         filePath: String,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        resolvedFileURL: URL? = nil
     ) -> MarkdownPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = MarkdownPanel(
+            workspaceId: id,
+            filePath: filePath,
+            resolvedFileURL: resolvedFileURL
+        )
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -8955,7 +9014,12 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return newMarkdownSurface(
+            inPane: paneId,
+            filePath: filePath,
+            focus: focus,
+            resolvedFileURL: URL(fileURLWithPath: canonical)
+        )
     }
 
     @discardableResult
@@ -9016,25 +9080,46 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        return newFilePreviewSurface(inPane: paneId, filePath: filePath, focus: focus)
+        return newFilePreviewSurface(
+            inPane: paneId,
+            filePath: filePath,
+            focus: focus,
+            resolvedFileURL: URL(fileURLWithPath: canonical)
+        )
     }
 
     @discardableResult
     func openOrFocusFilePreviewSplit(
         from panelId: UUID,
-        filePath: String
+        filePath: String,
+        resolvedFileURL: URL? = nil
     ) -> FilePreviewPanel? {
-        let canonical = (filePath as NSString).resolvingSymlinksInPath
+        let routedFilePath = resolvedFileURL?.standardizedFileURL.path ?? filePath
+        let routedAliasPath = URL(fileURLWithPath: filePath).standardizedFileURL.path
+        let canonical = resolvedFileURL != nil
+            ? routedFilePath
+            : (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let preview = panel as? FilePreviewPanel else { continue }
-            if (preview.filePath as NSString).resolvingSymlinksInPath == canonical {
+            let existingCanonical = resolvedFileURL != nil
+                ? preview.resolvedFilePath
+                    ?? URL(fileURLWithPath: preview.filePath).standardizedFileURL.path
+                : (preview.filePath as NSString).resolvingSymlinksInPath
+            if existingCanonical == canonical
+                || (resolvedFileURL != nil
+                    && URL(fileURLWithPath: preview.filePath).standardizedFileURL.path == routedAliasPath) {
                 focusPanel(existingId)
                 return preview
             }
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return newFilePreviewSurface(
+                inPane: targetPane,
+                filePath: routedFilePath,
+                focus: true,
+                resolvedFileURL: resolvedFileURL
+            )
         }
 
         guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
@@ -9042,7 +9127,8 @@ final class Workspace: Identifiable, ObservableObject {
             targetPane: sourcePaneId,
             orientation: .horizontal,
             insertFirst: false,
-            filePath: filePath
+            filePath: routedFilePath,
+            resolvedFileURL: resolvedFileURL
         )
     }
 
@@ -9051,13 +9137,18 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         filePath: String,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        resolvedFileURL: URL? = nil
     ) -> FilePreviewPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            resolvedFileURL: resolvedFileURL
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -9249,9 +9340,14 @@ final class Workspace: Identifiable, ObservableObject {
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
-        filePath: String
+        filePath: String,
+        resolvedFileURL: URL? = nil
     ) -> FilePreviewPanel? {
-        let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
+        let filePreviewPanel = FilePreviewPanel(
+            workspaceId: id,
+            filePath: filePath,
+            resolvedFileURL: resolvedFileURL
+        )
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
 
@@ -9512,6 +9608,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             url: resolvedURL,
             profileID: browserPanel.profileID,
+            localFileReadAccessPolicy: browserPanel.localFileReadAccessPolicy,
             originalPaneId: pane.id,
             originalTabIndex: tabIndex,
             fallbackSplitOrientation: fallbackPlan?.orientation,
@@ -11253,6 +11350,7 @@ final class Workspace: Identifiable, ObservableObject {
             preferredProfileID: browser.profileID,
             omnibarVisible: browser.isOmnibarVisible,
             bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
+            localFileReadAccessPolicy: browser.localFileReadAccessPolicy,
             websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return nil }
         newPanel.setMuted(browser.isMuted)

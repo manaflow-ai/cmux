@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxAppKitSupportUI
+import CmuxBrowser
 import CmuxCore
 import CmuxFoundation
 import CmuxSettings
@@ -16,6 +17,7 @@ import WebKit
 @Observable
 final class DockSplitStore: BonsplitDelegate {
     let workspaceId: UUID
+    @ObservationIgnored let filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator
     let bonsplitController: BonsplitController
 
     /// Which Dock this store backs: `.workspace` (per-workspace, seeded from the
@@ -251,6 +253,7 @@ final class DockSplitStore: BonsplitDelegate {
 
     init(
         workspaceId: UUID,
+        filesystemResolutionCoordinator: WordPathFilesystemResolutionCoordinator? = nil,
         scope: DockScope = .workspace,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
@@ -261,6 +264,8 @@ final class DockSplitStore: BonsplitDelegate {
         closedItemHistoryStore: ClosedItemHistoryStore? = nil
     ) {
         self.workspaceId = workspaceId
+        self.filesystemResolutionCoordinator = filesystemResolutionCoordinator
+            ?? WordPathFilesystemResolutionCoordinator()
         self.scope = scope
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
@@ -442,6 +447,8 @@ final class DockSplitStore: BonsplitDelegate {
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        bypassRemoteProxy: Bool? = nil,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
@@ -464,6 +471,8 @@ final class DockSplitStore: BonsplitDelegate {
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            bypassRemoteProxy: bypassRemoteProxy,
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
             allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
@@ -499,6 +508,8 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         initialDividerPosition: CGFloat? = nil,
         preferredProfileID: UUID? = nil,
+        bypassRemoteProxy: Bool? = nil,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
@@ -521,6 +532,8 @@ final class DockSplitStore: BonsplitDelegate {
             ),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
+            bypassRemoteProxy: bypassRemoteProxy,
+            localFileReadAccessPolicy: localFileReadAccessPolicy,
             allowsExternalBrowserFallback: allowsExternalBrowserFallback,
             websiteDataStore: websiteDataStore
         ) else { return nil }
@@ -770,6 +783,8 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
+        bypassRemoteProxy: Bool? = nil,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy = .containingDirectory,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> (any Panel)? {
@@ -798,6 +813,8 @@ final class DockSplitStore: BonsplitDelegate {
                 initialRequest: initialRequest,
                 preferredProfileID: preferredProfileID,
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+                bypassRemoteProxy: bypassRemoteProxy,
+                localFileReadAccessPolicy: localFileReadAccessPolicy,
                 websiteDataStore: websiteDataStore
             )
         }
@@ -894,6 +911,9 @@ final class DockSplitStore: BonsplitDelegate {
 
     func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
         if let terminal = panel as? TerminalPanel {
+            terminal.hostedView.surfaceView.updateWordPathFilesystemResolutionCoordinator(
+                filesystemResolutionCoordinator
+            )
             configureAgentHibernationResume(for: terminal)
         }
         installAttentionFlashRouting(for: panel)

@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxBrowser
 import CmuxFoundation
 import Combine
 import CryptoKit
@@ -1615,6 +1616,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable, Hashable {
     var env: [String: String]?
     var url: String?
     var focus: Bool?
+    var localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy? = nil
 }
 
 enum CmuxSurfaceType: String, Codable, Sendable {

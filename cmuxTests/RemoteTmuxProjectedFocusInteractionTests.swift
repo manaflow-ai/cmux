@@ -213,10 +213,19 @@ struct RemoteTmuxProjectedFocusInteractionTests {
         defer { harness.tearDown() }
         let mirror = try splitInitiallySinglePaneWindow(in: harness)
         let activePane = try #require(mirror.panel(forPane: 5))
+        let surfaceView = activePane.hostedView.surfaceView
+        let snapshotPanelID = surfaceView.terminalSurface.flatMap { terminalSurface in
+            surfaceView.terminalLinkOpenContainer(for: terminalSurface).flatMap { container in
+                surfaceView.wordPathSnapshotTerminalPanel(
+                    container: container,
+                    sourcePanelId: terminalSurface.id
+                )?.id
+            }
+        }
 
         #expect(harness.workspace.panels[activePane.id] == nil)
         #expect(
-            activePane.hostedView.surfaceView.debugWordPathSnapshotTerminalPanelID() == nil,
+            snapshotPanelID == nil,
             "Projected SSH-tmux transcripts must not probe the local filesystem"
         )
     }

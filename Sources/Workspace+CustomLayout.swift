@@ -194,11 +194,14 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
+            let localFileReadAccessPolicy = surface.localFileReadAccessPolicy ?? .containingDirectory
             if let panel = newBrowserSurface(
                 inPane: paneId,
                 url: url,
                 focus: false,
-                creationPolicy: .restoration
+                creationPolicy: .restoration,
+                bypassRemoteProxy: localFileReadAccessPolicy == .fileOnly,
+                localFileReadAccessPolicy: localFileReadAccessPolicy
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -243,11 +246,14 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
+            let localFileReadAccessPolicy = surface.localFileReadAccessPolicy ?? .containingDirectory
             if let panel = newBrowserSurface(
                 inPane: paneId,
                 url: url,
                 focus: false,
-                creationPolicy: .restoration
+                creationPolicy: .restoration,
+                bypassRemoteProxy: localFileReadAccessPolicy == .fileOnly,
+                localFileReadAccessPolicy: localFileReadAccessPolicy
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }

@@ -113,6 +113,18 @@ struct BrowserSSLTrustBypassStateTests {
     }
 
     @Test
+    func errorPageFileRetryUsesAnInternalAction() throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/retry.html")
+        let retryURL = try #require(BrowserErrorPage.retryURL(
+            from: fileURL.absoluteString,
+            retry: .request(URLRequest(url: fileURL))
+        ))
+
+        #expect(retryURL.scheme == "cmux-browser-action")
+        #expect(retryURL.host == "retry-file")
+    }
+
+    @Test
     func pendingBypassRequiresHTTPSRequest() throws {
         let state = BrowserSSLTrustBypassState()
         let httpURL = try #require(URL(string: "http://example.internal"))

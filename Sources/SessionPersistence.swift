@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxBrowser
 import CmuxCore
 import Foundation
 import Bonsplit
@@ -1574,6 +1575,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     /// and navigating via the custom scheme, independent of the (possibly-dead) local HTTP server.
     var diffViewerToken: String? = nil
     var diffViewerRequestPath: String? = nil
+    /// Preserves restricted local-file panels across session restoration.
+    var localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy? = nil
 
     init(
         urlString: String?,
@@ -1587,7 +1590,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         forwardHistoryURLStrings: [String]?,
         transparentBackground: Bool? = nil,
         diffViewerToken: String? = nil,
-        diffViewerRequestPath: String? = nil
+        diffViewerRequestPath: String? = nil,
+        localFileReadAccessPolicy: BrowserLocalFileReadAccessPolicy? = nil
     ) {
         self.urlString = urlString
         self.profileID = profileID
@@ -1601,6 +1605,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         self.transparentBackground = transparentBackground
         self.diffViewerToken = diffViewerToken
         self.diffViewerRequestPath = diffViewerRequestPath
+        self.localFileReadAccessPolicy = localFileReadAccessPolicy
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1616,6 +1621,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         case transparentBackground
         case diffViewerToken
         case diffViewerRequestPath
+        case localFileReadAccessPolicy
     }
 
     init(from decoder: Decoder) throws {
@@ -1632,13 +1638,19 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         transparentBackground = try container.decodeIfPresent(Bool.self, forKey: .transparentBackground)
         diffViewerToken = try container.decodeIfPresent(String.self, forKey: .diffViewerToken)
         diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
+        localFileReadAccessPolicy = try container.decodeIfPresent(
+            BrowserLocalFileReadAccessPolicy.self,
+            forKey: .localFileReadAccessPolicy
+        )
     }
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
+    var resolvedFilePath: String? = nil
 }
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
+    var resolvedFilePath: String? = nil
 }
 /// Marker for a workspace todo pane; the pane has no content of its own (the checklist
 /// persists on the workspace), so the panel `type` plus this empty marker is enough to restore it.

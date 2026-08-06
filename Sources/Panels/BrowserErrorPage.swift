@@ -3,6 +3,8 @@ import WebKit
 
 @MainActor
 struct BrowserErrorPage {
+    static let localFileRetryActionURL = URL(string: "cmux-browser-action://retry-file")!
+
     let failedURL: String
     let retry: BrowserErrorPageRetry
     let error: NSError
@@ -233,6 +235,12 @@ struct BrowserErrorPage {
             guard failedRequest.browserCanReloadWithURLOnly else {
                 return nil
             }
+            if failedRequest.url?.isFileURL == true {
+                guard failedRequest.browserMatchesFailedNavigationURLString(failedURL) else {
+                    return nil
+                }
+                return localFileRetryActionURL
+            }
         case .urlOnly:
             break
         }
@@ -244,6 +252,11 @@ struct BrowserErrorPage {
             return nil
         }
         return url
+    }
+
+    static func isLocalFileRetryAction(_ url: URL) -> Bool {
+        url.scheme == localFileRetryActionURL.scheme &&
+            url.host == localFileRetryActionURL.host
     }
 
     static func bypassRequest(from failedURL: String, retry: BrowserErrorPageRetry) -> URLRequest? {

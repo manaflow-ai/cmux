@@ -977,6 +977,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .filePreview
     let filePath: String
+    /// Canonical path captured by a filesystem resolution performed before
+    /// this panel was created. `nil` means the caller supplied no such proof.
+    let resolvedFilePath: String?
     private(set) var workspaceId: UUID
     @Published private(set) var displayTitle: String
     @Published private(set) var displayIcon: String?
@@ -1018,6 +1021,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     init(
         workspaceId: UUID,
         filePath: String,
+        resolvedFileURL: URL? = nil,
         startFileWatcher: Bool = true,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
@@ -1033,6 +1037,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.resolvedFilePath = resolvedFileURL?.standardizedFileURL.path
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
