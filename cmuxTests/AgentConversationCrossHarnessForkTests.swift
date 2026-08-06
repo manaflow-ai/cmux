@@ -355,10 +355,12 @@ struct AgentConversationCrossHarnessForkTests {
                 ExecutableReplacingSourceAdapter(executableURL: executable),
             ])
         )
+        let transcript = directory.appendingPathComponent("codex.jsonl", isDirectory: false)
+        try Data("captured conversation".utf8).write(to: transcript)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "replace-target-during-export",
-            transcriptPath: "/unused/replace-target-during-export.jsonl"
+            transcriptPath: transcript.path
         )
 
         await #expect {
@@ -724,7 +726,11 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
-    func authoritativeTranscriptFailureDoesNotReadFallback() async {
+    func authoritativeTranscriptFailureDoesNotReadFallback() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let transcript = directory.appendingPathComponent("authoritative-rollout.jsonl")
+        try Data("captured conversation".utf8).write(to: transcript)
         let fallback = ReadRecordingSourceAdapter()
         let registry = AgentConversationReaderRegistry(adapters: [
             FailingSourceAdapter(),
@@ -733,7 +739,7 @@ struct AgentConversationCrossHarnessForkTests {
         let source = AgentConversationSource(snapshot: SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "authoritative-session",
-            transcriptPath: "/captured/authoritative-rollout.jsonl"
+            transcriptPath: transcript.path
         ))
 
         await #expect(throws: OpenCodeFixtureError.self) {
@@ -1414,15 +1420,17 @@ struct AgentConversationCrossHarnessForkTests {
 
     @Test
     func crossHarnessForkCancelsWhenConversationChangesDuringExport() async throws {
-        let snapshot = SessionRestorableAgentSnapshot(
-            kind: .codex,
-            sessionId: "original-session",
-            transcriptPath: "/unused/original-transcript.jsonl"
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = try makeCodexSnapshot(
+            in: fixture,
+            sessionID: "original-session"
         )
         let replacement = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "replacement-session",
-            transcriptPath: "/unused/replacement-transcript.jsonl"
+            workingDirectory: fixture.path,
+            transcriptPath: snapshot.transcriptPath
         )
         let transcriptGate = SuspendingTranscriptGate()
         let exportService = AgentConversationExportService(
@@ -1460,7 +1468,7 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
-    func crossHarnessForkRejectsSamePathTranscriptReplacement() async throws {
+    func crossHarnessTransferRejectsSamePathTranscriptReplacement() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
         let snapshot = try makeCodexSnapshot(
@@ -1475,27 +1483,18 @@ struct AgentConversationCrossHarnessForkTests {
                 SamePathReplacingSourceAdapter(transcriptURL: transcriptURL),
             ])
         )
-        let workspace = Workspace()
-        let sourcePanelID = try #require(workspace.focusedPanelId)
-        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelID)
-        let liveAgentIndex = makeLiveAgentIndex(
-            snapshot: snapshot,
-            workspaceId: workspace.id,
-            panelId: sourcePanelID,
-            root: fixture
-        )
 
-        let didFork = await workspace.forkAgentConversation(
-            fromPanelId: sourcePanelID,
-            snapshot: snapshot,
-            request: .init(targetHarness: .claude, destination: .right),
-            exportService: exportService,
-            liveAgentIndex: liveAgentIndex
-        )
-
-        #expect(!didFork)
-        #expect(workspace.bonsplitController.allPaneIds.count == 1)
-        #expect(workspace.focusedPanelId == sourcePanelID)
+        await #expect {
+            try await AgentConversationForkRequest(
+                targetHarness: .claude,
+                destination: .right
+            ).startupCommandOverride(
+                sourceSnapshot: snapshot,
+                exportService: exportService
+            )
+        } throws: { error in
+            error as? AgentConversationExportError == .sourceChanged
+        }
     }
 
     @Test
@@ -2215,10 +2214,9 @@ struct AgentConversationCrossHarnessForkTests {
         let launcherRoot = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: launcherRoot) }
         let sessionID = "cancel-\(UUID().uuidString)"
-        let snapshot = SessionRestorableAgentSnapshot(
-            kind: .codex,
-            sessionId: sessionID,
-            transcriptPath: "/unused/cancelled-transcript.jsonl"
+        let snapshot = try makeCodexSnapshot(
+            in: launcherRoot,
+            sessionID: sessionID
         )
         let transcriptGate = SuspendingTranscriptGate()
         let exportService = AgentConversationExportService(

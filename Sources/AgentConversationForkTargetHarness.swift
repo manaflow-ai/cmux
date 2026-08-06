@@ -70,7 +70,9 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             // hooks whenever that profile is available at launch time.
             "if [[ -f \"${KIRO_HOME:-${HOME:-}/.kiro}/agents/cmux.json\" ]]; then \(execPrefix)\(executable) chat --agent cmux; else \(execPrefix)\(executable) chat; fi"
         case .rovodev:
-            if Self.executableBasename(executableLookupPath ?? executablePath) == "acli" {
+            if Self.executableBasename(
+                executableLookupPath ?? executablePath ?? preferredExecutableName
+            ) == "acli" {
                 "\(execPrefix)\(executable) rovodev run"
             } else {
                 "\(execPrefix)\(executable)"

@@ -31,7 +31,13 @@ struct AgentConversationTransferSourceTests {
         let storage = try #require(
             AgentConversationStorageGeneration.captureStorage(atPath: symlink.path)
         )
-        let canonicalTranscriptPath = transcript.resolvingSymlinksInPath().path
+        let canonicalTranscriptPath = try #require(
+            transcript.path.withCString { path -> String? in
+                guard let resolved = realpath(path, nil) else { return nil }
+                defer { free(resolved) }
+                return String(cString: resolved)
+            }
+        )
         #expect(storage.path == canonicalTranscriptPath)
         let source = AgentConversationSource(snapshot: SessionRestorableAgentSnapshot(
             kind: .codex,
@@ -759,7 +765,11 @@ struct AgentConversationTransferSourceTests {
                     "--fork",
                 ],
                 workingDirectory: nil,
-                environment: ["HOME": home.path]
+                environment: [
+                    "HOME": home.path,
+                    OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey:
+                        home.appendingPathComponent("opencode.db").path,
+                ]
             )
         )
         func loadedSnapshot(
