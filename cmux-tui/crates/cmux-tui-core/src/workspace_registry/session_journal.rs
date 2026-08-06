@@ -263,7 +263,17 @@ pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
            sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
            causation_depth INTEGER NOT NULL CHECK(causation_depth >= 0),
            causation_id TEXT,
-           causal_hook_id TEXT
+           causal_hook_id TEXT,
+           resource_revision INTEGER,
+           previous_resource_revision INTEGER,
+           CHECK(
+             (resource_revision IS NULL AND previous_resource_revision IS NULL)
+             OR (
+               resource_revision IS NOT NULL
+               AND previous_resource_revision IS NOT NULL
+               AND resource_revision = previous_resource_revision + 1
+             )
+           )
          );
          INSERT OR IGNORE INTO journal_event_index(event_id, sequence, causation_depth)
            SELECT event_id, sequence, causation_depth FROM session_journal;
@@ -336,12 +346,24 @@ pub(super) fn ensure_journal_event_index_schema(
     };
     let added_causation_id = !columns.contains("causation_id");
     let added_causal_hook_id = !columns.contains("causal_hook_id");
+    let added_resource_revision = !columns.contains("resource_revision");
+    let added_previous_resource_revision = !columns.contains("previous_resource_revision");
     if added_causation_id {
         transaction.execute("ALTER TABLE journal_event_index ADD COLUMN causation_id TEXT", [])?;
     }
     if added_causal_hook_id {
         transaction
             .execute("ALTER TABLE journal_event_index ADD COLUMN causal_hook_id TEXT", [])?;
+    }
+    if added_resource_revision {
+        transaction
+            .execute("ALTER TABLE journal_event_index ADD COLUMN resource_revision INTEGER", [])?;
+    }
+    if added_previous_resource_revision {
+        transaction.execute(
+            "ALTER TABLE journal_event_index ADD COLUMN previous_resource_revision INTEGER",
+            [],
+        )?;
     }
     let backfilled = transaction
         .query_row("SELECT 1 FROM meta WHERE key = 'journal_event_index_causation_v1'", [], |_| {
@@ -380,10 +402,52 @@ pub(super) fn ensure_journal_event_index_schema(
          ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
     }
+    let resource_backfilled = transaction
+        .query_row("SELECT 1 FROM meta WHERE key = 'journal_event_index_resource_v1'", [], |_| {
+            Ok(())
+        })
+        .optional()?
+        .is_some();
+    if added_resource_revision || added_previous_resource_revision || !resource_backfilled {
+        transaction.execute_batch(
+            "UPDATE journal_event_index
+             SET resource_revision = (
+                   SELECT resource_revision FROM session_journal
+                   WHERE session_journal.event_id = journal_event_index.event_id
+                 ),
+                 previous_resource_revision = (
+                   SELECT previous_resource_revision FROM session_journal
+                   WHERE session_journal.event_id = journal_event_index.event_id
+                 )
+             WHERE resource_revision IS NULL
+               AND event_id IN (
+                 SELECT event_id FROM session_journal WHERE resource_revision IS NOT NULL
+               );
+             UPDATE journal_event_index
+             SET resource_revision = CAST(
+                   substr(event_id, length('event_resource_') + 1) AS INTEGER
+                 ),
+                 previous_resource_revision = CAST(
+                   substr(event_id, length('event_resource_') + 1) AS INTEGER
+                 ) - 1
+             WHERE resource_revision IS NULL
+               AND length(event_id) = length('event_resource_') + 20
+               AND substr(event_id, 1, length('event_resource_')) = 'event_resource_'
+               AND substr(event_id, length('event_resource_') + 1) NOT GLOB '*[^0-9]*'
+               AND event_id BETWEEN 'event_resource_00000000000000000001'
+                                AND 'event_resource_09223372036854775807';
+             INSERT INTO meta(key, value)
+               VALUES('journal_event_index_resource_v1', '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+        )?;
+    }
     transaction.execute_batch(
         "CREATE INDEX IF NOT EXISTS journal_event_index_by_causal_hook
            ON journal_event_index(causal_hook_id, sequence)
-           WHERE causal_hook_id IS NOT NULL;",
+           WHERE causal_hook_id IS NOT NULL;
+         CREATE UNIQUE INDEX IF NOT EXISTS journal_event_index_by_resource_revision
+           ON journal_event_index(resource_revision)
+           WHERE resource_revision IS NOT NULL;",
     )?;
     Ok(())
 }
@@ -709,8 +773,7 @@ pub(super) fn append_journal_record(
         "journal content is not supported for kind {}",
         append.kind
     );
-    let committed_at_ms =
-        if append.occurred_at_ms == 0 { unix_epoch_ms()? } else { append.occurred_at_ms };
+    let committed_at_ms = unix_epoch_ms()?;
     let subjects_json = canonical_json(&serde_json::to_value(append.subjects)?)?;
     transaction.execute(
         "INSERT INTO session_journal(
@@ -768,14 +831,25 @@ pub(super) fn append_journal_record(
     };
     transaction.execute(
         "INSERT INTO journal_event_index(
-           event_id, sequence, causation_depth, causation_id, causal_hook_id
-         ) VALUES(?1, ?2, ?3, ?4, ?5)",
+           event_id, sequence, causation_depth, causation_id, causal_hook_id,
+           resource_revision, previous_resource_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             append.event_id,
             sequence,
             i64::from(append.causation_depth),
             append.causation_id,
             causal_hook_id,
+            append
+                .resource_revision
+                .map(i64::try_from)
+                .transpose()
+                .context("resource revision exceeds SQLite range")?,
+            append
+                .previous_resource_revision
+                .map(i64::try_from)
+                .transpose()
+                .context("previous resource revision exceeds SQLite range")?,
         ],
     )?;
     transaction.execute(

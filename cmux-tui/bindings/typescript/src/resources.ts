@@ -1051,6 +1051,9 @@ function optionFields(options: object): Record<string, unknown> {
 }
 
 function journalOptionsFields(options: SessionJournalOptions): Record<string, unknown> {
+  if (options.cursor !== undefined && options.start !== undefined) {
+    throw new TypeError("journal cursor and start are mutually exclusive");
+  }
   const fields: Record<string, unknown> = {};
   if (options.cursor !== undefined) fields.cursor = options.cursor;
   if (options.start !== undefined) fields.start = options.start;
@@ -1059,12 +1062,18 @@ function journalOptionsFields(options: SessionJournalOptions): Record<string, un
   if (options.kinds !== undefined) filter.kinds = [...options.kinds];
   if (options.classes !== undefined) filter.classes = [...options.classes];
   if (options.subjects !== undefined) {
+    if (options.subjects.some((subject) => subject.kind === undefined && subject.id === undefined)) {
+      throw new TypeError("journal subject filters require kind or id");
+    }
     filter.subjects = options.subjects.map((subject) => ({ ...subject }));
   }
   if (options.maxSensitivity !== undefined) {
     filter.max_sensitivity = options.maxSensitivity;
   }
   if (options.regex !== undefined) {
+    if (!hasUtf8ByteLength(options.regex.pattern, 1, 1024)) {
+      throw new TypeError("journal regex must contain 1 to 1024 UTF-8 bytes");
+    }
     filter.regex = {
       pattern: options.regex.pattern,
       field: options.regex.field ?? "record",
@@ -1328,28 +1337,28 @@ function sessionJournalRecord(value: unknown): SessionJournalRecord {
   strictObject(producer, ["kind", "id"], "journal producer");
   const authorityValue = payload.authority;
   const authority = authorityValue === null ? null : (() => {
-    const authority = record(authorityValue, "journal authority");
+    const authorityPayload = record(authorityValue, "journal authority");
     strictObject(
-      authority,
+      authorityPayload,
       ["principal_id", "lease_id", "generation", "role"],
       "journal authority",
     );
     return Object.freeze({
-      principalId: requiredString(authority, "principal_id"),
-      leaseId: requiredString(authority, "lease_id"),
-      generation: requiredString(authority, "generation"),
-      role: requiredString(authority, "role"),
+      principalId: requiredString(authorityPayload, "principal_id"),
+      leaseId: requiredString(authorityPayload, "lease_id"),
+      generation: requiredString(authorityPayload, "generation"),
+      role: requiredString(authorityPayload, "role"),
     });
   })();
   if (!Array.isArray(payload.subjects)) {
     throw new CmuxProtocolError("journal subjects must be an array");
   }
-  const subjects = payload.subjects.map((subject, index) => {
-    const value = record(subject, `journal subject ${index}`);
-    strictObject(value, ["kind", "id"], "journal subject");
+  const subjects = payload.subjects.map((subjectValue, index) => {
+    const subjectPayload = record(subjectValue, `journal subject ${index}`);
+    strictObject(subjectPayload, ["kind", "id"], "journal subject");
     return Object.freeze({
-      kind: requiredString(value, "kind"),
-      id: requiredString(value, "id"),
+      kind: requiredString(subjectPayload, "kind"),
+      id: requiredString(subjectPayload, "id"),
     });
   });
   return Object.freeze({
@@ -1385,7 +1394,16 @@ function sessionJournalRecord(value: unknown): SessionJournalRecord {
       payload,
       "previous_resource_revision",
     ),
-  });
+  }) satisfies SessionJournalRecord;
+}
+
+function validateSessionJournalStreamItem(
+  record: SessionJournalRecord,
+  cursor: Cursor | undefined,
+): void {
+  if (cursor === undefined || record.sequence !== cursor.revision) {
+    throw new CmuxProtocolError("journal sequence must match its stream cursor");
+  }
 }
 
 function color(payload: Record<string, unknown>, key: string): string {
@@ -2493,8 +2511,9 @@ export class Client {
     params: Readonly<Record<string, unknown>>,
     decode: (value: unknown) => Value,
     options: RequestOptions = {},
+    validate?: (value: Value, cursor: Cursor | undefined) => void,
   ): Promise<ResourceStream<Value>> {
-    return this.protocol.openStream(operation, params, decode, options);
+    return this.protocol.openStream(operation, params, decode, options, validate);
   }
 
   private createdPath(
@@ -2805,6 +2824,7 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       { ...this.params(), ...journalOptionsFields(options) },
       sessionJournalRecord,
       options,
+      validateSessionJournalStreamItem,
     );
   }
 

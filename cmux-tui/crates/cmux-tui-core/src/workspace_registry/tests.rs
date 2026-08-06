@@ -139,6 +139,92 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     );
 }
 
+#[test]
+fn resource_event_replay_pages_a_far_behind_cursor() {
+    const EVENT_COUNT: usize = 1_025;
+    const EXPECTED_PAGE_SIZE: usize = 1_024;
+
+    let mut registry = WorkspaceRegistry::in_memory("bounded-resource-replay").unwrap();
+    for index in 0..EVENT_COUNT {
+        seed_workspace(&mut registry, &format!("bounded-resource-replay-{index}"));
+    }
+
+    let page = registry.resource_events_after(0).unwrap();
+    assert_eq!(page.head_revision, u64::try_from(EVENT_COUNT).unwrap());
+    assert_eq!(page.batches.len(), EXPECTED_PAGE_SIZE);
+    assert_eq!(page.batches.last().unwrap().revision, u64::try_from(EXPECTED_PAGE_SIZE).unwrap());
+}
+
+#[test]
+fn resource_event_replay_reads_checkpointed_sealed_segments() {
+    let root = temp_root("sealed-resource-replay");
+    let mut registry = WorkspaceRegistry::open(&root, "sealed-resource-replay").unwrap();
+    let database = registry.session_journal_database_path().unwrap();
+    seed_workspace(&mut registry, "sealed-resource-replay-event");
+    let through = registry.session_journal_after(0, 32).unwrap().head_sequence;
+    registry
+        .create_journal_checkpoint(
+            through,
+            1,
+            &json!({
+                "session_snapshot":{"cursor":{"revision":"1"}},
+                "journal_extensions":{"producers":[],"hooks":[]},
+            }),
+            &[],
+            "client_test",
+            "sealed_resource_checkpoint",
+        )
+        .unwrap();
+    let plan = match registry
+        .begin_journal_segment_seal(through, "client_test", "sealed_resource_segment")
+        .unwrap()
+    {
+        JournalSegmentSealStart::Prepare(plan) => plan,
+        JournalSegmentSealStart::Replay(_) => panic!("first segment seal unexpectedly replayed"),
+    };
+    let reader = SessionJournalReader::open(&database).unwrap();
+    let prepared = plan.prepare(&reader).unwrap();
+    registry
+        .commit_journal_segment_seal(prepared, "client_test", "sealed_resource_segment")
+        .unwrap()
+        .expect("segment boundary remained stable");
+
+    drop(reader);
+    drop(registry);
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             CREATE TABLE legacy_journal_event_index (
+               event_id TEXT PRIMARY KEY NOT NULL,
+               sequence INTEGER UNIQUE NOT NULL CHECK(sequence > 0),
+               causation_depth INTEGER NOT NULL CHECK(causation_depth >= 0),
+               causation_id TEXT,
+               causal_hook_id TEXT
+             );
+             INSERT INTO legacy_journal_event_index
+               SELECT event_id, sequence, causation_depth, causation_id, causal_hook_id
+               FROM journal_event_index;
+             DROP TABLE journal_event_index;
+             ALTER TABLE legacy_journal_event_index RENAME TO journal_event_index;
+             DELETE FROM meta WHERE key = 'journal_event_index_resource_v1';
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let registry = WorkspaceRegistry::open(&root, "sealed-resource-replay").unwrap();
+
+    let page = registry.resource_events_after(0).unwrap();
+    assert_eq!(page.head_revision, 1);
+    assert_eq!(page.batches.len(), 1);
+    assert_eq!(page.batches[0].previous_revision, 0);
+    assert_eq!(page.batches[0].revision, 1);
+
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn terminal(id: &str, workspace_key: &str) -> RegistryTerminal {
     RegistryTerminal {
         terminal_id: id.into(),
@@ -3550,6 +3636,48 @@ fn receipt_test_producer() -> JournalProducerManifest {
             payload_schema: json!({"type":"object","additionalProperties":true}),
         }],
     }
+}
+
+#[test]
+fn journal_commit_time_is_local_and_independent_of_producer_time() {
+    let mut registry = WorkspaceRegistry::in_memory("journal-independent-commit-time").unwrap();
+    let manifest = receipt_test_producer();
+    registry.put_journal_producer(&manifest, "client_time", "install_time_producer").unwrap();
+    let ingress = JournalIngress {
+        producer_id: manifest.producer_id,
+        manifest_version: manifest.manifest_version,
+        kind: manifest.events[0].kind.clone(),
+        schema_version: manifest.events[0].schema_version,
+        occurred_at_ms: Some(crate::resource::WireDecimal::new(1)),
+        subjects: Vec::new(),
+        sensitivity: None,
+        payload: json!({"message":"historical occurrence"}),
+        causation_id: None,
+        correlation_id: None,
+    };
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Metadata,
+    };
+    let before = unix_epoch_ms().unwrap();
+    let commit = registry
+        .append_journal_ingress(&ingress, &validated, "client_time", "historical_event")
+        .unwrap();
+    let after = unix_epoch_ms().unwrap();
+    let record = registry
+        .session_journal_after(commit.sequence - 1, 1)
+        .unwrap()
+        .records
+        .into_iter()
+        .next()
+        .unwrap();
+    assert_eq!(record.occurred_at_ms, 1);
+    assert!(
+        (before..=after).contains(&record.committed_at_ms),
+        "commit time {} was not sampled locally in {before}..={after}",
+        record.committed_at_ms,
+    );
 }
 
 #[test]

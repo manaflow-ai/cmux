@@ -1840,6 +1840,14 @@ def _journal_record(value: Any) -> SessionJournalRecord:
     )
 
 
+def _validate_journal_stream_item(
+    record: SessionJournalRecord,
+    cursor: Optional[Cursor],
+) -> None:
+    if cursor is None or record.sequence != cursor.revision:
+        raise ProtocolError("journal sequence must match its stream cursor")
+
+
 def _color(payload: Mapping[str, Any], key: str) -> str:
     value = _required_string(payload, key)
     if len(value) != 7:
@@ -2465,6 +2473,10 @@ class Client:
         operation: Operation,
         params: Mapping[str, Any],
         decode: Callable[[Any], StreamValueT],
+        *,
+        validate_item: Optional[
+            Callable[[StreamValueT, Optional[Cursor]], None]
+        ] = None,
     ) -> ResourceStream[StreamValueT]:
         if operation.operation_class != "stream_open":
             raise ValueError(f"{operation.wire_name} is not a stream operation")
@@ -2479,6 +2491,7 @@ class Client:
             decode,
             timeout=context.options.timeout if context is not None else None,
             cancel_event=context.cancel_event if context is not None else None,
+            validate_item=validate_item,
         )
 
     def _local(self, operation: Operation, params: Mapping[str, Any]) -> Any:
@@ -2872,6 +2885,7 @@ class Session(_Handle[SessionId, SessionSnapshot]):
             Operations.SESSION_JOURNAL_SUBSCRIBE,
             {**self._params(), **_journal_options(options)},
             _journal_record,
+            validate_item=_validate_journal_stream_item,
         )
 
     def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[ShutdownResult]:

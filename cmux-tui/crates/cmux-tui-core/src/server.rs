@@ -7323,6 +7323,25 @@ fn prepare_session_event_stream(
             });
         }
         Some((generation, revision)) => match mux.resource_events_after(revision) {
+            Ok(page)
+                if page.batches.last().map_or(revision, |batch| batch.revision)
+                    < page.head_revision =>
+            {
+                initial_items.push((
+                    snapshot_cursor.clone(),
+                    json!({
+                        "kind":"snapshot",
+                        "cursor":snapshot_cursor,
+                        "reset_reason":"cursor_expired",
+                        "snapshot":snapshot,
+                    }),
+                ));
+                last_revision = snapshot_revision;
+                opened_cursor = json!({
+                    "generation":snapshot_generation,
+                    "revision":snapshot_revision.to_string(),
+                });
+            }
             Ok(page) => {
                 for batch in page.batches {
                     let cursor = json!({
@@ -7473,7 +7492,7 @@ fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
-    loop {
+    'stream: loop {
         if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
             break;
         }
@@ -7482,9 +7501,24 @@ fn run_session_event_stream(
             continue;
         }
         stream.epoch = epoch;
-        let page = match mux.resource_events_after(stream.last_revision) {
-            Ok(page) => page,
-            Err(error) => {
+        loop {
+            let page = match mux.resource_events_after(stream.last_revision) {
+                Ok(page) => page,
+                Err(error) => {
+                    let end = resource_stream_end(
+                        &stream.stream_id,
+                        "gap",
+                        None,
+                        Some("request a fresh session snapshot"),
+                        None,
+                    );
+                    let _ = error;
+                    let _ = writer.send_terminal(&end, &stream.outbound);
+                    break 'stream;
+                }
+            };
+            let head_revision = page.head_revision;
+            if page.batches.is_empty() && stream.last_revision < head_revision {
                 let end = resource_stream_end(
                     &stream.stream_id,
                     "gap",
@@ -7492,49 +7526,51 @@ fn run_session_event_stream(
                     Some("request a fresh session snapshot"),
                     None,
                 );
-                let _ = error;
                 let _ = writer.send_terminal(&end, &stream.outbound);
+                break 'stream;
+            }
+            for batch in page.batches {
+                let cursor = json!({
+                    "generation":page.generation,
+                    "revision":batch.revision.to_string(),
+                });
+                let end = resource_stream_end(
+                    &stream.stream_id,
+                    "gap",
+                    Some(cursor.clone()),
+                    Some("request a fresh session snapshot"),
+                    None,
+                );
+                let _ = writer.update_stream_overflow(&stream.outbound, &end);
+                if stream.canceled.load(Ordering::Acquire)
+                    || !send_resource_stream_item(
+                        writer,
+                        &stream.outbound,
+                        &stream.stream_id,
+                        stream.next_sequence,
+                        &cursor,
+                        json!({
+                            "kind":"delta",
+                            "cursor":cursor,
+                            "previous_revision":batch.previous_revision.to_string(),
+                            "revision":batch.revision.to_string(),
+                            "changes":batch.changes,
+                        }),
+                    )
+                {
+                    mux.control_clients.finish_resource_stream(
+                        client,
+                        &stream.stream_id,
+                        stream.outbound.id,
+                    );
+                    return;
+                }
+                stream.next_sequence = stream.next_sequence.saturating_add(1);
+                stream.last_revision = batch.revision;
+            }
+            if stream.last_revision >= head_revision {
                 break;
             }
-        };
-        for batch in page.batches {
-            let cursor = json!({
-                "generation":page.generation,
-                "revision":batch.revision.to_string(),
-            });
-            let end = resource_stream_end(
-                &stream.stream_id,
-                "gap",
-                Some(cursor.clone()),
-                Some("request a fresh session snapshot"),
-                None,
-            );
-            let _ = writer.update_stream_overflow(&stream.outbound, &end);
-            if stream.canceled.load(Ordering::Acquire)
-                || !send_resource_stream_item(
-                    writer,
-                    &stream.outbound,
-                    &stream.stream_id,
-                    stream.next_sequence,
-                    &cursor,
-                    json!({
-                        "kind":"delta",
-                        "cursor":cursor,
-                        "previous_revision":batch.previous_revision.to_string(),
-                        "revision":batch.revision.to_string(),
-                        "changes":batch.changes,
-                    }),
-                )
-            {
-                mux.control_clients.finish_resource_stream(
-                    client,
-                    &stream.stream_id,
-                    stream.outbound.id,
-                );
-                return;
-            }
-            stream.next_sequence = stream.next_sequence.saturating_add(1);
-            stream.last_revision = batch.revision;
         }
     }
     mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);

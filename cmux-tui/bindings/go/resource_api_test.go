@@ -67,6 +67,54 @@ func TestIDsSelectorsAndDecimals(t *testing.T) {
 	}
 }
 
+func TestSessionJournalOptionsValidation(t *testing.T) {
+	tail := JournalStartTail
+	invalidStart := JournalStart("latest")
+	secret := JournalSensitivitySecret
+	invalidSensitivity := JournalSensitivity("private")
+	invalidClass := JournalClass("transition")
+	emptyRegex := &JournalRegexFilter{}
+	invalidFieldRegex := &JournalRegexFilter{
+		Pattern: "agent\\.",
+		Field:   JournalRegexField("unknown"),
+	}
+	tests := map[string]SessionJournalOptions{
+		"cursor and start": {
+			Cursor: &Cursor{Generation: "generation", Revision: Decimal(1)},
+			Start:  &tail,
+		},
+		"invalid start": {Start: &invalidStart},
+		"secret sensitivity": {
+			Filter: &JournalFilter{MaxSensitivity: &secret},
+		},
+		"invalid sensitivity": {
+			Filter: &JournalFilter{MaxSensitivity: &invalidSensitivity},
+		},
+		"invalid class": {
+			Filter: &JournalFilter{Classes: []JournalClass{invalidClass}},
+		},
+		"empty subject": {
+			Filter: &JournalFilter{Subjects: []JournalSubjectFilter{{}}},
+		},
+		"empty regex": {
+			Filter: &JournalFilter{Regex: emptyRegex},
+		},
+		"invalid regex field": {
+			Filter: &JournalFilter{Regex: invalidFieldRegex},
+		},
+	}
+	for name, options := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := options.validate(); !errors.Is(err, ErrInvalidArgument) {
+				t.Fatalf("validate() error = %v, want ErrInvalidArgument", err)
+			}
+		})
+	}
+	if err := (SessionJournalOptions{}).validate(); err != nil {
+		t.Fatalf("zero-value options rejected: %v", err)
+	}
+}
+
 func TestIdempotencyKeysMatchDurableIdentifierContract(t *testing.T) {
 	for name, value := range map[string]string{
 		"empty":           "",
@@ -1484,6 +1532,68 @@ func TestStreamRecvDeadlineIsOperationScoped(t *testing.T) {
 	if err := stream.Cancel(context.Background()); err != nil {
 		t.Fatalf("cancel stream: %v", err)
 	}
+}
+
+func TestJournalRecordSequenceMatchesEnvelopeCursor(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	release := make(chan struct{})
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		open := readRequest(t, reader)
+		streamID := requestParams(t, open)["stream_id"]
+		writeSuccess(t, serverSide, open["id"], map[string]any{"stream_id": streamID})
+		writeEnvelope(t, serverSide, map[string]any{
+			"protocol":  "cmux.protocol/1",
+			"type":      "stream_item",
+			"stream_id": streamID,
+			"sequence":  "1",
+			"cursor": map[string]any{
+				"generation": string(testSessionID),
+				"revision":   "1",
+			},
+			"item": map[string]any{
+				"sequence":                   "2",
+				"event_id":                   "event_mismatched_cursor",
+				"schema_version":             1,
+				"kind":                       "agent.turn.completed",
+				"class":                      "observation",
+				"replay":                     "advisory",
+				"occurred_at_ms":             "1",
+				"committed_at_ms":            "2",
+				"producer":                   map[string]any{"kind": "agent_adapter", "id": "cmux_agents"},
+				"authority":                  nil,
+				"causation_id":               nil,
+				"correlation_id":             nil,
+				"causation_depth":            0,
+				"subjects":                   []any{},
+				"sensitivity":                "metadata",
+				"payload":                    map[string]any{},
+				"resource_revision":          nil,
+				"previous_resource_revision": nil,
+			},
+		})
+		<-release
+	}()
+	client, err := NewClient(context.Background(), ClientOptions{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return clientSide, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background()) //nolint:errcheck
+	stream, err := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID)).
+		Journal(context.Background(), SessionJournalOptions{})
+	if err != nil {
+		t.Fatalf("open journal: %v", err)
+	}
+	_, err = stream.Recv(context.Background())
+	if !errors.Is(err, ErrProtocol) || !strings.Contains(err.Error(), "journal sequence must match") {
+		t.Fatalf("mismatched journal cursor error = %T %v", err, err)
+	}
+	close(release)
 }
 
 func TestAcknowledgedStreamOutlivesSetupContextAndRequestTimeout(t *testing.T) {

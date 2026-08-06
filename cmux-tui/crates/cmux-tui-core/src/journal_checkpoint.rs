@@ -35,6 +35,10 @@ pub(crate) struct CapturedCheckpoint {
 }
 
 pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
+    // Drain every output frame that reached ingress before the capture fence.
+    // Per-terminal epochs below reject a parser snapshot taken while its
+    // corresponding journal frame is still being enqueued.
+    mux.flush_terminal_journal()?;
     let head_before = mux.session_journal_after(0, 1)?.head_sequence;
     let snapshot = crate::resource_api::public_session_snapshot(mux)
         .map_err(|error| anyhow::anyhow!("capture public session snapshot: {error:?}"))?;
@@ -65,11 +69,25 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     let mut blobs = Vec::new();
     for terminal_id in terminal_ids {
         let Some(surface) = mux.terminal_resource_surface(&terminal_id) else { continue };
+        let epoch_before = surface
+            .terminal_journal_capture_epoch()
+            .context("checkpoint terminal is not a PTY surface")?;
+        anyhow::ensure!(
+            epoch_before & 1 == 0,
+            "terminal journal ingress is unsettled during checkpoint capture"
+        );
         let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
             terminal
                 .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
                 .map(|replay| (terminal.cols(), terminal.rows(), replay))
         })??;
+        let epoch_after = surface
+            .terminal_journal_capture_epoch()
+            .context("checkpoint terminal is not a PTY surface")?;
+        anyhow::ensure!(
+            epoch_before == epoch_after && epoch_after & 1 == 0,
+            "terminal changed during checkpoint capture"
+        );
         let replay_value = json!({
             "format":"cmux.vt-replay.v1",
             "cols":cols,
@@ -124,6 +142,7 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         )?);
     }
 
+    mux.flush_terminal_journal()?;
     let head_after = mux.session_journal_after(0, 1)?.head_sequence;
     let cursor_after = crate::resource_api::public_session_snapshot(mux)
         .map_err(|error| anyhow::anyhow!("verify public session snapshot: {error:?}"))?["cursor"]
@@ -1007,6 +1026,36 @@ mod tests {
         let captured = capture(&mux).unwrap();
         assert_eq!(captured.blobs.len(), 1);
         assert!(captured.blobs[0].reference.terminal_id.starts_with("term_"));
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checkpoint_rejects_terminal_state_ahead_of_journal_ingress() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-checkpoint-fence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent("checkpoint-fence", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id = mux
+            .seed_running_terminal_for_test(
+                "00000000000040008000000000000072",
+                "10000000000040008000000000000072",
+                &workspace.key,
+            )
+            .unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        {
+            let _pending_output = surface.begin_terminal_journal_update_for_test().unwrap();
+            let error = capture(&mux).expect_err("checkpoint accepted unsettled terminal output");
+            assert!(error.to_string().contains("terminal journal ingress is unsettled"));
+        }
+
+        drop(surface);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }

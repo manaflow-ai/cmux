@@ -974,7 +974,8 @@ impl WorkspaceRegistry {
         }
         let fingerprint = canonical_json(fingerprint)?;
         let outcome = ResourceEffectOutcome::Success(result.clone());
-        let outcome_json = canonical_json(&serde_json::to_value(&outcome)?)?;
+        let outcome = serde_json::to_value(&outcome)?;
+        let outcome_json = canonical_json(&outcome)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
         let commit = commit_resource_effect_patch_in_transaction(
@@ -985,6 +986,7 @@ impl WorkspaceRegistry {
             &fingerprint,
             patch,
             result,
+            &outcome,
             &outcome_json,
             deltas,
         )?;
@@ -1021,7 +1023,8 @@ impl WorkspaceRegistry {
         validate_terminal_batch_close(&mutation, terminals)?;
         let fingerprint = canonical_json(fingerprint)?;
         let outcome = ResourceEffectOutcome::Success(result.clone());
-        let outcome_json = canonical_json(&serde_json::to_value(&outcome)?)?;
+        let outcome = serde_json::to_value(&outcome)?;
+        let outcome_json = canonical_json(&outcome)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
 
@@ -1058,6 +1061,7 @@ impl WorkspaceRegistry {
             &fingerprint,
             patch,
             result,
+            &outcome,
             &outcome_json,
             deltas,
         )?;
@@ -1116,6 +1120,7 @@ fn commit_resource_effect_patch_in_transaction(
     fingerprint: &str,
     patch: &ResourcePatch,
     result: &Value,
+    outcome: &Value,
     outcome_json: &str,
     deltas: &Value,
 ) -> anyhow::Result<ResourcePatchCommit> {
@@ -1146,7 +1151,6 @@ fn commit_resource_effect_patch_in_transaction(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
         [revision.to_string()],
     )?;
-    let outcome = serde_json::from_str::<Value>(outcome_json)?;
     append_resource_journal_record(
         transaction,
         revision,
@@ -1155,7 +1159,7 @@ fn commit_resource_effect_patch_in_transaction(
         idempotency_key,
         operation,
         Some(patch),
-        &outcome,
+        outcome,
         deltas,
     )?;
     resource_store::prune_resource_mutations(transaction)?;

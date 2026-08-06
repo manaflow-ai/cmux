@@ -1084,11 +1084,19 @@ Result<Json::Object> SessionJournalOptions::to_params() const {
                 ErrorCode::invalid_argument,
                 "journal regex must contain 1 to 1024 UTF-8 bytes");
         }
-        const char* field = "record";
-        if (filter.regex->field == JournalRegexField::kind) field = "kind";
-        if (filter.regex->field == JournalRegexField::subjects) field = "subjects";
-        if (filter.regex->field == JournalRegexField::payload) field = "payload";
-        if (filter.regex->field == JournalRegexField::terminal_output) field = "terminal_output";
+        const char* field = nullptr;
+        switch (filter.regex->field) {
+            case JournalRegexField::kind: field = "kind"; break;
+            case JournalRegexField::subjects: field = "subjects"; break;
+            case JournalRegexField::payload: field = "payload"; break;
+            case JournalRegexField::record: field = "record"; break;
+            case JournalRegexField::terminal_output: field = "terminal_output"; break;
+        }
+        if (field == nullptr) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal regex field is invalid");
+        }
         encoded_filter.emplace(
             "regex",
             Json(Json::Object{

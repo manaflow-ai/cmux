@@ -22,6 +22,7 @@ public final class ResourceApiTest {
 
     public static void main(String[] args) {
         decimalAndIdentifiers();
+        journalRegexDefaultsAreErgonomic();
         sensitiveValuesAreRedacted();
         defaultIdempotencyKeysUseFixedWidthLowercaseHex();
         idempotencyKeysMatchDurableIdentifierContract();
@@ -76,6 +77,15 @@ public final class ResourceApiTest {
         overflowBlockedCancelHonorsTotalDeadline();
         structuredErrorsAreNotRetried();
         transportFailureReportsUncertainMutation();
+    }
+
+    private static void journalRegexDefaultsAreErgonomic() {
+        Options.JournalRegexFilter filter = new Options.JournalRegexFilter("agent\\.");
+        require(
+            filter.field() == Options.JournalRegexField.RECORD,
+            "journal regex defaults to the complete record"
+        );
+        require(filter.caseSensitive(), "journal regex defaults to case-sensitive matching");
     }
 
     private static void decimalAndIdentifiers() {

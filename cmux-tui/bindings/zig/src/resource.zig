@@ -917,7 +917,7 @@ pub const SessionJournalRecord = struct {
     causation_id: ?[]const u8,
     correlation_id: ?[]const u8,
     causation_depth: u16,
-    subjects: []JournalSubject,
+    subjects: []const JournalSubject,
     sensitivity: JournalSensitivity,
     payload: raw.wire.Value,
     resource_revision: ?u64,
@@ -3804,16 +3804,6 @@ fn journalNullableString(
     };
 }
 
-fn journalNullableDecimal(
-    object: raw.wire.Object,
-    name: []const u8,
-) !?u64 {
-    return switch (object.get(name) orelse return error.MissingField) {
-        .null => null,
-        else => |value| try decimalU64(value),
-    };
-}
-
 fn decodeJournalClass(value: []const u8) !JournalClass {
     if (std.mem.eql(u8, value, "state")) return .state;
     if (std.mem.eql(u8, value, "observation")) return .observation;
@@ -3967,11 +3957,11 @@ fn decodeSessionJournalRecord(
             try objectString(object, "sensitivity"),
         ),
         .payload = object.get("payload") orelse return error.MissingField,
-        .resource_revision = try journalNullableDecimal(
+        .resource_revision = try requiredNullableDecimalU64(
             object,
             "resource_revision",
         ),
-        .previous_resource_revision = try journalNullableDecimal(
+        .previous_resource_revision = try requiredNullableDecimalU64(
             object,
             "previous_resource_revision",
         ),

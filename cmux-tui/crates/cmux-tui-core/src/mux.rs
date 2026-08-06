@@ -4154,6 +4154,7 @@ impl Mux {
             self.publish_resource_event();
         } else {
             drop(registry);
+            self.publish_journal_event();
         }
         Ok(revision)
     }
@@ -4821,11 +4822,15 @@ impl Mux {
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
         let mut sequence = checkpoint.source_sequence;
+        let mut target_head = None;
         let head_sequence = loop {
             let page = self.session_journal_after(sequence, 1024)?;
-            let head = page.head_sequence;
+            let head = *target_head.get_or_insert(page.head_sequence);
             let empty = page.records.is_empty();
             for record in page.records {
+                if record.sequence > head {
+                    break;
+                }
                 sequence = record.sequence;
                 reducer.apply(&record)?;
             }
@@ -16866,6 +16871,22 @@ mod tests {
         ));
         mux.mark_resource_effect_executing(idempotency_key, operation, &fingerprint).unwrap();
         fingerprint
+    }
+
+    #[test]
+    fn receipt_only_effect_commit_wakes_journal_subscribers() {
+        let mux = test_mux();
+        let fingerprint = begin_test_resource_effect(&mux, "receipt-only-effect", "terminal.input");
+        let before = mux.journal_event_epoch();
+        mux.commit_resource_effect(
+            "receipt-only-effect",
+            "terminal.input",
+            &fingerprint,
+            &ResourceEffectOutcome::Success(json!({})),
+            None,
+        )
+        .unwrap();
+        assert_eq!(mux.journal_event_epoch(), before + 1);
     }
 
     #[test]

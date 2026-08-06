@@ -1189,6 +1189,24 @@ impl Deref for PtySurface {
     }
 }
 
+pub(crate) struct TerminalJournalUpdateGuard<'a> {
+    epoch: &'a AtomicU64,
+}
+
+impl Drop for TerminalJournalUpdateGuard<'_> {
+    fn drop(&mut self) {
+        self.epoch.fetch_add(1, Ordering::Release);
+    }
+}
+
+impl PtyTerminalRuntime {
+    fn begin_terminal_journal_update(&self) -> TerminalJournalUpdateGuard<'_> {
+        let previous = self.journal_capture_epoch.fetch_add(1, Ordering::AcqRel);
+        debug_assert_eq!(previous & 1, 0, "terminal journal updates must not overlap");
+        TerminalJournalUpdateGuard { epoch: &self.journal_capture_epoch }
+    }
+}
+
 /// Content runtime shared by every view placement of one terminal.
 ///
 /// A [`PtySurface`] is a lightweight placement carrying tab-local metadata.
@@ -1201,6 +1219,9 @@ pub struct PtyTerminalRuntime {
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.
     terminal_public_id: Option<Arc<TerminalPublicId>>,
     journal_generation: Arc<str>,
+    /// Even while the emulator and terminal journal agree, odd while one
+    /// output frame has updated one side but not yet reached the other.
+    journal_capture_epoch: AtomicU64,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
@@ -2125,6 +2146,7 @@ impl Surface {
                     "local-{}",
                     crate::workspace_registry::new_uuid_v4()
                 )),
+                journal_capture_epoch: AtomicU64::new(0),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2209,6 +2231,8 @@ impl Surface {
                     let pty = surface.as_pty().expect("surface reader got non-pty surface");
                     let journal_target = pty.journal_target();
                     let journal_enabled = journal_target.is_some();
+                    let journal_update =
+                        journal_enabled.then(|| pty.begin_terminal_journal_update());
                     let mut scroll_changed = None;
                     let generation = {
                         let mut term = pty.term.lock().unwrap();
@@ -2263,6 +2287,7 @@ impl Surface {
                     {
                         pty.journal_output(journal_target, journal_output.into_owned());
                     }
+                    drop(journal_update);
                     pty.stream_progress.notify();
                     pty.request_frame(generation);
                     if let Some((offset, at_bottom)) = scroll_changed
@@ -2509,6 +2534,7 @@ impl Surface {
                 event_surface_id: id,
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
+                journal_capture_epoch: AtomicU64::new(0),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2625,6 +2651,8 @@ impl Surface {
                                 let mut title_update = None;
                                 let journal_target = pty.journal_target();
                                 let journal_enabled = journal_target.is_some();
+                                let journal_update =
+                                    journal_enabled.then(|| pty.begin_terminal_journal_update());
                                 let defaults = mux
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
@@ -2696,6 +2724,7 @@ impl Surface {
                                 {
                                     pty.journal_output(journal_target, journal_output);
                                 }
+                                drop(journal_update);
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -3372,6 +3401,7 @@ impl Surface {
                 event_surface_id: id,
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,
+                journal_capture_epoch: AtomicU64::new(0),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3587,6 +3617,7 @@ impl Surface {
                 event_surface_id: id,
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation: Arc::from(format!("test-{id}")),
+                journal_capture_epoch: AtomicU64::new(0),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3650,6 +3681,17 @@ impl Surface {
             Surface::Pty(surface) => Some(surface),
             Surface::Browser(_) => None,
         }
+    }
+
+    pub(crate) fn terminal_journal_capture_epoch(&self) -> Option<u64> {
+        self.as_pty().map(|pty| pty.journal_capture_epoch.load(Ordering::Acquire))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn begin_terminal_journal_update_for_test(
+        &self,
+    ) -> Option<TerminalJournalUpdateGuard<'_>> {
+        self.as_pty().map(|pty| pty.begin_terminal_journal_update())
     }
 
     pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {

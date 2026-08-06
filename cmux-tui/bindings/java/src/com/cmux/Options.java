@@ -99,6 +99,10 @@ public final class Options {
         JournalRegexField field,
         boolean caseSensitive
     ) {
+        public JournalRegexFilter(String pattern) {
+            this(pattern, JournalRegexField.RECORD, true);
+        }
+
         public JournalRegexFilter {
             Objects.requireNonNull(pattern, "pattern");
             field = field == null ? JournalRegexField.RECORD : field;
