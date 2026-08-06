@@ -442,8 +442,19 @@ impl DeadlineFanoutPool {
     }
 
     fn submit(&self, job: DeadlineFanoutJob) -> bool {
+        self.submit_until(None, job)
+    }
+
+    fn submit_before(&self, deadline: Instant, job: DeadlineFanoutJob) -> bool {
+        self.submit_until(Some(deadline), job)
+    }
+
+    fn submit_until(&self, deadline: Option<Instant>, job: DeadlineFanoutJob) -> bool {
         let mut state = self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.shutdown || state.admitted_jobs >= CELL_PIXEL_FANOUT_MAX_WORKERS {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline)
+            || state.shutdown
+            || state.admitted_jobs >= CELL_PIXEL_FANOUT_MAX_WORKERS
+        {
             return false;
         }
 
@@ -466,6 +477,12 @@ impl DeadlineFanoutPool {
                     return false;
                 }
             }
+        }
+
+        // Thread creation can outlive a short shared deadline. Sample time
+        // again while queue capacity is still protected by the admission lock.
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return false;
         }
 
         state.jobs.push_back(job);
@@ -578,7 +595,7 @@ where
         let operation = operation.clone();
         let result = Arc::new(Mutex::new(None));
         let job_result = result.clone();
-        if pool.submit(Box::new(move || {
+        if pool.submit_before(deadline, Box::new(move || {
             let value = operation(&item, deadline);
             *job_result.lock().unwrap() =
                 Some(DeadlineCompletion { completed_at: Instant::now(), value });
