@@ -65,4 +65,18 @@ describe("Stack PostHog identity bridge", () => {
     );
     expect(h.values.get(STACK_IDENTITY_STORAGE_KEY)).toBe("stack-user-2");
   });
+
+  test("classifies team identities as paid", () => {
+    const h = harness();
+
+    syncStackAnalyticsIdentity(h, h.storage, {
+      id: "stack-team-member",
+      plan: "team",
+    });
+
+    expect(h.identify).toHaveBeenCalledWith(
+      "stack-team-member",
+      expect.objectContaining({ billing_plan: "team", is_pro: true }),
+    );
+  });
 });

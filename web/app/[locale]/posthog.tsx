@@ -73,8 +73,8 @@ function PageviewTracker() {
           }
           identity = { id: payload.user.id, plan };
         }
-        syncStackAnalyticsIdentity(posthog, identityStorage, identity);
         posthog.set_config({ before_send: (event) => event });
+        syncStackAnalyticsIdentity(posthog, identityStorage, identity);
         if (!controller.signal.aborted) capturePageview();
       })
       .catch(() => {

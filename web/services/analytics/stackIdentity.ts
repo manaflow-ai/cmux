@@ -33,7 +33,7 @@ export function syncStackAnalyticsIdentity(
       stack_user_id: identity.id,
       authentication_provider: "stack",
       billing_plan: identity.plan,
-      is_pro: identity.plan === "pro",
+      is_pro: identity.plan !== "free",
     });
     storage.setItem(STACK_IDENTITY_STORAGE_KEY, identity.id);
     return;
