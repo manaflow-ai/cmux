@@ -1725,7 +1725,7 @@ final class cmuxUITests: XCTestCase {
         let approvalTitle = app.staticTexts["Codex needs approval"]
         let approvalWorkspace = app.staticTexts["cmux iOS"]
         let approvalBody = app.staticTexts[
-            "The feed is ready to open in the iOS app. Review the navigation and approve the final interaction pass."
+            "The feed screen is implemented. Review the navigation and approve the final interaction pass."
         ]
         let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
         XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))
