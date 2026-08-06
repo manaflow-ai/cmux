@@ -1115,13 +1115,8 @@ async fn bootstrap_initial_ssh_route(
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
             let target = if upgrade {
-                let (target, _) = bootstrap.probe_target().await?;
                 bootstrap
-                    .stop_daemon_target(
-                        &target,
-                        &ssh.remote_session,
-                        ssh.remote_state_dir.as_deref(),
-                    )
+                    .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
                     .await?;
                 let resolved = bootstrap.install_verified_target().await?;
                 resolved.target

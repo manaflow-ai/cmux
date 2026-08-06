@@ -170,6 +170,26 @@ impl SshBootstrapper {
         }
     }
 
+    /// Resolve the host shell for an explicit replacement without requiring
+    /// the installed binary to understand the current probe protocol.
+    async fn explicit_install_target(&self) -> Result<SshRemoteTarget, BootstrapError> {
+        let posix_target = SshRemoteTarget {
+            binary: self.config.remote_binary.clone(),
+            shell: SshRemoteShell::Posix,
+        };
+        match self.probe_remote_target(&posix_target).await {
+            Err(error @ BootstrapError::Remote { status: 255, .. }) => Err(error),
+            Ok(_) | Err(BootstrapError::ProbeJson(_)) | Err(BootstrapError::Remote { .. }) => {
+                Ok(posix_target)
+            }
+            Err(BootstrapError::WindowsShellDetected) => Ok(SshRemoteTarget {
+                binary: WINDOWS_REMOTE_BINARY.into(),
+                shell: SshRemoteShell::WindowsCmd,
+            }),
+            Err(error) => Err(error),
+        }
+    }
+
     async fn probe_remote_target(
         &self,
         target: &SshRemoteTarget,
@@ -239,7 +259,13 @@ impl SshBootstrapper {
     }
 
     pub async fn install_verified_target(&self) -> Result<ResolvedBootstrap, BootstrapError> {
-        let (target, _) = self.probe_target().await?;
+        if !self.config.package_installable
+            && self.config.local_binary.is_none()
+            && self.config.windows_local_binary.is_none()
+        {
+            return Err(BootstrapError::PackageUnavailable(self.config.package_version.clone()));
+        }
+        let target = self.explicit_install_target().await?;
         self.install_verified_for_target(target).await
     }
 
@@ -451,7 +477,7 @@ impl SshBootstrapper {
         session: &str,
         state_dir: Option<&str>,
     ) -> Result<(), BootstrapError> {
-        let (target, _) = self.probe_target().await?;
+        let target = self.explicit_install_target().await?;
         self.stop_daemon_target(&target, session, state_dir).await
     }
 
