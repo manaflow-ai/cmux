@@ -1,7 +1,10 @@
 import { unstable_cache } from "next/cache";
-import { listAccounts, markAccountCooldown } from "./repository";
+import {
+  listAccounts,
+  listEncryptedCredentials,
+  markAccountCooldown,
+} from "./repository";
 import { freshCredential } from "./refresh";
-import { readTeamVault } from "./vault";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const USAGE_CACHE_MS = 15_000;
@@ -48,12 +51,14 @@ export async function accountsWithUsage(teamId: string) {
 }
 
 async function loadAccountsWithUsage(teamId: string) {
-  // The account list and encrypted credential snapshot are independent.
-  // Fetch each exactly once and overlap their network round trips.
-  const [accounts, vault] = await Promise.all([
+  // Account metadata and encrypted envelopes are independent RDS reads.
+  const [accounts, credentials] = await Promise.all([
     listAccounts(teamId),
-    readTeamVault(teamId).catch(() => null),
+    listEncryptedCredentials(teamId),
   ]);
+  const credentialsByAccount = new Map(
+    credentials.map((credential) => [credential.accountId, credential]),
+  );
   return await Promise.all(accounts.map(async (account) => {
     if (account.provider !== "codex" || account.state !== "active") {
       return account;
@@ -62,8 +67,8 @@ async function loadAccountsWithUsage(teamId: string) {
       const credential = await freshCredential({
         teamId,
         accountId: account.id,
-        expectedRevision: 0,
-        known: vault?.accounts[account.id],
+        expectedRevision: credentialsByAccount.get(account.id)?.credentialRevision ?? 0,
+        known: credentialsByAccount.get(account.id),
       });
       if (credential.provider !== "codex") return account;
       const response = await fetch(CODEX_USAGE_URL, {
@@ -103,6 +108,6 @@ function usageCooldown(value: unknown): number | null {
   return (resetSeconds.length > 0 ? Math.min(...resetSeconds) : 60) * 1_000;
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
