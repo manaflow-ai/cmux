@@ -1208,6 +1208,7 @@
       "targetWorkspace": "指定特定工作區",
       "targetSurface": "指定特定 surface",
       "idFormat": "控制 JSON 輸出中的識別碼格式",
+      "identifierSafety": "對快取目標的自動化操作使用 UUID。<ref>workspace:7</ref> 等短 ref 是僅限目前工作階段的便利控制代碼，純數字索引則取決於位置。請要求 <flag>--id-format both</flag>，保留預期的 ref 到 UUID 對應，並在變更前驗證。",
       "workspaceCommands": "工作區指令",
       "listWorkspacesDesc": "列出所有開啟的工作區。",
       "newWorkspaceDesc": "建立新的工作區。",

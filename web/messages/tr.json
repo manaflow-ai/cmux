@@ -1208,6 +1208,7 @@
       "targetWorkspace": "Belirli bir çalışma alanını hedefle",
       "targetSurface": "Belirli bir yüzeyi hedefle",
       "idFormat": "JSON çıktısında tanımlayıcı formatını kontrol et",
+      "identifierSafety": "Hedefleri önbelleğe alan otomasyonlarda UUID kullanın. <ref>workspace:7</ref> gibi kısa referanslar oturum kapsamlı yardımcı tanıtıcılardır; yalnızca sayıdan oluşan dizinler konuma bağlıdır. <flag>--id-format both</flag> isteyin, beklenen referans-UUID eşlemesini saklayın ve değişiklikten önce doğrulayın.",
       "workspaceCommands": "Çalışma alanı komutları",
       "listWorkspacesDesc": "Tüm açık çalışma alanlarını listele.",
       "newWorkspaceDesc": "Yeni bir çalışma alanı oluştur.",

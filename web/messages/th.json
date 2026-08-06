@@ -1211,6 +1211,7 @@
       "targetWorkspace": "ระบุ workspace เป้าหมาย",
       "targetSurface": "ระบุ surface เป้าหมาย",
       "idFormat": "ควบคุมรูปแบบ identifier ในเอาต์พุต JSON",
+      "identifierSafety": "ใช้ UUID สำหรับระบบอัตโนมัติที่แคชเป้าหมาย ref แบบสั้น เช่น <ref>workspace:7</ref> เป็นแฮนเดิลอำนวยความสะดวกที่ใช้ได้ภายในเซสชัน และดัชนีที่เป็นตัวเลขล้วนจะอิงตามตำแหน่ง ขอ <flag>--id-format both</flag> เก็บการจับคู่ ref กับ UUID ที่คาดไว้ และตรวจสอบก่อนแก้ไข",
       "workspaceCommands": "คำสั่ง workspace",
       "listWorkspacesDesc": "แสดงรายการ workspace ที่เปิดอยู่ทั้งหมด",
       "newWorkspaceDesc": "สร้าง workspace ใหม่",

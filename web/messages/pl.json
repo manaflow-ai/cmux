@@ -1209,6 +1209,7 @@
       "targetWorkspace": "Celuj w konkretny workspace",
       "targetSurface": "Celuj w konkretny surface",
       "idFormat": "Kontroluj format identyfikatorów w wyjściu JSON",
+      "identifierSafety": "Używaj UUID w automatyzacji, która buforuje cele. Krótkie referencje, takie jak <ref>workspace:7</ref>, są pomocniczymi uchwytami ograniczonymi do sesji, a same indeksy numeryczne są pozycyjne. Zażądaj <flag>--id-format both</flag>, zachowaj oczekiwane mapowanie referencji na UUID i sprawdź je przed zmianą.",
       "workspaceCommands": "Polecenia workspace",
       "listWorkspacesDesc": "Wyświetl wszystkie otwarte workspace'y.",
       "newWorkspaceDesc": "Utwórz nowy workspace.",
