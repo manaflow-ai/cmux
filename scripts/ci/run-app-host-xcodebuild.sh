@@ -11,21 +11,6 @@ max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-3}"
 export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
 echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
 
-# xcodebuild must retain the console user's real HOME so Xcode and its package
-# toolchains remain available. Pass the isolated paths as build settings; the
-# cmux-unit TestAction applies them only to the launched app-host process.
-app_host_xcodebuild_settings=()
-if [ -n "${CFFIXED_USER_HOME:-}" ]; then
-  if [ -z "${XDG_CONFIG_HOME:-}" ]; then
-    echo "FAIL: CFFIXED_USER_HOME requires XDG_CONFIG_HOME for app-host isolation" >&2
-    exit 1
-  fi
-  app_host_xcodebuild_settings+=(
-    "CMUX_APP_HOST_HOME=$CFFIXED_USER_HOME"
-    "CMUX_APP_HOST_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
-  )
-fi
-
 # Principled serialization (the actual fix; the retry below is only a backstop).
 # Invariant: a GUI test host owns the Mac's single login session + testmanagerd
 # while it runs. Two hosts on one self-hosted Mac contend for that one session
@@ -42,6 +27,25 @@ if [ -z "${CMUX_APP_HOST_TEST_LOCK_ACTIVE:-}" ]; then
   export CMUX_APP_HOST_TEST_LOCK_ACTIVE=1
   exec python3 "$(dirname "$0")/app_host_test_lock.py" \
     "$lock_file" "$lock_wait_seconds" "$0" "$@"
+fi
+
+# xcodebuild must retain the console user's real HOME so Xcode and its package
+# toolchains remain available. Capture isolation only after the lock re-exec,
+# pass it as build settings, then remove the app-host-only redirects from the
+# driver environment. The cmux-unit TestAction applies them to the launched app.
+app_host_xcodebuild_settings=()
+app_host_home=""
+if [ -n "${CFFIXED_USER_HOME:-}" ]; then
+  if [ -z "${XDG_CONFIG_HOME:-}" ]; then
+    echo "FAIL: CFFIXED_USER_HOME requires XDG_CONFIG_HOME for app-host isolation" >&2
+    exit 1
+  fi
+  app_host_home="$CFFIXED_USER_HOME"
+  app_host_xcodebuild_settings+=(
+    "CMUX_APP_HOST_HOME=$CFFIXED_USER_HOME"
+    "CMUX_APP_HOST_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
+  )
+  unset CFFIXED_USER_HOME XDG_CONFIG_HOME
 fi
 
 # Resolve a CI-scoped root so app-host cleanup targets every CI app-host on this
@@ -68,9 +72,9 @@ kill_stale_app_host() {
 
 validate_app_host_config_paths() {
   local log_path="$1"
-  [ -n "${CFFIXED_USER_HOME:-}" ] || return 0
+  [ -n "$app_host_home" ] || return 0
 
-  local expected_root="${CFFIXED_USER_HOME%/}/Library/Application Support/com.mitchellh.ghostty"
+  local expected_root="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty"
   local line
   while IFS= read -r line; do
     case "$line" in
