@@ -16,11 +16,16 @@ extension MobileCoreRPCSession {
         let routeCleanupTask = await cleaner.handOffLateCandidateToRegistry(
             task: connecting.task
         )
-        abandonedConnectionCleanupTasks[cleanupID] = routeCleanupTask
-        Task { [weak self] in
+        // Store the wrapper that also removes its own registry entry, like
+        // startAbandonedConnectionCleanup does. Storing the bare route task
+        // lets waitForTransportDrain resume off an already-finished task
+        // without suspending, which starves the removal and livelocks the
+        // drain loop on this actor.
+        let cleanupTask = Task { [weak self] in
             await routeCleanupTask.value
             await self?.abandonedConnectionCleanupDidFinish(cleanupID)
         }
+        abandonedConnectionCleanupTasks[cleanupID] = cleanupTask
     }
 
     func closeUninstalledConnectedCandidate(
