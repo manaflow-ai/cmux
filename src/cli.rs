@@ -158,7 +158,7 @@ fn pi_provider_extension(
     let models = serde_json::to_string(&model_values)
         .map_err(|error| Error::Backend(format!("encode Pi model catalog: {error}")))?;
     Ok(format!(
-        "export default function (pi) {{\n  const routeToken = process.env.CODEROUTER_ROUTE_TOKEN;\n  delete process.env.CODEROUTER_ROUTE_TOKEN;\n  if (!routeToken) throw new Error(\"coderouter route token is missing\");\n  pi.registerProvider(\"coderouter\", {{\n    name: \"coderouter\",\n    baseUrl: {base},\n    apiKey: routeToken,\n    authHeader: true,\n    api: \"openai-codex-responses\",\n    models: {models}\n  }});\n}}\n"
+        "export default function (pi) {{\n  const routeToken = process.env.CODEROUTER_ROUTE_TOKEN;\n  delete process.env.CODEROUTER_ROUTE_TOKEN;\n  if (!routeToken) throw new Error(\"coderouter route token is missing\");\n  pi.registerProvider(\"coderouter\", {{\n    name: \"coderouter\",\n    baseUrl: {base},\n    apiKey: routeToken,\n    authHeader: true,\n    api: \"openai-responses\",\n    models: {models}\n  }});\n}}\n"
     ))
 }
 
@@ -172,13 +172,44 @@ fn run_routed_opencode(args: &[OsString]) -> Result<i32, Error> {
     let loading = crate::loading::DelayedSpinner::new("Preparing OpenCode");
     let result = control_plane::opencode_config();
     loading.finish();
-    let content = result?;
+    let config = result?;
+    let mut routed = args.to_vec();
+    let selected = selected_model(args)?;
+    if let Some(model) = selected {
+        if !config.models.iter().any(|candidate| candidate == model) {
+            return Err(Error::Usage(format!(
+                "`{model}` is not a coderouter OpenCode model; use bare `opencode` for another provider"
+            )));
+        }
+    } else {
+        routed.insert(0, process::os(&config.models[0]));
+        routed.insert(0, process::os("--model"));
+    }
     process::run_attached_with_env(
         &opencode,
-        args,
+        &routed,
         &[],
-        &[("OPENCODE_CONFIG_CONTENT", content.as_str())],
+        &[("OPENCODE_CONFIG_CONTENT", config.content.as_str())],
     )
+}
+
+fn selected_model(args: &[OsString]) -> Result<Option<&str>, Error> {
+    for (index, arg) in args.iter().enumerate() {
+        let Some(value) = arg.to_str() else {
+            continue;
+        };
+        if matches!(value, "--model" | "-m") {
+            return args
+                .get(index + 1)
+                .and_then(|value| value.to_str())
+                .map(Some)
+                .ok_or_else(|| Error::Usage("OpenCode --model requires a value".into()));
+        }
+        if let Some(model) = value.strip_prefix("--model=") {
+            return Ok(Some(model));
+        }
+    }
+    Ok(None)
 }
 
 fn run_routed_codex(args: &[OsString]) -> Result<i32, Error> {
@@ -556,7 +587,7 @@ mod tests {
             }],
         )
         .unwrap();
-        assert!(extension.contains("openai-codex-responses"));
+        assert!(extension.contains("openai-responses"));
         assert!(extension.contains("delete process.env.CODEROUTER_ROUTE_TOKEN"));
         assert!(extension.contains("gpt-test"));
         assert!(!extension.contains("crt_example"));

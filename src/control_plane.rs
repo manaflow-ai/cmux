@@ -93,6 +93,11 @@ pub struct RemoveAccountResult {
     pub legacy_cleanup_pending: bool,
 }
 
+pub struct OpenCodeConfig {
+    pub content: String,
+    pub models: Vec<String>,
+}
+
 pub fn login(no_browser: bool) -> Result<(), Error> {
     let starting = crate::loading::DelayedSpinner::new("Starting coderouter authorization");
     let api_url = api_url()?;
@@ -404,7 +409,7 @@ pub fn upload_credential(credential: &Value) -> Result<Value, Error> {
     )
 }
 
-pub fn opencode_config() -> Result<String, Error> {
+pub fn opencode_config() -> Result<OpenCodeConfig, Error> {
     let current = config::load()?;
     if !current.logged_in() {
         return Err(Error::Usage("not signed in; run `cr login`".into()));
@@ -420,8 +425,31 @@ pub fn opencode_config() -> Result<String, Error> {
             .map_err(network_error("load OpenCode provider catalog"))?,
         "load OpenCode provider catalog",
     )?;
-    serde_json::to_string(&value)
-        .map_err(|error| Error::Backend(format!("encode OpenCode configuration: {error}")))
+    let models = value
+        .get("provider")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|providers| providers.iter())
+        .flat_map(|(provider, value)| {
+            value
+                .get("models")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flat_map(move |models| {
+                    models
+                        .keys()
+                        .map(move |model| format!("{provider}/{model}"))
+                })
+        })
+        .collect::<Vec<_>>();
+    if models.is_empty() {
+        return Err(Error::Backend(
+            "coderouter returned no OpenCode Go models".into(),
+        ));
+    }
+    let content = serde_json::to_string(&value)
+        .map_err(|error| Error::Backend(format!("encode OpenCode configuration: {error}")))?;
+    Ok(OpenCodeConfig { content, models })
 }
 
 fn revoke_stack_session(current: &Config, timeout: Duration) -> Result<(), Error> {

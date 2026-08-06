@@ -100,7 +100,8 @@ fn opencode_uses_the_vercel_rewritten_provider_catalog() {
                     "options": {
                         "baseURL": "https://coderouter.dev/api/coderouter/opencode/proxy/go",
                         "apiKey": "route-secret"
-                    }
+                    },
+                    "models": { "model-1": { "name": "Model One" } }
                 }
             }
         }),
@@ -128,7 +129,7 @@ fn opencode_uses_the_vercel_rewritten_provider_catalog() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("--version").and(predicate::str::contains(
+            predicate::str::contains("--model go/model-1 --version").and(predicate::str::contains(
                 "coderouter.dev/api/coderouter/opencode/proxy",
             )),
         );
@@ -155,7 +156,7 @@ fn pi_uses_an_ephemeral_coderouter_provider() {
     let pi = root.path().join("pi");
     fs::write(
         &pi,
-        "#!/bin/sh\nprintf '%s\\n' \"$*\"\nextension=\"$2\"\ngrep -q 'openai-codex-responses' \"$extension\"\ngrep -q 'delete process.env.CODEROUTER_ROUTE_TOKEN' \"$extension\"\n! grep -q 'route-secret' \"$extension\"\n",
+        "#!/bin/sh\nprintf '%s\\n' \"$*\"\nextension=\"$2\"\ngrep -q 'openai-responses' \"$extension\"\ngrep -q 'delete process.env.CODEROUTER_ROUTE_TOKEN' \"$extension\"\n! grep -q 'route-secret' \"$extension\"\n",
     )
     .unwrap();
     fs::set_permissions(&pi, fs::Permissions::from_mode(0o755)).unwrap();
