@@ -137,7 +137,8 @@ def main() -> int:
     for context, needle in {
         "app-host HOME build-setting default": 'CMUX_APP_HOST_HOME = "$(HOME)";',
         "app-host XDG build-setting default": (
-            'CMUX_APP_HOST_XDG_CONFIG_HOME = "$(XDG_CONFIG_HOME)";'
+            'CMUX_APP_HOST_XDG_CONFIG_HOME = '
+            '"$(XDG_CONFIG_HOME:default=$(HOME)/.config)";'
         ),
     }.items():
         if PROJECT.count(needle) < 2:
