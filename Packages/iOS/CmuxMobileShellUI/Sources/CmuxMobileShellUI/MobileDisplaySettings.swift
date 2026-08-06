@@ -35,6 +35,7 @@ public final class MobileDisplaySettings {
     private static let taskComposerLayoutStyleKey = "cmux.mobile.debug.taskComposerLayoutStyle.v1"
     private static let taskComposerModelPickerVariantKey = "cmux.mobile.debug.taskComposerModelPickerVariant.v1"
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+    private static let workspaceDetailLabVariantKey = "cmux.mobile.debug.workspaceDetailLabVariant.v1"
     #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
@@ -169,6 +170,21 @@ public final class MobileDisplaySettings {
             )
         }
     }
+
+    /// Persisted workspace-detail redesign selected in CMUX Labs. `nil` keeps
+    /// the shipping layout available as a comparison baseline.
+    var workspaceDetailLabVariant: WorkspaceDetailLabVariant? {
+        didSet {
+            if let workspaceDetailLabVariant {
+                defaults.set(
+                    workspaceDetailLabVariant.rawValue,
+                    forKey: Self.workspaceDetailLabVariantKey
+                )
+            } else {
+                defaults.removeObject(forKey: Self.workspaceDetailLabVariantKey)
+            }
+        }
+    }
     #else
     /// Production builds expose only the shipping classic New Task layout.
     var taskComposerLayoutStyle: TaskComposerLayoutStyle { .classic }
@@ -176,6 +192,7 @@ public final class MobileDisplaySettings {
     var taskComposerModelPickerVariant: TaskComposerModelPickerVariant { .off }
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
+
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
@@ -223,6 +240,9 @@ public final class MobileDisplaySettings {
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.workspaceDetailLabVariant = defaults.string(
+            forKey: Self.workspaceDetailLabVariantKey
+        ).flatMap(WorkspaceDetailLabVariant.init(rawValue:))
         #endif
     }
 

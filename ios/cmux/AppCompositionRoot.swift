@@ -126,7 +126,12 @@ final class AppCompositionRoot {
                 await diagnosticLog.clear()
             }
         }
-        self.displaySettings = MobileDisplaySettings()
+        #if DEBUG
+        let displaySettingsDefaults = Self.displaySettingsDefaults()
+        #else
+        let displaySettingsDefaults = UserDefaults.standard
+        #endif
+        self.displaySettings = MobileDisplaySettings(defaults: displaySettingsDefaults)
         self.connectionMethodStore = MobileConnectionMethodStore(defaults: .standard)
         // Skip first-run onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
@@ -180,6 +185,25 @@ final class AppCompositionRoot {
             true
         }
     }
+
+    #if DEBUG
+    /// Resolves an optional isolated defaults domain for debug automation.
+    /// Normal debug launches keep using `.standard`; callers opt in with a
+    /// suite name.
+    private static func displaySettingsDefaults(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> UserDefaults {
+        guard let suiteName = environment["CMUX_DEBUG_DISPLAY_SETTINGS_SUITE"],
+              !suiteName.isEmpty,
+              let defaults = UserDefaults(suiteName: suiteName) else {
+            return .standard
+        }
+        if environment["CMUX_DEBUG_RESET_DISPLAY_SETTINGS"] == "1" {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+    #endif
 
     /// The most recent scene phase, so a `.active` transition is classified as a
     /// cold first foreground vs. a warm resume.
