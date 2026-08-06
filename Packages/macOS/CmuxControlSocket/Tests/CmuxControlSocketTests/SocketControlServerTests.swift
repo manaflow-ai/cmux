@@ -466,6 +466,44 @@ struct SocketControlServerLifecycleTests {
 @MainActor
 @Suite("SocketControlServer startup recovery")
 struct SocketControlServerStartupRecoveryTests {
+    @Test func remoteRestorePathStaysHiddenUntilVerifiedListenerIsReady() async throws {
+        let reservationHarness = try ServerHarness()
+        defer { reservationHarness.shutdown() }
+        #expect(
+            reservationHarness.server.reserveStartupSocketPath(reservationHarness.socketPath)
+                == reservationHarness.socketPath
+        )
+        #expect(reservationHarness.server.currentSocketPathForRemoteRestore() == nil)
+        #expect(reservationHarness.server.start(
+            socketPath: reservationHarness.socketPath,
+            accessMode: .cmuxOnly
+        ))
+        #expect(
+            reservationHarness.server.currentSocketPathForRemoteRestore()
+                == reservationHarness.socketPath
+        )
+
+        let clock = TestSocketRecoveryClock()
+        let faults = TestSocketTransportFaultInjector(
+            failuresByStage: ["create_lock_directory": [EIO]]
+        )
+        let harness = try ServerHarness(
+            recoveryClock: clock,
+            transport: SocketTransport(faultInjector: faults)
+        )
+        defer { harness.shutdown() }
+
+        #expect(!harness.server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        #expect(harness.server.currentSocketPathForRemoteRestore() == nil)
+
+        var starts = harness.recorder.listenerStarts.makeAsyncIterator()
+        clock.advance()
+        _ = try #require(await starts.next())
+
+        #expect(harness.server.isRunning)
+        #expect(harness.server.currentSocketPathForRemoteRestore() == harness.socketPath)
+    }
+
     @Test func sentryCreateLockDirectoryEIORecovers() async throws {
         let clock = TestSocketRecoveryClock()
         let faults = TestSocketTransportFaultInjector(
