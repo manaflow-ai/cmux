@@ -14,7 +14,9 @@ final class EventCursorPersistenceTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        // Unix-domain sockets have a small fixed path limit. CI's temporary
+        // directory is long enough to exceed it, so keep the socket in /tmp.
+        let socketPath = "/tmp/cmux-cursor-\(UUID().uuidString.prefix(8)).sock"
         let cursorPath = directory.appendingPathComponent("events.seq").path
         let response = [
             #"{"type":"ack","protocol":"cmux-events","version":1}"#,
