@@ -70,19 +70,34 @@ struct AppHostWindowReleaseGuardTests {
     }
 }
 
-private actor AppHostInProcessParallelizationProbe {
+private final class AppHostInProcessParallelizationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let peerEntered = DispatchSemaphore(value: 0)
     private var activeCaseCount = 0
+    private var overlapObserved = false
 
-    func enter() {
+    func measureOverlap() -> Bool {
+        lock.lock()
         activeCaseCount += 1
-    }
+        if activeCaseCount > 1 {
+            overlapObserved = true
+            peerEntered.signal()
+        }
+        lock.unlock()
 
-    func hasOverlap() -> Bool {
-        activeCaseCount > 1
-    }
+        // Give a concurrently scheduled parameterized case a deterministic
+        // rendezvous point. Under the CI policy this times out because the
+        // second case cannot enter until the first one returns.
+        _ = peerEntered.wait(timeout: .now() + .seconds(1))
 
-    func leave() {
+        lock.lock()
+        let result = overlapObserved
         activeCaseCount -= 1
+        if activeCaseCount == 0 {
+            overlapObserved = false
+        }
+        lock.unlock()
+        return result
     }
 }
 
@@ -93,12 +108,8 @@ struct AppHostInProcessParallelizationPolicyTests {
     private static let probe = AppHostInProcessParallelizationProbe()
 
     @Test(arguments: [0, 1])
-    func parameterizedCasesRunSerially(_: Int) async {
-        await Self.probe.enter()
-        try? await Task.sleep(for: .milliseconds(250))
-        let overlapped = await Self.probe.hasOverlap()
-        await Self.probe.leave()
-
+    func parameterizedCasesRunSerially(_: Int) {
+        let overlapped = Self.probe.measureOverlap()
         #expect(!overlapped, "cmux app-host tests must not share process-global state concurrently")
     }
 }
