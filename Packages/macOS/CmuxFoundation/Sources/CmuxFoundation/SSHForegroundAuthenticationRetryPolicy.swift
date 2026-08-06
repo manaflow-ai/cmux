@@ -664,17 +664,34 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           fi
           /bin/rm -f -- "$cmux_ssh_auth_recovery_claim" \
             "$cmux_ssh_auth_recovery_claim.new" 2>/dev/null || true
-          cmux_ssh_auth_recovery_claim_identity=$(cmux_ssh_auth_identity "$$")
-          if [ -z "$cmux_ssh_auth_recovery_claim_identity" ]; then
-            cmux_ssh_auth_recovery_unlock
-            return 1
-          fi
-          cmux_ssh_auth_recovery_claim_record="$$|$cmux_ssh_auth_recovery_claim_identity"
-          if ! printf '%s\n' "$cmux_ssh_auth_recovery_claim_record" \
-            > "$cmux_ssh_auth_recovery_claim.new" 2>/dev/null || ! \
+          # Publish the actual recovery worker, not `$$`: POSIX shells retain
+          # the parent shell's `$$` inside a function subshell. A direct child
+          # can identify that worker through PPID without a command-substitution
+          # process becoming the recorded owner.
+          if ! /bin/sh -c '
+            cmux_owner_pid=$PPID
+            cmux_owner_identity=$(/usr/bin/env LC_ALL=C LANG=C \
+              /bin/ps -o ppid= -o pgid= -o state= -o lstart= \
+                -p "$cmux_owner_pid" 2>/dev/null | \
+              /usr/bin/awk '\''NF >= 8 && $3 !~ /Z/ {
+                cmux_started = $4 "_" $5 "_" $6 "_" $7 "_" $8
+                print $1 "|" $2 "|" cmux_started
+              }'\'')
+            if [ -z "$cmux_owner_identity" ]; then exit 1; fi
+            umask 077
+            printf "%s|%s\n" "$cmux_owner_pid" "$cmux_owner_identity" > "$1"
+          ' cmux-recovery-owner "$cmux_ssh_auth_recovery_claim.new" \
+            2>/dev/null || ! \
             /bin/mv -f -- "$cmux_ssh_auth_recovery_claim.new" \
               "$cmux_ssh_auth_recovery_claim" 2>/dev/null; then
             /bin/rm -f -- "$cmux_ssh_auth_recovery_claim.new" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          cmux_ssh_auth_recovery_claim_record=$(/bin/cat -- \
+            "$cmux_ssh_auth_recovery_claim" 2>/dev/null || true)
+          if [ -z "$cmux_ssh_auth_recovery_claim_record" ]; then
+            /bin/rm -f -- "$cmux_ssh_auth_recovery_claim" 2>/dev/null || true
             cmux_ssh_auth_recovery_unlock
             return 1
           fi
@@ -731,10 +748,33 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           return 0
         }
 
-        cmux_ssh_resume_failed_auth_group_reapers() {
+        cmux_ssh_auth_recovery_relinquish_segment() {
+          if [ -z "${CMUX_SSH_AUTH_RECOVERY_SEGMENT:-}" ] || \
+            [ -z "${CMUX_SSH_AUTH_RECOVERY_CLAIM_RECORD:-}" ]; then return 0; fi
+          cmux_ssh_auth_recovery_observed_claim=$(/bin/cat -- \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.claim" 2>/dev/null || true)
+          # A live owner cannot be replaced by another claimant, so its exact
+          # record can be removed safely even when the shared lock is unavailable.
+          if [ "$cmux_ssh_auth_recovery_observed_claim" = \
+            "$CMUX_SSH_AUTH_RECOVERY_CLAIM_RECORD" ]; then
+            /bin/rm -f -- "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.claim" \
+              "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.claim.new" 2>/dev/null || true
+          fi
+          CMUX_SSH_AUTH_RECOVERY_SEGMENT=
+          CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX=
+          CMUX_SSH_AUTH_RECOVERY_CLAIM_RECORD=
+        }
+
+        cmux_ssh_resume_failed_auth_group_reapers() (
           cmux_ssh_auth_recovery_claim_segment || return 0
-          : > "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.priority" 2>/dev/null || return 0
-          : > "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry" 2>/dev/null || return 0
+          : > "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.priority" 2>/dev/null || {
+            cmux_ssh_auth_recovery_relinquish_segment
+            return 0
+          }
+          : > "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry" 2>/dev/null || {
+            cmux_ssh_auth_recovery_relinquish_segment
+            return 0
+          }
           cmux_ssh_auth_recovery_count=0
           cmux_ssh_auth_recovery_processed=0
           cmux_ssh_auth_recovery_expected_dir_identity="$(/usr/bin/id -u):700"
@@ -798,9 +838,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
               >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
           done < "$CMUX_SSH_AUTH_RECOVERY_SEGMENT"
-          cmux_ssh_auth_recovery_complete_segment || true
+          cmux_ssh_auth_recovery_complete_segment || \
+            cmux_ssh_auth_recovery_relinquish_segment
           return 0
-        }
+        )
 
         cmux_ssh_terminate_owned_auth_group() (
           cmux_ssh_auth_group_dir="${CMUX_SSH_AUTH_GROUP_DIR:-}"

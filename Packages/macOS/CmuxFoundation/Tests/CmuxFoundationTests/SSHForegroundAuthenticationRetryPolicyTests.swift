@@ -1162,8 +1162,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         export CMUX_SSH_AUTH_GROUP_DIR
         cmux_ssh_auth_recovery_enqueue "$TMPDIR/cmux-ssh-auth-group.test" || exit 95
         cmux_ssh_resume_failed_auth_group_reapers || exit 94
-        cmux_test_second_reaper=$!
-        wait "$cmux_test_second_reaper" || exit 93
+        cmux_test_recovery_attempt=0
+        while [ -d "$TMPDIR/cmux-ssh-auth-group.test" ] && \
+          [ "$cmux_test_recovery_attempt" -lt 500 ]; do
+          /bin/sleep 0.01
+          cmux_test_recovery_attempt=$((cmux_test_recovery_attempt + 1))
+        done
         test ! -d "$TMPDIR/cmux-ssh-auth-group.test" || exit 92
         test "$(/usr/bin/wc -c < "$CMUX_TEST_REAPER_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 4 || exit 91
         """
@@ -1362,7 +1366,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
-    @Test func recoveryCompletionFailureCannotLeaveLiveClaimOwner() throws {
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func recoveryCompletionFailureCannotLeaveLiveClaimOwner(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-recovery-claim-failure-\(UUID().uuidString)", isDirectory: true)
@@ -1387,7 +1392,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         test "$CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX" = 0 || exit 93
         """
 
-        let result = try runShellCommand(command, environment: ["TMPDIR": root.path])
+        let result = try runShellCommand(
+            command,
+            environment: ["TMPDIR": root.path],
+            shellPath: shellPath
+        )
 
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
