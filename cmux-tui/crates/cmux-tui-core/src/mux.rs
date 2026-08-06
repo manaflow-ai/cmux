@@ -90,6 +90,8 @@ impl DaemonHandoffRequest {
 #[cfg(test)]
 type WorkspaceRenameHook = Arc<dyn Fn(&WorkspacePublicId) + Send + Sync>;
 #[cfg(test)]
+type WorkspaceDeltaBeforeEmitHook = Arc<dyn Fn(u64) + Send + Sync>;
+#[cfg(test)]
 type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
@@ -1729,6 +1731,8 @@ pub struct Mux {
     #[cfg(test)]
     workspace_close_after_selector_resolution: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    workspace_delta_before_emit: Mutex<Option<WorkspaceDeltaBeforeEmitHook>>,
+    #[cfg(test)]
     resource_rename_after_selector_resolution: Mutex<Option<WorkspaceRenameHook>>,
     #[cfg(test)]
     layout_apply_after_workspace_reservation: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -2060,6 +2064,8 @@ impl Mux {
             workspace_close_before_empty_check: Mutex::new(None),
             #[cfg(test)]
             workspace_close_after_selector_resolution: Mutex::new(None),
+            #[cfg(test)]
+            workspace_delta_before_emit: Mutex::new(None),
             #[cfg(test)]
             resource_rename_after_selector_resolution: Mutex::new(None),
             #[cfg(test)]
@@ -4736,6 +4742,12 @@ impl Mux {
     }
 
     fn emit_tree_delta(&self, delta: TreeDelta, selection_resync: bool) {
+        #[cfg(test)]
+        if let Some(revision) = delta.workspace_revision
+            && let Some(hook) = self.workspace_delta_before_emit.lock().unwrap().clone()
+        {
+            hook(revision);
+        }
         self.emit(MuxEvent::TreeDelta(delta));
         if selection_resync {
             self.emit(MuxEvent::TreeSelectionChanged);
@@ -23551,6 +23563,24 @@ mod tests {
             assert_eq!(state.workspace_revision, 16);
             assert_eq!(state.workspaces.len(), 16);
         });
+    }
+
+    #[test]
+    fn committed_workspace_delta_is_emitted_inside_registry_ordering_fence() {
+        let mux = test_mux();
+        let weak_mux = Arc::downgrade(&mux);
+        let (observed_tx, observed_rx) = std::sync::mpsc::sync_channel(1);
+        *mux.workspace_delta_before_emit.lock().unwrap() = Some(Arc::new(move |revision| {
+            let mux = weak_mux.upgrade().expect("mux remains alive through publication");
+            observed_tx
+                .send((revision, mux.workspace_registry.try_lock().is_err()))
+                .unwrap();
+        }));
+
+        let placement = mux.create_empty_workspace(None, None, None).unwrap();
+        *mux.workspace_delta_before_emit.lock().unwrap() = None;
+
+        assert_eq!(observed_rx.recv().unwrap(), (placement.revision, true));
     }
 
     #[test]
