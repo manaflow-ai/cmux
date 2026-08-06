@@ -255,7 +255,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        ( /bin/sh "$CMUX_TEST_LEAF_SCRIPT" & wait $! ) &
+        /usr/bin/script -q /dev/null /bin/sh "$CMUX_TEST_LEAF_SCRIPT" &
         cmux_test_auth_root=$!
         cmux_test_ready_attempt=0
         while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
@@ -297,6 +297,67 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
         #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
         #expect(Darwin.kill(leafPID, 0) != 0)
+    }
+
+    @Test func doesNotRunSharedGroupTermHandlerDuringCleanup() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-shared-handler-\(UUID().uuidString)", isDirectory: true)
+        let readyMarker = root.appendingPathComponent("ready")
+        let replacementScript = root.appendingPathComponent("replacement.sh")
+        let replacementPIDFile = root.appendingPathComponent("replacement.pid")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        trap '' HUP INT TERM
+        printf '%s\\n' "$$" > "$CMUX_TEST_REPLACEMENT_PID"
+        while :; do /bin/sleep 30; done
+        """.write(to: replacementScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: replacementScript.path)
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( trap '/usr/bin/nohup /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM; : > "$CMUX_TEST_READY_MARKER"; while :; do /bin/sleep 30; done ) &
+        cmux_test_auth_root=$!
+        cmux_test_ready_attempt=0
+        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        /bin/sleep 0.1
+        test ! -s "$CMUX_TEST_REPLACEMENT_PID"
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_REPLACEMENT_SCRIPT": replacementScript.path,
+            "CMUX_TEST_REPLACEMENT_PID": replacementPIDFile.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        let replacementPID = (try? String(contentsOf: replacementPIDFile, encoding: .utf8))
+            .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        if let replacementPID {
+            Darwin.kill(replacementPID, SIGKILL)
+        }
+
+        #expect(process.terminationStatus == 0)
+        #expect(replacementPID == nil)
     }
 
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
