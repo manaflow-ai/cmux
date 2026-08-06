@@ -421,6 +421,7 @@ func TestTerminalSnapshotsRejectMalformedTabIdentities(t *testing.T) {
 		omitTabID  bool
 		omitTabIDs bool
 	}{
+		{name: "missing legacy and multiview identities", omitTabID: true, omitTabIDs: true},
 		{name: "missing compatibility alias", projected: []any{}, omitTabID: true},
 		{name: "empty legacy compatibility alias", selected: "", omitTabIDs: true},
 		{name: "empty selected identity", selected: "", projected: []any{""}},
