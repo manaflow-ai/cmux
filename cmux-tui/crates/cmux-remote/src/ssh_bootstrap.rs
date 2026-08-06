@@ -1116,14 +1116,27 @@ mod tests {
 
     #[test]
     fn windows_upgrade_does_not_hide_unrelated_network_errors() {
-        let target = SshRemoteTarget {
+        let windows_target = SshRemoteTarget {
             binary: WINDOWS_REMOTE_BINARY.into(),
             shell: SshRemoteShell::WindowsCmd,
         };
 
         assert!(!legacy_windows_stop_is_absent(
-            &target,
+            &windows_target,
             "SSH transport failed before remote-stop (os error 10050)",
+        ));
+        assert!(!legacy_windows_stop_is_absent(
+            &windows_target,
+            "could not inspect mux.sock (os error 10054)",
+        ));
+
+        let posix_target = SshRemoteTarget {
+            binary: "~/.local/bin/cmux-tui".into(),
+            shell: SshRemoteShell::Posix,
+        };
+        assert!(!legacy_windows_stop_is_absent(
+            &posix_target,
+            "could not inspect mux.sock (os error 10050)",
         ));
     }
 

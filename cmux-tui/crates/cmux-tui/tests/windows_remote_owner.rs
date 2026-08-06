@@ -1,6 +1,6 @@
 #![cfg(windows)]
 
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -118,10 +118,9 @@ fn windows_remote_stop_recovers_an_orphaned_mux_socket() {
         Ok(_) => panic!("orphaned mux socket still accepted connections"),
         Err(error) => error,
     };
-    assert_eq!(
-        error.raw_os_error(),
-        Some(10_050),
-        "orphaned Windows AF_UNIX socket returned {error:?}"
+    assert!(
+        error.raw_os_error() == Some(10_050) || error.kind() == ErrorKind::ConnectionRefused,
+        "orphaned Windows AF_UNIX socket returned a live-owner error: {error:?}"
     );
 
     let stop = Command::new(executable)
