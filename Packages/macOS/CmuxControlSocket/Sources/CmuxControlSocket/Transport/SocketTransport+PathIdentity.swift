@@ -53,8 +53,9 @@ extension SocketTransport {
     /// lookup failed: another process may have unlinked and rebound the same
     /// pathname. The retained descriptor is made nonblocking and listening,
     /// preexisting queued connections are drained, and a private loopback
-    /// connection must arrive on that exact descriptor. A final identity read
-    /// closes the remaining replacement race before ownership is promoted.
+    /// connection must return a random challenge on that exact descriptor. A
+    /// final identity read closes the remaining replacement race before
+    /// ownership is promoted.
     func verifyRetainedBoundPath(
         at path: String,
         listenerSocket: Int32
@@ -187,33 +188,148 @@ extension SocketTransport {
             }
         }
 
-        var acceptedSocket: Int32 = -1
-        repeat {
-            acceptedSocket = accept(listenerSocket, nil, nil)
-        } while acceptedSocket < 0 && errno == EINTR
-        guard acceptedSocket >= 0 else {
-            let acceptErrno = errno
-            if acceptErrno == EAGAIN || acceptErrno == EWOULDBLOCK {
-                // A completed pathname connection must already be queued on
-                // this retained listener. If it is not, the pathname routed
-                // to a replacement descriptor and ownership cannot be proven.
-                return .failed(SocketStageFailure(
-                    stage: "verify_bound_path",
-                    errnoCode: ESTALE
+        var generator = SystemRandomNumberGenerator()
+        let verificationChallenge = Data((0..<32).map { _ in
+            UInt8.random(in: .min ... .max, using: &generator)
+        })
+        if let errnoCode = configureNoSigPipe(verificationClient) {
+            return .failed(SocketStageFailure(
+                stage: "verify_bound_path",
+                errnoCode: errnoCode
+            ))
+        }
+        if let errnoCode = writeVerificationChallenge(
+            verificationChallenge,
+            to: verificationClient
+        ) {
+            if errnoCode == EAGAIN || errnoCode == EWOULDBLOCK {
+                return .pending(SocketStageFailure(
+                    stage: "verify_bound_path_pending",
+                    errnoCode: errnoCode
                 ))
             }
             return .failed(SocketStageFailure(
                 stage: "verify_bound_path",
-                errnoCode: acceptErrno
+                errnoCode: errnoCode
             ))
         }
-        _ = configureCloseOnExec(acceptedSocket)
-        close(acceptedSocket)
+
+        var inspectedConnectionCount = 0
+        interruptedAcceptCount = 0
+        var didReceiveChallenge = false
+        while inspectedConnectionCount < Self.maximumQueuedConnectionsToDrain {
+            let acceptedSocket = accept(listenerSocket, nil, nil)
+            if acceptedSocket < 0 {
+                let acceptErrno = errno
+                if acceptErrno == EINTR {
+                    interruptedAcceptCount += 1
+                    if interruptedAcceptCount >= Self.maximumInterruptedDrainAcceptAttempts {
+                        return .pending(SocketStageFailure(
+                            stage: "verify_bound_path_drain",
+                            errnoCode: EINTR
+                        ))
+                    }
+                    continue
+                }
+                if acceptErrno == EAGAIN || acceptErrno == EWOULDBLOCK {
+                    // The challenge client reached another listener. A queued
+                    // connection on this descriptor cannot prove ownership.
+                    return .failed(SocketStageFailure(
+                        stage: "verify_bound_path",
+                        errnoCode: ESTALE
+                    ))
+                }
+                return .failed(SocketStageFailure(
+                    stage: "verify_bound_path",
+                    errnoCode: acceptErrno
+                ))
+            }
+
+            inspectedConnectionCount += 1
+            _ = configureCloseOnExec(acceptedSocket)
+            let nonBlockingErrno = configureNonBlocking(acceptedSocket)
+            let carriesChallenge = nonBlockingErrno == nil
+                && acceptedSocketCarriesVerificationChallenge(
+                    verificationChallenge,
+                    socket: acceptedSocket
+                )
+            close(acceptedSocket)
+            if let nonBlockingErrno {
+                return .failed(SocketStageFailure(
+                    stage: "verify_bound_path",
+                    errnoCode: nonBlockingErrno
+                ))
+            }
+            if carriesChallenge {
+                didReceiveChallenge = true
+                break
+            }
+        }
+        guard didReceiveChallenge else {
+            return .pending(SocketStageFailure(
+                stage: "verify_bound_path_drain",
+                errnoCode: EAGAIN
+            ))
+        }
 
         guard pathIdentity(at: path) == candidateIdentity else {
             return .failed(SocketStageFailure(stage: "verify_bound_path", errnoCode: ESTALE))
         }
         return .verified(candidateIdentity)
+    }
+
+    private func writeVerificationChallenge(_ challenge: Data, to socket: Int32) -> Int32? {
+        challenge.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return nil }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(
+                    socket,
+                    baseAddress.advanced(by: offset),
+                    rawBuffer.count - offset
+                )
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written < 0, errno == EINTR {
+                    continue
+                }
+                return written == 0 ? EIO : errno
+            }
+            return nil
+        }
+    }
+
+    private func acceptedSocketCarriesVerificationChallenge(
+        _ challenge: Data,
+        socket: Int32
+    ) -> Bool {
+        var received = [UInt8](repeating: 0, count: challenge.count)
+        var offset = 0
+        var interruptedReadCount = 0
+        while offset < received.count {
+            let count = received.withUnsafeMutableBytes { buffer in
+                Darwin.read(
+                    socket,
+                    buffer.baseAddress!.advanced(by: offset),
+                    buffer.count - offset
+                )
+            }
+            if count > 0 {
+                offset += count
+                continue
+            }
+            if count < 0, errno == EINTR {
+                interruptedReadCount += 1
+                guard interruptedReadCount < Self.maximumInterruptedDrainAcceptAttempts else {
+                    return false
+                }
+                continue
+            }
+            return false
+        }
+        return Data(received) == challenge
     }
 
     /// Checks a nonblocking connection without waiting on the calling actor.

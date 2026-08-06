@@ -69,7 +69,8 @@ public final class CmuxResolvedIconImageView: NSView {
         switch renderContext.render(
             for: request,
             appearance: effectiveAppearance,
-            renderKey: nextKey
+            renderKey: nextKey,
+            bypassCache: force
         ) {
         case .success(let image):
             renderKey = nextKey

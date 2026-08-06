@@ -24,20 +24,27 @@ public final class CmuxResolvedIconRenderContext {
     func render(
         for request: CmuxResolvedIconRequest,
         appearance: NSAppearance,
-        renderKey: CmuxResolvedIconRenderKey
+        renderKey: CmuxResolvedIconRenderKey,
+        bypassCache: Bool = false
     ) -> Result<NSImage, CmuxResolvedIconRenderFailure> {
         guard limit > 0 else {
             return renderer.render(for: request, appearance: appearance)
         }
 
-        if let reusableKey = renderKey.reusableKey,
+        if !bypassCache,
+           let reusableKey = renderKey.reusableKey,
            let cachedImage = image(for: reusableKey, matching: renderKey) {
             return .success(cachedImage)
         }
 
         let result = renderer.render(for: request, appearance: appearance)
         if case .success(let image) = result, let reusableKey = renderKey.reusableKey {
-            insert(image, for: reusableKey, renderKey: renderKey)
+            insert(
+                image,
+                for: reusableKey,
+                renderKey: renderKey,
+                replacingExisting: bypassCache
+            )
         }
         return result
     }
@@ -57,18 +64,25 @@ public final class CmuxResolvedIconRenderContext {
     private func insert(
         _ image: NSImage,
         for key: CmuxResolvedIconReusableRenderKey,
-        renderKey: CmuxResolvedIconRenderKey
+        renderKey: CmuxResolvedIconRenderKey,
+        replacingExisting: Bool
     ) {
-        guard entries[key] == nil else { return }
-        if entries.count >= limit, let oldestKey = insertionOrder.first {
-            insertionOrder.removeFirst()
-            entries.removeValue(forKey: oldestKey)
-        }
-        entries[key] = (
+        let entry: Entry = (
             image: image,
             appearance: renderKey.appearance,
             assetBundle: renderKey.assetBundle
         )
+        if entries[key] != nil {
+            if replacingExisting {
+                entries[key] = entry
+            }
+            return
+        }
+        if entries.count >= limit, let oldestKey = insertionOrder.first {
+            insertionOrder.removeFirst()
+            entries.removeValue(forKey: oldestKey)
+        }
+        entries[key] = entry
         insertionOrder.append(key)
     }
 }
