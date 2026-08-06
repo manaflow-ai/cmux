@@ -161,6 +161,85 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         XCTAssertTrue(
             CmuxMainWindow.shouldPreserveFrameDuringConstrain(flushTop, visibleFrames: [visible])
         )
+    }
+
+    func testDisplayRecoveryShrinksExternalMonitorSizedFrameToBuiltInVisibleArea() {
+        let builtInScreen = (
+            frame: NSRect(x: 0, y: 0, width: 1512, height: 982),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1512, height: 944)
+        )
+        let externalMonitorSizedFrame = NSRect(x: 0, y: 0, width: 2560, height: 980)
+        XCTAssertTrue(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                externalMonitorSizedFrame,
+                visibleFrames: [builtInScreen.visibleFrame]
+            )
+        )
+
+        let recovered = CmuxMainWindow.recoveredFrameAfterDisplayChange(
+            externalMonitorSizedFrame,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            screens: [builtInScreen],
+            mouseLocation: NSPoint(x: builtInScreen.visibleFrame.midX, y: builtInScreen.visibleFrame.midY),
+            fallbackVisibleFrame: builtInScreen.visibleFrame
+        )
+
+        guard let recovered else {
+            XCTFail("Expected oversized frame to recover onto the built-in display")
+            return
+        }
+        XCTAssertLessThanOrEqual(recovered.width, builtInScreen.visibleFrame.width)
+        XCTAssertLessThanOrEqual(recovered.height, builtInScreen.visibleFrame.height)
+        XCTAssertGreaterThanOrEqual(recovered.minX, builtInScreen.visibleFrame.minX)
+        XCTAssertGreaterThanOrEqual(recovered.minY, builtInScreen.visibleFrame.minY)
+        XCTAssertLessThanOrEqual(recovered.maxX, builtInScreen.visibleFrame.maxX)
+        XCTAssertLessThanOrEqual(recovered.maxY, builtInScreen.visibleFrame.maxY)
+        XCTAssertLessThan(recovered.width, externalMonitorSizedFrame.width)
+        XCTAssertLessThan(recovered.height, externalMonitorSizedFrame.height)
+    }
+
+    func testConstrainShrinksReachableFrameTooLargeForCurrentDisplay() throws {
+        guard let screen = NSScreen.main else {
+            throw XCTSkip("No screen available for oversized-frame constrain regression")
+        }
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let visible = screen.visibleFrame
+        let proposed = NSRect(
+            x: visible.minX,
+            y: visible.minY,
+            width: visible.width + 400,
+            height: visible.height + 36
+        )
+        XCTAssertTrue(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(
+                proposed,
+                visibleFrames: [visible]
+            )
+        )
+
+        let constrained = window.constrainFrameRect(proposed, to: screen)
+
+        XCTAssertLessThan(constrained.width, proposed.width)
+        XCTAssertLessThan(constrained.height, proposed.height)
+        XCTAssertLessThanOrEqual(constrained.width, visible.width)
+        XCTAssertLessThanOrEqual(constrained.height, visible.height)
+        XCTAssertGreaterThanOrEqual(constrained.minX, visible.minX)
+        XCTAssertGreaterThanOrEqual(constrained.minY, visible.minY)
+        XCTAssertLessThanOrEqual(constrained.maxX, visible.maxX)
+        XCTAssertLessThanOrEqual(constrained.maxY, visible.maxY)
+    }
+
     func testOffscreenRecoveryMovesWindowOntoConnectedDisplay() throws {
         let window = CmuxMainWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
