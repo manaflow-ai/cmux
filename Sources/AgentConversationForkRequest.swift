@@ -89,19 +89,24 @@ struct AgentConversationForkRequest: Equatable, Sendable {
         sourceSnapshot: SessionRestorableAgentSnapshot,
         expectedTransferIdentity: AgentConversationTransferIdentity? = nil,
         forceConversationTransfer: Bool = false,
-        exportService: AgentConversationExportService = .live
+        exportService: AgentConversationExportService = .live,
+        executableIdentityResolver: AgentForkExecutableIdentityResolver? = nil
     ) async throws -> String? {
         guard targetHarness != .current,
               forceConversationTransfer
                 || !targetHarness.usesNativeFork(for: sourceSnapshot.kind) else {
             return nil
         }
-        let validatedTarget = try await target.validatedForTransfer()
+        let validatedTarget = try await target.validatedForTransfer(
+            using: executableIdentityResolver
+        )
         let handoffMessage = try await exportService.message(
             for: sourceSnapshot,
             expectedTransferIdentity: expectedTransferIdentity
         )
-        guard await validatedTarget.executableIdentityIsCurrent() else {
+        guard await validatedTarget.executableIdentityIsCurrent(
+            using: executableIdentityResolver
+        ) else {
             throw AgentConversationForkRequestError.targetExecutableChanged
         }
         guard let startupCommand = validatedTarget.startupCommand(

@@ -4,8 +4,6 @@ import Foundation
 /// them; an explicit fork selection validates and pins one candidate before
 /// any transcript is read.
 struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable {
-    private static let executableIdentityResolver = AgentForkExecutableIdentityResolver()
-
     let harness: AgentConversationForkTargetHarness
     let executablePath: String?
     let runtimeSearchPath: String?
@@ -81,12 +79,18 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
     /// Validates candidates only after the user selects this target. Version
     /// and help output must identify the harness without using filename text as
     /// evidence, and the executable inode must remain stable across the probe.
-    func validatedForTransfer() async throws -> AgentConversationForkTarget {
+    func validatedForTransfer(
+        using executableIdentityResolver: AgentForkExecutableIdentityResolver? = nil
+    ) async throws -> AgentConversationForkTarget {
         guard !executableCandidates.isEmpty else { return self }
+        guard let executableIdentityResolver else {
+            throw AgentConversationForkRequestError.targetExecutableUnverified
+        }
         for candidate in executableCandidates {
             try Task.checkCancellation()
             guard let identityAfterProbe = await validatedIdentity(
-                for: candidate
+                for: candidate,
+                using: executableIdentityResolver
             ) else {
                 continue
             }
@@ -104,12 +108,15 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
     /// Canonical test targets do not carry a discovered file identity. Every
     /// installed UI target does, and must still resolve to the same file before
     /// cmux reads a transcript or launches it.
-    func executableIdentityIsCurrent() async -> Bool {
+    func executableIdentityIsCurrent(
+        using executableIdentityResolver: AgentForkExecutableIdentityResolver? = nil
+    ) async -> Bool {
         guard harness != .current,
               let executableIdentity else {
             return true
         }
-        return await Self.executableIdentityResolver
+        guard let executableIdentityResolver else { return false }
+        return await executableIdentityResolver
             .conversationTransferExecutableIdentity(
             executablePath: executableIdentity.lookupPath,
             runtimeSearchPath: runtimeSearchPath,
@@ -118,9 +125,10 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
     }
 
     private func validatedIdentity(
-        for candidate: AgentConversationForkTargetCandidate
+        for candidate: AgentConversationForkTargetCandidate,
+        using executableIdentityResolver: AgentForkExecutableIdentityResolver
     ) async -> AgentConversationForkExecutableIdentity? {
-        guard let prepared = await Self.executableIdentityResolver
+        guard let prepared = await executableIdentityResolver
             .prepareConversationTransferExecutable(
                 executablePath: candidate.executableURL.path,
                 runtimeSearchPath: candidate.runtimeSearchPath
@@ -165,7 +173,7 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
         }
         guard !Task.isCancelled,
               versionMatches || helpMatches,
-              let identityAfterProbe = await Self.executableIdentityResolver
+              let identityAfterProbe = await executableIdentityResolver
                 .conversationTransferExecutableIdentity(
                   executablePath: candidate.executableURL.path,
                   runtimeSearchPath: candidate.runtimeSearchPath,

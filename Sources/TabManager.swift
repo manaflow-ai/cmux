@@ -468,6 +468,8 @@ class TabManager: ObservableObject {
     let pullRequestProbeService: PullRequestProbeService
     /// Process-scoped installed harness snapshot, injected into every window.
     let agentConversationForkTargetCatalog: AgentConversationForkTargetCatalog
+    /// Per-window transfer validation state, isolated from unrelated windows.
+    let agentConversationForkExecutableIdentityResolver: AgentForkExecutableIdentityResolver
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -494,10 +496,14 @@ class TabManager: ObservableObject {
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         agentConversationForkTargetCatalog: AgentConversationForkTargetCatalog? = nil,
+        agentConversationForkExecutableIdentityResolver: AgentForkExecutableIdentityResolver? = nil,
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.agentConversationForkTargetCatalog = agentConversationForkTargetCatalog
             ?? AgentConversationForkTargetCatalog()
+        self.agentConversationForkExecutableIdentityResolver =
+            agentConversationForkExecutableIdentityResolver
+            ?? AgentForkExecutableIdentityResolver()
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()

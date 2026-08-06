@@ -247,7 +247,9 @@ struct AgentConversationTransferSourceTests {
         #expect(target.executablePath == executable.path)
         #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(root.path))
         #expect(target.executableIdentity != nil)
-        #expect(await target.executableIdentityIsCurrent())
+        #expect(await target.executableIdentityIsCurrent(
+            using: AgentForkExecutableIdentityResolver()
+        ))
     }
 
     @Test
@@ -273,7 +275,9 @@ struct AgentConversationTransferSourceTests {
         #expect(target.executablePath == executable.path)
         #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(bin.path))
         #expect(target.executableIdentity != nil)
-        #expect(await target.executableIdentityIsCurrent())
+        #expect(await target.executableIdentityIsCurrent(
+            using: AgentForkExecutableIdentityResolver()
+        ))
     }
 
     @Test
@@ -402,8 +406,11 @@ struct AgentConversationTransferSourceTests {
         ).discover()
 
         let target = try #require(targets.first)
+        let executableIdentityResolver = AgentForkExecutableIdentityResolver()
         await #expect {
-            try await target.validatedForTransfer()
+            try await target.validatedForTransfer(
+                using: executableIdentityResolver
+            )
         } throws: { error in
             error as? AgentConversationForkRequestError == .targetExecutableUnverified
         }
@@ -436,7 +443,9 @@ struct AgentConversationTransferSourceTests {
         ).discover()
 
         let discoveredTarget = try #require(targets.first { $0.harness == .codebuddy })
-        let target = try await discoveredTarget.validatedForTransfer()
+        let target = try await discoveredTarget.validatedForTransfer(
+            using: AgentForkExecutableIdentityResolver()
+        )
         #expect(target.executablePath == validExecutable.path)
     }
 
@@ -475,8 +484,13 @@ struct AgentConversationTransferSourceTests {
         ).discover()
 
         var validatedHarnesses: Set<AgentConversationForkTargetHarness> = []
+        let executableIdentityResolver = AgentForkExecutableIdentityResolver()
         for target in targets where target.harness == .qoder || target.harness == .rovodev {
-            validatedHarnesses.insert(try await target.validatedForTransfer().harness)
+            validatedHarnesses.insert(
+                try await target.validatedForTransfer(
+                    using: executableIdentityResolver
+                ).harness
+            )
         }
         #expect(validatedHarnesses == [.qoder, .rovodev])
     }
@@ -547,7 +561,9 @@ struct AgentConversationTransferSourceTests {
         #expect(target.executablePath == executable.path)
         #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(root.path))
         #expect(target.executableIdentity != nil)
-        #expect(await target.executableIdentityIsCurrent())
+        #expect(await target.executableIdentityIsCurrent(
+            using: AgentForkExecutableIdentityResolver()
+        ))
 
         try FileManager.default.removeItem(at: executable)
         await catalog.refresh(force: true)
@@ -579,6 +595,22 @@ struct AgentConversationTransferSourceTests {
         await catalog.refresh()
 
         #expect(await counter.value == 1)
+    }
+
+    @Test
+    func tabManagersOwnIndependentForkExecutableResolvers() {
+        let injectedResolver = AgentForkExecutableIdentityResolver()
+        let first = TabManager(
+            autoWelcomeIfNeeded: false,
+            agentConversationForkExecutableIdentityResolver: injectedResolver
+        )
+        let second = TabManager(autoWelcomeIfNeeded: false)
+
+        #expect(first.agentConversationForkExecutableIdentityResolver === injectedResolver)
+        #expect(
+            first.agentConversationForkExecutableIdentityResolver
+                !== second.agentConversationForkExecutableIdentityResolver
+        )
     }
 
     @Test(arguments: [RestorableAgentKind.opencode, .hermesAgent])

@@ -25,9 +25,12 @@ extension Workspace {
         request: AgentConversationForkRequest,
         exportService: AgentConversationExportService = .live,
         liveAgentIndex: SharedLiveAgentIndex? = nil,
+        executableIdentityResolver: AgentForkExecutableIdentityResolver? = nil,
         launcherTemporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) async -> Bool {
         let liveAgentIndex = liveAgentIndex ?? .shared
+        let executableIdentityResolver = executableIdentityResolver
+            ?? owningTabManager?.agentConversationForkExecutableIdentityResolver
         guard let sourcePanel = panels[panelId] as? TerminalPanel else {
             return false
         }
@@ -88,7 +91,8 @@ extension Workspace {
                 sourceSnapshot: snapshot,
                 expectedTransferIdentity: initialTransferEvidence?.transferIdentity,
                 forceConversationTransfer: !usesNativeFork,
-                exportService: exportService
+                exportService: exportService,
+                executableIdentityResolver: executableIdentityResolver
             )
         } catch {
             agentConversationForkRequestLogger.error(

@@ -17,22 +17,17 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
 
     init?(identity: AgentConversationForkExecutableIdentity) {
         let sourceURL = URL(fileURLWithPath: identity.realPath).standardizedFileURL
-        let lookupURL = URL(fileURLWithPath: identity.lookupPath).standardizedFileURL
-        let candidateDirectories = [
-            sourceURL.deletingLastPathComponent(),
-            lookupURL.deletingLastPathComponent(),
-        ]
-        var seenDirectories: Set<String> = []
-        let adjacentDirectoryURL = candidateDirectories.first(where: { directoryURL in
-            guard seenDirectories.insert(directoryURL.path).inserted else {
-                return false
-            }
-            var status = stat()
-            return stat(directoryURL.path, &status) == 0
-                && status.st_mode & S_IFMT == S_IFDIR
-                && UInt64(status.st_dev) == identity.device
-                && Darwin.access(directoryURL.path, W_OK) == 0
-        })
+        let sourceDirectoryURL = sourceURL.deletingLastPathComponent()
+        var sourceDirectoryStatus = stat()
+        let adjacentDirectoryURL = stat(
+            sourceDirectoryURL.path,
+            &sourceDirectoryStatus
+        ) == 0
+            && sourceDirectoryStatus.st_mode & S_IFMT == S_IFDIR
+            && UInt64(sourceDirectoryStatus.st_dev) == identity.device
+            && Darwin.access(sourceDirectoryURL.path, W_OK) == 0
+            ? sourceDirectoryURL
+            : nil
 
         sourcePath = sourceURL.path
         expectedContentSHA256 = identity.contentSHA256
