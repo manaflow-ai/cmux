@@ -90,6 +90,87 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func transferredTranscriptWaitsForHarnessPrompt() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("fake grok", isDirectory: false)
+        let earlyInputLog = directory.appendingPathComponent("early-input.log", isDirectory: false)
+        let inputLog = directory.appendingPathComponent("input.log", isDirectory: false)
+        let script = """
+        #!/bin/zsh
+        /usr/bin/printf 'Authentication required\\n'
+        /bin/sleep 0.35
+        if IFS= read -t 0.05 -r early_message; then
+          /usr/bin/printf '%s' "$early_message" > "$CMUX_EARLY_INPUT_LOG"
+          exit 41
+        fi
+        /usr/bin/printf '❯ '
+        IFS= read -r first_message
+        /usr/bin/printf '%s' "$first_message" > "$CMUX_INPUT_LOG"
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let message = "User: wait for the real editor"
+        let command = try #require(AgentConversationForkTargetHarness.grok.startupCommand(
+            handoffMessage: message,
+            executablePath: executable.path
+        ))
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_EARLY_INPUT_LOG": earlyInputLog.path,
+            "CMUX_INPUT_LOG": inputLog.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(!FileManager.default.fileExists(atPath: earlyInputLog.path))
+        #expect(String(decoding: try Data(contentsOf: inputLog), as: UTF8.self).contains(message))
+    }
+
+    @Test
+    func transferredTranscriptFailsClosedWhenHarnessExitsBeforePrompt() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("fake grok", isDirectory: false)
+        let script = """
+        #!/bin/zsh
+        /usr/bin/printf 'Authentication required\\n'
+        /bin/sleep 0.25
+        exit 0
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let command = try #require(AgentConversationForkTargetHarness.grok.startupCommand(
+            handoffMessage: "User: never send this",
+            executablePath: executable.path
+        ))
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus != 0)
+    }
+
+    @Test
     func discoveredTargetReplacementDuringExportFailsClosed() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

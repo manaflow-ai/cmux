@@ -92,6 +92,61 @@ struct SQLiteDatabaseSnapshotServiceTests {
         }
     }
 
+    @Test("Snapshots databases whose parent directory is read-only")
+    func snapshotsDatabaseFromReadOnlyParentDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        let sourceDirectory = root.appendingPathComponent("read-only", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: sourceDirectory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            _ = Darwin.chmod(sourceDirectory.path, 0o700)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let source = sourceDirectory.appendingPathComponent("source.db", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try makeDatabase(at: source)
+        try #require(Darwin.chmod(sourceDirectory.path, 0o500) == 0)
+
+        try SQLiteDatabaseSnapshotService().copyDatabase(
+            from: source.path,
+            to: destination.path
+        )
+
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    @Test("Rejects a hot rollback journal instead of hiding it from SQLite")
+    func rejectsHotRollbackJournal() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let journal = URL(fileURLWithPath: source.path + "-journal", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try makeDatabase(at: source)
+        var journalData = Data(repeating: 0, count: 1_024)
+        journalData.replaceSubrange(
+            0..<8,
+            with: [0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7]
+        )
+        try journalData.write(to: journal)
+
+        #expect(
+            throws: SQLiteDatabaseSnapshotError.sqlite(
+                "source database has a hot rollback journal"
+            )
+        ) {
+            try SQLiteDatabaseSnapshotService().copyDatabase(
+                from: source.path,
+                to: destination.path
+            )
+        }
+    }
+
     private func makeDatabase(at url: URL) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {

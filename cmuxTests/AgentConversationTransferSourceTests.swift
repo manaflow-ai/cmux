@@ -254,6 +254,36 @@ struct AgentConversationTransferSourceTests {
         #expect(targets.isEmpty)
     }
 
+    @Test
+    func installedTargetDiscoverySkipsInvalidAliasBeforeValidInstall() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstBin = root.appendingPathComponent("first", isDirectory: true)
+        let secondBin = root.appendingPathComponent("second", isDirectory: true)
+        try FileManager.default.createDirectory(at: firstBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: secondBin, withIntermediateDirectories: true)
+        try writeVersionExecutable(
+            firstBin.appendingPathComponent("cbc"),
+            output: "unrelated-cli 9.9.9"
+        )
+        let validExecutable = secondBin.appendingPathComponent("cbc")
+        try writeVersionExecutable(validExecutable, output: "CodeBuddy 1.2.3")
+
+        let targets = await AgentConversationForkTargetDiscoverer(
+            environment: [
+                "HOME": root.path,
+                "PATH": "\(firstBin.path):\(secondBin.path)",
+            ],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [:],
+            includeStandardSearchDirectories: false
+        ).discover()
+
+        let target = try #require(targets.first { $0.harness == .codebuddy })
+        #expect(target.executablePath == validExecutable.path)
+    }
+
     @Test(arguments: ["qodercli", "kimi"])
     func installedTargetDiscoveryOmitsHarnessWithoutInteractiveSeed(
         executableName: String
@@ -326,6 +356,32 @@ struct AgentConversationTransferSourceTests {
         await catalog.refresh(force: true)
 
         #expect(catalog.installedTargets.isEmpty)
+    }
+
+    @Test
+    func applicationActivationRespectsInstalledTargetRefreshInterval() async {
+        let counter = AgentConversationDiscoveryCounter()
+        let catalog = AgentConversationForkTargetCatalog(
+            minimumRefreshInterval: 60,
+            discovery: {
+                await counter.increment()
+                return []
+            }
+        )
+        await catalog.refresh(force: true)
+        let tabManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            agentConversationForkTargetCatalog: catalog
+        )
+        let appDelegate = AppDelegate()
+        appDelegate.tabManager = tabManager
+
+        appDelegate.applicationDidBecomeActive(
+            Notification(name: NSApplication.didBecomeActiveNotification)
+        )
+        await catalog.refresh()
+
+        #expect(await counter.value == 1)
     }
 
     @Test(arguments: [RestorableAgentKind.opencode, .hermesAgent])
@@ -843,4 +899,12 @@ struct AgentConversationTransferSourceTests {
 private enum FixtureError: Error {
     case invalidTransferAdapter
     case sqlite
+}
+
+private actor AgentConversationDiscoveryCounter {
+    private(set) var value = 0
+
+    func increment() {
+        value += 1
+    }
 }
