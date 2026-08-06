@@ -95,12 +95,17 @@ function PageviewTracker() {
       const captures = pendingCaptures.current.splice(0);
       for (const capture of captures) {
         const properties = { ...capture.properties };
-        delete properties.distinct_id;
-        delete properties.$device_id;
+        for (const identityProperty of [
+          "distinct_id",
+          "$device_id",
+          "$user_id",
+          "$anon_distinct_id",
+          "$had_persisted_distinct_id",
+          "$groups",
+        ]) {
+          delete properties[identityProperty];
+        }
         posthog.capture(capture.event, properties, {
-          $set: capture.$set,
-          $set_once: capture.$set_once,
-          $unset: capture.$unset,
           timestamp: capture.timestamp,
         });
       }
