@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::control_plane;
@@ -16,11 +17,13 @@ Usage:
   cr                            Show account usage across coderouter
   cr codex [arguments...]       Run Codex through coderouter
   cr opencode [arguments...]    Run OpenCode through coderouter
+  cr pi [arguments...]          Run Pi through coderouter (experimental)
   cr naked [arguments...]       Run the real Codex without coderouter
   cr direct [arguments...]      Alias for `cr naked`
   cr add                        Add a subscription interactively
   cr add codex                  Add ChatGPT Plus or Pro
   cr add opencode               Add OpenCode Go
+  cr remove [account] [--yes]   Remove a subscription
   cr login | logout             Manage this machine's coderouter login
   cr login --code [code|URL]    Sign in without opening a local browser
   cr accounts                   List shared subscriptions and usage
@@ -62,17 +65,101 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
         }
         Some("naked" | "direct") => run_naked(&remaining[1..]),
         Some("add") => run_add(&remaining[1..]),
+        Some("remove" | "rm") => run_remove(&remaining[1..]),
         Some("login") => run_login(&remaining[1..]),
         Some("logout") => run_logout(&remaining[1..]),
         Some("accounts" | "account" | "usage") => run_accounts(&remaining[1..]),
         Some("doctor") => run_doctor(&remaining[1..]),
         Some("codex") => run_routed_codex(&remaining[1..]),
         Some("opencode") => run_routed_opencode(&remaining[1..]),
+        Some("pi") => run_routed_pi(&remaining[1..]),
         None => run_accounts(&[]),
         Some(value) => Err(Error::Usage(format!(
             "unknown coderouter command `{value}`; run Codex explicitly with `cr codex [arguments...]`"
         ))),
     }
+}
+
+fn run_routed_pi(args: &[OsString]) -> Result<i32, Error> {
+    if args.iter().any(|arg| {
+        matches!(arg.to_str(), Some("--provider"))
+            || arg
+                .to_str()
+                .is_some_and(|value| value.starts_with("--provider="))
+    }) {
+        return Err(Error::Usage(
+            "`cr pi` fixes the provider to coderouter; use bare `pi` for another provider".into(),
+        ));
+    }
+    let config = crate::config::load()?;
+    if !config.logged_in() {
+        return Err(Error::Usage("not signed in; run `cr login`".into()));
+    }
+    let pi = process::find_on_path("pi").ok_or_else(|| {
+        Error::Usage(
+            "Pi is not installed or is not on PATH; install Pi before running `cr pi`".into(),
+        )
+    })?;
+    let loading = crate::loading::DelayedSpinner::new("Preparing Pi");
+    let models = control_plane::codex_models()?;
+    let extension = pi_provider_extension(&config.openai_base_url, &models)?;
+    let mut file = tempfile::Builder::new()
+        .prefix("coderouter-pi-")
+        .suffix(".ts")
+        .tempfile()
+        .map_err(Error::Io)?;
+    file.write_all(extension.as_bytes())?;
+    let mut routed = vec![
+        process::os("-e"),
+        file.path().as_os_str().to_owned(),
+        process::os("--provider"),
+        process::os("coderouter"),
+    ];
+    let has_model = args.iter().any(|arg| {
+        matches!(arg.to_str(), Some("--model"))
+            || arg
+                .to_str()
+                .is_some_and(|value| value.starts_with("--model="))
+    });
+    if !has_model {
+        routed.push(process::os("--model"));
+        routed.push(process::os(&models[0].id));
+    }
+    routed.extend_from_slice(args);
+    loading.finish();
+    process::run_attached_with_env(
+        &pi,
+        &routed,
+        &[],
+        &[("CODEROUTER_ROUTE_TOKEN", config.route_token.as_str())],
+    )
+}
+
+fn pi_provider_extension(
+    base_url: &str,
+    models: &[control_plane::CodexModel],
+) -> Result<String, Error> {
+    let model_values: Vec<Value> = models
+        .iter()
+        .map(|model| {
+            json!({
+                "id": model.id,
+                "name": model.name,
+                "reasoning": true,
+                "input": ["text", "image"],
+                "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+                "contextWindow": model.context_window,
+                "maxTokens": model.max_tokens,
+            })
+        })
+        .collect();
+    let base = serde_json::to_string(base_url)
+        .map_err(|error| Error::Backend(format!("encode Pi provider URL: {error}")))?;
+    let models = serde_json::to_string(&model_values)
+        .map_err(|error| Error::Backend(format!("encode Pi model catalog: {error}")))?;
+    Ok(format!(
+        "export default function (pi) {{\n  const routeToken = process.env.CODEROUTER_ROUTE_TOKEN;\n  delete process.env.CODEROUTER_ROUTE_TOKEN;\n  if (!routeToken) throw new Error(\"coderouter route token is missing\");\n  pi.registerProvider(\"coderouter\", {{\n    name: \"coderouter\",\n    baseUrl: {base},\n    apiKey: routeToken,\n    authHeader: true,\n    api: \"openai-codex-responses\",\n    models: {models}\n  }});\n}}\n"
+    ))
 }
 
 fn run_routed_opencode(args: &[OsString]) -> Result<i32, Error> {
@@ -184,6 +271,108 @@ fn run_add(args: &[OsString]) -> Result<i32, Error> {
         println!("That subscription is already in coderouter and is healthy.");
     } else {
         println!("Subscription added.");
+    }
+    Ok(0)
+}
+
+fn run_remove(args: &[OsString]) -> Result<i32, Error> {
+    let assume_yes = args.iter().any(|arg| arg.to_str() == Some("--yes"));
+    let selectors = args
+        .iter()
+        .filter(|arg| arg.to_str() != Some("--yes"))
+        .collect::<Vec<_>>();
+    if selectors.len() > 1
+        || args.iter().any(|arg| {
+            arg.to_str()
+                .is_some_and(|value| value.starts_with('-') && value != "--yes")
+        })
+    {
+        return Err(Error::Usage(
+            "usage: cr remove [account-id-or-label] [--yes]".into(),
+        ));
+    }
+    let loading = crate::loading::DelayedSpinner::new("Loading subscriptions");
+    let value = control_plane::accounts();
+    loading.finish();
+    let value = value?;
+    let accounts = value
+        .get("accounts")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if accounts.is_empty() {
+        println!("No subscriptions to remove.");
+        return Ok(0);
+    }
+    let selector = selectors.first().and_then(|arg| arg.to_str());
+    let account = if let Some(selector) = selector {
+        let matches: Vec<&Value> = accounts
+            .iter()
+            .filter(|account| {
+                account.get("id").and_then(Value::as_str) == Some(selector)
+                    || account.get("label").and_then(Value::as_str) == Some(selector)
+            })
+            .collect();
+        match matches.as_slice() {
+            [account] => (*account).clone(),
+            [] => {
+                return Err(Error::Usage(format!(
+                    "no subscription matches `{selector}`; run `cr accounts`"
+                )));
+            }
+            _ => {
+                return Err(Error::Usage(format!(
+                    "more than one subscription matches `{selector}`; use its account ID"
+                )));
+            }
+        }
+    } else {
+        let choices = accounts
+            .iter()
+            .filter_map(|account| {
+                Some(tui::RemoveChoice {
+                    id: account.get("id")?.as_str()?.to_owned(),
+                    label: account.get("label")?.as_str()?.to_owned(),
+                    provider: account.get("provider")?.as_str()?.to_owned(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let Some(choice) = tui::choose_remove_account(&choices)? else {
+            return Ok(0);
+        };
+        accounts
+            .into_iter()
+            .find(|account| account.get("id").and_then(Value::as_str) == Some(choice.id.as_str()))
+            .ok_or_else(|| Error::Backend("selected subscription disappeared".into()))?
+    };
+    let id = account
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Error::Backend("subscription response is missing an ID".into()))?;
+    let label = account
+        .get("label")
+        .and_then(Value::as_str)
+        .unwrap_or("this subscription");
+    if !assume_yes && !tui::confirm_remove(label)? {
+        println!("Removal cancelled.");
+        return Ok(0);
+    }
+    let removing = crate::loading::DelayedSpinner::immediate("Removing subscription");
+    let result = control_plane::remove_account(id);
+    removing.finish();
+    let result = result?;
+    if result.legacy_cleanup_pending {
+        eprintln!(
+            "warning: routing access was removed, but cleanup of a temporary rollback copy is pending"
+        );
+    }
+    if result.last_account {
+        let mut config = crate::config::load()?;
+        config.clear_route();
+        crate::config::save(&config)?;
+        println!("Subscription removed. Sign in again before adding another subscription.");
+    } else {
+        println!("Subscription removed.");
     }
     Ok(0)
 }
@@ -353,5 +542,23 @@ mod tests {
     fn agent_arguments_require_an_explicit_agent_command() {
         let error = run(args(&["cr", "--yolo"])).unwrap_err();
         assert!(error.to_string().contains("cr codex"));
+    }
+
+    #[test]
+    fn pi_provider_extension_references_the_route_token_without_embedding_it() {
+        let extension = pi_provider_extension(
+            "https://coderouter.dev/v1",
+            &[control_plane::CodexModel {
+                id: "gpt-test".into(),
+                name: "GPT Test".into(),
+                context_window: 128_000,
+                max_tokens: 16_000,
+            }],
+        )
+        .unwrap();
+        assert!(extension.contains("openai-codex-responses"));
+        assert!(extension.contains("delete process.env.CODEROUTER_ROUTE_TOKEN"));
+        assert!(extension.contains("gpt-test"));
+        assert!(!extension.contains("crt_example"));
     }
 }

@@ -134,10 +134,56 @@ fn opencode_uses_the_vercel_rewritten_provider_catalog() {
         );
 }
 
+#[cfg(unix)]
+#[test]
+fn pi_uses_an_ephemeral_coderouter_provider() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let server = MockServer::start(1, |path| {
+        assert!(path.starts_with("/v1/models?client_version="));
+        json!({
+            "models": [{
+                "slug": "gpt-test",
+                "display_name": "GPT Test",
+                "context_window": 128000,
+                "max_output_tokens": 16000
+            }]
+        })
+    });
+    let root = TempDir::new().unwrap();
+    write_config(&root, &server.base_url);
+    let pi = root.path().join("pi");
+    fs::write(
+        &pi,
+        "#!/bin/sh\nprintf '%s\\n' \"$*\"\nextension=\"$2\"\ngrep -q 'openai-codex-responses' \"$extension\"\ngrep -q 'delete process.env.CODEROUTER_ROUTE_TOKEN' \"$extension\"\n! grep -q 'route-secret' \"$extension\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&pi, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        root.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    Command::cargo_bin("cr")
+        .unwrap()
+        .args(["pi", "--version"])
+        .env("PATH", path)
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("--provider coderouter")
+                .and(predicate::str::contains("--model gpt-test"))
+                .and(predicate::str::contains("--version")),
+        );
+}
+
 #[test]
 fn bare_command_lists_vercel_accounts_without_debug_timing() {
     let server = MockServer::start(1, |path| match path {
         "/api/coderouter/accounts" => json!({
+            "usageAgeSeconds": 8,
+            "cacheMaxAgeSeconds": 15,
             "accounts": [{
                 "provider": "codex",
                 "label": "person@example.com",
@@ -196,9 +242,43 @@ fn bare_command_lists_vercel_accounts_without_debug_timing() {
                 .and(predicate::str::contains("80%/1h"))
                 .and(predicate::str::contains("50%/2d"))
                 .and(predicate::str::contains("99%/6d"))
+                .and(predicate::str::contains("Usage cached 8s ago"))
                 .and(predicate::str::contains("\u{1b}[")),
         )
         .stderr(predicate::str::contains("cr timing:").not());
+}
+
+#[test]
+fn remove_deletes_the_selected_subscription() {
+    let server = MockServer::start(3, |path| match path {
+        "/api/coderouter/accounts" => json!({
+            "accounts": [{
+                "id": "00000000-0000-4000-8000-000000000001",
+                "provider": "codex",
+                "label": "person@example.com",
+                "state": "active"
+            }]
+        }),
+        "/stack/auth/oauth/token" => json!({
+            "access_token": "fresh-access",
+            "refresh_token": "fresh-refresh"
+        }),
+        "/api/coderouter/accounts/00000000-0000-4000-8000-000000000001" => json!({
+            "removed": true,
+            "lastAccount": false,
+            "legacyCleanupPending": false
+        }),
+        _ => panic!("unexpected path {path}"),
+    });
+    let root = TempDir::new().unwrap();
+    write_config(&root, &server.base_url);
+    Command::cargo_bin("cr")
+        .unwrap()
+        .args(["remove", "person@example.com", "--yes"])
+        .env("CODEROUTER_DATA_DIR", root.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Subscription removed."));
 }
 
 #[test]

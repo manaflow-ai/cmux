@@ -35,6 +35,23 @@ struct Window {
 pub fn render(value: &Value, team_name: &str, team_id: &str) {
     let colored = color_enabled();
     println!("Credential storage: coderouter cloud ({team_name}, {team_id})");
+    let usage_age = value.get("usageAgeSeconds").and_then(Value::as_u64);
+    let cache_max = value.get("cacheMaxAgeSeconds").and_then(Value::as_u64);
+    if let Some(age) = usage_age.filter(|age| *age > 0) {
+        println!(
+            "{}",
+            styled(
+                colored,
+                DIM,
+                &format!(
+                    "Usage cached {age}s ago{}",
+                    cache_max
+                        .map(|max| format!(" (refreshes within {max}s)"))
+                        .unwrap_or_default()
+                ),
+            )
+        );
+    }
     let accounts = value
         .get("accounts")
         .and_then(Value::as_array)

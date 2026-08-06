@@ -38,6 +38,12 @@ impl Config {
         self.route_token_expires_at.clear();
         self.openai_base_url.clear();
     }
+
+    pub fn clear_route(&mut self) {
+        self.route_token.clear();
+        self.route_token_expires_at.clear();
+        self.openai_base_url.clear();
+    }
 }
 
 pub fn load() -> Result<Config, Error> {

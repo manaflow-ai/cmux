@@ -26,6 +26,13 @@ pub enum LoginChoice {
     Cancel,
 }
 
+#[derive(Clone, Debug)]
+pub struct RemoveChoice {
+    pub id: String,
+    pub label: String,
+    pub provider: String,
+}
+
 const ITEMS: &[(AddChoice, &str, &str)] = &[
     (
         AddChoice::Provider(Provider::Codex),
@@ -77,6 +84,75 @@ pub fn choose_login_action() -> Result<LoginChoice, Error> {
     println!();
     restore?;
     result
+}
+
+pub fn choose_remove_account(accounts: &[RemoveChoice]) -> Result<Option<RemoveChoice>, Error> {
+    if accounts.is_empty() {
+        return Ok(None);
+    }
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return Err(Error::Usage(
+            "`cr remove` needs an interactive terminal; pass an account ID or exact label".into(),
+        ));
+    }
+    crossterm::terminal::enable_raw_mode()?;
+    let backend = CrosstermBackend::new(io::stdout());
+    let height = (accounts.len() as u16 + 6).min(20);
+    let options = ratatui::TerminalOptions {
+        viewport: ratatui::Viewport::Inline(height),
+    };
+    let mut terminal = Terminal::with_options(backend, options)?;
+    let result = choose_remove(&mut terminal, accounts);
+    let restore = crossterm::terminal::disable_raw_mode();
+    terminal.show_cursor()?;
+    println!();
+    restore?;
+    result
+}
+
+pub fn confirm_remove(label: &str) -> Result<bool, Error> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return Err(Error::Usage(
+            "refusing non-interactive removal; run this command in a terminal".into(),
+        ));
+    }
+    print!("Remove {label}? [y/N] ");
+    use std::io::Write;
+    io::stdout().flush()?;
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    Ok(matches!(
+        answer.trim().to_ascii_lowercase().as_str(),
+        "y" | "yes"
+    ))
+}
+
+fn choose_remove(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    accounts: &[RemoveChoice],
+) -> Result<Option<RemoveChoice>, Error> {
+    let mut state = ListState::default().with_selected(Some(0));
+    loop {
+        terminal.draw(|frame| draw_remove(frame, &mut state, accounts))?;
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        let selected = state.selected().unwrap_or(0);
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                state.select(Some(selected.checked_sub(1).unwrap_or(accounts.len() - 1)));
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                state.select(Some((selected + 1) % accounts.len()));
+            }
+            KeyCode::Enter => return Ok(Some(accounts[selected].clone())),
+            KeyCode::Esc | KeyCode::Char('q') => return Ok(None),
+            _ => {}
+        }
+    }
 }
 
 fn choose_login(
@@ -240,6 +316,44 @@ fn draw_login(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
     );
 }
 
+fn draw_remove(frame: &mut ratatui::Frame<'_>, state: &mut ListState, accounts: &[RemoveChoice]) {
+    let [header, choices, footer] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Min(1),
+        Constraint::Length(2),
+    ])
+    .areas(frame.area());
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Remove a subscription",
+            Style::default().add_modifier(Modifier::BOLD),
+        ))),
+        header,
+    );
+    frame.render_stateful_widget(
+        List::new(
+            accounts
+                .iter()
+                .map(|account| ListItem::new(format!("{}  {}", account.label, account.provider))),
+        )
+        .highlight_symbol("› ")
+        .highlight_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        choices,
+        state,
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "↑/↓ move  enter select  esc cancel",
+            Style::default().fg(Color::DarkGray),
+        )),
+        footer,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,5 +383,23 @@ mod tests {
         let screen = terminal.backend().to_string();
         assert!(screen.contains("Open browser"));
         assert!(screen.contains("Enter a code"));
+    }
+
+    #[test]
+    fn remove_screen_lists_only_supplied_accounts() {
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = ListState::default().with_selected(Some(0));
+        let accounts = vec![RemoveChoice {
+            id: "account-1".into(),
+            label: "person@example.com".into(),
+            provider: "codex".into(),
+        }];
+        terminal
+            .draw(|frame| draw_remove(frame, &mut state, &accounts))
+            .unwrap();
+        let screen = terminal.backend().to_string();
+        assert!(screen.contains("Remove a subscription"));
+        assert!(screen.contains("person@example.com"));
     }
 }

@@ -74,6 +74,22 @@ struct RouteSession {
     openai_base_url: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct CodexModel {
+    pub id: String,
+    pub name: String,
+    pub context_window: u64,
+    pub max_tokens: u64,
+}
+
+#[derive(Deserialize)]
+pub struct RemoveAccountResult {
+    #[serde(rename = "lastAccount")]
+    pub last_account: bool,
+    #[serde(rename = "legacyCleanupPending", default)]
+    pub legacy_cleanup_pending: bool,
+}
+
 pub fn login(no_browser: bool) -> Result<(), Error> {
     let starting = crate::loading::DelayedSpinner::new("Starting coderouter authorization");
     let api_url = api_url()?;
@@ -294,6 +310,77 @@ pub fn accounts() -> Result<Value, Error> {
             .send()
             .map_err(network_error("list coderouter accounts"))?,
         "list coderouter accounts",
+    )
+}
+
+pub fn codex_models() -> Result<Vec<CodexModel>, Error> {
+    let current = config::load()?;
+    if !current.logged_in() {
+        return Err(Error::Usage("not signed in; run `cr login`".into()));
+    }
+    let value: Value = response_json(
+        client(REQUEST_TIMEOUT)?
+            .get(format!(
+                "{}/models?client_version={}",
+                current.openai_base_url.trim_end_matches('/'),
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .bearer_auth(&current.route_token)
+            .send()
+            .map_err(network_error("load coderouter models"))?,
+        "load coderouter models",
+    )?;
+    let models = value
+        .get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|model| {
+            let id = model
+                .get("slug")
+                .or_else(|| model.get("id"))
+                .and_then(Value::as_str)?
+                .to_owned();
+            Some(CodexModel {
+                name: model
+                    .get("display_name")
+                    .or_else(|| model.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(&id)
+                    .to_owned(),
+                id,
+                context_window: model
+                    .get("context_window")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(272_000),
+                max_tokens: model
+                    .get("max_output_tokens")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(128_000),
+            })
+        })
+        .collect::<Vec<_>>();
+    if models.is_empty() {
+        return Err(Error::Backend(
+            "coderouter returned no models for Pi".into(),
+        ));
+    }
+    Ok(models)
+}
+
+pub fn remove_account(account_id: &str) -> Result<RemoveAccountResult, Error> {
+    let current = refreshed_config()?;
+    response_json(
+        authenticated(
+            client(REQUEST_TIMEOUT)?.delete(format!(
+                "{}/api/coderouter/accounts/{account_id}",
+                current.api_url.trim_end_matches('/')
+            )),
+            &current,
+        )
+        .send()
+        .map_err(network_error("remove subscription"))?,
+        "remove subscription",
     )
 }
 

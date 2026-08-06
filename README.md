@@ -5,6 +5,7 @@ coderouter - route Codex/Claude Code traffic across multiple ChatGPT Pro/Claude 
 ```bash
 cr add
 cr codex
+cr pi
 cr naked
 ```
 
@@ -17,9 +18,11 @@ show the account and usage summary. Agent routing is always explicit.
 cr                           account and usage summary
 cr codex [arguments...]       Codex through coderouter
 cr opencode [arguments...]    OpenCode through coderouter
+cr pi [arguments...]          Pi through coderouter (experimental)
 cr naked [arguments...]       ordinary Codex, with coderouter bypassed
 cr direct [arguments...]      alias for naked
 cr add                        add Codex or OpenCode Go interactively
+cr remove [account] [--yes]   remove a subscription
 cr accounts                   list available subscriptions
 cr usage                      show quota state
 cr doctor                     diagnose login and the Vercel data plane
@@ -39,3 +42,9 @@ separate session config and never overwrites normal agent configuration.
 
 The CLI routes directly to the Vercel data plane at `coderouter.dev`. It does
 not install Subrouter, a local daemon, Go code, or GCP tooling.
+
+`cr pi` creates an ephemeral Pi provider extension for the current process. It
+captures the route token during extension startup and immediately removes it
+from Pi's process environment before tools can inherit it. It never writes the
+token to Pi config and leaves normal providers, settings, extensions, and
+sessions untouched.
