@@ -430,7 +430,7 @@ final class SharedLiveAgentIndex {
                       ) else {
                     return nil
                 }
-                let scanTask = Task.detached(priority: .utility) {
+                let scanTask = Task.detached(priority: .utility) { () -> SharedLiveAgentIndexLoader.LoadResult? in
                     guard !Task.isCancelled else { return nil }
                     return await indexLoader()
                 }
