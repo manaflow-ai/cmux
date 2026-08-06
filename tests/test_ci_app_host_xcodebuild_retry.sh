@@ -9,6 +9,13 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${CFFIXED_USER_HOME:-<unset>}" \
     "${XDG_CONFIG_HOME:-<unset>}" \
     >> "$CMUX_CAPTURE_XCODEBUILD_PARENT_ENV"
+  printf '%s|%s|%s|%s|%s\n' \
+    "${TEST_RUNNER_HOME:-<unset>}" \
+    "${TEST_RUNNER_CFFIXED_USER_HOME:-<unset>}" \
+    "${TEST_RUNNER_XDG_CONFIG_HOME:-<unset>}" \
+    "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME:-<unset>}" \
+    "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME:-<unset>}" \
+    >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
   config_home=""
   for arg in "$@"; do
     case "$arg" in
@@ -40,6 +47,7 @@ RUNNER_TEMP="$TMP_DIR" \
 CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/xcodebuild-args.log" \
 CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/test-runner-env.log" \
 CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/xcodebuild-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/test-runner-home-env.log" \
 CMUX_MOCK_XCODEBUILD_PROCESS=1 \
 CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
 CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=0.1 \
@@ -94,12 +102,27 @@ if [ "$isolated_parent_count" -ne 0 ]; then
   exit 1
 fi
 
+isolated_runner_count="$(awk -F '|' \
+  -v home="$APP_HOST_HOME" \
+  -v xdg="$APP_HOST_XDG_CONFIG_HOME" '
+  $1 == home && $2 == home && $3 == xdg && $4 == home && $5 == xdg {
+    count += 1
+  }
+  END { print count + 0 }
+' "$TMP_DIR/test-runner-home-env.log")"
+if [ "$isolated_runner_count" -ne "$invocation_count" ]; then
+  cat "$TMP_DIR/test-runner-home-env.log"
+  echo "FAIL: every xcodebuild invocation must pass isolated homes through TEST_RUNNER_ variables"
+  exit 1
+fi
+
 set +e
 PATH="$TMP_DIR:$PATH" \
 RUNNER_TEMP="$TMP_DIR" \
 CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/leak-xcodebuild-args.log" \
 CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/leak-test-runner-env.log" \
 CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/leak-xcodebuild-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/leak-test-runner-home-env.log" \
 CMUX_MOCK_XCODEBUILD_PROCESS=1 \
 CMUX_MOCK_XCODEBUILD_MODE=leak \
 CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
