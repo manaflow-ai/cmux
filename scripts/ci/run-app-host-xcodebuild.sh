@@ -11,6 +11,21 @@ max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-3}"
 export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
 echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
 
+# xcodebuild must retain the console user's real HOME so Xcode and its package
+# toolchains remain available. Pass the isolated paths as build settings; the
+# cmux-unit TestAction applies them only to the launched app-host process.
+app_host_xcodebuild_settings=()
+if [ -n "${CFFIXED_USER_HOME:-}" ]; then
+  if [ -z "${XDG_CONFIG_HOME:-}" ]; then
+    echo "FAIL: CFFIXED_USER_HOME requires XDG_CONFIG_HOME for app-host isolation" >&2
+    exit 1
+  fi
+  app_host_xcodebuild_settings+=(
+    "CMUX_APP_HOST_HOME=$CFFIXED_USER_HOME"
+    "CMUX_APP_HOST_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
+  )
+fi
+
 # Principled serialization (the actual fix; the retry below is only a backstop).
 # Invariant: a GUI test host owns the Mac's single login session + testmanagerd
 # while it runs. Two hosts on one self-hosted Mac contend for that one session
@@ -51,6 +66,27 @@ kill_stale_app_host() {
     pkill -f "${ci_app_host_root%/}/.*Build/Products/.*cmux DEV" 2>/dev/null || true
 }
 
+validate_app_host_config_paths() {
+  local log_path="$1"
+  [ -n "${CFFIXED_USER_HOME:-}" ] || return 0
+
+  local expected_root="${CFFIXED_USER_HOME%/}/Library/Application Support/com.mitchellh.ghostty"
+  local line
+  while IFS= read -r line; do
+    case "$line" in
+      *"path=$expected_root"*) ;;
+      *)
+        echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
+        echo "$line" >&2
+        return 1
+        ;;
+    esac
+  done < <(
+    grep -E '\[(config|default)\].*path=.*Library/Application Support/com\.mitchellh\.ghostty' \
+      "$log_path" || true
+  )
+}
+
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
@@ -64,9 +100,14 @@ while [ "$attempt" -le "$max_attempts" ]; do
   set +e
   TEST_RUNNER_CMUX_TEST_PROCESS=1 \
     CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
-    scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@"
+    scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@" \
+      "${app_host_xcodebuild_settings[@]}"
   status=$?
   set -e
+
+  if ! validate_app_host_config_paths "$log_path"; then
+    exit 1
+  fi
 
   if grep -Fq 'path = "/tmp/cmux-debug.sock"' "$log_path"; then
     echo "FAIL: app-host used default debug socket instead of an XCTest-scoped socket" >&2
