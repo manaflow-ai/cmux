@@ -1,5 +1,8 @@
 import { addAccount, parseCredential } from "../../../../services/coderouter/accounts";
-import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
+import {
+  resolveCoderouterUsageTeam,
+  resolveCodeRouterRequestContext,
+} from "../../../../services/coderouter/requestContext";
 import { accountsWithUsage } from "../../../../services/coderouter/usage";
 
 export const runtime = "nodejs";
@@ -8,11 +11,11 @@ export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 128 * 1_024;
 
 export async function GET(request: Request): Promise<Response> {
-  const resolved = await resolveCodeRouterRequestContext(request, "use-or-manage");
+  const resolved = await resolveCoderouterUsageTeam(request);
   if (!resolved.ok) return resolved.response;
-  const accounts = await accountsWithUsage(resolved.value.team.teamId);
+  const accounts = await accountsWithUsage(resolved.teamId);
   return Response.json(
-    { teamId: resolved.value.team.teamId, accounts },
+    { teamId: resolved.teamId, accounts },
     { headers: { "cache-control": "no-store" } },
   );
 }
