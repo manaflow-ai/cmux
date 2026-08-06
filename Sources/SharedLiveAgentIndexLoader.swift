@@ -14,7 +14,7 @@ struct SharedLiveAgentIndexLoader {
     private let registry: CmuxVaultAgentRegistry?
     private let processSnapshotProvider: () -> CmuxTopProcessSnapshot
     private let capturedAtProvider: () -> TimeInterval
-    private let processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    private let processArgumentsProvider: @Sendable (Int) -> CmuxTopProcessArguments?
     private let processIdentityProvider: (Int) -> AgentPIDProcessIdentity?
     private let cachedAgentProcessValidator: CachedAgentProcessIdentityValidator
 
@@ -28,7 +28,7 @@ struct SharedLiveAgentIndexLoader {
         capturedAtProvider: @escaping () -> TimeInterval = {
             Date().timeIntervalSince1970
         },
-        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
+        processArgumentsProvider: @escaping @Sendable (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
         processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
@@ -62,10 +62,44 @@ struct SharedLiveAgentIndexLoader {
             capturedAt: capturedAtProvider(),
             processArgumentsProvider: processArgumentsProvider
         )
+        return makeLoadResult(
+            registry: resolvedRegistry,
+            processSnapshot: processSnapshot,
+            detectedSnapshots: detectedSnapshots
+        )
+    }
+
+    func loadResult(
+        reuseCompletedOpenCodeDatabasePaths: Bool = true
+    ) async -> LoadResult {
+        let resolvedRegistry = registry
+            ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let processSnapshot = processSnapshotProvider()
+        let detectedSnapshots = await RestorableAgentSessionIndex
+            .processDetectedSnapshotsCachingOpenCodeDatabasePaths(
+                registry: resolvedRegistry,
+                fileManager: fileManager,
+                processSnapshot: processSnapshot,
+                capturedAt: capturedAtProvider(),
+                reuseCompletedOpenCodeDatabasePaths: reuseCompletedOpenCodeDatabasePaths,
+                processArgumentsProvider: processArgumentsProvider
+            )
+        return makeLoadResult(
+            registry: resolvedRegistry,
+            processSnapshot: processSnapshot,
+            detectedSnapshots: detectedSnapshots
+        )
+    }
+
+    private func makeLoadResult(
+        registry: CmuxVaultAgentRegistry,
+        processSnapshot: CmuxTopProcessSnapshot,
+        detectedSnapshots: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry]
+    ) -> LoadResult {
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
-            registry: resolvedRegistry,
+            registry: registry,
             detectedSnapshots: detectedSnapshots,
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider

@@ -9,6 +9,17 @@ extension Workspace {
         fromPanelId panelId: UUID,
         destination: AgentConversationForkDestination
     ) async -> Bool {
+        await forkAgentConversationFromContextMenu(
+            fromPanelId: panelId,
+            request: .sameHarness(destination: destination)
+        )
+    }
+
+    @discardableResult
+    func forkAgentConversationFromContextMenu(
+        fromPanelId panelId: UUID,
+        request: AgentConversationForkRequest
+    ) async -> Bool {
         guard beginForkAgentConversationAction(panelId: panelId) else {
             return false
         }
@@ -16,17 +27,17 @@ extension Workspace {
             endForkAgentConversationAction(panelId: panelId)
         }
 
-        var selection = forkAgentConversationContextMenuOpenSelection(
-            forPanelId: panelId
-        )
-        guard var snapshot = selection.snapshot,
-              var ownership = surfaceOwnershipTarget(for: panelId),
-              var anchorTabId = surfaceIdFromPanelId(ownership.containerPanelID),
-              var paneId = paneId(forPanelId: ownership.containerPanelID) else {
+        guard var selection = agentConversationForkSelection(
+            forPanelId: panelId,
+            request: request
+        ),
+              var ownership = surfaceOwnershipTarget(for: panelId) else {
             return false
         }
+        var snapshot = selection.snapshot
         let isRemoteContext = isRemoteTerminalContext(ownership.surfaceID)
-        if AgentForkSupport.requiresForkValidationExecutableIdentity(
+        if selection.requiresNativeForkCapability,
+           AgentForkSupport.requiresForkValidationExecutableIdentity(
             snapshot: snapshot,
             isRemoteContext: isRemoteContext
         ) {
@@ -50,35 +61,29 @@ extension Workspace {
                 snapshot: snapshot,
                 isRemoteContext: isRemoteContext
             )
-            let refreshedSelection = forkAgentConversationContextMenuOpenSelection(
-                forPanelId: panelId
-            )
-            guard refreshedSelection.availability.isAvailable,
-                  let refreshedSnapshot = refreshedSelection.snapshot,
+            guard let refreshedSelection = agentConversationForkSelection(
+                forPanelId: panelId,
+                request: request
+            ) else {
+                return false
+            }
+            guard refreshedSelection.requiresNativeForkCapability,
                   ContentView.commandPaletteForkSnapshotFingerprint(
-                    refreshedSnapshot,
-                    isRemoteTerminal: isRemoteContext
+                      refreshedSelection.snapshot,
+                      isRemoteTerminal: isRemoteContext
                   ) == selectedSnapshotFingerprint,
                   AgentForkSupport.forkValidationIdentity(
-                    snapshot: refreshedSnapshot,
-                    isRemoteContext: isRemoteContext
+                      snapshot: refreshedSelection.snapshot,
+                      isRemoteContext: isRemoteContext
                   ) == selectedValidationIdentity,
                   let refreshedOwnership = surfaceOwnershipTarget(for: panelId),
                   isRemoteTerminalContext(refreshedOwnership.surfaceID)
-                    == isRemoteContext,
-                  let refreshedAnchorTabId = surfaceIdFromPanelId(
-                    refreshedOwnership.containerPanelID
-                  ),
-                  let refreshedPaneId = self.paneId(
-                    forPanelId: refreshedOwnership.containerPanelID
-                  ) else {
+                    == isRemoteContext else {
                 return false
             }
             selection = refreshedSelection
-            snapshot = refreshedSnapshot
+            snapshot = refreshedSelection.snapshot
             ownership = refreshedOwnership
-            anchorTabId = refreshedAnchorTabId
-            paneId = refreshedPaneId
             guard currentExecutableFingerprint == cachedExecutableFingerprint,
                   SharedLiveAgentIndex.shared.forkSupportProbeAccepted(
                     workspaceId: id,
@@ -90,56 +95,34 @@ extension Workspace {
             }
         }
 
-        return forkAgentConversation(
-            mutationPanelId: ownership.containerPanelID,
+        return await forkAgentConversation(
+            from: ownership,
             snapshot: snapshot,
-            destination: destination,
-            anchorTabId: anchorTabId,
-            paneId: paneId,
-            projectedPane: remoteTmuxControlPane(surfaceID: ownership.surfaceID)
+            request: request
         )
     }
 
-    private func forkAgentConversation(
-        mutationPanelId: UUID,
+    func forkAgentConversation(
+        from ownership: WorkspaceSurfaceOwnershipTarget,
         snapshot: SessionRestorableAgentSnapshot,
-        destination: AgentConversationForkDestination,
-        anchorTabId: TabID,
-        paneId: PaneID,
-        projectedPane: RemoteTmuxControlPaneLocation?
-    ) -> Bool {
-        if let projectedPane {
+        request: AgentConversationForkRequest
+    ) async -> Bool {
+        if let projectedPane = remoteTmuxControlPane(surfaceID: ownership.surfaceID) {
+            guard request.targetHarness.usesNativeFork(for: snapshot.kind) else {
+                return false
+            }
             return forkProjectedTmuxAgentConversation(
                 projectedPane,
                 snapshot: snapshot,
-                destination: destination
+                destination: request.destination
             )
         }
 
-        if let direction = destination.splitDirection {
-            return forkAgentConversation(
-                fromPanelId: mutationPanelId,
-                snapshot: snapshot,
-                direction: direction
-            ) != nil
-        }
-
-        switch destination {
-        case .newTab:
-            return forkAgentConversationToNewTab(
-                fromPanelId: mutationPanelId,
-                snapshot: snapshot,
-                anchorTabId: anchorTabId,
-                paneId: paneId
-            ) != nil
-        case .newWorkspace:
-            return forkAgentConversationToNewWorkspace(
-                fromPanelId: mutationPanelId,
-                snapshot: snapshot
-            )
-        case .right, .left, .top, .bottom:
-            return false
-        }
+        return await forkAgentConversation(
+            fromPanelId: ownership.containerPanelID,
+            snapshot: snapshot,
+            request: request
+        )
     }
 
     func forkProjectedTmuxAgentConversation(
@@ -240,37 +223,4 @@ extension Workspace {
         return trimmed
     }
 
-    private func forkAgentConversationToNewWorkspace(
-        fromPanelId panelId: UUID,
-        snapshot: SessionRestorableAgentSnapshot
-    ) -> Bool {
-        guard let owningTabManager,
-              let launch = forkAgentWorkspaceLaunch(
-                  fromPanelId: panelId,
-                  snapshot: snapshot
-              ) else {
-            return false
-        }
-
-        let forkWorkspace = owningTabManager.addWorkspace(
-            workingDirectory: launch.terminalWorkingDirectory,
-            initialTerminalCommand: launch.initialTerminalCommand,
-            initialTerminalInput: launch.initialTerminalInput,
-            initialTerminalEnvironment: launch.initialTerminalEnvironment,
-            inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-            autoWelcomeIfNeeded: false
-        )
-        if let remoteConfiguration = launch.remoteConfiguration {
-            forkWorkspace.configureRemoteConnection(
-                remoteConfiguration,
-                autoConnect: launch.autoConnectRemoteConfiguration
-            )
-        }
-        if let workingDirectory = launch.workingDirectory,
-           launch.terminalWorkingDirectory == nil,
-           let forkPanelId = forkWorkspace.focusedPanelId {
-            forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
-        }
-        return true
-    }
 }

@@ -5,43 +5,37 @@ import Foundation
 
 extension ContentView {
     func forkFocusedAgentConversationRight() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.right)
-        }
+        forkFocusedAgentConversation(request: .sameHarness(destination: .right))
     }
 
     func forkFocusedAgentConversationLeft() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.left)
-        }
+        forkFocusedAgentConversation(request: .sameHarness(destination: .left))
     }
 
     func forkFocusedAgentConversationTop() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.top)
-        }
+        forkFocusedAgentConversation(request: .sameHarness(destination: .top))
     }
 
     func forkFocusedAgentConversationBottom() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.bottom)
-        }
+        forkFocusedAgentConversation(request: .sameHarness(destination: .bottom))
     }
 
     func forkFocusedAgentConversationToNewTab() {
-        Task { @MainActor in
-            await forkFocusedAgentConversation(.newTab)
-        }
+        forkFocusedAgentConversation(request: .sameHarness(destination: .newTab))
     }
 
     func forkFocusedAgentConversationToNewWorkspace() {
+        forkFocusedAgentConversation(request: .sameHarness(destination: .newWorkspace))
+    }
+
+    func forkFocusedAgentConversation(request: AgentConversationForkRequest) {
         Task { @MainActor in
-            await forkFocusedAgentConversation(.newWorkspace)
+            await executeFocusedAgentConversationFork(request)
         }
     }
 
     @MainActor
-    private func forkFocusedAgentConversation(_ destination: AgentConversationForkDestination) async {
+    private func executeFocusedAgentConversationFork(_ request: AgentConversationForkRequest) async {
         guard var currentContext = focusedPanelContext,
               currentContext.panel.panelType == .terminal else {
             NSSound.beep()
@@ -64,6 +58,33 @@ extension ContentView {
             currentContext.workspace.endForkAgentConversationAction(
                 panelId: panelId
             )
+        }
+
+        if let transferSelection = currentContext.workspace.agentConversationForkSelection(
+            forPanelId: panelId,
+            request: request
+        ), !transferSelection.requiresNativeForkCapability {
+            let workspace = currentContext.workspace
+            let didFork: Bool
+            if let ownership = workspace.surfaceOwnershipTarget(for: panelId) {
+                didFork = await workspace.forkAgentConversation(
+                    from: ownership,
+                    snapshot: transferSelection.snapshot,
+                    request: request
+                )
+            } else {
+                didFork = await workspace.forkAgentConversation(
+                    fromPanelId: panelId,
+                    snapshot: transferSelection.snapshot,
+                    request: request
+                )
+            }
+            guard didFork else {
+                clearCommandPaletteForkableAgentCache(panelKey: panelKey)
+                NSSound.beep()
+                return
+            }
+            return
         }
 
         let allowsAgentContinuation = currentContext.workspace.allowsAgentContinuation(forPanelId: panelId)
@@ -249,70 +270,19 @@ extension ContentView {
         commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = selection.usedFallbackSnapshot
 
         let workspace = currentContext.workspace
-        let ownership = workspace.surfaceOwnershipTarget(for: panelId)
-        let mutationPanelID = ownership?.containerPanelID ?? panelId
         let didFork: Bool
-        if let projectedPane = ownership.flatMap({
-            workspace.remoteTmuxControlPane(surfaceID: $0.surfaceID)
-        }) {
-            didFork = workspace.forkProjectedTmuxAgentConversation(
-                projectedPane,
+        if let ownership = workspace.surfaceOwnershipTarget(for: panelId) {
+            didFork = await workspace.forkAgentConversation(
+                from: ownership,
                 snapshot: snapshot,
-                destination: destination
+                request: request
             )
-        } else if let direction = destination.splitDirection {
-            didFork = workspace.forkAgentConversation(
-                fromPanelId: mutationPanelID,
-                snapshot: snapshot,
-                direction: direction
-            ) != nil
         } else {
-            switch destination {
-            case .newTab:
-                guard let anchorTabId = workspace.surfaceIdFromPanelId(mutationPanelID),
-                      let paneId = workspace.paneId(forPanelId: mutationPanelID) else {
-                    clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
-                    return
-                }
-                didFork = workspace.forkAgentConversationToNewTab(
-                    fromPanelId: mutationPanelID,
-                    snapshot: snapshot,
-                    anchorTabId: anchorTabId,
-                    paneId: paneId
-                ) != nil
-            case .newWorkspace:
-                guard let launch = workspace.forkAgentWorkspaceLaunch(
-                    fromPanelId: mutationPanelID,
-                    snapshot: snapshot
-                ) else {
-                    clearCommandPaletteForkableAgentCache(panelKey: panelKey)
-                    NSSound.beep()
-                    return
-                }
-                let forkWorkspace = tabManager.addWorkspace(
-                    workingDirectory: launch.terminalWorkingDirectory,
-                    initialTerminalCommand: launch.initialTerminalCommand,
-                    initialTerminalInput: launch.initialTerminalInput,
-                    initialTerminalEnvironment: launch.initialTerminalEnvironment,
-                    inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
-                    autoWelcomeIfNeeded: false
-                )
-                if let remoteConfiguration = launch.remoteConfiguration {
-                    forkWorkspace.configureRemoteConnection(
-                        remoteConfiguration,
-                        autoConnect: launch.autoConnectRemoteConfiguration
-                    )
-                }
-                if let workingDirectory = launch.workingDirectory,
-                   launch.terminalWorkingDirectory == nil,
-                   let forkPanelId = forkWorkspace.focusedPanelId {
-                    forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
-                }
-                didFork = true
-            case .right, .left, .top, .bottom:
-                didFork = false
-            }
+            didFork = await workspace.forkAgentConversation(
+                fromPanelId: panelId,
+                snapshot: snapshot,
+                request: request
+            )
         }
 
         guard didFork else {

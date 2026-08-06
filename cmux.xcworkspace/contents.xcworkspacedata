@@ -127,6 +127,9 @@
          location = "group:CmuxControlSocket">
       </FileRef>
       <FileRef
+         location = "group:CmuxConversationTransfer">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCore">
       </FileRef>
       <FileRef

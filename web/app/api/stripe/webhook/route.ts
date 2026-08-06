@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { eq, sql } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { env } from "../../../env";
@@ -9,8 +9,13 @@ import { cloudDb } from "../../../../db/client";
 import { stripeWebhookEvents } from "../../../../db/schema";
 import { captureBillingError } from "../../../../services/errors";
 import {
+  captureStripeBillingEvent as captureStripeBillingEventDefault,
+  type StripeBillingAnalyticsSubject,
+} from "../../../../services/analytics/stripeBilling";
+import {
   applySubscriptionUpdate as applySubscriptionUpdateDefault,
   isCmuxCheckoutSession,
+  isActiveStripeSubscriptionStatus,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
 import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
@@ -34,6 +39,8 @@ type StripeWebhookDependencies = {
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
+  captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
+  defer: (task: () => Promise<void>) => void;
 };
 
 const defaultDependencies: StripeWebhookDependencies = {
@@ -45,6 +52,8 @@ const defaultDependencies: StripeWebhookDependencies = {
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
   sendProSignupWelcome: sendProSignupWelcomeDefault,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
+  captureStripeBillingEvent: captureStripeBillingEventDefault,
+  defer: (task) => after(task),
 };
 
 export const POST = makeStripeWebhookHandler();
@@ -102,11 +111,12 @@ export function makeStripeWebhookHandler(
       }
 
       try {
-        const result = await processStripeEvent(event, dependencies);
+        const { analytics, ...result } = await processStripeEvent(event, dependencies);
         await db
           .update(stripeWebhookEvents)
           .set({ processedAt: sql`now()`, error: null })
           .where(eq(stripeWebhookEvents.id, event.id));
+        if (analytics) dependencies.defer(analytics);
         return NextResponse.json({ ok: true, ...result });
       } catch (error) {
         recordSpanError(span, error);
@@ -130,7 +140,11 @@ export function makeStripeWebhookHandler(
 async function processStripeEvent(
   event: Stripe.Event,
   dependencies: StripeWebhookDependencies,
-): Promise<{ processed?: string; skipped?: string }> {
+): Promise<{
+  processed?: string;
+  skipped?: string;
+  analytics?: () => Promise<void>;
+}> {
   switch (event.type) {
     case "checkout.session.completed":
     case "checkout.session.async_payment_succeeded": {
@@ -157,7 +171,17 @@ async function processStripeEvent(
           stackUserId: result.stackUserId,
         });
       }
-      return { processed: event.type };
+      const subscription = expandedSubscription(expanded);
+      const subscriptionStatus = subscription?.status ?? "unknown";
+      const subject = analyticsSubject(
+        result,
+        isActiveStripeSubscriptionStatus(subscriptionStatus),
+        subscriptionStatus,
+      );
+      return {
+        processed: event.type,
+        analytics: () => dependencies.captureStripeBillingEvent(event, subject),
+      };
     }
     case "customer.subscription.created":
     case "customer.subscription.updated":
@@ -168,7 +192,13 @@ async function processStripeEvent(
       );
       return "skipped" in result
         ? { skipped: "subscription_unmapped" }
-        : { processed: event.type };
+        : {
+            processed: event.type,
+            analytics: () => dependencies.captureStripeBillingEvent(
+              event,
+              analyticsSubject(result, result.isActive, event.data.object.status),
+            ),
+          };
     }
     case "invoice.paid":
     case "invoice.payment_failed": {
@@ -181,11 +211,29 @@ async function processStripeEvent(
       );
       return "skipped" in result
         ? { skipped: "invoice_subscription_unmapped" }
-        : { processed: event.type };
+        : {
+            processed: event.type,
+            analytics: () => dependencies.captureStripeBillingEvent(
+              event,
+              analyticsSubject(result, result.isActive, subscription.status),
+            ),
+          };
     }
     default:
       return { skipped: "event_type" };
   }
+}
+
+function analyticsSubject(
+  result:
+    | { readonly scope: "user"; readonly stackUserId: string }
+    | { readonly scope: "team"; readonly stackTeamId: string },
+  isActive: boolean,
+  status: string,
+): StripeBillingAnalyticsSubject {
+  return result.scope === "user"
+    ? { scope: "user", stackUserId: result.stackUserId, isActive, status }
+    : { scope: "team", stackTeamId: result.stackTeamId, isActive, status };
 }
 
 async function applySubscriptionEntitlementUpdate(

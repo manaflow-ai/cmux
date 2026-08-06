@@ -2614,6 +2614,7 @@ final class Workspace: Identifiable, ObservableObject {
     let todoState = WorkspaceTodoState()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
+    let conversationTransferLauncherOwnershipRegistry: OneShotTerminalLauncherOwnershipRegistry
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
@@ -3207,12 +3208,16 @@ final class Workspace: Identifiable, ObservableObject {
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
-        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
+        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
+        conversationTransferLauncherOwnershipRegistry: OneShotTerminalLauncherOwnershipRegistry? = nil
     ) {
         self.id = id ?? UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
+        self.conversationTransferLauncherOwnershipRegistry =
+            conversationTransferLauncherOwnershipRegistry
+            ?? OneShotTerminalLauncherOwnershipRegistry()
         self.settings = settings
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
@@ -3497,6 +3502,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionTransitionTask?.cancel()
         remoteSessionController?.stop(cleanupScope: .persistentSlot)
         for owner in remoteSessionCleanupControllers.values { owner.controller.stop(cleanupScope: .persistentSlot) }
+        conversationTransferLauncherOwnershipRegistry.discardAll()
         PortScanner.shared.scheduleAgentWorkspaceUnregistration(workspaceId: id)
     }
 
@@ -11547,6 +11553,7 @@ final class Workspace: Identifiable, ObservableObject {
     func forkAgentWorkspaceLaunch(
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
+        startupInputOverride: String? = nil,
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> AgentConversationForkWorkspaceLaunch? {
@@ -11556,12 +11563,13 @@ final class Workspace: Identifiable, ObservableObject {
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
         let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace(fromPanelId: panelId)
         let isRemoteFork = remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        guard panels[panelId] is TerminalPanel,
-              let startupInput = launchSnapshot.forkStartupInput(
+        let startupInput = startupInputOverride ?? launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: !isRemoteFork
-              ) else {
+              )
+        guard panels[panelId] is TerminalPanel,
+              let startupInput else {
             return nil
         }
 
@@ -11581,6 +11589,7 @@ final class Workspace: Identifiable, ObservableObject {
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
         direction: SplitDirection,
+        startupInputOverride: String? = nil,
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
@@ -11588,13 +11597,14 @@ final class Workspace: Identifiable, ObservableObject {
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
         launchSnapshot.workingDirectory = workingDirectory
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
-        guard panels[panelId] is TerminalPanel,
-              let paneId = paneId(forPanelId: panelId),
-              let startupInput = launchSnapshot.forkStartupInput(
+        let startupInput = startupInputOverride ?? launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: remoteStartupCommand == nil
-              ) else {
+              )
+        guard panels[panelId] is TerminalPanel,
+              let paneId = paneId(forPanelId: panelId),
+              let startupInput else {
             return nil
         }
 
@@ -11649,6 +11659,7 @@ final class Workspace: Identifiable, ObservableObject {
         snapshot: SessionRestorableAgentSnapshot,
         anchorTabId: TabID,
         paneId: PaneID,
+        startupInputOverride: String? = nil,
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
@@ -11656,12 +11667,13 @@ final class Workspace: Identifiable, ObservableObject {
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
         launchSnapshot.workingDirectory = workingDirectory
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
-        guard panels[panelId] is TerminalPanel,
-              let startupInput = launchSnapshot.forkStartupInput(
+        let startupInput = startupInputOverride ?? launchSnapshot.forkStartupInput(
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   allowLauncherScript: remoteStartupCommand == nil
-              ) else {
+              )
+        guard panels[panelId] is TerminalPanel,
+              let startupInput else {
             return nil
         }
 

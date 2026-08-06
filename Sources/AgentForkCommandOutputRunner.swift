@@ -31,6 +31,7 @@ actor AgentForkCommandOutputRunner {
     private let arguments: [String]
     private let environment: [String: String]?
     private let workingDirectory: String?
+    private let acceptedExitStatuses: Set<Int32>
     private var processIdentifier: pid_t?
     private var probeRootProcessIdentifier: pid_t?
     private var probeRootStartMicroseconds: Int64?
@@ -52,12 +53,14 @@ actor AgentForkCommandOutputRunner {
         executable: String,
         arguments: [String],
         environment: [String: String]?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        acceptedExitStatuses: Set<Int32>
     ) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
         self.workingDirectory = workingDirectory
+        self.acceptedExitStatuses = acceptedExitStatuses
     }
 
     func start() async -> String? {
@@ -376,7 +379,9 @@ actor AgentForkCommandOutputRunner {
         }
         killTimer?.cancel()
 
-        guard !timedOut, exitStatus == 0, let outputDrainTask else {
+        guard !timedOut,
+              exitStatus.map(acceptedExitStatuses.contains) == true,
+              let outputDrainTask else {
             complete(returning: nil)
             return
         }

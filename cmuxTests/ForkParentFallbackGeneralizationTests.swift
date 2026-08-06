@@ -1,5 +1,7 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -394,6 +396,21 @@ struct ForkParentFallbackGeneralizationTests {
             latestSessionIdForSolePanel: "child",
             sameWorkingDirectoryPanelCount: 2
         ) == nil)
+        let inferred = RestorableAgentSessionIndex.openCodeSessionIDResolutionForProcess(
+            arguments: ["opencode", "--session", "parent", "--fork"],
+            latestSessionIdForSolePanel: "child",
+            sameWorkingDirectoryPanelCount: 1
+        )
+        #expect(inferred?.sessionId == "child")
+        #expect(inferred?.source == .inferredLatestSessionFile)
+
+        let explicit = RestorableAgentSessionIndex.openCodeSessionIDResolutionForProcess(
+            arguments: ["opencode", "--session", "child", "--fork=parent"],
+            latestSessionIdForSolePanel: nil,
+            sameWorkingDirectoryPanelCount: 2
+        )
+        #expect(explicit?.sessionId == "child")
+        #expect(explicit?.source == .explicit)
     }
 
     @Test func opencodeProcessDetectedEntryWinsOverSamePaneCodexFallback() throws {
@@ -421,12 +438,92 @@ struct ForkParentFallbackGeneralizationTests {
                     return processArguments(fixture: fixture, argv: ["/usr/local/bin/codex", "fork", fixture.parentCodexId], launchKind: "codex")
                 }
                 return nil
+            },
+            openCodeDatabasePathProvider: { pid, _ in
+                pid == 5_150 ? "/tmp/opencode-dev.db" : nil
             }
         )
 
         let entry = try #require(detected[key])
         #expect(entry.snapshot.kind == .opencode)
         #expect(entry.snapshot.sessionId == "oc-session")
+        #expect(
+            entry.snapshot.launchCommand?.environment?[
+                OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey
+            ] == "/tmp/opencode-dev.db"
+        )
+    }
+
+    @Test func openCodeDatabaseDescriptorPathIsCachedForProcessGeneration() async throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+        let processID = Int(getpid())
+        let databasePath = fixture.root
+            .appendingPathComponent("opencode-(UUID().uuidString).db")
+            .path
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [
+                processInfo(
+                    pid: processID,
+                    fixture: fixture,
+                    processName: "opencode",
+                    processPath: "/usr/local/bin/opencode"
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let processArguments = CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/opencode", "--session", "cached-session"],
+            environment: [
+                "CMUX_AGENT_LAUNCH_KIND": "opencode",
+                "CMUX_AGENT_LAUNCH_CWD": fixture.cwd.path,
+                "CMUX_WORKSPACE_ID": fixture.workspaceId.uuidString,
+                "CMUX_SURFACE_ID": fixture.forkPanelId.uuidString,
+                "OPENCODE_DB": databasePath,
+                "PWD": fixture.cwd.path,
+            ]
+        )
+        let probeCount = OSAllocatedUnfairLock(initialState: 0)
+
+        for _ in 0..<2 {
+            let detected = await RestorableAgentSessionIndex
+                .processDetectedSnapshotsCachingOpenCodeDatabasePaths(
+                registry: CmuxVaultAgentRegistry(registrations: []),
+                fileManager: fixture.fileManager,
+                processSnapshot: processSnapshot,
+                capturedAt: 42,
+                processArgumentsProvider: { pid in
+                    pid == processID ? processArguments : nil
+                },
+                openCodeDatabasePathProvider: { pid, _ in
+                    guard pid == processID else { return nil }
+                    probeCount.withLock { $0 += 1 }
+                    return databasePath
+                }
+            )
+            #expect(detected[fixture.forkKey]?.snapshot.kind == .opencode)
+        }
+
+        #expect(probeCount.withLock { $0 } == 1)
+
+        _ = await RestorableAgentSessionIndex
+            .processDetectedSnapshotsCachingOpenCodeDatabasePaths(
+                registry: CmuxVaultAgentRegistry(registrations: []),
+                fileManager: fixture.fileManager,
+                processSnapshot: processSnapshot,
+                capturedAt: 43,
+                reuseCompletedOpenCodeDatabasePaths: false,
+                processArgumentsProvider: { pid in
+                    pid == processID ? processArguments : nil
+                },
+                openCodeDatabasePathProvider: { pid, _ in
+                    guard pid == processID else { return nil }
+                    probeCount.withLock { $0 += 1 }
+                    return databasePath
+                }
+            )
+        #expect(probeCount.withLock { $0 } == 2)
     }
 
     private struct Fixture {

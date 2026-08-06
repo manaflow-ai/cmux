@@ -1,4 +1,6 @@
+import Darwin
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -9,6 +11,71 @@ import Testing
 
 @Suite
 struct SessionIndexJSONLReaderTests {
+    enum ReadDirection: Sendable {
+        case start
+        case tail
+
+        func read(url: URL) -> SessionIndexJSONLReadMetrics {
+            switch self {
+            case .start:
+                SessionIndexJSONLReader().fromStart(url: url) { _ in false }
+            case .tail:
+                SessionIndexJSONLReader().fromTail(url: url, maxBytes: 64 * 1024) { _ in false }
+            }
+        }
+    }
+
+    private final class ReadResult: Sendable {
+        private let storage = OSAllocatedUnfairLock<SessionIndexJSONLReadMetrics?>(initialState: nil)
+
+        var value: SessionIndexJSONLReadMetrics? {
+            storage.withLock { $0 }
+        }
+
+        func store(_ value: SessionIndexJSONLReadMetrics) {
+            storage.withLock { $0 = value }
+        }
+    }
+
+    @Test(
+        "Reader rejects a FIFO without waiting for a writer",
+        .timeLimit(.minutes(1)),
+        arguments: [ReadDirection.start, .tail]
+    )
+    func readerRejectsFIFOWithoutBlocking(_ direction: ReadDirection) throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-special-file-\(UUID().uuidString).fifo")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try #require(Darwin.mkfifo(url.path, 0o600) == 0)
+
+        let result = ReadResult()
+        let started = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            started.signal()
+            result.store(direction.read(url: url))
+            completed.signal()
+        }
+
+        try #require(started.wait(timeout: .now() + 1) == .success)
+        let returnedWithoutWriter = completed.wait(timeout: .now() + 1) == .success
+        if !returnedWithoutWriter {
+            let writerCompleted = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .userInitiated).async {
+                let descriptor = Darwin.open(url.path, O_WRONLY)
+                if descriptor >= 0 {
+                    Darwin.close(descriptor)
+                }
+                writerCompleted.signal()
+            }
+            _ = completed.wait(timeout: .now() + 2)
+            _ = writerCompleted.wait(timeout: .now() + 2)
+        }
+
+        #expect(returnedWithoutWriter)
+        #expect(result.value == SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0))
+    }
+
     @Test
     func startReaderParsesCompleteRecordEndingAtByteCap() throws {
         let url = FileManager.default.temporaryDirectory
@@ -32,6 +99,51 @@ struct SessionIndexJSONLReaderTests {
         #expect(visitedSessionIDs == ["exact-cap"])
         #expect(metrics.bytesRead == Data(record.utf8).count)
         #expect(metrics.recordsVisited == 1)
+    }
+
+    @Test
+    func startReaderSkipsOversizedRecordAndContinuesToLaterMatch() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-oversized-record-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let oversized = #"{"sessionId":"oversized","display":"\#(String(repeating: "x", count: 512))"}"#
+        let matching = #"{"sessionId":"matching","display":"found after oversized record"}"#
+        try Data((oversized + "\n" + matching + "\n").utf8).write(to: url)
+
+        var visitedSessionIDs: [String] = []
+        let metrics = SessionIndexJSONLReader(
+            chunkSize: 31,
+            maximumRecordBytes: 128
+        ).fromStart(url: url) { object in
+            if let sessionID = object["sessionId"] as? String {
+                visitedSessionIDs.append(sessionID)
+            }
+            return false
+        }
+
+        #expect(visitedSessionIDs == ["matching"])
+        #expect(metrics.recordsVisited == 2)
+        #expect(metrics.bytesRead == Data((oversized + "\n" + matching + "\n").utf8).count)
+    }
+
+    @Test(arguments: [ReadDirection.start, .tail])
+    func readerReportsMalformedRecords(_ direction: ReadDirection) throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-malformed-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let history = [
+            #"{"sessionId":"older"}"#,
+            #"{"sessionId":"malformed""#,
+            #"{"sessionId":"newer"}"#,
+        ].joined(separator: "\n") + "\n"
+        try Data(history.utf8).write(to: url)
+
+        let metrics = direction.read(url: url)
+
+        #expect(metrics.recordsVisited == 3)
+        #expect(metrics.didEncounterMalformedRecord)
     }
 
     @Test
@@ -88,6 +200,96 @@ struct SessionIndexJSONLReaderTests {
 
         #expect(visitedSessionIDs == ["newer"])
         #expect(!metrics.didReachStart)
+    }
+
+    @Test
+    func tailPaginationKeepsReadingTheOpenedFileAfterPathReplacement() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-rotated-pages-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let originalSessionIDs = (0..<20).map { "original-\($0)" }
+        let originalHistory = originalSessionIDs.map {
+            #"{"sessionId":"\#($0)"}"#
+        }.joined(separator: "\n") + "\n"
+        try Data(originalHistory.utf8).write(to: url)
+
+        var replacementError: Error?
+        var didReplacePath = false
+        var visitedSessionIDs: [String] = []
+        let metrics = SessionIndexJSONLReader().fromTailPages(
+            url: url,
+            maxBytesPerPage: 80
+        ) { object in
+            if let sessionID = object["sessionId"] as? String {
+                visitedSessionIDs.append(sessionID)
+            }
+            if !didReplacePath {
+                didReplacePath = true
+                do {
+                    try Data("{\"sessionId\":\"replacement\"}\n".utf8).write(
+                        to: url,
+                        options: .atomic
+                    )
+                } catch {
+                    replacementError = error
+                    return true
+                }
+            }
+            return false
+        }
+
+        try #require(replacementError == nil)
+        #expect(Set(visitedSessionIDs) == Set(originalSessionIDs))
+        #expect(!visitedSessionIDs.contains("replacement"))
+        #expect(metrics.didReachStart)
+    }
+
+    @Test
+    func fileSnapshotKeepsOpeningAndLatestReadsOnOneGeneration() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-snapshot-generation-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let originalHistory = """
+        {"sessionId":"original-opening"}
+        {"sessionId":"original-latest"}
+
+        """
+        try Data(originalHistory.utf8).write(to: url)
+
+        let reader = SessionIndexJSONLReader()
+        var latestSessionIDs: [String] = []
+        var openingSessionIDs: [String] = []
+        let didRead = try reader.withFileSnapshot(url: url) { handle, fileEndOffset in
+            _ = reader.fromTail(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maxBytes: 1_024
+            ) { object in
+                if let sessionID = object["sessionId"] as? String {
+                    latestSessionIDs.append(sessionID)
+                }
+                return true
+            }
+            try Data("{\"sessionId\":\"replacement\"}\n".utf8).write(
+                to: url,
+                options: .atomic
+            )
+            _ = reader.fromStart(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maxBytes: 1_024
+            ) { object in
+                if let sessionID = object["sessionId"] as? String {
+                    openingSessionIDs.append(sessionID)
+                }
+                return true
+            }
+        }
+
+        try #require(didRead != nil)
+        #expect(latestSessionIDs == ["original-latest"])
+        #expect(openingSessionIDs == ["original-opening"])
     }
 
     @Test

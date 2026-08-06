@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxWorkspaces
 
 /// Process-wide cache of `RestorableAgentSessionIndex` results for agent fork and restore paths.
 @MainActor
@@ -18,6 +19,21 @@ final class SharedLiveAgentIndex {
         probeKeys: Set<ForkProbeKey>,
         panelAliasesByProbeKey: [ForkProbeKey: Set<RestorableAgentSessionIndex.PanelKey>],
         sources: [DispatchSourceFileSystemObject]
+    )
+    private typealias ConversationTransferRefresh = (
+        id: UUID,
+        generation: UInt64,
+        startedAfterBoundary: UInt64?,
+        task: Task<SharedLiveAgentIndexLoader.LoadResult?, Never>
+    )
+    typealias ConversationTransferEvidence = (
+        snapshot: SessionRestorableAgentSnapshot,
+        transferIdentity: AgentConversationTransferIdentity,
+        processLiveness: RestorableAgentProcessLiveness,
+        processIDs: Set<Int>,
+        processIdentities: [Int: AgentPIDProcessIdentity],
+        agentProcessIDs: Set<Int>,
+        agentProcessIdentities: [Int: AgentPIDProcessIdentity]
     )
 
     private struct ForkSupportValidation {
@@ -60,6 +76,9 @@ final class SharedLiveAgentIndex {
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
+    private var conversationTransferRefreshes: [UInt64: ConversationTransferRefresh] = [:]
+    private var conversationTransferRefreshGeneration: UInt64 = 0
+    private var conversationTransferRefreshBoundaryGeneration: UInt64 = 0
     private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
     private var forkExecutableWatchRecords: [ForkExecutableWatchKey: ForkExecutableWatchRecord] = [:]
     private var forkExecutableWatchKeysByProbeKey: [ForkProbeKey: ForkExecutableWatchKey] = [:]
@@ -172,7 +191,8 @@ final class SharedLiveAgentIndex {
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
+    private let conversationTransferIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
     private let forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver
     private let forkCapabilityProbeCache: ForkCapabilityProbeResultCache
     private let customForkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)?
@@ -181,9 +201,8 @@ final class SharedLiveAgentIndex {
     private let forkExecutableWatchSourceBudgetProvider: @MainActor (Int) -> Int
 
     init(
-        indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
-            SharedLiveAgentIndexLoader().loadResultSynchronously()
-        },
+        indexLoader: (@Sendable () async -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
+        conversationTransferIndexLoader: (@Sendable () async -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),
         forkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)? = nil,
@@ -199,7 +218,18 @@ final class SharedLiveAgentIndex {
             )
         }
     ) {
-        self.indexLoader = indexLoader
+        let defaultIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
+            await SharedLiveAgentIndexLoader().loadResult()
+        }
+        let defaultConversationTransferIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
+            await SharedLiveAgentIndexLoader().loadResult(
+                reuseCompletedOpenCodeDatabasePaths: false
+            )
+        }
+        self.indexLoader = indexLoader ?? defaultIndexLoader
+        self.conversationTransferIndexLoader = conversationTransferIndexLoader
+            ?? indexLoader
+            ?? defaultConversationTransferIndexLoader
         self.forkExecutableIdentityResolver = forkExecutableIdentityResolver
         self.forkCapabilityProbeCache = forkCapabilityProbeCache
         self.customForkSupportProvider = forkSupportProvider
@@ -257,6 +287,9 @@ final class SharedLiveAgentIndex {
     deinit {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
+        for refresh in conversationTransferRefreshes.values {
+            refresh.task.cancel()
+        }
         deferredReloadTimer?.cancel()
         forkSupportValidationExpiryTimer?.cancel()
         directoryWatchSource?.cancel()
@@ -296,6 +329,143 @@ final class SharedLiveAgentIndex {
             return nil
         }
         return index.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    /// Loads current structured process and hook evidence without consulting
+    /// the cache. Cross-harness execution uses this expensive path only when it
+    /// is about to export conversation contents.
+    func freshConversationTransferSnapshot(
+        workspaceId: UUID,
+        panelId: UUID
+    ) async -> SessionRestorableAgentSnapshot? {
+        await freshConversationTransferEvidence(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )?.snapshot
+    }
+
+    /// Marks the current time boundary in the serialized transfer scan queue.
+    /// A validation scan requested with this boundary never joins work that
+    /// started before the boundary.
+    func conversationTransferRefreshBoundary() -> UInt64 {
+        conversationTransferRefreshBoundaryGeneration &+= 1
+        return conversationTransferRefreshBoundaryGeneration
+    }
+
+    /// Loads the exact conversation and process generation together so callers
+    /// can compare authoritative evidence across a transcript export.
+    func freshConversationTransferEvidence(
+        workspaceId: UUID,
+        panelId: UUID,
+        startedAfter refreshBoundary: UInt64? = nil
+    ) async -> ConversationTransferEvidence? {
+        let refresh: ConversationTransferRefresh
+        if let inFlight = conversationTransferRefreshes.values
+            .filter({ refresh in
+                guard let refreshBoundary else { return true }
+                return refresh.startedAfterBoundary.map {
+                    $0 >= refreshBoundary
+                } ?? true
+            })
+            .max(by: { $0.generation < $1.generation }) {
+            refresh = inFlight
+        } else {
+            let created = makeConversationTransferRefresh()
+            conversationTransferRefreshes[created.generation] = created
+            refresh = created
+        }
+        let result = await refresh.task.value
+        if conversationTransferRefreshes[refresh.generation]?.id == refresh.id {
+            conversationTransferRefreshes.removeValue(forKey: refresh.generation)
+        }
+        guard let result else { return nil }
+        guard !Task.isCancelled else { return nil }
+
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        guard result.forkValidatedPanels.contains(panelKey) else {
+            return nil
+        }
+        guard let entry = result.index.exactEntry(
+            workspaceId: workspaceId,
+            panelId: panelId
+        ),
+        let transferIdentity = AgentConversationSource(
+            snapshot: entry.snapshot
+        ).transferIdentity else {
+            return nil
+        }
+        return (
+            entry.snapshot,
+            transferIdentity,
+            entry.processLiveness,
+            entry.processIDs,
+            entry.processIdentities,
+            entry.agentProcessIDs,
+            entry.agentProcessIdentities
+        )
+    }
+
+    private func makeConversationTransferRefresh() -> ConversationTransferRefresh {
+        conversationTransferRefreshGeneration &+= 1
+        let generation = conversationTransferRefreshGeneration
+        let id = UUID()
+        let indexLoader = conversationTransferIndexLoader
+        let predecessor = conversationTransferRefreshes.values.max {
+            $0.generation < $1.generation
+        }
+        let task: Task<SharedLiveAgentIndexLoader.LoadResult?, Never>
+        let startedAfterBoundary: UInt64?
+        if let predecessor {
+            startedAfterBoundary = nil
+            task = Task { @MainActor [weak self] in
+                _ = await predecessor.task.value
+                guard !Task.isCancelled,
+                      let self,
+                      self.markConversationTransferRefreshStarted(
+                          generation: generation,
+                          id: id
+                      ) else {
+                    return nil
+                }
+                let scanTask = Task.detached(priority: .utility) { () -> SharedLiveAgentIndexLoader.LoadResult? in
+                    guard !Task.isCancelled else { return nil }
+                    return await indexLoader()
+                }
+                return await withTaskCancellationHandler {
+                    await scanTask.value
+                } onCancel: {
+                    scanTask.cancel()
+                }
+            }
+        } else {
+            startedAfterBoundary = conversationTransferRefreshBoundaryGeneration
+            task = Task.detached(priority: .utility) {
+                guard !Task.isCancelled else { return nil }
+                return await indexLoader()
+            }
+        }
+        return ConversationTransferRefresh(
+            id: id,
+            generation: generation,
+            startedAfterBoundary: startedAfterBoundary,
+            task: task
+        )
+    }
+
+    private func markConversationTransferRefreshStarted(
+        generation: UInt64,
+        id: UUID
+    ) -> Bool {
+        guard var refresh = conversationTransferRefreshes[generation],
+              refresh.id == id else {
+            return false
+        }
+        refresh.startedAfterBoundary = conversationTransferRefreshBoundaryGeneration
+        conversationTransferRefreshes[generation] = refresh
+        return true
     }
 
     /// Read the cached snapshot for an enabled Fork Conversation action. Never blocks.
@@ -1049,7 +1219,7 @@ final class SharedLiveAgentIndex {
     ) async -> [UUID: Set<UUID>] {
         let indexLoader = self.indexLoader
         let result = await Task.detached(priority: .utility) {
-            indexLoader()
+            await indexLoader()
         }.value
         guard !Task.isCancelled else {
             removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)

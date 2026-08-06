@@ -149,40 +149,73 @@ enum OpenCodeDatabaseSnapshot {
         }
     }
 
-    private static let sourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
+    private static let defaultSourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
 
-    static func make(prefix: String) throws -> Snapshot? {
+    static func make(
+        prefix: String,
+        sourcePath: String? = nil,
+        maximumTotalBytes: Int? = nil
+    ) throws -> Snapshot? {
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourcePath) else { return nil }
+        let resolvedSourcePath = sourcePath ?? defaultSourcePath
+        guard fileManager.fileExists(atPath: resolvedSourcePath) else { return nil }
+        if let maximumTotalBytes, maximumTotalBytes < 0 {
+            throw CocoaError(
+                .fileReadTooLarge,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "OpenCode database snapshot exceeds the \(maximumTotalBytes)-byte transfer limit."
+                ]
+            )
+        }
+        try Task.checkCancellation()
 
-        let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
-            "\(prefix)-\(UUID().uuidString)",
-            isDirectory: true
+        let snapshotService = SQLiteDatabaseSnapshotService(fileManager: fileManager)
+        let snapshotDir = try snapshotService.createPrivateTemporaryDirectory(
+            prefix: prefix
         )
-        try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
 
         let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
         do {
-            try fileManager.copyItem(atPath: sourcePath, toPath: snapshotDB.path)
-        } catch {
+            try snapshotService.copyDatabase(
+                from: resolvedSourcePath,
+                to: snapshotDB.path,
+                maximumBytes: maximumTotalBytes
+            )
+        } catch SQLiteDatabaseSnapshotError.snapshotTooLarge(let maximumBytes) {
             try? fileManager.removeItem(at: snapshotDir)
-            throw error
-        }
-
-        do {
-            for sidecar in ["-wal", "-shm"] {
-                let source = sourcePath + sidecar
-                let destination = snapshotDB.path + sidecar
-                if fileManager.fileExists(atPath: source) {
-                    try fileManager.copyItem(atPath: source, toPath: destination)
-                }
-            }
+            throw snapshotTooLargeError(maximumBytes: maximumBytes)
+        } catch SQLiteDatabaseSnapshotError.timedOut {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw CocoaError(
+                .fileReadUnknown,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "OpenCode database snapshot timed out."
+                ]
+            )
+        } catch SQLiteDatabaseSnapshotError.sqlite(let message) {
+            try? fileManager.removeItem(at: snapshotDir)
+            throw CocoaError(
+                .fileReadCorruptFile,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
         } catch {
             try? fileManager.removeItem(at: snapshotDir)
             throw error
         }
 
         return Snapshot(databaseURL: snapshotDB, directoryURL: snapshotDir)
+    }
+
+    private static func snapshotTooLargeError(maximumBytes: Int) -> CocoaError {
+        CocoaError(
+            .fileReadTooLarge,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "OpenCode database snapshot exceeds the \(maximumBytes)-byte transfer limit."
+            ]
+        )
     }
 }
 
