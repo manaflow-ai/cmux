@@ -1,15 +1,15 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 3a9afd3d33e0a2a56bae5f13e820072273281a9fbc427d0023e4abc00d52be4b. */
+/* cmux-tui mux protocol 11, IR 5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
-export const MUX_PROTOCOL_VERSION = 10 as const;
-export const SDK_IR_SHA256 = "3a9afd3d33e0a2a56bae5f13e820072273281a9fbc427d0023e4abc00d52be4b" as const;
+export const MUX_PROTOCOL_VERSION = 11 as const;
+export const SDK_IR_SHA256 = "5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
   "name": "cmux-tui-mux",
-  "version": 10
+  "version": 11
 } as const;
 export const PROFILES = {
   "control": {
@@ -525,7 +525,7 @@ export const COMMAND_METADATA = {
   },
   "mint-terminal-renderer-by-terminal": {
     "authority": "frontend",
-    "since": 10,
+    "since": 11,
     "capability": null,
     "fields": {},
     "stream": null,
@@ -3079,7 +3079,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "protocol_version": {
         "nullable": false,
         "presence": "required",
-        "since": 10,
+        "since": 11,
         "type": {
           "kind": "scalar",
           "name": "uint16"
@@ -4260,7 +4260,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "already_exited": {
         "nullable": false,
         "presence": "required",
-        "since": 10,
+        "since": 11,
         "type": {
           "kind": "scalar",
           "name": "boolean"
@@ -4269,7 +4269,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "exit": {
         "nullable": true,
         "presence": "required",
-        "since": 10,
+        "since": 11,
         "type": {
           "kind": "ref",
           "name": "TerminalExit"
@@ -4278,7 +4278,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "lifecycle": {
         "nullable": false,
         "presence": "required",
-        "since": 10,
+        "since": 11,
         "type": {
           "kind": "ref",
           "name": "TerminalLifecycle"
@@ -4329,7 +4329,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "terminal_revision": {
         "nullable": false,
         "presence": "required",
-        "since": 10,
+        "since": 11,
         "type": {
           "kind": "scalar",
           "name": "uint64"
@@ -5281,7 +5281,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "already_exited": {
         "nullable": false,
         "presence": "required",
-        "since": 10,
+        "since": 11,
         "type": {
           "kind": "scalar",
           "name": "boolean"
@@ -5290,7 +5290,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "exit": {
         "nullable": true,
         "presence": "required",
-        "since": 10,
+        "since": 11,
         "type": {
           "kind": "ref",
           "name": "TerminalExit"

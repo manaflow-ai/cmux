@@ -1,7 +1,7 @@
 {
   "$schema": "./inventory.schema.json",
   "schema_version": 1,
-  "mux_protocol": 10,
+  "mux_protocol": 11,
   "resource_operations": [
     "agent.list",
     "agent.report",

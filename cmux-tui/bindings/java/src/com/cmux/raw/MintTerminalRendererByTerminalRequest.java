@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.Objects;
 
 
-/** Immutable mint-terminal-renderer-by-terminal request. Protocol v10; authority: frontend. */
+/** Immutable mint-terminal-renderer-by-terminal request. Protocol v11; authority: frontend. */
 public final class MintTerminalRendererByTerminalRequest implements WireValue {
     private final String terminal;
     private final Field<UInt64> ttlMs;

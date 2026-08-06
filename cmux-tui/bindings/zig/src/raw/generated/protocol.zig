@@ -6,8 +6,8 @@ const wire = @import("../wire.zig");
 const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
-pub const mux_protocol: u16 = 10;
-pub const ir_sha256 = "3a9afd3d33e0a2a56bae5f13e820072273281a9fbc427d0023e4abc00d52be4b";
+pub const mux_protocol: u16 = 11;
+pub const ir_sha256 = "5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2624,7 +2624,7 @@ pub fn mintTerminalRendererByTerminal(client: anytype, request: MintTerminalRend
         .{
             .name = "mint-terminal-renderer-by-terminal",
             .authority = "frontend",
-            .since = 10,
+            .since = 11,
             .capability = null,
         },
         request,
@@ -4729,7 +4729,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "list-workspaces", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
-    .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 10, .capability = null, .stream = null },
+    .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "move-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },

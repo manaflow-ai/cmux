@@ -7,9 +7,9 @@ import java.util.Map;
 
 public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
-    public static final int VERSION = 10;
+    public static final int VERSION = 11;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "3a9afd3d33e0a2a56bae5f13e820072273281a9fbc427d0023e4abc00d52be4b";
+    public static final String IR_SHA256 = "5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {

@@ -40,7 +40,7 @@ use super::CLEAR_HISTORY_UNSUPPORTED_ERROR;
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
 
-const SUPPORTED_PROTOCOL_VERSION: u64 = 10;
+const SUPPORTED_PROTOCOL_VERSION: u64 = 11;
 const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
     [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
 const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
@@ -4087,8 +4087,8 @@ mod tests {
     }
 
     #[test]
-    fn protocol_10_identity_without_browser_capability_keeps_pty_sessions_compatible() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    fn protocol_11_identity_without_browser_capability_keeps_pty_sessions_compatible() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap();
     }
 
     #[test]
@@ -4105,24 +4105,24 @@ mod tests {
 
     #[test]
     fn per_surface_client_sizing_requires_protocol_10() {
-        assert_eq!(SUPPORTED_PROTOCOL_VERSION, 10);
+        assert!(SUPPORTED_PROTOCOL_VERSION >= 10);
     }
 
     #[test]
-    fn protocol_9_identity_is_rejected_before_workspace_loading() {
+    fn protocol_10_identity_is_rejected_before_workspace_loading() {
         let error =
-            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 9})).unwrap_err();
+            validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "unsupported cmux-tui protocol 9; this client requires protocol 10; restart the cmux-tui server"
+            "unsupported cmux-tui protocol 10; this client requires protocol 11; restart the cmux-tui server"
         );
     }
 
     #[test]
-    fn protocol_10_identity_with_guarded_pointer_capability_is_accepted() {
+    fn protocol_11_identity_with_guarded_pointer_capability_is_accepted() {
         validate_remote_identity(&json!({
             "app": "cmux-tui",
-            "protocol": 10,
+            "protocol": 11,
             "capabilities": ["browser-pointer-frame-guard-v1"],
         }))
         .unwrap();
@@ -4156,8 +4156,8 @@ mod tests {
     }
 
     #[test]
-    fn protocol_10_identity_is_accepted() {
-        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 10})).unwrap();
+    fn protocol_11_identity_is_accepted() {
+        validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap();
     }
 
     #[test]

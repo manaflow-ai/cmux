@@ -94,7 +94,8 @@ const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
-pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
+pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = TERMINAL_LIFECYCLE_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
@@ -15048,7 +15049,8 @@ mod tests {
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
-        assert_eq!(PROTOCOL_VERSION, 10);
+        assert_eq!(TERMINAL_LIFECYCLE_PROTOCOL_VERSION, 11);
+        assert_eq!(PROTOCOL_VERSION, 11);
         assert!(
             identity["capabilities"].as_array().is_some_and(|capabilities| capabilities
                 .iter()
