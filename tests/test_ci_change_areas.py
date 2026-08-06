@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -190,6 +191,26 @@ def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
                 body.append(body_line)
             return "\n".join(body)
     raise AssertionError(f"{job_name} job not found")
+
+
+def workflow_job_level_env_keys(job_name: str, workflow_path: Path = CI_WORKFLOW) -> set[str]:
+    block = workflow_job_block(job_name, workflow_path)
+    keys: set[str] = set()
+    in_env = False
+    for line in block.splitlines()[1:]:
+        stripped = line.strip()
+        indentation = len(line) - len(line.lstrip())
+        if indentation == 4 and stripped == "env:":
+            in_env = True
+            continue
+        if not in_env or not stripped:
+            continue
+        if indentation <= 4:
+            in_env = False
+            continue
+        if indentation == 6 and ":" in stripped:
+            keys.add(stripped.split(":", maxsplit=1)[0])
+    return keys
 
 
 def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
@@ -721,19 +742,24 @@ def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
 
 
 def test_app_host_tests_configure_swift_testing_serialization_in_the_xcode_scheme() -> None:
-    block = workflow_job_block("app-host-unit-tests")
-    job_configuration = block.split("    steps:", maxsplit=1)[0]
-    scheme = (
+    scheme_path = (
         ROOT / "cmux.xcodeproj" / "xcshareddata" / "xcschemes" / "cmux-unit.xcscheme"
-    ).read_text()
-
-    assert (
-        '<EnvironmentVariable key="SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH" '
-        'value="1" isEnabled="YES"/>'
-        in scheme
     )
-    assert "TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH" not in job_configuration
-    assert '\n      SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"' not in job_configuration
+    root = ET.parse(scheme_path).getroot()
+    variables = root.findall("./TestAction/EnvironmentVariables/EnvironmentVariable")
+    serialization_variables = [
+        variable
+        for variable in variables
+        if variable.get("key") == "SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH"
+        and variable.get("isEnabled") == "YES"
+    ]
+
+    assert len(serialization_variables) == 1
+    assert serialization_variables[0].get("value") == "1"
+
+    job_env_keys = workflow_job_level_env_keys("app-host-unit-tests")
+    assert "TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH" not in job_env_keys
+    assert "SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH" not in job_env_keys
 
 
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:
