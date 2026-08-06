@@ -27,7 +27,7 @@ fn socket_accepts(path: &Path) -> bool {
     cmux_tui_core::platform::transport::connect(path).is_ok()
 }
 
-fn assert_cmux_success(output: Output) {
+fn assert_cmux_success(output: &Output) {
     assert!(
         output.status.success(),
         "cmux command failed: {}",
@@ -43,7 +43,18 @@ fn write_terminal(executable: &str, socket: &Path, terminal: &str, command: &str
         .args(["terminal", terminal, "write", "--bytes-base64", &encoded])
         .output()
         .unwrap();
-    assert_cmux_success(output);
+    assert_cmux_success(&output);
+}
+
+fn spawn_carrier(executable: &str, session: &str, state_root: &Path) -> Child {
+    Command::new(executable)
+        .args(["remote-link", "--stdio", "--session", session, "--state-dir"])
+        .arg(state_root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
 }
 
 #[test]
@@ -54,14 +65,7 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
     let session_state = state_root.path().join("sessions").join(&session);
     let mux_socket = session_state.join("mux.sock");
 
-    let mut carrier = Command::new(executable)
-        .args(["remote-link", "--stdio", "--session", &session, "--state-dir"])
-        .arg(state_root.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut carrier = spawn_carrier(executable, &session, state_root.path());
 
     assert!(
         wait_until(Duration::from_secs(5), || socket_accepts(&mux_socket)),
@@ -120,7 +124,7 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
         ])
         .output()
         .unwrap();
-    assert_cmux_success(wait);
+    assert_cmux_success(&wait);
 
     let stop = Command::new(executable)
         .args(["remote-stop", "--session", &session, "--state-dir"])
@@ -132,4 +136,32 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
         wait_until(Duration::from_secs(5), || !socket_accepts(&mux_socket)),
         "remote-stop left the resident mux owner running"
     );
+
+    let mut replacement = spawn_carrier(executable, &session, state_root.path());
+    assert!(
+        wait_until(Duration::from_secs(5), || socket_accepts(&mux_socket)),
+        "replacement owner never published its mux socket"
+    );
+    let terminals = Command::new(executable)
+        .arg("--socket")
+        .arg(&mux_socket)
+        .args(["--json", "terminal", "list"])
+        .output()
+        .unwrap();
+    assert_cmux_success(&terminals);
+    assert!(
+        !String::from_utf8_lossy(&terminals.stdout).contains(&terminal),
+        "replacement owner exposed an unrecoverable terminal as live"
+    );
+    drop(replacement.stdin.take());
+    assert!(
+        wait_for_exit(&mut replacement, Duration::from_secs(5)),
+        "replacement carrier did not exit after stdin closed"
+    );
+    let final_stop = Command::new(executable)
+        .args(["remote-stop", "--session", &session, "--state-dir"])
+        .arg(state_root.path())
+        .output()
+        .unwrap();
+    assert_cmux_success(&final_stop);
 }
