@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Darwin
 import Foundation
 import os
 
@@ -18,6 +19,22 @@ nonisolated struct AgentConversationTransferIdentity: Equatable, Sendable {
     let kind: RestorableAgentKind
     let sessionId: String
     let storagePath: String
+}
+
+/// Process generation recorded synchronously by the panel's hook/runtime path.
+nonisolated struct AgentConversationRuntimeProcessIdentity: Equatable, Sendable {
+    let key: String
+    let pid: pid_t?
+    let processIdentity: AgentPIDProcessIdentity?
+}
+
+/// Cheap in-memory evidence that the panel still owns the same agent run.
+nonisolated struct AgentConversationPanelStateToken: Equatable, Sendable {
+    let restoredTransferIdentity: AgentConversationTransferIdentity?
+    let bindingSource: String?
+    let bindingKind: String?
+    let bindingSessionId: String?
+    let runtimeProcessIdentities: [AgentConversationRuntimeProcessIdentity]
 }
 
 /// Storage-independent identity for one source conversation.

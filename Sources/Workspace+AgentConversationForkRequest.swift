@@ -47,7 +47,10 @@ extension Workspace {
             : AgentConversationSource(snapshot: snapshot).hasDeterministicTranscriptSource else {
             return false
         }
-        if !usesNativeFork {
+        let transferPanelStateToken: AgentConversationPanelStateToken?
+        if usesNativeFork {
+            transferPanelStateToken = nil
+        } else {
             guard let selectedTransferIdentity = AgentConversationSource(
                 snapshot: snapshot
             ).transferIdentity,
@@ -61,6 +64,9 @@ extension Workspace {
                   isRemoteTerminalSurface(panelId) == sourceIsRemote else {
                 return false
             }
+            transferPanelStateToken = agentConversationPanelStateToken(
+                forPanelId: panelId
+            )
         }
         let startupCommandOverride: String?
         do {
@@ -77,6 +83,11 @@ extension Workspace {
             return false
         }
 
+        if let transferPanelStateToken,
+           agentConversationPanelStateToken(forPanelId: panelId)
+            != transferPanelStateToken {
+            return false
+        }
         let refreshedSelection = agentConversationForkSelection(
             forPanelId: panelId,
             request: request,
@@ -169,6 +180,50 @@ extension Workspace {
         _ = alert.runCmuxModal(
             presentingWindow: AppDelegate.shared?.mainWindowContainingWorkspace(id)
         )
+    }
+
+    private func agentConversationPanelStateToken(
+        forPanelId panelId: UUID
+    ) -> AgentConversationPanelStateToken {
+        let restoredTransferIdentity = restoredAgentSnapshotsByPanelId[panelId]
+            .flatMap { AgentConversationSource(snapshot: $0).transferIdentity }
+        let binding = surfaceResumeBinding(panelId: panelId)
+        let bindingSource = Self.normalizedConversationIdentityValue(binding?.source)
+        let bindingKind = Self.normalizedConversationIdentityValue(binding?.kind)
+        let bindingSessionId = bindingKind.flatMap { kind in
+            Self.normalizedConversationIdentityValue(binding?.checkpointId).map {
+                ManagedAgentSessionIdentity.canonicalSessionID(
+                    kind: kind,
+                    sessionID: $0
+                )
+            }
+        }
+        let runtimeProcessIdentities = (agentPIDKeysByPanelId[panelId] ?? [])
+            .sorted()
+            .map { key in
+                AgentConversationRuntimeProcessIdentity(
+                    key: key,
+                    pid: agentPIDs[key],
+                    processIdentity: agentPIDProcessIdentitiesByKey[key]
+                )
+            }
+        return AgentConversationPanelStateToken(
+            restoredTransferIdentity: restoredTransferIdentity,
+            bindingSource: bindingSource,
+            bindingKind: bindingKind,
+            bindingSessionId: bindingSessionId,
+            runtimeProcessIdentities: runtimeProcessIdentities
+        )
+    }
+
+    private static func normalizedConversationIdentityValue(
+        _ value: String?
+    ) -> String? {
+        guard let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !normalized.isEmpty else {
+            return nil
+        }
+        return normalized
     }
 
     private func forkAgentConversationToNewWorkspace(
