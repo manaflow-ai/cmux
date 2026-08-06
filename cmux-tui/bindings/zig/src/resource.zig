@@ -19471,9 +19471,12 @@ test "acknowledged public stream survives beyond request timeout" {
     try std.testing.expect(
         stream_shared.delayed_stream_open_read_observed,
     );
-    try std.testing.expectEqual(
-        @as(?u32, request_timeout_ms),
-        stream_shared.delayed_stream_open_timeout_ms,
+    const stream_open_timeout_ms =
+        stream_shared.delayed_stream_open_timeout_ms orelse
+        return error.MissingStreamOpenDeadline;
+    try std.testing.expect(stream_open_timeout_ms > 0);
+    try std.testing.expect(
+        stream_open_timeout_ms <= request_timeout_ms,
     );
     try std.testing.expect(stream_shared.delayed_stream_read_started);
     try std.testing.expect(

@@ -14,8 +14,10 @@ import {
   parseNativeStackTokens,
 } from "../vms/auth";
 import { getStackServerApp } from "../../app/lib/stack";
-import type { HostedSubrouterClient } from "./hostedClient";
-import { createConfiguredHostedSubrouterClient } from "./runtimeClient";
+import {
+  createHostedSubrouterClient,
+  type HostedSubrouterClient,
+} from "./hostedClient";
 import { hostedSubrouterCutoverReadyForTeam } from "./cutover";
 import {
   resolveTeam,
@@ -103,7 +105,7 @@ export async function resolveSubrouterRequestContext(
         };
       }
 
-      const client = createConfiguredHostedSubrouterClient();
+      const client = createHostedSubrouterClient();
       if (!client.tenantControlConfigured) {
         return {
           ok: false,

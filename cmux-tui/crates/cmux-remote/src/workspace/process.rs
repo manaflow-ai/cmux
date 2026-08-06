@@ -3096,11 +3096,13 @@ mod tests {
     #[tokio::test]
     async fn continuous_output_cannot_starve_the_absolute_drain_deadline() {
         let (activity, activity_rx) = watch::channel(0_u64);
-        let running = Arc::new(AtomicBool::new(true));
-        let producer_running = running.clone();
-        let producer = std::thread::spawn(move || {
-            while producer_running.load(Ordering::Acquire) {
+        let producer = tokio::spawn(async move {
+            loop {
                 activity.send_modify(|generation| *generation = generation.wrapping_add(1));
+                // Real output readers yield while awaiting their next read.
+                // Model that scheduling contract instead of letting a
+                // synthetic CPU spin starve the instrumented Tokio runtime.
+                tokio::task::yield_now().await;
             }
         });
         let mut tasks = JoinSet::new();
@@ -3116,8 +3118,8 @@ mod tests {
             ),
         )
         .await;
-        running.store(false, Ordering::Release);
-        producer.join().unwrap();
+        producer.abort();
+        assert!(producer.await.unwrap_err().is_cancelled());
 
         let reasons = result.expect("continuous activity starved the absolute output deadline");
         assert!(matches!(

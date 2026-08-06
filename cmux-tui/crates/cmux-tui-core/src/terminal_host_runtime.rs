@@ -2540,10 +2540,9 @@ mod unix {
         fn close_and_wake_writer(&self) {
             self.close();
             // The receiver cannot observe channel disconnection while the
-            // writer's local HostTap still owns a sender. Reserve one private
-            // sentinel and wait for channel capacity so an input-side EOF
-            // always releases an otherwise-idle writer. Socket shutdown keeps
-            // this bounded even when the writer was blocked in write_frame.
+            // writer's local HostTap still owns a sender. Enqueue one private
+            // sentinel so an input-side EOF always releases an otherwise-idle
+            // writer. Socket shutdown releases a writer blocked in write_frame.
             let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
             let retained = crate::terminal_host_protocol::HEADER_LEN;
             self.queued_bytes.fetch_add(retained, Ordering::AcqRel);

@@ -18,14 +18,6 @@ process.env.SUBROUTER_HOSTED_URL = "https://sr.test";
 process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN =
   "0123456789abcdef0123456789abcdef-test";
 
-const { createRuntimeEnvHostedSubrouterClient } = await import(
-  "./helpers/mock-hosted-subrouter-runtime-env"
-);
-mock.module("../services/subrouter/runtimeClient", () => ({
-  createConfiguredHostedSubrouterClient:
-    createRuntimeEnvHostedSubrouterClient,
-}));
-
 let currentUser: ReturnType<typeof stackUser> | null = null;
 let authJson = {
   accessToken: "cookie-access",
