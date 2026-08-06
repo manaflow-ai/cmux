@@ -87,6 +87,7 @@ public struct SQLiteDatabaseSnapshotService {
         try Task.checkCancellation()
         let startedAt = now()
         try checkDeadline(startedAt: startedAt)
+        try validateSnapshotDestination(path: destinationPath)
         let boundSource = try bindSourceDatabase(
             path: sourcePath,
             maximumBytes: maximumBytes
@@ -621,6 +622,38 @@ public struct SQLiteDatabaseSnapshotService {
             throw SQLiteDatabaseSnapshotError.sqlite(
                 "cannot restrict snapshot database permissions"
             )
+        }
+    }
+
+    private func validateSnapshotDestination(path: String) throws {
+        let destinationURL = URL(fileURLWithPath: path).standardizedFileURL
+        let parentURL = destinationURL.deletingLastPathComponent()
+        guard !destinationURL.lastPathComponent.isEmpty else {
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "snapshot destination path is invalid"
+            )
+        }
+        var parentMetadata = stat()
+        guard Darwin.lstat(parentURL.path, &parentMetadata) == 0,
+              parentMetadata.st_mode & S_IFMT == S_IFDIR,
+              parentMetadata.st_uid == Darwin.geteuid(),
+              parentMetadata.st_mode & (S_IWGRP | S_IWOTH) == 0 else {
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "snapshot destination directory is not owner-controlled"
+            )
+        }
+        for suffix in ["-wal", "-shm", "-journal"] {
+            var sidecarMetadata = stat()
+            if Darwin.lstat(destinationURL.path + suffix, &sidecarMetadata) == 0 {
+                throw SQLiteDatabaseSnapshotError.sqlite(
+                    "snapshot destination sidecars already exist"
+                )
+            }
+            guard errno == ENOENT else {
+                throw SQLiteDatabaseSnapshotError.sqlite(
+                    "cannot inspect snapshot destination sidecars"
+                )
+            }
         }
     }
 

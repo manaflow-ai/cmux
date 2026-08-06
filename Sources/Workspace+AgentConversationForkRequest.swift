@@ -49,22 +49,24 @@ extension Workspace {
             return false
         }
         let transferPanelStateToken: AgentConversationPanelStateToken?
+        let initialTransferEvidence: SharedLiveAgentIndex.ConversationTransferEvidence?
         if usesNativeFork {
             transferPanelStateToken = nil
+            initialTransferEvidence = nil
         } else {
             guard let selectedTransferIdentity = AgentConversationSource(
                 snapshot: snapshot
             ).transferIdentity,
-                  let freshSnapshot = await liveAgentIndex.freshConversationTransferSnapshot(
+                  let freshEvidence = await liveAgentIndex.freshConversationTransferEvidence(
                       workspaceId: id,
                       panelId: panelId
                   ),
-                  AgentConversationSource(snapshot: freshSnapshot).transferIdentity
-                    == selectedTransferIdentity,
+                  freshEvidence.transferIdentity == selectedTransferIdentity,
                   panels[panelId] as? TerminalPanel === sourcePanel,
                   isRemoteTerminalSurface(panelId) == sourceIsRemote else {
                 return false
             }
+            initialTransferEvidence = freshEvidence
             transferPanelStateToken = agentConversationPanelStateToken(
                 forPanelId: panelId
             )
@@ -84,6 +86,18 @@ extension Workspace {
             return false
         }
 
+        if let initialTransferEvidence {
+            guard let refreshedEvidence = await liveAgentIndex.freshConversationTransferEvidence(
+                workspaceId: id,
+                panelId: panelId
+            ),
+            Self.sameConversationTransferEvidence(
+                initialTransferEvidence,
+                refreshedEvidence
+            ) else {
+                return false
+            }
+        }
         if let transferPanelStateToken,
            agentConversationPanelStateToken(forPanelId: panelId)
             != transferPanelStateToken {
@@ -226,6 +240,18 @@ extension Workspace {
             return nil
         }
         return normalized
+    }
+
+    private static func sameConversationTransferEvidence(
+        _ lhs: SharedLiveAgentIndex.ConversationTransferEvidence,
+        _ rhs: SharedLiveAgentIndex.ConversationTransferEvidence
+    ) -> Bool {
+        lhs.transferIdentity == rhs.transferIdentity
+            && lhs.processLiveness == rhs.processLiveness
+            && lhs.processIDs == rhs.processIDs
+            && lhs.processIdentities == rhs.processIdentities
+            && lhs.agentProcessIDs == rhs.agentProcessIDs
+            && lhs.agentProcessIdentities == rhs.agentProcessIdentities
     }
 
     private func forkAgentConversationToNewWorkspace(

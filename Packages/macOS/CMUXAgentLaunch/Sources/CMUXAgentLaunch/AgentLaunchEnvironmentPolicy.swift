@@ -267,23 +267,37 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         if let capturedPath = normalizedValue(
             env[OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey]
         ),
-        (capturedPath as NSString).isAbsolutePath {
+        isAbsoluteFilePath(capturedPath) {
             return capturedPath
         }
-        if (configuredDatabase as NSString).isAbsolutePath {
+        if isAbsoluteFilePath(configuredDatabase) {
             return configuredDatabase
         }
         let home = normalizedValue(env["HOME"])
         let xdgDataHome = normalizedValue(env["XDG_DATA_HOME"])
-        guard home != nil || xdgDataHome != nil else { return nil }
-        if let xdgDataHome,
-           (xdgDataHome == "~" || xdgDataHome.hasPrefix("~/")),
-           home == nil {
-            return nil
+        let absoluteHome = home.flatMap {
+            isAbsoluteFilePath($0)
+                ? ($0 as NSString).standardizingPath
+                : nil
         }
-        return OpenCodeSessionResolver(
-            defaultHomeDirectory: home ?? "/"
+        if let xdgDataHome {
+            if xdgDataHome == "~" || xdgDataHome.hasPrefix("~/") {
+                guard absoluteHome != nil else { return nil }
+            } else if !isAbsoluteFilePath(xdgDataHome) {
+                return nil
+            }
+        } else {
+            guard absoluteHome != nil else { return nil }
+        }
+        let resolved = OpenCodeSessionResolver(
+            defaultHomeDirectory: absoluteHome ?? "/"
         ).databasePath(env: env)
+        guard isAbsoluteFilePath(resolved) else { return nil }
+        return (resolved as NSString).standardizingPath
+    }
+
+    private func isAbsoluteFilePath(_ path: String) -> Bool {
+        path.hasPrefix("/") && (path as NSString).isAbsolutePath
     }
 
     private func isRequireOption(_ token: String) -> Bool {

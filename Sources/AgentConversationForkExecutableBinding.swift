@@ -1,17 +1,17 @@
 import Darwin
 import Foundation
 
-/// Creates the validated executable's hard link only inside the destination
-/// terminal, immediately before launch. The random adjacent path preserves a
-/// script launcher's relative resource directory while preventing later
-/// replacement of its canonical pathname from changing the launched inode.
+/// Produces an adjacent owner-only copy of the exact executable contents that
+/// passed explicit harness validation. The copy is user-immutable before it is
+/// probed or launched, while the adjacent path preserves script-relative assets.
 struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
     private static let cleanupDirectoryName = "cmux-transfer-bindings"
     private static let cleanupRecordTTL: TimeInterval = 24 * 60 * 60
 
     let sourcePath: String
     let boundPath: String
-    let expectedStatSignature: String
+    let expectedContentSHA256: String?
+    private let stagingPath: String
     private let cleanupRecordPath: String
     private let cleanupDirectoryPath: String
     private let expectedCleanupDirectoryStatSignature: String
@@ -34,10 +34,8 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
                 && status.st_mode & S_IFMT == S_IFDIR
                 && UInt64(status.st_dev) == identity.device
                 && Darwin.access(directoryURL.path, W_OK) == 0
-        }) else {
-            return nil
-        }
-        guard let cleanupDirectory = Self.prepareCleanupDirectory() else {
+        }),
+        let cleanupDirectory = Self.prepareCleanupDirectory() else {
             return nil
         }
 
@@ -59,10 +57,12 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
         let generatedBoundPath = directoryURL
             .appendingPathComponent(filename, isDirectory: false)
             .path
+        let generatedStagingPath = generatedBoundPath + ".source"
         let manifest: [String: Any] = [
-            "version": 1,
+            "version": 2,
             "boundPath": generatedBoundPath,
-            "expectedStatSignature": identity.shellStatSignature,
+            "stagingPath": generatedStagingPath,
+            "expectedContentSHA256": identity.contentSHA256 ?? "",
         ]
         guard let manifestData = try? JSONSerialization.data(
             withJSONObject: manifest,
@@ -74,7 +74,8 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
 
         sourcePath = sourceURL.path
         boundPath = generatedBoundPath
-        expectedStatSignature = identity.shellStatSignature
+        expectedContentSHA256 = identity.contentSHA256
+        stagingPath = generatedStagingPath
         cleanupRecordPath = cleanupDirectory.url
             .appendingPathComponent("\(token).json", isDirectory: false)
             .path
@@ -83,11 +84,42 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
         cleanupRecordContents = manifestString
     }
 
+    /// Materializes the exact immutable artifact used by the explicit version
+    /// or help probe. The caller owns cleanup through ``removeArtifacts()``.
+    func materializeImmutableCopy() -> Bool {
+        guard expectedContentSHA256 != nil,
+              writeCleanupRecord(),
+              copySourceToBoundPath(),
+              Darwin.chflags(boundPath, UInt32(UF_IMMUTABLE)) == 0,
+              boundArtifactIsValid() else {
+            removeArtifacts()
+            return false
+        }
+        return true
+    }
+
+    func boundArtifactIsValid() -> Bool {
+        guard let expectedContentSHA256 else { return false }
+        return Self.immutableArtifact(
+            atPath: boundPath,
+            matchesSHA256: expectedContentSHA256
+        )
+    }
+
+    func removeArtifacts() {
+        _ = Darwin.chflags(boundPath, 0)
+        _ = Darwin.unlink(boundPath)
+        _ = Darwin.unlink(stagingPath)
+        _ = Darwin.unlink(cleanupRecordPath)
+    }
+
     func shellCommand(running launchCommand: String) -> String {
+        guard let expectedContentSHA256 else { return "exit 76" }
         let quotedSource = TerminalStartupShellQuoting.singleQuoted(sourcePath)
         let quotedBound = TerminalStartupShellQuoting.singleQuoted(boundPath)
-        let quotedExpected = TerminalStartupShellQuoting.singleQuoted(
-            expectedStatSignature
+        let quotedStaging = TerminalStartupShellQuoting.singleQuoted(stagingPath)
+        let quotedExpectedHash = TerminalStartupShellQuoting.singleQuoted(
+            expectedContentSHA256
         )
         let quotedCleanupRecord = TerminalStartupShellQuoting.singleQuoted(
             cleanupRecordPath
@@ -102,11 +134,13 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
             cleanupRecordContents
         )
         let quotedCleanup = TerminalStartupShellQuoting.singleQuoted(
-            "/bin/rm -f -- \(quotedBound) \(quotedCleanupRecord)"
+            "/usr/bin/chflags nouchg \(quotedBound) 2>/dev/null || true; "
+                + "/bin/rm -f -- \(quotedBound) \(quotedStaging) \(quotedCleanupRecord)"
         )
         return """
         cmux_transfer_source=\(quotedSource)
         cmux_transfer_bound=\(quotedBound)
+        cmux_transfer_staging=\(quotedStaging)
         cmux_transfer_record=\(quotedCleanupRecord)
         cmux_transfer_record_directory=\(quotedCleanupDirectory)
         cmux_transfer_record_directory_actual=$(/usr/bin/stat -f '%d:%i:%p:%u' -- "$cmux_transfer_record_directory") || exit 76
@@ -117,21 +151,113 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
           exit 76
         fi
         trap \(quotedCleanup) EXIT
-        if ! /bin/ln -- "$cmux_transfer_source" "$cmux_transfer_bound"; then
+        if ! /bin/ln -- "$cmux_transfer_source" "$cmux_transfer_staging"; then
           exit 76
         fi
-        cmux_transfer_actual=$(/usr/bin/stat -f '%d:%i:%p:%z:%m' -- "$cmux_transfer_bound") || {
-          /bin/rm -f -- "$cmux_transfer_bound"
+        if [[ ! -f "$cmux_transfer_staging" || -L "$cmux_transfer_staging" ]]; then
           exit 76
-        }
-        if [[ "$cmux_transfer_actual" != \(quotedExpected) ]]; then
-          /bin/rm -f -- "$cmux_transfer_bound"
+        fi
+        if ! (set -o noclobber; umask 077; /bin/cat -- "$cmux_transfer_staging" > "$cmux_transfer_bound"); then
+          exit 76
+        fi
+        /bin/rm -f -- "$cmux_transfer_staging"
+        /bin/chmod 500 "$cmux_transfer_bound" || exit 76
+        /usr/bin/chflags uchg "$cmux_transfer_bound" || exit 76
+        cmux_transfer_flags=$(/usr/bin/stat -f '%f' -- "$cmux_transfer_bound") || exit 76
+        if (( (cmux_transfer_flags & 2) != 2 )); then
+          exit 76
+        fi
+        cmux_transfer_hash=$(/usr/bin/shasum -a 256 -- "$cmux_transfer_bound") || exit 76
+        cmux_transfer_hash=${cmux_transfer_hash%% *}
+        if [[ "$cmux_transfer_hash" != \(quotedExpectedHash) ]]; then
           exit 76
         fi
         \(launchCommand)
         cmux_transfer_status=$?
         exit $cmux_transfer_status
         """
+    }
+
+    private func writeCleanupRecord() -> Bool {
+        var directoryMetadata = stat()
+        guard Darwin.lstat(cleanupDirectoryPath, &directoryMetadata) == 0,
+              Self.cleanupDirectoryStatSignature(directoryMetadata)
+                == expectedCleanupDirectoryStatSignature else {
+            return false
+        }
+        let descriptor = Darwin.open(
+            cleanupRecordPath,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+            S_IRUSR | S_IWUSR
+        )
+        guard descriptor >= 0 else { return false }
+        defer { _ = Darwin.close(descriptor) }
+        let bytes = Array(cleanupRecordContents.utf8)
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes.withUnsafeBytes { buffer in
+                Darwin.write(
+                    descriptor,
+                    buffer.baseAddress?.advanced(by: offset),
+                    bytes.count - offset
+                )
+            }
+            guard written > 0 else {
+                _ = Darwin.unlink(cleanupRecordPath)
+                return false
+            }
+            offset += written
+        }
+        guard Darwin.fchmod(descriptor, S_IRUSR | S_IWUSR) == 0,
+              Darwin.fsync(descriptor) == 0 else {
+            _ = Darwin.unlink(cleanupRecordPath)
+            return false
+        }
+        return true
+    }
+
+    private func copySourceToBoundPath() -> Bool {
+        let sourceDescriptor = Darwin.open(
+            sourcePath,
+            O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard sourceDescriptor >= 0 else { return false }
+        defer { _ = Darwin.close(sourceDescriptor) }
+        var sourceMetadata = stat()
+        guard Darwin.fstat(sourceDescriptor, &sourceMetadata) == 0,
+              sourceMetadata.st_mode & S_IFMT == S_IFREG else {
+            return false
+        }
+        let destinationDescriptor = Darwin.open(
+            boundPath,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+            S_IRUSR | S_IXUSR
+        )
+        guard destinationDescriptor >= 0 else { return false }
+        defer { _ = Darwin.close(destinationDescriptor) }
+        var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+        while true {
+            let bytesRead = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(sourceDescriptor, bytes.baseAddress, bytes.count)
+            }
+            guard bytesRead >= 0 else { return false }
+            if bytesRead == 0 { break }
+            var offset = 0
+            while offset < bytesRead {
+                let remaining = bytesRead - offset
+                let written = buffer.withUnsafeBytes { bytes in
+                    Darwin.write(
+                        destinationDescriptor,
+                        bytes.baseAddress?.advanced(by: offset),
+                        remaining
+                    )
+                }
+                guard written > 0 else { return false }
+                offset += written
+            }
+        }
+        return Darwin.fchmod(destinationDescriptor, S_IRUSR | S_IXUSR) == 0
+            && Darwin.fsync(destinationDescriptor) == 0
     }
 
     private static func prepareCleanupDirectory(
@@ -157,15 +283,7 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
             currentDate: currentDate,
             fileManager: fileManager
         )
-        return (
-            directoryURL,
-            [
-                String(UInt64(metadata.st_dev)),
-                String(metadata.st_ino),
-                String(metadata.st_mode, radix: 8),
-                String(metadata.st_uid),
-            ].joined(separator: ":")
-        )
+        return (directoryURL, cleanupDirectoryStatSignature(metadata))
     }
 
     private static func pruneExpiredCleanupRecords(
@@ -208,17 +326,20 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
                 at: recordURL,
                 expectedMetadata: metadata
             ),
-            manifest.version == 1,
+            manifest.version == 2,
             URL(fileURLWithPath: manifest.boundPath).lastPathComponent
-                .hasPrefix(".cmux-transfer-\(token)-") else {
+                .hasPrefix(".cmux-transfer-\(token)-"),
+            manifest.stagingPath == manifest.boundPath + ".source" else {
                 continue
             }
-            var boundMetadata = stat()
-            guard Darwin.lstat(manifest.boundPath, &boundMetadata) == 0,
-                  boundMetadata.st_mode & S_IFMT == S_IFREG,
-                  statSignature(boundMetadata) == manifest.expectedStatSignature else {
+            _ = Darwin.unlink(manifest.stagingPath)
+            guard immutableArtifact(
+                atPath: manifest.boundPath,
+                matchesSHA256: manifest.expectedContentSHA256
+            ) else {
                 continue
             }
+            _ = Darwin.chflags(manifest.boundPath, 0)
             _ = Darwin.unlink(manifest.boundPath)
         }
     }
@@ -226,7 +347,12 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
     private static func cleanupManifest(
         at recordURL: URL,
         expectedMetadata: stat
-    ) -> (version: Int, boundPath: String, expectedStatSignature: String)? {
+    ) -> (
+        version: Int,
+        boundPath: String,
+        stagingPath: String,
+        expectedContentSHA256: String
+    )? {
         let descriptor = Darwin.open(
             recordURL.path,
             O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
@@ -260,19 +386,37 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
               let version = manifest["version"] as? Int,
               let boundPath = manifest["boundPath"] as? String,
               boundPath.hasPrefix("/"),
-              let expectedStatSignature = manifest["expectedStatSignature"] as? String else {
+              let stagingPath = manifest["stagingPath"] as? String,
+              let expectedContentSHA256 = manifest["expectedContentSHA256"] as? String,
+              expectedContentSHA256.count == 64 else {
             return nil
         }
-        return (version, boundPath, expectedStatSignature)
+        return (version, boundPath, stagingPath, expectedContentSHA256)
     }
 
-    private static func statSignature(_ metadata: stat) -> String {
+    private static func immutableArtifact(
+        atPath path: String,
+        matchesSHA256 expectedContentSHA256: String
+    ) -> Bool {
+        var metadata = stat()
+        guard Darwin.lstat(path, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG,
+              metadata.st_uid == Darwin.geteuid(),
+              metadata.st_nlink == 1,
+              metadata.st_mode & (S_IRWXG | S_IRWXO | S_IWUSR) == 0,
+              metadata.st_flags & UInt32(UF_IMMUTABLE) != 0 else {
+            return false
+        }
+        return AgentConversationForkExecutableIdentity.contentSHA256(atPath: path)
+            == expectedContentSHA256
+    }
+
+    private static func cleanupDirectoryStatSignature(_ metadata: stat) -> String {
         [
             String(UInt64(metadata.st_dev)),
             String(metadata.st_ino),
             String(metadata.st_mode, radix: 8),
-            String(metadata.st_size),
-            String(metadata.st_mtimespec.tv_sec),
+            String(metadata.st_uid),
         ].joined(separator: ":")
     }
 }

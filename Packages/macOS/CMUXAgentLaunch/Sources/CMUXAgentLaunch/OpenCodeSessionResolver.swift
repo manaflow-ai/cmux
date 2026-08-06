@@ -25,12 +25,12 @@ public struct OpenCodeSessionResolver: Sendable {
     /// - Returns: The resolved database path, including `:memory:` when selected.
     public func databasePath(env: [String: String]) -> String {
         if let capturedPath = normalized(env[Self.capturedDatabasePathEnvironmentKey]),
-           (capturedPath as NSString).isAbsolutePath {
+           isAbsoluteFilePath(capturedPath) {
             return capturedPath
         }
         if let configuredPath = normalized(env["OPENCODE_DB"]) {
             guard configuredPath != ":memory:",
-                  !(configuredPath as NSString).isAbsolutePath else {
+                  !isAbsoluteFilePath(configuredPath) else {
                 return configuredPath
             }
             return (dataDirectory(env: env) as NSString)
@@ -41,13 +41,13 @@ public struct OpenCodeSessionResolver: Sendable {
     }
 
     private func dataDirectory(env: [String: String]) -> String {
+        let home = absoluteHomeDirectory(env: env)
         let dataHome: String
-        if let xdgDataHome = normalized(env["XDG_DATA_HOME"]) {
-            dataHome = expandedPath(xdgDataHome, env: env)
+        if let xdgDataHome = normalized(env["XDG_DATA_HOME"]),
+           let absoluteXDGDataHome = absolutePath(xdgDataHome, home: home) {
+            dataHome = absoluteXDGDataHome
         } else {
-            let home = normalized(env["HOME"]) ?? defaultHomeDirectory
-            dataHome = (expandedPath(home, env: env) as NSString)
-                .appendingPathComponent(".local/share")
+            dataHome = (home as NSString).appendingPathComponent(".local/share")
         }
         return (dataHome as NSString).appendingPathComponent("opencode")
     }
@@ -57,27 +57,51 @@ public struct OpenCodeSessionResolver: Sendable {
     /// - Returns: The captured or configured file path, otherwise `nil`.
     public func capturedDatabasePath(env: [String: String]) -> String? {
         if let capturedPath = normalized(env[Self.capturedDatabasePathEnvironmentKey]) {
-            guard (capturedPath as NSString).isAbsolutePath else { return nil }
-            return capturedPath
+            if isAbsoluteFilePath(capturedPath) {
+                return capturedPath
+            }
         }
         if let configuredPath = normalized(env["OPENCODE_DB"]) {
             return configuredPath == ":memory:" ? nil : databasePath(env: env)
         }
-        guard normalized(env["XDG_DATA_HOME"]) != nil
-                || normalized(env["HOME"]) != nil else {
+        let hasCapturedAbsoluteHome = normalized(env["HOME"])
+            .map(isAbsoluteFilePath) == true
+        let hasCapturedAbsoluteDataHome = normalized(env["XDG_DATA_HOME"])
+            .flatMap { absolutePath($0, home: absoluteHomeDirectory(env: env)) }
+            != nil
+        guard hasCapturedAbsoluteDataHome || hasCapturedAbsoluteHome else {
             return nil
         }
         return databasePath(env: env)
     }
 
-    private func expandedPath(_ path: String, env: [String: String]) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed == "~" || trimmed.hasPrefix("~/") else {
-            return NSString(string: trimmed).expandingTildeInPath
+    private func absoluteHomeDirectory(env: [String: String]) -> String {
+        if let home = normalized(env["HOME"]),
+           isAbsoluteFilePath(home) {
+            return (home as NSString).standardizingPath
         }
-        let home = normalized(env["HOME"]) ?? defaultHomeDirectory
-        guard trimmed != "~" else { return home }
-        return (home as NSString).appendingPathComponent(String(trimmed.dropFirst(2)))
+        if isAbsoluteFilePath(defaultHomeDirectory) {
+            return (defaultHomeDirectory as NSString).standardizingPath
+        }
+        return "/"
+    }
+
+    private func absolutePath(_ path: String, home: String) -> String? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "~" || trimmed.hasPrefix("~/") {
+            guard trimmed != "~" else { return home }
+            return ((home as NSString)
+                .appendingPathComponent(String(trimmed.dropFirst(2))) as NSString)
+                .standardizingPath
+        }
+        if isAbsoluteFilePath(trimmed) {
+            return (trimmed as NSString).standardizingPath
+        }
+        return nil
+    }
+
+    private func isAbsoluteFilePath(_ path: String) -> Bool {
+        path.hasPrefix("/") && (path as NSString).isAbsolutePath
     }
 
     private func normalized(_ value: String?) -> String? {

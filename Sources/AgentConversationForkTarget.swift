@@ -81,46 +81,10 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
     func validatedForTransfer() async throws -> AgentConversationForkTarget {
         guard !executableCandidates.isEmpty else { return self }
         for candidate in executableCandidates {
-            guard let identityBeforeProbe = AgentConversationForkExecutableIdentity.capture(
-                executablePath: candidate.executableURL.path,
-                runtimeSearchPath: candidate.runtimeSearchPath
-            ) else {
-                continue
-            }
-            var probeEnvironment = ProcessInfo.processInfo.environment
-            if let runtimeSearchPath = candidate.runtimeSearchPath {
-                probeEnvironment["PATH"] = runtimeSearchPath
-            }
-            let versionOutput = await AgentForkSupport.commandOutput(
-                executable: candidate.executableURL.path,
-                arguments: ["--version"],
-                environment: probeEnvironment,
-                workingDirectory: nil
-            )
-            let versionMatches = versionOutput.map {
-                harness.versionProbeMatches(
-                    output: $0,
-                    resolvedExecutablePath: identityBeforeProbe.realPath
-                )
-            } == true
-            let helpMatches: Bool
-            if versionMatches {
-                helpMatches = false
-            } else {
-                helpMatches = await AgentForkSupport.commandOutput(
-                    executable: candidate.executableURL.path,
-                    arguments: ["--help"],
-                    environment: probeEnvironment,
-                    workingDirectory: nil,
-                    acceptedExitStatuses: [0, 2]
-                ).map(harness.helpProbeMatches) == true
-            }
-            guard versionMatches || helpMatches,
-                  let identityAfterProbe = AgentConversationForkExecutableIdentity.capture(
-                      executablePath: candidate.executableURL.path,
-                      runtimeSearchPath: candidate.runtimeSearchPath
-                  ),
-                  identityAfterProbe == identityBeforeProbe,
+            try Task.checkCancellation()
+            guard let identityAfterProbe = await validatedIdentity(
+                for: candidate
+            ),
                   AgentConversationForkExecutableBinding(
                       identity: identityAfterProbe
                   ) != nil else {
@@ -147,7 +111,66 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
         }
         return AgentConversationForkExecutableIdentity.capture(
             executablePath: executableIdentity.lookupPath,
-            runtimeSearchPath: runtimeSearchPath
+            runtimeSearchPath: runtimeSearchPath,
+            hashContents: executableIdentity.contentSHA256 != nil
         ) == executableIdentity
+    }
+
+    private func validatedIdentity(
+        for candidate: AgentConversationForkTargetCandidate
+    ) async -> AgentConversationForkExecutableIdentity? {
+        guard let identityBeforeProbe = AgentConversationForkExecutableIdentity.capture(
+            executablePath: candidate.executableURL.path,
+            runtimeSearchPath: candidate.runtimeSearchPath,
+            hashContents: true
+        ),
+        let validationBinding = AgentConversationForkExecutableBinding(
+            identity: identityBeforeProbe
+        ),
+        validationBinding.materializeImmutableCopy() else {
+            return nil
+        }
+        defer { validationBinding.removeArtifacts() }
+
+        var probeEnvironment = ProcessInfo.processInfo.environment
+        if let runtimeSearchPath = candidate.runtimeSearchPath {
+            probeEnvironment["PATH"] = runtimeSearchPath
+        }
+        let versionOutput = await AgentForkSupport.commandOutput(
+            executable: validationBinding.boundPath,
+            arguments: ["--version"],
+            environment: probeEnvironment,
+            workingDirectory: nil
+        )
+        let versionMatches = versionOutput.map {
+            harness.versionProbeMatches(
+                output: $0,
+                resolvedExecutablePath: validationBinding.boundPath
+            )
+        } == true
+        let helpMatches: Bool
+        if versionMatches {
+            helpMatches = false
+        } else {
+            helpMatches = await AgentForkSupport.commandOutput(
+                executable: validationBinding.boundPath,
+                arguments: ["--help"],
+                environment: probeEnvironment,
+                workingDirectory: nil,
+                acceptedExitStatuses: [0, 2]
+            ).map(harness.helpProbeMatches) == true
+        }
+        guard !Task.isCancelled,
+              versionMatches || helpMatches,
+              validationBinding.boundArtifactIsValid(),
+              let identityAfterProbe = AgentConversationForkExecutableIdentity.capture(
+                  executablePath: candidate.executableURL.path,
+                  runtimeSearchPath: candidate.runtimeSearchPath,
+                  hashContents: true
+              ),
+              identityAfterProbe == identityBeforeProbe else {
+            return nil
+        }
+        return identityAfterProbe
     }
 }

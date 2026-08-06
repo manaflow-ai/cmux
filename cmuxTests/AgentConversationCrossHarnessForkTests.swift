@@ -266,7 +266,8 @@ struct AgentConversationCrossHarnessForkTests {
         )
         let identity = try #require(AgentConversationForkExecutableIdentity.capture(
             executablePath: executable.path,
-            runtimeSearchPath: directory.path
+            runtimeSearchPath: directory.path,
+            hashContents: true
         ))
         let target = AgentConversationForkTarget(
             harness: .grok,
@@ -314,7 +315,8 @@ struct AgentConversationCrossHarnessForkTests {
         )
         let identity = try #require(AgentConversationForkExecutableIdentity.capture(
             executablePath: executable.path,
-            runtimeSearchPath: directory.path
+            runtimeSearchPath: directory.path,
+            hashContents: true
         ))
         let target = AgentConversationForkTarget(
             harness: .grok,
@@ -373,7 +375,8 @@ struct AgentConversationCrossHarnessForkTests {
         )
         let identity = try #require(AgentConversationForkExecutableIdentity.capture(
             executablePath: executable.path,
-            runtimeSearchPath: directory.path
+            runtimeSearchPath: directory.path,
+            hashContents: true
         ))
         let binding = try #require(AgentConversationForkExecutableBinding(identity: identity))
         let mutatedScript = "#!/bin/zsh\n/usr/bin/touch \(TerminalStartupShellQuoting.singleQuoted(marker.path))\n"
@@ -412,7 +415,8 @@ struct AgentConversationCrossHarnessForkTests {
         )
         let identity = try #require(AgentConversationForkExecutableIdentity.capture(
             executablePath: executable.path,
-            runtimeSearchPath: directory.path
+            runtimeSearchPath: directory.path,
+            hashContents: true
         ))
         let binding = try #require(AgentConversationForkExecutableBinding(identity: identity))
         let process = Process()
@@ -437,23 +441,10 @@ struct AgentConversationCrossHarnessForkTests {
         )
         let recordDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-transfer-bindings", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: recordDirectory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
         let record = recordDirectory
             .appendingPathComponent("\(token).json", isDirectory: false)
-        defer {
-            try? FileManager.default.removeItem(at: record)
-            try? FileManager.default.removeItem(atPath: binding.boundPath)
-        }
-        let manifest: [String: Any] = [
-            "version": 1,
-            "boundPath": binding.boundPath,
-            "expectedStatSignature": identity.shellStatSignature,
-        ]
-        try JSONSerialization.data(withJSONObject: manifest).write(to: record)
+        defer { binding.removeArtifacts() }
+        #expect(FileManager.default.fileExists(atPath: record.path))
         try FileManager.default.setAttributes(
             [
                 .posixPermissions: 0o600,

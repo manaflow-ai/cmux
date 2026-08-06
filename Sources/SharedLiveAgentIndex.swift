@@ -23,6 +23,15 @@ final class SharedLiveAgentIndex {
         id: UUID,
         task: Task<SharedLiveAgentIndexLoader.LoadResult, Never>
     )
+    typealias ConversationTransferEvidence = (
+        snapshot: SessionRestorableAgentSnapshot,
+        transferIdentity: AgentConversationTransferIdentity,
+        processLiveness: RestorableAgentProcessLiveness,
+        processIDs: Set<Int>,
+        processIdentities: [Int: AgentPIDProcessIdentity],
+        agentProcessIDs: Set<Int>,
+        agentProcessIdentities: [Int: AgentPIDProcessIdentity]
+    )
 
     private struct ForkSupportValidation {
         let identity: String
@@ -311,6 +320,18 @@ final class SharedLiveAgentIndex {
         workspaceId: UUID,
         panelId: UUID
     ) async -> SessionRestorableAgentSnapshot? {
+        await freshConversationTransferEvidence(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )?.snapshot
+    }
+
+    /// Loads the exact conversation and process generation together so callers
+    /// can compare authoritative evidence across a transcript export.
+    func freshConversationTransferEvidence(
+        workspaceId: UUID,
+        panelId: UUID
+    ) async -> ConversationTransferEvidence? {
         let refresh: ConversationTransferRefresh
         if let inFlight = conversationTransferRefresh {
             refresh = inFlight
@@ -338,7 +359,24 @@ final class SharedLiveAgentIndex {
         guard result.forkValidatedPanels.contains(panelKey) else {
             return nil
         }
-        return result.index.exactSnapshot(workspaceId: workspaceId, panelId: panelId)
+        guard let entry = result.index.exactEntry(
+            workspaceId: workspaceId,
+            panelId: panelId
+        ),
+        let transferIdentity = AgentConversationSource(
+            snapshot: entry.snapshot
+        ).transferIdentity else {
+            return nil
+        }
+        return (
+            entry.snapshot,
+            transferIdentity,
+            entry.processLiveness,
+            entry.processIDs,
+            entry.processIdentities,
+            entry.agentProcessIDs,
+            entry.agentProcessIdentities
+        )
     }
 
     /// Read the cached snapshot for an enabled Fork Conversation action. Never blocks.
