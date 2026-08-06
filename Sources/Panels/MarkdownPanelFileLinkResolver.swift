@@ -15,6 +15,85 @@ enum MarkdownPanelFileLinkResolver {
         return markdownExtensions.contains(ext)
     }
 
+    /// Resolves a wiki-style link target (`[[Note]]` → `Note.md`) that did not
+    /// resolve as a plain relative/sibling path, using Obsidian's vault model:
+    /// find the note by name anywhere under the vault root (the nearest ancestor
+    /// directory containing `.obsidian`). Returns `nil` when the current file is
+    /// not inside an Obsidian vault or no matching note exists, so non-vault
+    /// markdown keeps today's sibling-only behavior.
+    static func resolveVaultWikiLink(rawPath: String, relativeToMarkdownFile markdownFilePath: String) -> String? {
+        let stripped = stripFragmentAndQuery(rawPath)
+        guard !stripped.isEmpty, !(stripped as NSString).isAbsolutePath else { return nil }
+        guard isMarkdownPathLike(stripped) else { return nil }
+        guard let vaultRoot = vaultRoot(forMarkdownFile: markdownFilePath) else { return nil }
+
+        // Prefer an exact relative subpath under the vault root, so a qualified
+        // link like `[[folder/Note]]` beats a bare-name match elsewhere.
+        let relCandidate = ((vaultRoot as NSString).appendingPathComponent(stripped) as NSString).standardizingPath
+        if fileExistsAsMarkdown(relCandidate) {
+            return relCandidate
+        }
+
+        // Otherwise resolve by leaf name anywhere in the vault.
+        let targetLeaf = (stripped as NSString).lastPathComponent
+        return findMarkdownFile(named: targetLeaf, under: vaultRoot)
+    }
+
+    /// Nearest ancestor of `markdownFilePath` (inclusive of its directory) that
+    /// contains an `.obsidian` directory, i.e. the Obsidian vault root.
+    static func vaultRoot(forMarkdownFile markdownFilePath: String) -> String? {
+        let fm = FileManager.default
+        var dir = (markdownFilePath as NSString).deletingLastPathComponent
+        var guardCount = 0
+        while !dir.isEmpty, dir != "/", guardCount < 64 {
+            var isDir: ObjCBool = false
+            let obsidian = (dir as NSString).appendingPathComponent(".obsidian")
+            if fm.fileExists(atPath: obsidian, isDirectory: &isDir), isDir.boolValue {
+                return dir
+            }
+            let parent = (dir as NSString).deletingLastPathComponent
+            if parent == dir { break }
+            dir = parent
+            guardCount += 1
+        }
+        return nil
+    }
+
+    /// First markdown file whose leaf name equals `targetLeaf` (case-insensitive)
+    /// under `root`, preferring the shallowest match. Skips hidden directories
+    /// (`.obsidian`, `.git`, `.trash`, …) and bounds the scan for large vaults.
+    private static func findMarkdownFile(named targetLeaf: String, under root: String) -> String? {
+        let fm = FileManager.default
+        let wantedLower = targetLeaf.lowercased()
+        guard let enumerator = fm.enumerator(
+            at: URL(fileURLWithPath: root),
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else { return nil }
+
+        var best: String?
+        var bestDepth = Int.max
+        var scanned = 0
+        let maxScan = 50_000
+        for case let url as URL in enumerator {
+            scanned += 1
+            if scanned > maxScan { break }
+            guard url.lastPathComponent.lowercased() == wantedLower else { continue }
+            let depth = url.pathComponents.count
+            if depth < bestDepth {
+                best = url.path
+                bestDepth = depth
+            }
+        }
+        return best
+    }
+
+    private static func fileExistsAsMarkdown(_ path: String) -> Bool {
+        guard isMarkdownPathLike(path) else { return false }
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && !isDir.boolValue
+    }
+
     static func resolve(rawPath: String, relativeToMarkdownFile markdownFilePath: String) -> String? {
         let stripped = stripFragmentAndQuery(rawPath)
         guard !stripped.isEmpty else { return nil }

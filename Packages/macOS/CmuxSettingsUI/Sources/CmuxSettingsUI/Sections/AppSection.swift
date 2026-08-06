@@ -8,8 +8,8 @@ import SwiftUI
 /// New Workspace Placement, Inherit Working Directory, Minimal Mode,
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
-/// cmux, Terminal Config link, Open Markdown in cmux Viewer,
-/// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
+/// cmux, Terminal Config link, iMessage Mode,
+/// Reorder on Notification, Dock Badge, Menu Bar
 /// Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
 /// Notifications, Notification Sound, Notification Command, Send
 /// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
@@ -35,12 +35,7 @@ public struct AppSection: View {
     @State private var fileDrop: DefaultsValueModel<FileDropDefaultBehavior>
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
-    @State private var openMarkdown: DefaultsValueModel<Bool>
     @State private var globalFontMagnification: DefaultsValueModel<Int>
-    @State private var markdownFontSize: DefaultsValueModel<Int>
-    @State private var markdownFontFamily: DefaultsValueModel<String>
-    @State private var markdownMaxWidth: DefaultsValueModel<Int>
-    @State private var markdownWikiLinks: DefaultsValueModel<Bool>
     @State private var canvasPaneGap: DefaultsValueModel<Int>
     @State private var canvasSnapping: DefaultsValueModel<Bool>
     @State private var fileEditorWordWrap: DefaultsValueModel<Bool>
@@ -90,12 +85,7 @@ public struct AppSection: View {
         _fileDrop = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.fileDropDefaultBehavior))
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
-        _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
         _globalFontMagnification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.globalFontMagnification))
-        _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
-        _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
-        _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
-        _markdownWikiLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.wikiLinks))
         _canvasPaneGap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.canvas.paneGap))
         _canvasSnapping = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.canvas.snappingEnabled))
         _fileEditorWordWrap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.wordWrap))
@@ -142,7 +132,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, markdownWikiLinks, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, globalFontMagnification, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -390,65 +380,6 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
-            // Open Markdown in cmux Viewer
-            SettingsCardRow(
-                configurationReview: .json("app.openMarkdownInCmuxViewer"),
-                String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
-                subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "When supported file routing is on, Cmd-clicking Markdown files opens the rendered cmux markdown viewer instead of the generic file preview.")
-            ) {
-                Toggle("", isOn: Binding(get: { openMarkdown.current }, set: { openMarkdown.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
-            SettingsCardDivider()
-
-            // Markdown Viewer Font Size
-            SettingsCardRow(
-                configurationReview: .json("markdown.fontSize"),
-                String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size"),
-                subtitle: String(localized: "settings.app.markdownFontSize.subtitle", defaultValue: "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0."),
-                controlWidth: Self.columnWidth
-            ) {
-                Stepper(
-                    value: Binding(get: { markdownFontSize.current }, set: { markdownFontSize.set($0) }),
-                    in: 8...96
-                ) {
-                    Text(verbatim: "\(markdownFontSize.current)")
-                        .monospacedDigit()
-                        .frame(width: 28, alignment: .trailing)
-                }
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsMarkdownFontSizeStepper")
-                .accessibilityLabel(
-                    String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size")
-                )
-            }
-            SettingsCardDivider()
-
-            // Markdown Viewer Max Width
-            SettingsCardRow(
-                configurationReview: .json("markdown.maxWidth"),
-                String(localized: "settings.app.markdownMaxWidth", defaultValue: "Markdown Viewer Max Width"),
-                subtitle: String(localized: "settings.app.markdownMaxWidth.subtitle", defaultValue: "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."),
-                controlWidth: Self.columnWidth
-            ) {
-                Stepper(
-                    value: Binding(get: { markdownMaxWidth.current }, set: { markdownMaxWidth.set($0) }),
-                    in: 320...2400,
-                    step: 20
-                ) {
-                    Text(verbatim: "\(markdownMaxWidth.current)")
-                        .monospacedDigit()
-                        .frame(width: 44, alignment: .trailing)
-                }
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsMarkdownMaxWidthStepper")
-                .accessibilityLabel(
-                    String(localized: "settings.app.markdownMaxWidth", defaultValue: "Markdown Viewer Max Width")
-                )
-            }
-            SettingsCardDivider()
-
             // Canvas Pane Gap
             SettingsCardRow(
                 configurationReview: .json("canvas.paneGap"),
@@ -483,35 +414,6 @@ public struct AppSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsCanvasSnappingToggle")
-            }
-            SettingsCardDivider()
-
-            // Markdown Viewer Font Family
-            SettingsCardRow(
-                configurationReview: .json("markdown.fontFamily"),
-                String(localized: "settings.app.markdownFontFamily", defaultValue: "Markdown Viewer Font"),
-                subtitle: String(localized: "settings.app.markdownFontFamily.subtitle", defaultValue: "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.")
-            ) {
-                TextField(
-                    String(localized: "settings.app.markdownFontFamily.placeholder", defaultValue: "System"),
-                    text: Binding(get: { markdownFontFamily.current }, set: { markdownFontFamily.set($0) })
-                )
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 200)
-                .accessibilityIdentifier("SettingsMarkdownFontFamilyTextField")
-            }
-            SettingsCardDivider()
-
-            // Markdown Viewer Wiki Links
-            SettingsCardRow(
-                configurationReview: .json("markdown.wikiLinks"),
-                String(localized: "settings.app.markdownWikiLinks", defaultValue: "Markdown Viewer Wiki Links"),
-                subtitle: String(localized: "settings.app.markdownWikiLinks.subtitle", defaultValue: "Parse [[Note]] and [[Note|Label]] wiki-style links as links to sibling markdown files. Useful inside an Obsidian-style vault; off by default so ordinary [[...]] text renders literally.")
-            ) {
-                Toggle("", isOn: Binding(get: { markdownWikiLinks.current }, set: { markdownWikiLinks.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsMarkdownWikiLinksToggle")
             }
             SettingsCardDivider()
 

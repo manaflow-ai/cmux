@@ -1742,8 +1742,14 @@ html { scroll-behavior: smooth; }
     return null;
   }
 
-  function applyResolvedMarkdownFile(rawPath, result, elements) {
-    mdFileResolveCache[rawPath] = result;
+  // Wiki links (`[[Note]]`) carry a marker class; Swift resolves them against
+  // the enclosing Obsidian vault by note name, not just as sibling paths.
+  function isWikiLinkElement(el) {
+    return !!(el && el.classList && el.classList.contains('cmux-wikilink'));
+  }
+
+  function applyResolvedMarkdownFile(cacheKey, result, elements) {
+    mdFileResolveCache[cacheKey] = result;
     (elements || []).forEach(function(el) {
       if (!el) { return; }
       el.setAttribute('data-cmux-file-checked', '1');
@@ -1755,22 +1761,36 @@ html { scroll-behavior: smooth; }
     });
   }
 
-  function resolveMarkdownCandidate(el, openAfterResolve) {
+  function resolveMarkdownCandidate(el, openAfterResolve, newTab) {
     var rawPath = markdownCandidateForElement(el);
     if (!rawPath) { return false; }
-    var cached = mdFileResolveCache[rawPath];
+    var wiki = isWikiLinkElement(el);
+    // Wiki and plain links can share an href string but resolve differently,
+    // so key the cache on both.
+    var cacheKey = (wiki ? 'w:' : 'p:') + rawPath;
+    var cached = mdFileResolveCache[cacheKey];
     if (cached) {
-      applyResolvedMarkdownFile(rawPath, cached, [el]);
-      if (openAfterResolve && cached.exists) { openMarkdownCandidate(rawPath); }
+      applyResolvedMarkdownFile(cacheKey, cached, [el]);
+      if (openAfterResolve && cached.exists) {
+        openMarkdownCandidate(rawPath, { wikiLink: wiki, newTab: newTab });
+      }
       return cached.exists;
     }
     var requestId = 'mdfile-' + (++mdFileRequestSeq);
-    mdFileResolvePending[requestId] = { rawPath: rawPath, elements: [el], openAfterResolve: !!openAfterResolve };
+    mdFileResolvePending[requestId] = {
+      cacheKey: cacheKey,
+      rawPath: rawPath,
+      wikiLink: wiki,
+      newTab: !!newTab,
+      elements: [el],
+      openAfterResolve: !!openAfterResolve
+    };
     try {
       window.webkit.messageHandlers.cmuxLib.postMessage({
         action: 'resolveMarkdownFile',
         requestId: requestId,
-        path: rawPath
+        path: rawPath,
+        wikiLink: wiki
       });
     } catch (e) { /* no bridge */ }
     return false;
@@ -1780,15 +1800,21 @@ html { scroll-behavior: smooth; }
     var pending = result && mdFileResolvePending[result.requestId];
     if (!pending) { return; }
     delete mdFileResolvePending[result.requestId];
-    applyResolvedMarkdownFile(pending.rawPath, result, pending.elements);
+    applyResolvedMarkdownFile(pending.cacheKey, result, pending.elements);
     if (pending.openAfterResolve && result.exists) {
-      openMarkdownCandidate(pending.rawPath);
+      openMarkdownCandidate(pending.rawPath, { wikiLink: pending.wikiLink, newTab: pending.newTab });
     }
   };
 
-  function openMarkdownCandidate(rawPath) {
+  function openMarkdownCandidate(rawPath, opts) {
+    opts = opts || {};
     try {
-      window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'openMarkdownFile', path: rawPath });
+      window.webkit.messageHandlers.cmuxLib.postMessage({
+        action: 'openMarkdownFile',
+        path: rawPath,
+        wikiLink: !!opts.wikiLink,
+        newTab: !!opts.newTab
+      });
     } catch (e) { /* no bridge */ }
   }
 
@@ -1804,9 +1830,13 @@ html { scroll-behavior: smooth; }
       var href = a.getAttribute('href') || '';
       if (isMarkdownPathLike(href)) {
         a.setAttribute('data-cmux-file-candidate', href);
-        // Eagerly resolve visible markdown links so the user gets
-        // immediate affordance; inline code spans remain lazy-on-hover.
-        resolveMarkdownCandidate(a, false);
+        // Eagerly resolve visible plain markdown links so the user gets
+        // immediate affordance. Wiki links resolve against the whole vault, so
+        // resolve them lazily on hover/click instead of scanning on every
+        // render; inline code spans also remain lazy-on-hover.
+        if (!isWikiLinkElement(a)) {
+          resolveMarkdownCandidate(a, false);
+        }
       }
     });
   }
@@ -1836,8 +1866,12 @@ html { scroll-behavior: smooth; }
     ev.stopPropagation();
     // Do not require the hover/resolve cache to be warm. Swift's
     // openMarkdownFile action resolves and no-ops for missing files,
-    // so click can be deterministic and immediate.
-    openMarkdownCandidate(rawPath);
+    // so click can be deterministic and immediate. A plain click replaces the
+    // current viewer in place; Cmd-click opens the target as a new tab.
+    openMarkdownCandidate(rawPath, {
+      wikiLink: isWikiLinkElement(el),
+      newTab: !!ev.metaKey
+    });
   }, true);
 
   // Last markdown source pushed from Swift, retained so a live settings toggle

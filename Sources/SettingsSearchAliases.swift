@@ -9,6 +9,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.app", defaultValue: "general preferences prefs behavior chrome dock menubar menu bar status notifications telemetry")
         case .terminal:
             return localized("settings.search.alias.section.terminal", defaultValue: "shell scrollback scrollbar scroll bar ghostty tty pty")
+        case .markdown:
+            return localized("settings.search.alias.section.markdown", defaultValue: "markdown md mdx viewer preview readme render font typography wiki links obsidian vault notes")
         case .textBox:
             return localized("settings.search.alias.section.textBox", defaultValue: "textbox text box rich input prompt beta focus composer compose attachments")
         case .sleepyMode:
@@ -66,11 +68,11 @@ enum SettingsSearchAliasIndex {
         "app:preferred-editor": localized("settings.search.alias.setting.app.preferred-editor", defaultValue: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
         "app:supported-file-previews": localized("settings.search.alias.setting.app.supported-file-previews", defaultValue: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
         "app:terminal-config": localized("settings.search.alias.setting.app.terminal-config", defaultValue: "ghostty config configuration terminal settings preview merged file reload macos-option-as-alt option as alt left option right option alt key meta"),
-        "app:markdown-viewer": localized("settings.search.alias.setting.app.markdown-viewer", defaultValue: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
-        "app:markdown-font-size": localized("settings.search.alias.setting.app.markdown-font-size", defaultValue: "markdown.fontSize md markdown viewer font size points zoom scale text bigger smaller larger default"),
-        "app:markdown-font-family": localized("settings.search.alias.setting.app.markdown-font-family", defaultValue: "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),
-        "app:markdown-max-width": localized("settings.search.alias.setting.app.markdown-max-width", defaultValue: "markdown.maxWidth md markdown viewer max width column reading line length pixels px narrow wide"),
-        "app:markdown-wiki-links": localized("settings.search.alias.setting.app.markdown-wiki-links", defaultValue: "markdown.wikiLinks md markdown viewer wiki wikilink wiki-link double bracket obsidian vault note backlink"),
+        "markdown:markdown-viewer": localized("settings.search.alias.setting.app.markdown-viewer", defaultValue: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
+        "markdown:markdown-font-size": localized("settings.search.alias.setting.app.markdown-font-size", defaultValue: "markdown.fontSize md markdown viewer font size points zoom scale text bigger smaller larger default"),
+        "markdown:markdown-font-family": localized("settings.search.alias.setting.app.markdown-font-family", defaultValue: "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),
+        "markdown:markdown-max-width": localized("settings.search.alias.setting.app.markdown-max-width", defaultValue: "markdown.maxWidth md markdown viewer max width column reading line length pixels px narrow wide"),
+        "markdown:markdown-wiki-links": localized("settings.search.alias.setting.app.markdown-wiki-links", defaultValue: "markdown.wikiLinks md markdown viewer wiki wikilink wiki-link double bracket obsidian vault note backlink"),
         "app:file-editor-word-wrap": localized("settings.search.alias.setting.app.file-editor-word-wrap", defaultValue: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
         "app:imessage-mode": localized("settings.search.alias.setting.app.imessage-mode", defaultValue: "app.iMessageMode imessage message messages chat prompt prompts submitted message texting reorder move workspace top agent send"),
         "app:reorder-notification": localized("settings.search.alias.setting.app.reorder-notification", defaultValue: "app.reorderOnNotification notification reorder move workspace top unread sort"),
