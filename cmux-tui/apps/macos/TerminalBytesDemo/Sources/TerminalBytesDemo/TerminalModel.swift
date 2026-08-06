@@ -24,6 +24,20 @@ struct TerminalResizeAcknowledgement: Equatable, Sendable {
     let canonicalChanged: Bool
 }
 
+nonisolated protocol TerminalClock: Sendable {
+    func sleep(for duration: Duration) async throws
+}
+
+nonisolated struct ContinuousTerminalClock: TerminalClock {
+    private let clock = ContinuousClock()
+
+    func sleep(for duration: Duration) async throws {
+        try await clock.sleep(for: duration)
+    }
+}
+
+private let terminalResizeAcknowledgementTimeout = Duration.seconds(2)
+
 func terminalGeometry(
     width: CGFloat,
     height: CGFloat,
@@ -57,13 +71,21 @@ struct GeometryDeliveryState {
         submitted = submission
     }
 
-    mutating func acknowledge(_ acknowledgement: TerminalResizeAcknowledgement) {
+    @discardableResult
+    mutating func acknowledge(_ acknowledgement: TerminalResizeAcknowledgement) -> Bool {
         guard let submitted,
             submitted.requestID == acknowledgement.requestID,
             submitted.geometry == acknowledgement.geometry
-        else { return }
+        else { return false }
         self.submitted = nil
         delivered = acknowledgement.geometry
+        return true
+    }
+
+    mutating func expire(_ submission: TerminalResizeSubmission) -> Bool {
+        guard submitted == self.submitted else { return false }
+        self.submitted = nil
+        return true
     }
 
     mutating func resetConnection() {
@@ -736,18 +758,24 @@ final class TerminalModel {
     @ObservationIgnored private let inputWakeStream: AsyncStream<Void>
     @ObservationIgnored private let inputWakeContinuation: AsyncStream<Void>.Continuation
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
+    @ObservationIgnored private var resizeAcknowledgementTask: Task<Void, Never>?
     @ObservationIgnored private var geometryDelivery = GeometryDeliveryState()
+    @ObservationIgnored private let resizeClock: any TerminalClock
+    @ObservationIgnored private let resizeAcknowledgementTimeout: Duration
     @ObservationIgnored private let connectClient: TerminalConnector
     @ObservationIgnored private let shouldAutoConnect: Bool
     @ObservationIgnored private var didAttemptAutoConnect = false
     @ObservationIgnored private var isShuttingDown = false
     @ObservationIgnored private var connectionOperation: UInt64 = 0
+    @ObservationIgnored private var rendererGeneration: UInt64 = 0
 
     init(
         configuration: DemoLaunchConfiguration = .processEnvironment(),
         retainedClient: TerminalClientHandle? = nil,
         initiallyConnected: Bool = false,
-        connectClient: TerminalConnector? = nil
+        connectClient: TerminalConnector? = nil,
+        resizeClock: any TerminalClock = ContinuousTerminalClock(),
+        resizeAcknowledgementTimeout: Duration = terminalResizeAcknowledgementTimeout
     ) {
         let inputWake = AsyncStream.makeStream(
             of: Void.self,
@@ -758,6 +786,8 @@ final class TerminalModel {
         invitation = configuration.invitation
         terminalID = configuration.terminalID
         self.connectClient = connectClient ?? defaultTerminalConnector
+        self.resizeClock = resizeClock
+        self.resizeAcknowledgementTimeout = resizeAcknowledgementTimeout
         shouldAutoConnect = configuration.autoConnect
         client = retainedClient
         let retainedInvitation = configuration.invitation.trimmingCharacters(
@@ -798,8 +828,6 @@ final class TerminalModel {
                     return
                 }
                 isConnected = true
-                geometryDelivery.resetConnection()
-                sendPendingGeometry()
                 beginUpdates(from: client, operation: operation)
             }
             return
@@ -814,6 +842,8 @@ final class TerminalModel {
             updateTask = nil
             resizeTask?.cancel()
             resizeTask = nil
+            resizeAcknowledgementTask?.cancel()
+            resizeAcknowledgementTask = nil
             inputQueue.removeAll()
             isConnected = false
             frame = ""
@@ -858,8 +888,6 @@ final class TerminalModel {
             self.client = client
             clientInvitation = invitation
             isConnected = true
-            geometryDelivery.resetConnection()
-            sendPendingGeometry()
             beginUpdates(from: client, operation: operation)
         }
     }
@@ -870,6 +898,8 @@ final class TerminalModel {
         updateTask = nil
         resizeTask?.cancel()
         resizeTask = nil
+        resizeAcknowledgementTask?.cancel()
+        resizeAcknowledgementTask = nil
         inputQueue.removeAll()
         isConnected = false
         frame = ""
@@ -897,6 +927,8 @@ final class TerminalModel {
         updateTask = nil
         resizeTask?.cancel()
         resizeTask = nil
+        resizeAcknowledgementTask?.cancel()
+        resizeAcknowledgementTask = nil
         inputQueue.removeAll()
         inputWakeContinuation.finish()
         inputTask?.cancel()
@@ -987,20 +1019,28 @@ final class TerminalModel {
             let geometry = geometryDelivery.pending(isConnected: isConnected)
         else { return }
         let operation = connectionOperation
+        let generation = rendererGeneration
         resizeTask = Task {
             let submission = await client.resize(to: geometry)
-            guard operation == connectionOperation, !isShuttingDown else {
+            guard operation == connectionOperation,
+                generation == rendererGeneration,
+                !isShuttingDown
+            else {
                 resizeTask = nil
+                sendPendingGeometry()
                 return
             }
             geometryDelivery.submit(submission)
             resizeTask = nil
-            if submission != nil {
-                if errorKind == .resizeRejected {
-                    errorKind = nil
-                }
+            if let submission {
+                startResizeAcknowledgementDeadline(
+                    for: submission,
+                    operation: operation,
+                    rendererGeneration: generation
+                )
                 if let snapshot = await client.snapshot(),
                     operation == connectionOperation,
+                    generation == rendererGeneration,
                     !isShuttingDown
                 {
                     apply(snapshot, from: client)
@@ -1011,8 +1051,39 @@ final class TerminalModel {
         }
     }
 
+    private func startResizeAcknowledgementDeadline(
+        for submission: TerminalResizeSubmission,
+        operation: UInt64,
+        rendererGeneration: UInt64
+    ) {
+        resizeAcknowledgementTask?.cancel()
+        let clock = resizeClock
+        let timeout = resizeAcknowledgementTimeout
+        resizeAcknowledgementTask = Task { [weak self] in
+            do {
+                try await clock.sleep(for: timeout)
+            } catch {
+                return
+            }
+            guard let self,
+                operation == self.connectionOperation,
+                rendererGeneration == self.rendererGeneration,
+                !self.isShuttingDown,
+                self.geometryDelivery.expire(submission)
+            else { return }
+            self.resizeAcknowledgementTask = nil
+            self.errorKind = .resizeRejected
+            self.sendPendingGeometry()
+        }
+    }
+
     private func beginUpdates(from client: TerminalClientHandle, operation: UInt64) {
         updateTask?.cancel()
+        resizeAcknowledgementTask?.cancel()
+        resizeAcknowledgementTask = nil
+        rendererGeneration &+= 1
+        let generation = rendererGeneration
+        geometryDelivery.resetConnection()
         updateTask = Task { [weak self] in
             let updates = await client.updates()
             let clock = ContinuousClock()
@@ -1029,6 +1100,7 @@ final class TerminalModel {
                 guard let snapshot = await client.snapshot() else { continue }
                 guard let self,
                     operation == self.connectionOperation,
+                    generation == self.rendererGeneration,
                     !self.isShuttingDown
                 else { break }
                 self.apply(snapshot, from: client)
@@ -1036,11 +1108,18 @@ final class TerminalModel {
             }
             await client.stopUpdates(generation: updates.generation)
         }
+        sendPendingGeometry()
     }
 
     private func apply(_ snapshot: TerminalClientSnapshot, from client: TerminalClientHandle) {
         if let acknowledgement = snapshot.resizeAcknowledgement {
-            geometryDelivery.acknowledge(acknowledgement)
+            if geometryDelivery.acknowledge(acknowledgement) {
+                resizeAcknowledgementTask?.cancel()
+                resizeAcknowledgementTask = nil
+                if errorKind == .resizeRejected {
+                    errorKind = nil
+                }
+            }
         }
         if frame != snapshot.frame {
             frame = snapshot.frame
@@ -1061,6 +1140,8 @@ final class TerminalModel {
         updateTask = nil
         resizeTask?.cancel()
         resizeTask = nil
+        resizeAcknowledgementTask?.cancel()
+        resizeAcknowledgementTask = nil
         inputQueue.removeAll()
         isConnected = false
         geometryDelivery.resetConnection()

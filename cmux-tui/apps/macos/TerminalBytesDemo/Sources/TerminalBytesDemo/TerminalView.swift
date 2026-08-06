@@ -502,6 +502,10 @@ private func remapTerminalSelection(
         return NSRange(location: location, length: 0)
     }
 
+    if range.location >= edit.range.location, rangeEnd <= editEnd {
+        return NSRange(location: edit.range.location, length: 0)
+    }
+
     let start: Int
     if range.location < edit.range.location {
         start = range.location

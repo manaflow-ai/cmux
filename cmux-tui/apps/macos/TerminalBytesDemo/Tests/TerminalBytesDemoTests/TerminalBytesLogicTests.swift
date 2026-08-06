@@ -548,10 +548,11 @@ struct TerminalBytesLogicTests {
                 autoConnect: false
             ),
             retainedClient: handle,
-            initiallyConnected: true
+            initiallyConnected: false
         )
 
         model.connect()
+        #expect(await waitUntil { model.isConnected })
         let first = TerminalGeometry(cols: 100, rows: 30)
         let second = TerminalGeometry(cols: 120, rows: 40)
         model.resize(to: first)
