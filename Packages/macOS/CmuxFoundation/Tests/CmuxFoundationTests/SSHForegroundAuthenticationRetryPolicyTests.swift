@@ -386,6 +386,96 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
     }
 
+    @Test func cleanupDeadlineResumesOwnedProcessesBeforeReturning() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-cleanup-deadline-\(UUID().uuidString)", isDirectory: true)
+        let leafScript = root.appendingPathComponent("leaf.sh")
+        let leafPIDFile = root.appendingPathComponent("leaf.pid")
+        let processStateFile = root.appendingPathComponent("leaf.state")
+        let clockFile = root.appendingPathComponent("clock")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "0\n".write(to: clockFile, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        trap '' HUP INT TERM
+        printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
+        while :; do /bin/sleep 30; done
+        """.write(to: leafScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: leafScript.path)
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: "/usr/bin/script -q /dev/null /bin/sh \"$CMUX_TEST_LEAF_SCRIPT\""
+        )
+        let command = """
+        \(policy.processTreeTerminationShellFunction())
+        cmux_ssh_auth_now_millis() {
+          cmux_test_now=$(/bin/cat "$CMUX_TEST_CLOCK_FILE") || return 1
+          cmux_test_now=$((cmux_test_now + 200))
+          printf '%s\\n' "$cmux_test_now" > "$CMUX_TEST_CLOCK_FILE" || return 1
+          printf '%s\\n' "$cmux_test_now"
+        }
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        cmux_test_ready_attempt=0
+        while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -s "$CMUX_TEST_LEAF_PID" || exit 98
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        /usr/bin/env LC_ALL=C LANG=C /bin/ps -o state= \
+          -p "$(/bin/cat "$CMUX_TEST_LEAF_PID")" > "$CMUX_TEST_PROCESS_STATE" 2>/dev/null || true
+        trap - EXIT
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_CLOCK_FILE": clockFile.path,
+            "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
+            "CMUX_TEST_LEAF_PID": leafPIDFile.path,
+            "CMUX_TEST_PROCESS_STATE": processStateFile.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        let startedAt = Date.now
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+        let elapsed = Date.now.timeIntervalSince(startedAt)
+
+        let leafPID = try #require(Int32(
+            String(contentsOf: leafPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        let leafGroup = Darwin.getpgid(leafPID)
+        defer {
+            if leafGroup > 0 {
+                Darwin.kill(-leafGroup, SIGKILL)
+            }
+            Darwin.kill(leafPID, SIGKILL)
+        }
+        let processState = try String(contentsOf: processStateFile, encoding: .utf8)
+
+        #expect(process.terminationStatus == 0)
+        #expect(elapsed < 3, "Deadline fallback took \(elapsed) seconds")
+        #expect(Darwin.kill(leafPID, 0) == 0)
+        #expect(!processState.contains("T"), "Deadline fallback left a stopped process: \(processState)")
+    }
+
     @Test func doesNotRunSharedGroupTermHandlerDuringCleanup() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

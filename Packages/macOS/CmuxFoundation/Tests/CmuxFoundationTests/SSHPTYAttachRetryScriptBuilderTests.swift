@@ -5,6 +5,35 @@ import Testing
 @testable import CmuxFoundation
 
 struct SSHPTYAttachRetryScriptBuilderTests {
+    @Test func finalAuthenticationCleanupRemovesEveryStateFile() {
+        let script = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true
+        ).joined(separator: "\n")
+        let stateFileNames = [
+            "identity",
+            "identity.new",
+            "anchor",
+            "cancel",
+            "processes",
+            "processes.stopped",
+            "owned",
+            "owned.next",
+            "groups",
+            "groups.next",
+            "groups.resume",
+            "frozen",
+            "individuals",
+            "ordered",
+            "signaled.groups",
+            "signaled.pids",
+        ]
+
+        for stateFileName in stateFileNames {
+            #expect(script.contains("\"$CMUX_SSH_AUTH_GROUP_DIR/\(stateFileName)\""))
+        }
+    }
+
     @Test func retriesInitialAuthenticationBeforeAttaching() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-retry-\(UUID().uuidString)")
