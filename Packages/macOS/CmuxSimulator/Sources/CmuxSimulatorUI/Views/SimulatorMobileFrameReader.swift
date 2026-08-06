@@ -73,8 +73,8 @@ public final class SimulatorMobileFrameReader: Sendable {
         return SimulatorMobileFrame(
             sequence: presentation.sequence,
             format: format,
-            pixelWidth: snapshot.width,
-            pixelHeight: snapshot.height,
+            pixelWidth: presentation.image.width,
+            pixelHeight: presentation.image.height,
             displayScale: displayScale,
             data: data
         )

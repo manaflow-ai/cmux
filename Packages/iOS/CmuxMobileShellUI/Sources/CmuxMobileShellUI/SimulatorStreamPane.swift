@@ -38,7 +38,8 @@ struct SimulatorStreamPane: View {
     @State private var image: UIImage?
     @State private var imageSequence: UInt64?
     @State private var pendingText = ""
-    @State private var dragStarted = false
+    @State private var pointerSequenceActive = false
+    @State private var pointerMovedBeyondTapThreshold = false
     @State private var paneSize = CGSize.zero
     @State private var pointerPipe = SimulatorPointerPipe()
     @FocusState private var textFocused: Bool
@@ -104,25 +105,41 @@ struct SimulatorStreamPane: View {
             .onChanged { value in
                 guard state.isOwnedByCurrentConnection else { return }
                 let mapper = SimulatorStreamCoordinateMapper(viewSize: viewSize, imageSize: imageSize)
-                if !dragStarted {
-                    dragStarted = true
+                guard touchPointPolicy.isDrag(start: value.startLocation, location: value.location) else {
+                    return
+                }
+                if !pointerSequenceActive {
+                    pointerSequenceActive = true
+                    pointerMovedBeyondTapThreshold = true
                     sendPointer(.began, point: value.startLocation, mapper: mapper)
                 }
                 sendPointer(.moved, point: value.location, mapper: mapper)
             }
             .onEnded { value in
                 guard state.isOwnedByCurrentConnection else {
-                    dragStarted = false
+                    resetPointerSequence()
                     return
                 }
                 let mapper = SimulatorStreamCoordinateMapper(viewSize: viewSize, imageSize: imageSize)
-                let endPoint = touchPointPolicy.endPoint(
+                let isDrag = pointerMovedBeyondTapThreshold || touchPointPolicy.isDrag(
                     start: value.startLocation,
                     location: value.location
                 )
-                sendPointer(.ended, point: endPoint, mapper: mapper)
-                dragStarted = false
+                if isDrag {
+                    if !pointerSequenceActive {
+                        sendPointer(.began, point: value.startLocation, mapper: mapper)
+                    }
+                    sendPointer(.ended, point: value.location, mapper: mapper)
+                } else {
+                    sendPointer(.tap, point: value.startLocation, mapper: mapper)
+                }
+                resetPointerSequence()
             }
+    }
+
+    private func resetPointerSequence() {
+        pointerSequenceActive = false
+        pointerMovedBeyondTapThreshold = false
     }
 
     private func sendPointer(
