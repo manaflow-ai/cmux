@@ -1,6 +1,11 @@
 import Foundation
 
 actor AgentForkExecutableIdentityResolver {
+    private typealias PreparedConversationTransferExecutable = (
+        identity: AgentConversationForkExecutableIdentity,
+        binding: AgentConversationForkExecutableBinding
+    )
+
     private let maxOutstandingResolutionWork = 16
     private var identityTasks: [String: Task<AgentForkSupport.ForkProbeExecutableIdentity?, Never>] = [:]
     private var validationResolutionTasks: [String: Task<AgentForkSupport.ForkValidationExecutableResolution, Never>] = [:]
@@ -16,7 +21,9 @@ actor AgentForkExecutableIdentityResolver {
         binding: AgentConversationForkExecutableBinding
     )? {
         guard reserveTransferValidationWork() else { return nil }
-        let task = Task.detached(priority: .userInitiated) {
+        let task: Task<PreparedConversationTransferExecutable?, Never> = Task.detached(
+            priority: .userInitiated
+        ) {
             let deadline = ContinuousClock().now.advanced(by: .seconds(3))
             guard let identity = AgentConversationForkExecutableIdentity.capture(
                 executablePath: executablePath,
@@ -56,7 +63,9 @@ actor AgentForkExecutableIdentityResolver {
         validatedBinding: AgentConversationForkExecutableBinding? = nil
     ) async -> AgentConversationForkExecutableIdentity? {
         guard reserveTransferValidationWork() else { return nil }
-        let task = Task.detached(priority: .userInitiated) {
+        let task: Task<AgentConversationForkExecutableIdentity?, Never> = Task.detached(
+            priority: .userInitiated
+        ) {
             let deadline = ContinuousClock().now.advanced(by: .seconds(3))
             if let validatedBinding,
                !validatedBinding.boundArtifactIsValid(deadline: deadline) {
