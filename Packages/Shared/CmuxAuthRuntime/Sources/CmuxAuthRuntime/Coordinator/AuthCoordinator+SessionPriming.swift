@@ -155,6 +155,7 @@ extension AuthCoordinator {
             sessionCache.setHasTokens(true)
             currentUser = fixtureUser
             isAuthenticated = true
+            publishAuthenticatedSessionIdentity()
             return
         }
 
