@@ -235,9 +235,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_explicit_source_and_event() {
+    fn parses_short_positional_source_and_event() {
         assert_eq!(
-            parse_args(["--source", "codex", "--event", "Stop"].map(str::to_owned)).unwrap(),
+            parse_args(["codex", "Stop"].map(str::to_owned)).unwrap(),
             Args { source: "codex".into(), native_event: "Stop".into() }
         );
     }

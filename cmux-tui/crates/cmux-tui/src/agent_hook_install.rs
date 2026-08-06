@@ -1040,6 +1040,8 @@ mod tests {
         assert!(!text.contains("cmux-tui-cmux-irc"));
         assert_eq!(text.matches(COMMAND_MARKER).count(), CODEX_EVENTS.len());
         assert!(text.contains("CMUX_TUI_SOCKET"));
+        assert!(text.contains("CMUX_TUI_HOOK"));
+        assert!(!text.contains(&context.installed_helper().to_string_lossy().to_string()));
         let parsed: Value = serde_json::from_str(&text).unwrap();
         assert!(visit_strings(&parsed, &mut |value| value.contains("printf '%s\\n' '{}'")));
 
@@ -1050,6 +1052,72 @@ mod tests {
         assert!(text.contains("custom-hook"));
         assert!(text.contains("/tmp/cmux-irc"));
         assert!(!text.contains(COMMAND_MARKER));
+    }
+
+    #[test]
+    fn claude_commands_are_async_without_weakening_other_provider_receipts() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install =
+            Plan { action: Action::Install, providers: vec!["codex".into(), "claude".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+
+        for (provider, config, expected_async) in [
+            ("codex", context.home.join(".codex/hooks.json"), None),
+            ("claude", context.home.join(".claude/settings.json"), Some(true)),
+        ] {
+            let root: Value = serde_json::from_slice(&fs::read(config).unwrap()).unwrap();
+            let hook = &root["hooks"]["Stop"][0]["hooks"][0];
+            assert_eq!(hook.get("async").and_then(Value::as_bool), expected_async, "{provider}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_hook_noops_without_session_helper_and_uses_short_positional_arguments() {
+        use std::process::Command;
+
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        let capture = root.path().join("capture");
+        let helper_source = context.helper_source.as_ref().unwrap();
+        atomic_write(
+            helper_source,
+            b"#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CAPTURE\"\n",
+            Some(0o755),
+        )
+        .unwrap();
+        context.helper_source = Some(helper_source.clone());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+        let root: Value =
+            serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
+                .unwrap();
+        let command = root["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
+
+        let output = Command::new("/bin/sh")
+            .args(["-c", command])
+            .env("CMUX_TUI_SOCKET", "/tmp/cmux-test.sock")
+            .env_remove("CMUX_TUI_HOOK")
+            .env("CAPTURE", &capture)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"{}\n");
+        assert!(!capture.exists(), "missing helper identity must be a process-free no-op");
+
+        let output = Command::new("/bin/sh")
+            .args(["-c", command])
+            .env("CMUX_TUI_SOCKET", "/tmp/cmux-test.sock")
+            .env("CMUX_TUI_HOOK", context.installed_helper())
+            .env("CAPTURE", &capture)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"{}\n");
+        assert_eq!(fs::read_to_string(capture).unwrap(), "codex Stop\n");
     }
 
     #[test]
@@ -1107,7 +1175,11 @@ mod tests {
         for (path, bytes) in &snapshots {
             assert_eq!(&fs::read(path).unwrap(), bytes);
             assert!(String::from_utf8_lossy(bytes).contains(PLUGIN_MARKER));
-            assert!(String::from_utf8_lossy(bytes).contains("cmux-tui-hook"));
+            assert!(String::from_utf8_lossy(bytes).contains("CMUX_TUI_HOOK"));
+            assert!(
+                !String::from_utf8_lossy(bytes)
+                    .contains(&context.installed_helper().to_string_lossy().to_string())
+            );
         }
 
         let uninstall = Plan { action: Action::Uninstall, providers: install.providers };

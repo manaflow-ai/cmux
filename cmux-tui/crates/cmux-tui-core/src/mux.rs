@@ -17691,6 +17691,7 @@ mod tests {
             extra_env: vec![
                 ("API_BEARER_TOKEN".into(), sentinel.into()),
                 ("CMUX_TUI_SOCKET".into(), "/tmp/cmux.sock".into()),
+                ("CMUX_TUI_HOOK".into(), "/tmp/cmux-tui-hook".into()),
             ],
             ..SurfaceOptions::default()
         };
@@ -17698,8 +17699,10 @@ mod tests {
         assert!(!encoded.contains(sentinel));
         assert!(!encoded.contains("API_BEARER_TOKEN"));
         assert!(!encoded.contains("/tmp/cmux.sock"));
+        assert!(!encoded.contains("/tmp/cmux-tui-hook"));
         assert!(!encoded.contains("/bin/sh"));
         assert!(encoded.contains("CMUX_TUI_SOCKET"));
+        assert!(encoded.contains("CMUX_TUI_HOOK"));
     }
 
     #[test]
