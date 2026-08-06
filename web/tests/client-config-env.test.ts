@@ -53,6 +53,26 @@ describe("client config env validation", () => {
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
   });
 
+  test("requires the hosted coderouter Pro gate in Vercel production", () => {
+    const {
+      CODEROUTER_HOSTED_PRO_REQUIRED: _hostedProRequired,
+      ...baseEnv
+    } = requiredEnv;
+    const result = importEnv({
+      ...baseEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      ...requiredSubrouterDeploymentEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "CODEROUTER_HOSTED_PRO_REQUIRED is required for deployed production runtimes",
+    );
+  });
+
   test("rejects the retired annual Pro price override at startup", () => {
     const result = importEnv({
       ...requiredEnv,
