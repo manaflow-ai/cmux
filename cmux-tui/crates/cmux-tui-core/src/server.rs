@@ -8313,17 +8313,14 @@ struct RenderClientState {
     graphics_placement_revision: u64,
     graphics_image_generations: Arc<[(u32, u64)]>,
     graphics_image_generations_match_snapshot: bool,
+    #[cfg(test)]
+    image_generation_scan_count: usize,
 }
-
-#[cfg(test)]
-static RENDER_CLIENT_IMAGE_SCAN_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 fn render_client_image_delta(
     previous: &[(u32, u64)],
     next: &[(u32, u64)],
 ) -> (HashSet<u32>, Vec<u32>) {
-    #[cfg(test)]
-    RENDER_CLIENT_IMAGE_SCAN_COUNT.fetch_add(previous.len().max(next.len()), Ordering::Relaxed);
     let mut changed = HashSet::new();
     let mut removed = Vec::new();
     let (mut previous_index, mut next_index) = (0, 0);
@@ -8383,6 +8380,8 @@ impl RenderClientState {
             graphics_placement_revision: graphics_delta.placement_revision,
             graphics_image_generations,
             graphics_image_generations_match_snapshot,
+            #[cfg(test)]
+            image_generation_scan_count: 0,
         }
     }
 
@@ -8439,6 +8438,13 @@ impl RenderClientState {
                     (HashSet::new(), Vec::new())
                 }
             } else {
+                #[cfg(test)]
+                {
+                    self.image_generation_scan_count += self
+                        .graphics_image_generations
+                        .len()
+                        .max(graphics_delta.image_generations.len());
+                }
                 render_client_image_delta(
                     &self.graphics_image_generations,
                     &graphics_delta.image_generations,
@@ -11493,7 +11499,6 @@ mod tests {
         let mut frame = render_protocol_frame(&mut terminal, &mut render_state);
         let placement_revision = frame.frame.kitty_graphics_delta.placement_revision;
         let mut client = RenderClientState::new(Arc::new(RenderService::new()), &frame);
-        RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
 
         replace_render_image(&mut frame, 41, [0, 0, 255]);
         let delta = serde_json::to_value(client.delta_message(1, &frame)).unwrap();
@@ -11506,8 +11511,7 @@ mod tests {
             1
         );
         assert_eq!(
-            RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
-            0,
+            client.image_generation_scan_count, 0,
             "pixel-only animation rebuilt the complete image-generation map"
         );
         assert_eq!(
@@ -11528,15 +11532,13 @@ mod tests {
         replace_render_image(&mut skipped, 41, [0, 0, 255]);
         let mut latest = skipped;
         replace_render_image(&mut latest, 42, [255, 255, 0]);
-        RENDER_CLIENT_IMAGE_SCAN_COUNT.store(0, Ordering::Relaxed);
 
         let delta = serde_json::to_value(client.delta_message(1, &latest)).unwrap();
         let images = delta["graphics"]["images"].as_array().unwrap();
 
         assert_eq!(images.len(), 2, "{delta:#}");
         assert_eq!(
-            RENDER_CLIENT_IMAGE_SCAN_COUNT.load(Ordering::Relaxed),
-            2,
+            client.image_generation_scan_count, 2,
             "a skipped frame did not use one bounded linear image diff"
         );
         assert!(delta["graphics"].get("placements").is_none(), "{delta:#}");
