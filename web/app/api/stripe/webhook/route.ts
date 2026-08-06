@@ -14,6 +14,7 @@ import {
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
 import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
+import { revokeRouteTokensForUser as revokeRouteTokensForUserDefault } from "../../../../services/coderouter/repository";
 import { isStripeBillingConfigured, stripe } from "../../../../services/billing/stripe";
 import {
   recordSpanError,
@@ -32,6 +33,7 @@ type StripeWebhookDependencies = {
   recordCheckoutCompletion: typeof recordCheckoutCompletionDefault;
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
+  revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
 };
 
 const defaultDependencies: StripeWebhookDependencies = {
@@ -42,6 +44,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   recordCheckoutCompletion: recordCheckoutCompletionDefault,
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
   sendProSignupWelcome: sendProSignupWelcomeDefault,
+  revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
 };
 
 export const POST = makeStripeWebhookHandler();
@@ -159,7 +162,10 @@ async function processStripeEvent(
     case "customer.subscription.created":
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
-      const result = await dependencies.applySubscriptionUpdate(event.data.object);
+      const result = await applySubscriptionEntitlementUpdate(
+        event.data.object,
+        dependencies,
+      );
       return "skipped" in result
         ? { skipped: "subscription_unmapped" }
         : { processed: event.type };
@@ -169,7 +175,10 @@ async function processStripeEvent(
       const subscriptionId = invoiceSubscriptionId(event.data.object);
       if (!subscriptionId) return { skipped: "invoice_without_subscription" };
       const subscription = await dependencies.stripe().subscriptions.retrieve(subscriptionId);
-      const result = await dependencies.applySubscriptionUpdate(subscription);
+      const result = await applySubscriptionEntitlementUpdate(
+        subscription,
+        dependencies,
+      );
       return "skipped" in result
         ? { skipped: "invoice_subscription_unmapped" }
         : { processed: event.type };
@@ -177,6 +186,21 @@ async function processStripeEvent(
     default:
       return { skipped: "event_type" };
   }
+}
+
+async function applySubscriptionEntitlementUpdate(
+  subscription: Stripe.Subscription,
+  dependencies: StripeWebhookDependencies,
+) {
+  const result = await dependencies.applySubscriptionUpdate(subscription);
+  if (
+    !("skipped" in result)
+    && result.scope === "user"
+    && !result.isActive
+  ) {
+    await dependencies.revokeCoderouterRouteTokens(result.stackUserId);
+  }
+  return result;
 }
 
 function isPersonalProCheckout(session: Stripe.Checkout.Session): boolean {
