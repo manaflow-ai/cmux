@@ -155,6 +155,27 @@ import Testing
         )
     }
 
+    @Test func redactsPunctuationInsideUnquotedCredentialValues() {
+        for input in [
+            "token=abc;def",
+            "token=abc)def",
+            "token=abc]def",
+            "token=abc,def",
+            "token=abc}def",
+        ] {
+            #expect(scrubber.scrub(input) == "token=<redacted-secret>")
+        }
+
+        #expect(
+            scrubber.scrub("token=abc;page=2")
+                == "token=<redacted-secret>;page=2"
+        )
+        #expect(
+            scrubber.scrub("env TOKEN=abc,KEEP=2")
+                == "env TOKEN=<redacted-secret>,KEEP=2"
+        )
+    }
+
     @Test func redactsEnvStyleSecretAssignmentWithLongerKeyName() {
         // The sensitive marker is embedded in a longer env identifier.
         #expect(
