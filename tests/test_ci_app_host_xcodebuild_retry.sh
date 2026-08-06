@@ -9,10 +9,11 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${CFFIXED_USER_HOME:-<unset>}" \
     "${XDG_CONFIG_HOME:-<unset>}" \
     >> "$CMUX_CAPTURE_XCODEBUILD_PARENT_ENV"
-  printf '%s|%s|%s|%s|%s|%s\n' \
+  printf '%s|%s|%s|%s|%s|%s|%s\n' \
     "${TEST_RUNNER_HOME:-<unset>}" \
     "${TEST_RUNNER_CFFIXED_USER_HOME:-<unset>}" \
     "${TEST_RUNNER_XDG_CONFIG_HOME:-<unset>}" \
+    "${TEST_RUNNER_SSH_AUTH_SOCK-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_ISOLATION_REQUIRED:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME:-<unset>}" \
@@ -132,7 +133,7 @@ fi
 isolated_runner_count="$(awk -F '|' \
   -v home="$RESOLVED_APP_HOST_HOME" \
   -v xdg="$RESOLVED_APP_HOST_XDG_CONFIG_HOME" '
-  $1 == home && $2 == home && $3 == xdg && $4 == "1" && $5 == home && $6 == xdg {
+  $1 == home && $2 == home && $3 == xdg && $4 == "" && $5 == "1" && $6 == home && $7 == xdg {
     count += 1
   }
   END { print count + 0 }

@@ -27,6 +27,7 @@ TEST_RUNNER_ENVIRONMENT_KEYS = (
     "HOME",
     "CFFIXED_USER_HOME",
     "XDG_CONFIG_HOME",
+    "SSH_AUTH_SOCK",
     "CMUX_APP_HOST_ISOLATION_REQUIRED",
     "CMUX_APP_HOST_EXPECTED_HOME",
     "CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME",
@@ -115,9 +116,13 @@ def main() -> int:
         raise SystemExit("FAIL: isolated app-host setup step has no run script")
 
     requirements = {
-        "per-shard app-host home": (
-            "APP_HOST_HOME=\"${RUNNER_TEMP}/cmux-app-host-home-"
-            "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${{ matrix.shard }}\""
+        "fixed-width app-host key": (
+            "APP_HOST_KEY=\"$(printf '%s' "
+            "\"${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${{ matrix.shard }}\" "
+            "| shasum -a 256 | cut -c1-12)\""
+        ),
+        "short per-shard app-host home": (
+            'APP_HOST_HOME="${RUNNER_TEMP}/ah-${APP_HOST_KEY}"'
         ),
         "Core Foundation home redirect": (
             'echo "CFFIXED_USER_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"'
@@ -133,6 +138,21 @@ def main() -> int:
     }
     for context, needle in requirements.items():
         require(setup_run, needle, context)
+
+    # RemoteTmuxHost appends a fixed 55-byte suffix to HOME before OpenSSH
+    # binds its transient control socket. Keep deterministic headroom on the
+    # self-hosted runner instead of relying on today's decimal run-id length.
+    representative_home = "/Users/runner/work/_temp/ah-" + ("a" * 12)
+    remote_tmux_bound_path = (
+        representative_home
+        + "/.cmux/ssh/tmux-"
+        + "-"
+        + ("0" * 16)
+        + ".sock."
+        + ("x" * 16)
+    )
+    if len(remote_tmux_bound_path.encode("utf-8")) > 103:
+        raise SystemExit("FAIL: isolated app-host home exceeds AF_UNIX path budget")
 
     guard_step = require_step(
         "workflow-guard-tests", "Validate app-host user configuration isolation"
@@ -198,6 +218,7 @@ def main() -> int:
         "app-host XDG test-runner redirect": (
             '"TEST_RUNNER_XDG_CONFIG_HOME=$app_host_xdg_config_home"'
         ),
+        "app-host SSH agent removal": '"TEST_RUNNER_SSH_AUTH_SOCK="',
         "app-host expected HOME marker": (
             '"TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=$app_host_home"'
         ),

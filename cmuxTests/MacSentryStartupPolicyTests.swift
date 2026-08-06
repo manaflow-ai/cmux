@@ -26,6 +26,7 @@ private func validateAppHostUserConfigurationHome(
     #expect(environment["HOME"] == expectedHome)
     #expect(environment["CFFIXED_USER_HOME"] == expectedHome)
     #expect(environment["XDG_CONFIG_HOME"] == expectedXDGConfigHome)
+    #expect(environment["SSH_AUTH_SOCK"] == "")
     #expect(FileManager.default.homeDirectoryForCurrentUser.path == expectedHome)
     #expect(
         FileManager.default.urls(

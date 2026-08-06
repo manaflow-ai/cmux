@@ -3064,6 +3064,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             arguments: ["hooks", "codex", "install", "--yes"],
             environment: [
                 "HOME": root.path,
+                "CFFIXED_USER_HOME": root
+                    .appendingPathComponent("inherited-app-host", isDirectory: true).path,
+                "XDG_CONFIG_HOME": root
+                    .appendingPathComponent("inherited-app-host/.config", isDirectory: true).path,
+                "CMUX_APP_HOST_ISOLATION_REQUIRED": "1",
                 "CODEX_HOME": codexHome.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
