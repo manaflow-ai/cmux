@@ -43,7 +43,7 @@ struct OnboardingScreenshot: View {
             }
             .clipped()
         }
-        .frame(maxWidth: .infinity, maxHeight: preferredFrameHeight)
+        .frame(maxWidth: .infinity, maxHeight: preferredFrameHeight, alignment: .top)
         .opacity(imagesAreReady ? 1 : 0)
         .accessibilityElement()
         .accessibilityLabel(accessibilityLabel)
@@ -78,7 +78,7 @@ struct OnboardingScreenshot: View {
         if dynamicTypeSize.isAccessibilitySize {
             return 360
         }
-        return horizontalSizeClass == .regular ? 620 : 480
+        return horizontalSizeClass == .regular ? 700 : 560
     }
 
     private var language: OnboardingScreenshotLanguage {

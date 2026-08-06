@@ -22,11 +22,11 @@ struct OnboardingSceneContent<Visual: View>: View {
                         .layoutPriority(1)
                     visual
                         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                        .frame(maxWidth: 520, maxHeight: .infinity)
+                        .frame(maxWidth: 520, maxHeight: .infinity, alignment: .top)
                 }
                 .padding(.horizontal, wideHorizontalPadding)
                 .padding(.vertical, wideVerticalPadding)
-                .frame(maxWidth: 980, maxHeight: .infinity)
+                .frame(maxWidth: 980, maxHeight: .infinity, alignment: .top)
             } else {
                 VStack(spacing: 18) {
                     OnboardingSceneCopy(title: title, message: message, alignment: .center)
@@ -34,15 +34,15 @@ struct OnboardingSceneContent<Visual: View>: View {
                         .layoutPriority(1)
                     visual
                         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                        .frame(maxWidth: 520, maxHeight: .infinity)
+                        .frame(maxWidth: 520, maxHeight: .infinity, alignment: .top)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
                 .padding(.bottom, 8)
-                .frame(maxWidth: 620, maxHeight: .infinity)
+                .frame(maxWidth: 620, maxHeight: .infinity, alignment: .top)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var usesWideLayout: Bool {
