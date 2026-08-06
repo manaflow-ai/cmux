@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -90,6 +91,17 @@ var browserCommands = map[string]browserCommandSpec{
 }
 
 var commandIndex map[string]*commandSpec
+
+var callerTTYFDLinkPaths = []string{
+	"/proc/self/fd/0",
+	"/proc/self/fd/1",
+	"/proc/self/fd/2",
+	"/dev/fd/0",
+	"/dev/fd/1",
+	"/dev/fd/2",
+}
+
+var callerTTYCommand = defaultCallerTTYCommand
 
 func init() {
 	// Apply per-command overrides from cli_overrides.go onto the generated specs.
@@ -235,6 +247,9 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 	for key, value := range spec.defaultParams {
 		params[key] = value
 	}
+	var notifyHasExplicitWorkspace bool
+	var notifyHasExplicitSurface bool
+	var notifyHasExplicitWindow bool
 
 	if !spec.noParams {
 		parsed, err := parseFlags(args, spec.flagKeys, spec.repeatKeys)
@@ -313,11 +328,22 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 		if specUsesParam(spec, "surface_id") {
 			applySurfaceEnvFallback(params)
 		}
+		if spec.name == "notify" {
+			_, notifyHasExplicitWorkspace = parsed.flags["workspace"]
+			_, notifyHasExplicitSurface = parsed.flags["surface"]
+			_, notifyHasExplicitWindow = parsed.flags["window"]
+		}
 	}
 
 	method := spec.v2Method
 	if spec.name == "notify" {
-		method = applyNotifyCallerEnv(method, params)
+		method = applyNotifyCallerEnv(
+			method,
+			params,
+			notifyHasExplicitWorkspace,
+			notifyHasExplicitSurface,
+			notifyHasExplicitWindow,
+		)
 	}
 	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
 	if err != nil {
@@ -869,22 +895,130 @@ func applySurfaceEnvFallback(params map[string]any) {
 	}
 }
 
-func applyNotifyCallerEnv(method string, params map[string]any) string {
-	if method != "notification.create" {
+func applyNotifyCallerEnv(
+	method string,
+	params map[string]any,
+	hasExplicitWorkspace bool,
+	hasExplicitSurface bool,
+	hasExplicitWindow bool,
+) string {
+	if method != "notification.create" || hasExplicitSurface || hasExplicitWindow {
 		return method
 	}
 	workspaceID, _ := params["workspace_id"].(string)
 	surfaceID, _ := params["surface_id"].(string)
 	workspaceID = strings.TrimSpace(workspaceID)
 	surfaceID = strings.TrimSpace(surfaceID)
-	if workspaceID == "" || surfaceID == "" {
-		return method
+	if workspaceID != "" {
+		params["preferred_workspace_id"] = workspaceID
 	}
-	params["preferred_workspace_id"] = workspaceID
-	params["preferred_surface_id"] = surfaceID
+	if surfaceID != "" {
+		params["preferred_surface_id"] = surfaceID
+	}
 	delete(params, "workspace_id")
 	delete(params, "surface_id")
+	if runningInsideTmux() && !hasExplicitWorkspace {
+		params["prefer_tty"] = true
+	}
+	if ttyName := resolveCallerTTYName(); ttyName != "" {
+		params["caller_tty"] = ttyName
+	}
 	return "notification.create_for_caller"
+}
+
+func runningInsideTmux() bool {
+	return normalizedEnvValue("TMUX") != "" || normalizedEnvValue("TMUX_PANE") != ""
+}
+
+func resolveCallerTTYName() string {
+	for _, key := range []string{"CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"} {
+		if ttyName := normalizedTTYName(os.Getenv(key)); ttyName != "" {
+			return ttyName
+		}
+	}
+	for _, path := range callerTTYFDLinkPaths {
+		if target, err := os.Readlink(path); err == nil {
+			if ttyName := normalizedTTYName(target); ttyName != "" {
+				return ttyName
+			}
+		}
+	}
+	if ttyName := normalizedTTYName(callerTTYCommand()); ttyName != "" {
+		return ttyName
+	}
+	for _, key := range []string{"TTY", "SSH_TTY"} {
+		if ttyName := normalizedTTYName(os.Getenv(key)); ttyName != "" {
+			return ttyName
+		}
+	}
+	return ""
+}
+
+func defaultCallerTTYCommand() string {
+	pid := os.Getpid()
+	for range 8 {
+		if pid <= 1 {
+			break
+		}
+		cmd := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "tty=", "-o", "ppid=")
+		cmd.Stderr = io.Discard
+		output, err := cmd.Output()
+		if err != nil {
+			break
+		}
+		fields := strings.Fields(string(output))
+		if len(fields) < 2 {
+			break
+		}
+		if normalizedTTYName(fields[0]) != "" {
+			return fields[0]
+		}
+		parentPID, err := strconv.Atoi(fields[len(fields)-1])
+		if err != nil || parentPID == pid {
+			break
+		}
+		pid = parentPID
+	}
+	return ""
+}
+
+func normalizedTTYName(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "not a tty" {
+		return ""
+	}
+	if after, ok := strings.CutPrefix(trimmed, "/dev/"); ok {
+		return normalizedTTYDeviceName(after)
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return ""
+	}
+	return normalizedTTYDeviceName(trimmed)
+}
+
+func normalizedTTYDeviceName(name string) string {
+	trimmed := strings.Trim(name, "/")
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "pts/") {
+		suffix := strings.TrimPrefix(trimmed, "pts/")
+		if suffix != "" && !strings.Contains(suffix, "/") {
+			return suffix
+		}
+		return ""
+	}
+	if strings.Contains(trimmed, "/") {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "tty") || strings.HasPrefix(trimmed, "cu.") {
+		return trimmed
+	}
+	return ""
+}
+
+func normalizedEnvValue(key string) string {
+	return strings.TrimSpace(os.Getenv(key))
 }
 
 func defaultRelayOutput(resp string) string {

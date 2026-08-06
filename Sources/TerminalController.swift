@@ -13271,7 +13271,7 @@ class TerminalController {
     /// bodies on the socket-worker thread.
     private nonisolated func parseNotificationPayload(_ args: String) -> (title: String, subtitle: String, body: String, meta: AgentNotificationMeta?) {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ("Notification", "", "", nil) }
+        guard !trimmed.isEmpty else { return (Self.defaultNotificationTitle, "", "", nil) }
         var parts = trimmed.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         var meta: AgentNotificationMeta? = nil
         if parts.count == 4 {
@@ -13299,7 +13299,7 @@ class TerminalController {
         let body = parts.count > 2
             ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
             : (parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "")
-        return (title.isEmpty ? "Notification" : title, subtitle, body, meta)
+        return (title.isEmpty ? Self.defaultNotificationTitle : title, subtitle, body, meta)
     }
 
     /// Applies the user's agent-notification settings to a parsed meta tag.

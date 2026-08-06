@@ -186,3 +186,9 @@ Workspace group relay behavior:
 
 1. `cmux workspace group <sub>` (and the `cmux workspace-group <sub>` alias) maps to the `workspace.group.*` v2 methods, with the same subcommands and flags as the macOS CLI: `list`, `create`, `ungroup`, `delete`, `rename`, `collapse`, `expand`, `pin`, `unpin`, `add`, `remove`, `set-anchor`, `new-workspace`, `set-color`, `set-icon`, `move`, and `focus`.
 2. The group id comes from `--group <id>` or the first positional argument and accepts UUIDs or refs such as `workspace_group:1`. Like the macOS CLI, `add` and `set-anchor` require explicit `--group <id> --workspace <id>`.
+
+Notification relay behavior:
+
+1. `cmux notify ...` inside an SSH session sends `notification.create_for_caller` through the relay so the local app can resolve the originating workspace, surface, and TTY.
+2. When the command runs inside tmux (`TMUX` or `TMUX_PANE` is present), caller TTY resolution wins over stale inherited surface IDs. This keeps notifications attached to the pane that emitted them when possible, while still falling back to `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID`.
+3. An explicit `--surface` or `--window` stays pinned through `notification.create`. Raw OSC notifications from inside tmux still require tmux passthrough (`set -g allow-passthrough on`); `cmux notify` is the robust relay path for hooks and scripts.

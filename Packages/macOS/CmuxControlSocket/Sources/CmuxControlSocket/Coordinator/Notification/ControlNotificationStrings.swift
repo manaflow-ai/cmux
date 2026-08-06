@@ -1,13 +1,16 @@
-/// The localized notification-domain error messages, supplied by the app
-/// conformance so they resolve against the app's `Localizable.xcstrings`.
+/// Supplies localized notification-domain strings resolved by the app.
 ///
-/// The coordinator builds the error envelopes (it owns the selector
-/// validation), but the strings must keep their existing keys + default values
-/// and their per-locale translations. Resolving `String(localized:)` inside the
-/// package would bind to the package bundle, which lacks these keys, silently
-/// dropping the non-English variants — so the app passes the already-resolved
-/// strings across the seam instead.
+/// The app conformance resolves these values against its
+/// `Localizable.xcstrings`. The coordinator applies the default title and
+/// builds the error envelopes, but the strings must keep their existing keys,
+/// default values, and per-locale translations. Resolving `String(localized:)`
+/// inside the package would bind to the package bundle, which lacks these keys,
+/// silently dropping the non-English variants, so the app passes the
+/// already-resolved strings across the seam instead.
 public struct ControlNotificationStrings: Sendable, Equatable {
+    /// `notification.default.title` — the title used when none is supplied.
+    public let defaultTitle: String
+
     /// `socket.notification.dismissSelectorRequired` —
     /// "Select exactly one of id or all_read".
     public let dismissSelectorRequired: String
@@ -29,6 +32,7 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     /// Creates the localized message bundle.
     ///
     /// - Parameters:
+    ///   - defaultTitle: The title used when a notification request omits one.
     ///   - dismissSelectorRequired: The dismiss-selector-required message.
     ///   - idRequired: The id-required message.
     ///   - notFound: The notification-not-found message.
@@ -37,6 +41,7 @@ public struct ControlNotificationStrings: Sendable, Equatable {
     ///   - surfaceIDRequiresWorkspace: The surface_id-requires-workspace message.
     ///   - targetNotFound: The target-not-found message.
     public init(
+        defaultTitle: String,
         dismissSelectorRequired: String,
         idRequired: String,
         notFound: String,
@@ -45,6 +50,7 @@ public struct ControlNotificationStrings: Sendable, Equatable {
         surfaceIDRequiresWorkspace: String,
         targetNotFound: String
     ) {
+        self.defaultTitle = defaultTitle
         self.dismissSelectorRequired = dismissSelectorRequired
         self.idRequired = idRequired
         self.notFound = notFound

@@ -145,7 +145,7 @@ public protocol ControlNotificationContext: AnyObject {
     /// Enqueues clearing all notifications for `notification.clear`.
     func controlNotificationClear()
 
-    /// The localized notification-domain error strings, resolved against the
+    /// The localized notification-domain strings, resolved against the
     /// app's `Localizable.xcstrings` (the package bundle lacks these keys, so
     /// the coordinator must not call `String(localized:)` itself — that would
     /// drop non-English localizations). The app conformance supplies them with
