@@ -62,9 +62,14 @@ while [ "$attempt" -le "$max_attempts" ]; do
   # a clean slate.
   kill_stale_app_host
   set +e
+  # cmuxTests share process-global AppKit, account, socket, and store state.
+  # Disable Xcode's in-process Swift Testing parallelization at this shared
+  # entrypoint so focused and sharded invocations inherit the same ownership
+  # rule. AppHostInProcessParallelizationPolicyTests verifies the live behavior.
   TEST_RUNNER_CMUX_TEST_PROCESS=1 \
     CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
-    scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@"
+    scripts/ci/xcodebuild_noninteractive.py \
+      xcodebuild -parallel-testing-enabled NO "$@"
   status=$?
   set -e
 
