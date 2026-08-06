@@ -272,6 +272,10 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
 
+      - name: Verify Windows remote owner lifecycle
+        working-directory: cmux-tui
+        run: cargo test -p cmux-tui --target x86_64-pc-windows-gnu --locked --test windows_remote_owner -- --nocapture
+
       - name: Verify native Windows remote probe
         shell: bash
         run: |
