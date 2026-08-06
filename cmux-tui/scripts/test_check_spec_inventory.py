@@ -82,13 +82,14 @@ enum Action {
     def test_secondary_protocols_include_bare_final_and_tuple_variants(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
-            host = tui / "crates/cmux-tui-core/src/terminal_host_protocol.rs"
+            host = tui / "crates/cmux-terminal-host-protocol/src/lib.rs"
             provider = tui / "crates/cmux-tui-machine-protocol/src/lib.rs"
             agent = tui / "crates/cmux-tui-machine-agent-protocol/src/lib.rs"
             management = tui / "crates/cmux-tui-core/src/provider_management.rs"
             host.parent.mkdir(parents=True)
             provider.parent.mkdir(parents=True)
             agent.parent.mkdir(parents=True)
+            management.parent.mkdir(parents=True)
             host.write_text(
                 """\
 enum MessageKind {

@@ -789,6 +789,7 @@ impl ServiceStream {
         }
     }
 
+    #[cfg(any(feature = "daemon-services", test))]
     pub(crate) async fn wait_for_failure(&self) -> ServiceError {
         let mut failure = self.failure.subscribe();
         loop {
@@ -866,10 +867,14 @@ pub struct StreamChunk {
     pub payload: Bytes,
     pub finished: bool,
     pub reset: bool,
+    // Holding this lease until the chunk is consumed is the backpressure
+    // mechanism, even in client-only builds that never inspect the field.
+    #[allow(dead_code)]
     budget: Option<StreamBudget>,
 }
 
 impl StreamChunk {
+    #[cfg(any(feature = "daemon-services", test))]
     pub(crate) fn take_budget(&mut self) -> Option<StreamBudget> {
         self.budget.take()
     }
