@@ -989,6 +989,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn resident_windows_target_stops_mux_owner_with_one_cmd_safe_command() {
+        use std::fs;
         use std::os::unix::fs::PermissionsExt;
 
         let directory = tempfile::tempdir().unwrap();
@@ -1018,6 +1019,34 @@ mod tests {
         assert!(arguments.contains(
             r#""%LOCALAPPDATA%\cmux\bin\cmux-tui.exe" remote-stop --session main --state-dir "%LOCALAPPDATA%\cmux\state""#
         ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_carrier_scoped_windows_stop_does_not_block_owner_upgrade() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        fs::write(
+            &script,
+            "#!/bin/sh\nprintf '%s' 'cmux-tui: remote-stop is not implemented on Windows yet' >&2\nexit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults("windows-host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        let bootstrap = SshBootstrapper::new(config).unwrap();
+        let target = SshRemoteTarget {
+            binary: WINDOWS_REMOTE_BINARY.into(),
+            shell: SshRemoteShell::WindowsCmd,
+        };
+
+        bootstrap
+            .stop_daemon_target(&target, "main", Some(r"%LOCALAPPDATA%\cmux\state"))
+            .await
+            .unwrap();
     }
 
     #[test]
