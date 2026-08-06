@@ -77,8 +77,13 @@ extension BrowserControlService {
           }
           __budget.remaining -= 1;
 
-          if (__value === null || typeof __value === 'undefined') {
-            return __value;
+          if (__value === null) {
+            return null;
+          }
+          if (typeof __value === 'undefined') {
+            // Preserve the top-level undefined envelope while making values
+            // inside Objective-C collections explicit and deterministic.
+            return __depth === 0 ? __value : null;
           }
 
           const __valueType = typeof __value;
