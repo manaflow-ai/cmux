@@ -2784,6 +2784,40 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
     }
 
+    /// A composer submission stays visibly in progress until the Mac responds,
+    /// then exposes a durable failure while preserving the draft for retry.
+    @MainActor
+    func testTerminalComposerShowsSendingAndFailureSettlement() async throws {
+        let server = try MobileSyncMockHostServer(
+            terminalSendResponseDelay: 1,
+            rejectsTerminalPaste: true
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let field = app.textFields[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("Preserve this prompt")
+
+        let send = app.buttons["MobileComposerSend"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        send.tap()
+
+        let sending = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Sending"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 0.8), .completed)
+        XCTAssertFalse(send.isEnabled)
+
+        let failure = app.staticTexts["MobileComposerSendFailure"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 4))
+        XCTAssertEqual(send.label, "Send failed")
+        XCTAssertEqual(field.value as? String, "Preserve this prompt")
+    }
+
     /// Freeze fuzzing for the keyboard + layout interactions, modeled on
     /// `testFastPinchZoomDoesNotHangOrCorrupt`. The user report: "Sometimes the
     /// terminal on iOS freezes; we should do some fuzzing around here." The
@@ -7182,6 +7216,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let createdWorkspaceTerminalDelay: TimeInterval?
     private let supportsManualAttachTicket: Bool
     private let workspaceCreateSelectsCreatedWorkspace: Bool
+    private let terminalSendResponseDelay: TimeInterval?
+    private let rejectsTerminalPaste: Bool
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
@@ -7246,12 +7282,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
+        terminalSendResponseDelay: TimeInterval? = nil,
+        rejectsTerminalPaste: Bool = false,
         macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
+        self.terminalSendResponseDelay = terminalSendResponseDelay
+        self.rejectsTerminalPaste = rejectsTerminalPaste
         self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
@@ -7490,23 +7530,52 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
             let responseFrame = try makeResponseFrame(for: payload)
-            connection.send(
-                content: responseFrame,
-                contentContext: .defaultMessage,
-                isComplete: false,
-                completion: .contentProcessed { [weak self, weak connection] error in
-                    guard error == nil,
-                          let self,
-                          let connection else {
-                        connection?.cancel()
-                        return
-                    }
-                    self.receiveRequest(on: connection, buffer: remainingBuffer)
+            if Self.requestMethod(in: payload) == "terminal.paste",
+               let terminalSendResponseDelay {
+                queue.asyncAfter(deadline: .now() + terminalSendResponseDelay) { [weak self, weak connection] in
+                    guard let self, let connection else { return }
+                    self.sendResponse(
+                        responseFrame,
+                        on: connection,
+                        remainingBuffer: remainingBuffer
+                    )
                 }
-            )
+            } else {
+                sendResponse(
+                    responseFrame,
+                    on: connection,
+                    remainingBuffer: remainingBuffer
+                )
+            }
         } catch {
             connection.cancel()
         }
+    }
+
+    private func sendResponse(
+        _ responseFrame: Data,
+        on connection: NWConnection,
+        remainingBuffer: Data
+    ) {
+        connection.send(
+            content: responseFrame,
+            contentContext: .defaultMessage,
+            isComplete: false,
+            completion: .contentProcessed { [weak self, weak connection] error in
+                guard error == nil,
+                      let self,
+                      let connection else {
+                    connection?.cancel()
+                    return
+                }
+                self.receiveRequest(on: connection, buffer: remainingBuffer)
+            }
+        )
+    }
+
+    private static func requestMethod(in payload: Data) -> String? {
+        let request = try? JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        return request?["method"] as? String
     }
 
     private func makeResponseFrame(for payload: Data) throws -> Data {
@@ -7524,6 +7593,18 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 "error": [
                     "code": "method_not_found",
                     "message": "Unknown method",
+                ],
+            ]
+            let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
+            return Self.frame(responsePayload)
+        }
+        if method == "terminal.paste", rejectsTerminalPaste {
+            let envelope: [String: Any] = [
+                "id": id,
+                "ok": false,
+                "error": [
+                    "code": "send_failed",
+                    "message": "Rejected terminal paste",
                 ],
             ]
             let responsePayload = try JSONSerialization.data(withJSONObject: envelope)

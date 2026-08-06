@@ -515,6 +515,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 b: terminalInputText.isEmpty ? 1 : 0
             ))
             #endif
+            if !terminalInputText.isEmpty,
+               terminalInputText != oldValue,
+               let terminalID = selectedTerminalID?.rawValue {
+                clearSettledTerminalSendStatus(forTerminalID: terminalID)
+            }
             // Persist the live edit under the CURRENT terminal so it survives a
             // terminal switch. Skipped while a draft is being loaded (the load is
             // the saved value, re-saving it is redundant and would race the
@@ -595,11 +600,65 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// this spans the entire image-then-text run. Not observed: it gates an
     /// async flow, not view state.
     @ObservationIgnored private var isSubmittingComposer = false
+    /// The last user-visible send settlement for each terminal. Unlike the
+    /// re-entrancy flags above, this is observed by both the composer button and
+    /// terminal command status pill.
+    private var terminalSendStatusesByTerminalID: [String: MobileTerminalSendStatus] = [:]
+    /// Latest operation identity per terminal. A late result from an older send
+    /// cannot overwrite the state of a newer retry.
+    @ObservationIgnored private var terminalSendOperationIDsByTerminalID: [String: UUID] = [:]
+    /// Raw-command operations are tracked separately so a focus/connection
+    /// pipeline clear can settle only those sends without disturbing an
+    /// independently in-flight composer paste pinned to the same terminal.
+    @ObservationIgnored private var rawTerminalSendOperationIDsByTerminalID: [String: UUID] = [:]
     /// Pending image attachments per terminal, keyed by terminal id so switching
     /// terminals keeps each draft's own attachments (mirroring how the text draft
     /// is keyed). Observed so the composer's chip row re-renders on add/remove.
     /// Sent in order on the next submit and then cleared for that terminal.
     private var pendingAttachmentsByTerminalID: [String: [MobilePendingAttachment]] = [:]
+
+    public func terminalSendStatus(forTerminalID terminalID: String) -> MobileTerminalSendStatus {
+        terminalSendStatusesByTerminalID[terminalID] ?? .idle
+    }
+
+    @discardableResult
+    private func beginTerminalSend(forTerminalID terminalID: String) -> UUID {
+        let operationID = UUID()
+        terminalSendOperationIDsByTerminalID[terminalID] = operationID
+        terminalSendStatusesByTerminalID[terminalID] = .sending
+        return operationID
+    }
+
+    private func finishTerminalSend(
+        _ operationID: UUID?,
+        forTerminalID terminalID: String,
+        succeeded: Bool
+    ) {
+        guard let operationID,
+              terminalSendOperationIDsByTerminalID[terminalID] == operationID else { return }
+        terminalSendStatusesByTerminalID[terminalID] = succeeded ? .sent : .failed
+    }
+
+    private func clearSettledTerminalSendStatus(forTerminalID terminalID: String) {
+        guard terminalSendStatusesByTerminalID[terminalID] != .sending else { return }
+        terminalSendStatusesByTerminalID[terminalID] = nil
+        terminalSendOperationIDsByTerminalID[terminalID] = nil
+    }
+
+    private func finishRawTerminalSend(
+        _ operationID: UUID?,
+        forTerminalID terminalID: String,
+        succeeded: Bool
+    ) {
+        guard let operationID,
+              rawTerminalSendOperationIDsByTerminalID[terminalID] == operationID else { return }
+        rawTerminalSendOperationIDsByTerminalID[terminalID] = nil
+        finishTerminalSend(
+            operationID,
+            forTerminalID: terminalID,
+            succeeded: succeeded
+        )
+    }
 
     /// Max number of staged attachments per terminal. Enforced in
     /// ``addPendingAttachment(_:format:forTerminalID:)`` against the CURRENT
@@ -7397,22 +7456,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// attachments staged AND keeps the text unsent, so the user can retry
     /// instead of silently losing photos (matching the text-keep-on-failure
     /// semantics of ``submitComposerInput()``).
-    public func submitComposer() async {
+    @discardableResult
+    public func submitComposer() async -> Bool {
         // Reject a re-entrant submit (e.g. a double tap on Send): the button
         // stays enabled while the first image RPC awaits, and a second submit
         // would capture the same still-staged attachments and re-upload them.
         // Set/cleared on the main actor around the awaits, so no second call can
         // slip past. A failed send keeps the attachments staged (below), so the
         // user can retry once this flag clears.
-        guard !isSubmittingComposer else { return }
+        guard !isSubmittingComposer else { return false }
         isSubmittingComposer = true
         defer { isSubmittingComposer = false }
         guard let workspaceID = selectedWorkspace?.id,
               let submittedTerminalID = selectedTerminalID else {
             // No target: fall back to the text-only path, which is itself a no-op
             // without a selected terminal.
-            await submitComposerInput()
-            return
+            return await submitComposerInput()
+        }
+        let sendOperationID = beginTerminalSend(
+            forTerminalID: submittedTerminalID.rawValue
+        )
+        var sendSucceeded = false
+        defer {
+            finishTerminalSend(
+                sendOperationID,
+                forTerminalID: submittedTerminalID.rawValue,
+                succeeded: sendSucceeded
+            )
         }
         // Snapshot the text BEFORE any await (the image sends below). Threaded
         // through the text submit + the post-send reconcile so a terminal switch
@@ -7452,7 +7522,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 signIn: submitSignInGeneration,
                 connection: submitConnectionGeneration,
                 client: submitClient
-            ) else { return }
+            ) else { return false }
             // Re-check the attachment is still staged for the captured terminal
             // before uploading it. The user can delete a not-yet-acked chip while
             // an earlier image's send is in flight; that removes it from
@@ -7469,7 +7539,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 workspaceID: workspaceID,
                 terminalID: submittedTerminalID
             )
-            guard sent else { return }
+            guard sent else { return false }
             removePendingAttachment(id: attachment.id, forTerminalID: submittedTerminalID.rawValue)
         }
         // Re-check the captured identity one last time before the text send. The
@@ -7481,16 +7551,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             signIn: submitSignInGeneration,
             connection: submitConnectionGeneration,
             client: submitClient
-        ) else { return }
+        ) else { return false }
         // Submit the captured text to the captured terminal (a no-op when empty,
         // e.g. an images-only send). All images acked by here, so the text
         // follows. Passing the snapshot (not the live field) keeps this immune to
         // a switch/edit that happened during the image awaits above.
-        await submitComposerInput(
+        sendSucceeded = await submitComposerInput(
             workspaceID: workspaceID,
             terminalID: submittedTerminalID,
             capturedText: submittedText
         )
+        return sendSucceeded
     }
 
     /// Whether the session + connection identity captured at the start of a
@@ -7572,11 +7643,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
+        prepareTerminalSendStatusForRawInput(
+            text,
+            terminalID: terminalID.rawValue
+        )
         let enqueueResult = rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
             terminalID: terminalID
         )
+        if enqueueResult == .rejected, Self.containsTerminalSubmission(text) {
+            finishRawTerminalSend(
+                terminalSendOperationIDsByTerminalID[terminalID.rawValue],
+                forTerminalID: terminalID.rawValue,
+                succeeded: false
+            )
+        }
         handleSynchronousRawTerminalInputEnqueueResult(enqueueResult)
     }
 
@@ -7586,11 +7668,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
+        prepareTerminalSendStatusForRawInput(text, terminalID: surfaceID)
         let enqueueResult = rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID)
         )
+        if enqueueResult == .rejected, Self.containsTerminalSubmission(text) {
+            finishRawTerminalSend(
+                terminalSendOperationIDsByTerminalID[surfaceID],
+                forTerminalID: surfaceID,
+                succeeded: false
+            )
+        }
         handleSynchronousRawTerminalInputEnqueueResult(enqueueResult)
     }
 
@@ -7606,6 +7696,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         case .rejected:
             handleRawTerminalInputOverflow()
+        }
+    }
+
+    private func prepareTerminalSendStatusForRawInput(
+        _ text: String,
+        terminalID: String
+    ) {
+        if Self.containsTerminalSubmission(text) {
+            rawTerminalSendOperationIDsByTerminalID[terminalID] = beginTerminalSend(
+                forTerminalID: terminalID
+            )
+        } else {
+            clearSettledTerminalSendStatus(forTerminalID: terminalID)
+        }
+    }
+
+    private nonisolated static func containsTerminalSubmission(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            scalar.value == 0x0D || scalar.value == 0x0A
         }
     }
 
@@ -7699,7 +7808,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 chunk.text,
                 workspaceID: chunk.workspaceID,
                 terminalID: chunk.terminalID,
-                latencyBatchNumber: latencyBatchNumberForSend
+                latencyBatchNumber: latencyBatchNumberForSend,
+                sendStatusOperationID: Self.containsTerminalSubmission(chunk.text)
+                    ? rawTerminalSendOperationIDsByTerminalID[chunk.terminalID.rawValue]
+                    : nil
             )
         }
     }
@@ -7714,6 +7826,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func clearPendingTerminalInputForFocusChange() {
         rawTerminalInputBuffer.clear()
         terminalInputRPCPipeline.clear()
+        let pendingRawSends = rawTerminalSendOperationIDsByTerminalID
+        for (terminalID, operationID) in pendingRawSends {
+            finishRawTerminalSend(
+                operationID,
+                forTerminalID: terminalID,
+                succeeded: false
+            )
+        }
         resumeRawTerminalInputDrainWaiters()
     }
 
@@ -9662,13 +9782,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
-        latencyBatchNumber: UInt64? = nil
+        latencyBatchNumber: UInt64? = nil,
+        sendStatusOperationID: UUID? = nil
     ) async {
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal input remoteClient=0")
             #endif
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+            finishRawTerminalSend(
+                sendStatusOperationID,
+                forTerminalID: terminalID.rawValue,
+                succeeded: false
+            )
             return
         }
         let generation = connectionGeneration
@@ -9703,6 +9829,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             latencyBatchNumber,
                             succeeded: false
                         )
+                        finishRawTerminalSend(
+                            sendStatusOperationID,
+                            forTerminalID: terminalID.rawValue,
+                            succeeded: false
+                        )
                         return
                     }
                     if terminalInputRPCPipeline.hasAmbiguousFailure(
@@ -9729,12 +9860,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             switch laneResult {
             case .sent:
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
+                finishRawTerminalSend(
+                    sendStatusOperationID,
+                    forTerminalID: terminalID.rawValue,
+                    succeeded: true
+                )
                 return
             case .failed:
                 mobileShellLog.error(
                     "independent terminal input failed surface=\(terminalID.rawValue, privacy: .public)"
                 )
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+                finishRawTerminalSend(
+                    sendStatusOperationID,
+                    forTerminalID: terminalID.rawValue,
+                    succeeded: false
+                )
                 return
             case .unavailable:
                 break
@@ -9767,6 +9908,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 latencyBatchNumber,
                                 succeeded: true
                             )
+                            self?.finishRawTerminalSend(
+                                sendStatusOperationID,
+                                forTerminalID: terminalID.rawValue,
+                                succeeded: true
+                            )
                             guard let self, let client else { return }
                             guard self.isCurrentRemoteOperation(
                                 client: client,
@@ -9779,6 +9925,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         case let .failure(error):
                             Self.stampTerminalInputSettlement(
                                 latencyBatchNumber,
+                                succeeded: false
+                            )
+                            self?.finishRawTerminalSend(
+                                sendStatusOperationID,
+                                forTerminalID: terminalID.rawValue,
                                 succeeded: false
                             )
                             guard let self, let client else { return }
@@ -9797,6 +9948,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // operational failure, regardless of whether the caller also
                 // rotated connectionGeneration.
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+                finishRawTerminalSend(
+                    sendStatusOperationID,
+                    forTerminalID: terminalID.rawValue,
+                    succeeded: false
+                )
                 if error is CancellationError { return }
                 handleTerminalInputFailure(
                     error,
@@ -9818,12 +9974,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             guard isCurrentRemoteOperation(client: client, generation: generation) else {
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+                finishRawTerminalSend(
+                    sendStatusOperationID,
+                    forTerminalID: terminalID.rawValue,
+                    succeeded: false
+                )
                 return
             }
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
+            finishRawTerminalSend(
+                sendStatusOperationID,
+                forTerminalID: terminalID.rawValue,
+                succeeded: true
+            )
         } catch {
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
+            finishRawTerminalSend(
+                sendStatusOperationID,
+                forTerminalID: terminalID.rawValue,
+                succeeded: false
+            )
             handleTerminalInputFailure(
                 error,
                 client: client,

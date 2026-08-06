@@ -131,6 +131,14 @@ struct TerminalComposerView: View {
         store.composerCanSend(forTerminalID: terminalID)
     }
 
+    private var sendStatus: MobileTerminalSendStatus {
+        store.terminalSendStatus(forTerminalID: terminalID)
+    }
+
+    private var isSending: Bool {
+        sendStatus == .sending
+    }
+
     /// This terminal's staged image attachments, shown as the chip row above the
     /// field and sent (in order) ahead of the text on submit.
     private var pendingAttachments: [MobilePendingAttachment] {
@@ -182,6 +190,9 @@ struct TerminalComposerView: View {
         // runs after SwiftUI commits the change, so the host measures the collapsed
         // (chip-less) layout rather than the stale tall one.
         .onChange(of: pendingAttachments.isEmpty) { _, _ in
+            requestHeightRemeasure()
+        }
+        .onChange(of: sendStatus) { _, _ in
             requestHeightRemeasure()
         }
         .onAppear {
@@ -292,6 +303,20 @@ struct TerminalComposerView: View {
                 attachmentChipRow
             }
 
+            if sendStatus == .failed {
+                Label(
+                    L10n.string(
+                        "mobile.terminal.sendFailed",
+                        defaultValue: "Couldn’t send. Check the connection and try again."
+                    ),
+                    systemImage: "exclamationmark.circle.fill"
+                )
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.red)
+                .padding(.leading, controlHeight + 8)
+                .accessibilityIdentifier("MobileComposerSendFailure")
+            }
+
             HStack(alignment: .bottom, spacing: 8) {
                 MobileComposerIconButton(
                     systemImage: "paperclip",
@@ -354,28 +379,12 @@ struct TerminalComposerView: View {
                     Button {
                         send()
                     } label: {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(
-                                canSend
-                                    ? .white
-                                    : store.activeTerminalTheme.terminalForegroundColor.opacity(0.35)
-                            )
-                            .frame(width: inlineSendDiameter, height: inlineSendDiameter)
-                            .background(
-                                Circle().fill(
-                                    canSend
-                                        ? AnyShapeStyle(Color.accentColor)
-                                        : AnyShapeStyle(
-                                            store.activeTerminalTheme.terminalForegroundColor.opacity(0.12)
-                                        )
-                                )
-                            )
+                        composerSendButtonLabel
                     }
                     .buttonStyle(.plain)
-                    .disabled(!canSend)
+                    .disabled(isSending || !canSend)
                     .accessibilityIdentifier("MobileComposerSend")
-                    .accessibilityLabel(L10n.string("mobile.composer.send", defaultValue: "Send"))
+                    .accessibilityLabel(composerSendAccessibilityLabel)
                 }
             }
         }
@@ -401,6 +410,73 @@ struct TerminalComposerView: View {
             } else {
                 photoPickerDidDismiss()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var composerSendButtonLabel: some View {
+        Group {
+            if isSending {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            } else {
+                Image(systemName: composerSendSystemImage)
+                    .font(.system(size: 15, weight: .bold))
+            }
+        }
+        .foregroundStyle(composerSendForegroundStyle)
+        .frame(width: inlineSendDiameter, height: inlineSendDiameter)
+        .background(Circle().fill(composerSendBackgroundStyle))
+    }
+
+    private var composerSendSystemImage: String {
+        switch sendStatus {
+        case .sent:
+            return "checkmark"
+        case .failed:
+            return "exclamationmark"
+        case .idle, .sending:
+            return "arrow.up"
+        }
+    }
+
+    private var composerSendForegroundStyle: AnyShapeStyle {
+        if isSending || sendStatus == .sent || sendStatus == .failed || canSend {
+            return AnyShapeStyle(Color.white)
+        }
+        return AnyShapeStyle(
+            store.activeTerminalTheme.terminalForegroundColor.opacity(0.35)
+        )
+    }
+
+    private var composerSendBackgroundStyle: AnyShapeStyle {
+        switch sendStatus {
+        case .sending:
+            return AnyShapeStyle(Color.accentColor)
+        case .sent:
+            return AnyShapeStyle(Color.green)
+        case .failed:
+            return AnyShapeStyle(Color.red)
+        case .idle:
+            return canSend
+                ? AnyShapeStyle(Color.accentColor)
+                : AnyShapeStyle(
+                    store.activeTerminalTheme.terminalForegroundColor.opacity(0.12)
+                )
+        }
+    }
+
+    private var composerSendAccessibilityLabel: String {
+        switch sendStatus {
+        case .sending:
+            return L10n.string("mobile.terminal.sending", defaultValue: "Sending")
+        case .sent:
+            return L10n.string("mobile.terminal.sent", defaultValue: "Sent")
+        case .failed:
+            return L10n.string("mobile.terminal.sendFailed.short", defaultValue: "Send failed")
+        case .idle:
+            return L10n.string("mobile.composer.send", defaultValue: "Send")
         }
     }
 
