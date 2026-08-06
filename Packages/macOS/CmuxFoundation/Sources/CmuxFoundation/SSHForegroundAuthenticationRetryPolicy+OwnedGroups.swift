@@ -1,8 +1,60 @@
 extension SSHForegroundAuthenticationRetryPolicy {
     func ownedProcessGroupTerminationShellFunctions() -> String {
         #"""
+        cmux_ssh_auth_now_millis() {
+          /usr/bin/perl -MTime::HiRes=time -e 'printf "%.0f\n", time * 1000'
+        }
+
+        cmux_ssh_auth_deadline_allows_work() {
+          cmux_ssh_auth_now="$(cmux_ssh_auth_now_millis)" || return 1
+          case "$cmux_ssh_auth_now:$cmux_ssh_auth_deadline_millis" in
+            *[!0-9:]*|:*|*:) return 1 ;;
+          esac
+          [ "$cmux_ssh_auth_now" -lt "$cmux_ssh_auth_deadline_millis" ]
+        }
+
         cmux_ssh_auth_take_process_snapshot() {
-          /usr/bin/env LC_ALL=C LANG=C /bin/ps -axo pid=,ppid=,pgid=,state=,lstart= \
+          cmux_ssh_auth_snapshot_now="$(cmux_ssh_auth_now_millis)" || return 1
+          case "$cmux_ssh_auth_snapshot_now:$cmux_ssh_auth_deadline_millis" in
+            *[!0-9:]*|:*|*:) return 1 ;;
+          esac
+          cmux_ssh_auth_snapshot_remaining=$((
+            cmux_ssh_auth_deadline_millis - cmux_ssh_auth_snapshot_now
+          ))
+          if [ "$cmux_ssh_auth_snapshot_remaining" -le 0 ]; then return 1; fi
+          cmux_ssh_auth_snapshot_timeout=$(/usr/bin/awk \
+            -v cmux_millis="$cmux_ssh_auth_snapshot_remaining" \
+            'BEGIN { printf "%.3f\n", cmux_millis / 1000 }') || return 1
+
+          /usr/bin/perl -MTime::HiRes=alarm -e '
+            $cmux_timeout = shift;
+            $cmux_pid = fork();
+            exit 1 if !defined $cmux_pid;
+            if ($cmux_pid == 0) {
+              exec @ARGV;
+              exit 127;
+            }
+            $cmux_timed_out = 0;
+            local $SIG{ALRM} = sub {
+              $cmux_timed_out = 1;
+              kill 9, $cmux_pid;
+            };
+            alarm $cmux_timeout;
+            do {
+              $cmux_waited = waitpid($cmux_pid, 0);
+            } while ($cmux_waited == -1 && $!{EINTR});
+            $cmux_status = $?;
+            alarm 0;
+            if ($cmux_waited == -1) {
+              kill 9, $cmux_pid;
+              waitpid($cmux_pid, 0);
+              exit 1;
+            }
+            exit 124 if $cmux_timed_out;
+            exit(128 + ($cmux_status & 127)) if $cmux_status & 127;
+            exit($cmux_status >> 8);
+          ' "$cmux_ssh_auth_snapshot_timeout" \
+            /usr/bin/env LC_ALL=C LANG=C /bin/ps -axo pid=,ppid=,pgid=,state=,lstart= \
             > "$1" 2>/dev/null
         }
 
@@ -162,12 +214,18 @@ extension SSHForegroundAuthenticationRetryPolicy {
         }
 
         cmux_ssh_auth_freeze_owned_processes() {
+          cmux_ssh_auth_deadline_allows_work || return 1
           cmux_ssh_auth_select_exclusive_groups || return 1
           /bin/cat "$cmux_ssh_auth_owned_processes" >> "$cmux_ssh_auth_frozen_processes" || return 1
 
           while IFS= read -r cmux_ssh_auth_group; do
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
-            /bin/kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
+            if /bin/kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1; then
+              if ! printf '%s\n' "$cmux_ssh_auth_group" >> "$cmux_ssh_auth_signaled_groups"; then
+                /bin/kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
+                return 1
+              fi
+            fi
           done < "$cmux_ssh_auth_owned_groups"
 
           /usr/bin/awk '
@@ -187,6 +245,10 @@ extension SSHForegroundAuthenticationRetryPolicy {
               continue
             fi
             /bin/kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || continue
+            if ! printf '%s\n' "$cmux_ssh_auth_pid" >> "$cmux_ssh_auth_signaled_processes"; then
+              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+              return 1
+            fi
             if [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")" != "$cmux_ssh_auth_expected_identity" ]; then
               /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
             fi
@@ -197,6 +259,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
         }
 
         cmux_ssh_auth_force_owned_processes() {
+          cmux_ssh_auth_deadline_allows_work || return 1
           cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" || return 1
           cmux_ssh_auth_expand_owned_processes || return 1
           cmux_ssh_auth_select_exclusive_groups || return 1
@@ -204,7 +267,8 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
           while IFS= read -r cmux_ssh_auth_group; do
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
-            /bin/kill -KILL -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
+            /bin/kill -KILL -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || \
+              /bin/kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
           done < "$cmux_ssh_auth_owned_groups"
 
           /usr/bin/awk '
@@ -227,6 +291,21 @@ extension SSHForegroundAuthenticationRetryPolicy {
               /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
             fi
           done < "$cmux_ssh_auth_ordered_processes"
+        }
+
+        cmux_ssh_auth_resume_signaled_processes() {
+          if [ -s "$cmux_ssh_auth_signaled_groups" ]; then
+            while IFS= read -r cmux_ssh_auth_group; do
+              case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
+              /bin/kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
+            done < "$cmux_ssh_auth_signaled_groups"
+          fi
+          if [ -s "$cmux_ssh_auth_signaled_processes" ]; then
+            while IFS= read -r cmux_ssh_auth_pid; do
+              case "$cmux_ssh_auth_pid" in ''|0|*[!0-9]*) continue ;; esac
+              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+            done < "$cmux_ssh_auth_signaled_processes"
+          fi
         }
 
         cmux_ssh_auth_force_frozen_processes() {

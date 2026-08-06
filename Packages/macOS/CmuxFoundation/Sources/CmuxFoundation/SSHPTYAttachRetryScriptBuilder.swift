@@ -22,6 +22,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
     public func lines(command: String, reauthenticates: Bool) -> [String] {
         let reauthenticate = reauthenticates ? "cmux_ssh_attach_reauth_required=1" : ":"
         let authPolicy = SSHForegroundAuthenticationRetryPolicy()
+        let authGroupStateRemovalCommand = authPolicy.processGroupStateRemovalShellCommand()
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .attach)
         let initialReauthentication = reauthenticates ? 1 : 0
         let noProgressPolicy = SSHPTYAttachExitCode.noProgressShellPolicy()
@@ -57,7 +58,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "cmux_ssh_attach_auth_launching=0",
             "CMUX_SSH_AUTH_GROUP_DIR=",
             "export CMUX_SSH_AUTH_GROUP_DIR",
-            "cmux_ssh_attach_remove_auth_group_dir() { if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then /bin/rm -f -- \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" \"$CMUX_SSH_AUTH_GROUP_DIR/identity.new\" \"$CMUX_SSH_AUTH_GROUP_DIR/anchor\" 2>/dev/null || true; /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; }",
+            "cmux_ssh_attach_remove_auth_group_dir() { if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(authGroupStateRemovalCommand); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; }",
         ])
         lines.append(contentsOf: backoffBuilder.stateInitializationLines)
         lines.append(contentsOf: [
