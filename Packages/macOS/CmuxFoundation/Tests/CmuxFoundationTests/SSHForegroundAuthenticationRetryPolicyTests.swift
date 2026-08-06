@@ -442,6 +442,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let leafPIDFile = root.appendingPathComponent("leaf.pid")
         let processStateFile = root.appendingPathComponent("leaf.state")
         let clockFile = root.appendingPathComponent("clock")
+        let deadlineExpiredMarker = root.appendingPathComponent("deadline-expired")
         let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try createSecureGroupDirectory(at: groupDirectory)
@@ -466,6 +467,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_now=$(/bin/cat "$CMUX_TEST_CLOCK_FILE") || return 1
           cmux_test_now=$((cmux_test_now + 200))
           printf '%s\\n' "$cmux_test_now" > "$CMUX_TEST_CLOCK_FILE" || return 1
+          case "${cmux_ssh_auth_deadline_millis:-}" in
+            ''|*[!0-9]*) ;;
+            *)
+              if [ "$cmux_test_now" -ge "$cmux_ssh_auth_deadline_millis" ]; then
+                : > "$CMUX_TEST_DEADLINE_EXPIRED_MARKER" || return 1
+              fi
+              ;;
+          esac
           printf '%s\\n' "$cmux_test_now"
         }
         ( \(classifiedAuthentication) ) &
@@ -489,6 +498,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CLOCK_FILE": clockFile.path,
+            "CMUX_TEST_DEADLINE_EXPIRED_MARKER": deadlineExpiredMarker.path,
             "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
             "CMUX_TEST_LEAF_PID": leafPIDFile.path,
             "CMUX_TEST_PROCESS_STATE": processStateFile.path,
@@ -500,10 +510,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         defer { removeStandardErrorCapture(stderrCapture) }
         process.standardError = stderrCapture.handle
 
-        let startedAt = Date.now
         try process.run()
         try waitForExit(process, stderrCapture: stderrCapture)
-        let elapsed = Date.now.timeIntervalSince(startedAt)
 
         let leafPID = try #require(Int32(
             String(contentsOf: leafPIDFile, encoding: .utf8)
@@ -519,9 +527,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let processState = try String(contentsOf: processStateFile, encoding: .utf8)
 
         #expect(process.terminationStatus == 0)
-        #expect(elapsed < 3, "Deadline fallback took \(elapsed) seconds")
+        #expect(fileManager.fileExists(atPath: deadlineExpiredMarker.path))
         #expect(Darwin.kill(leafPID, 0) != 0)
         #expect(processState.isEmpty, "Deadline fallback left a process behind: \(processState)")
+        #expect(!fileManager.fileExists(atPath: groupDirectory.path))
     }
 
     @Test func hardDeadlineFallbackRevalidatesRecordedProcessIdentity() throws {
