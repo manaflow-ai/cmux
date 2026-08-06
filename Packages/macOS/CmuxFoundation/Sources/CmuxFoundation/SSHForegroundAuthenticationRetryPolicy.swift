@@ -116,6 +116,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         cmux_ssh_launch_owned_auth_group_reaper() {
           cmux_ssh_auth_reaper_group_dir="$1"
           if [ ! -s "$cmux_ssh_auth_reaper_group_dir/identity" ]; then return 0; fi
+          cmux_ssh_auth_reaper_caller_group=$(/usr/bin/env LC_ALL=C LANG=C \
+            /bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
+          case "$cmux_ssh_auth_reaper_caller_group" in ''|*[!0-9]*) return 0 ;; esac
           cmux_ssh_auth_reaper_lock="$cmux_ssh_auth_reaper_group_dir/reaper.lock"
           /bin/mkdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || return 0
           (
@@ -127,7 +130,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             while [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ] && \
               [ "$cmux_ssh_auth_reaper_attempt" -lt 3 ]; do
               cmux_ssh_auth_reaper_attempt=$((cmux_ssh_auth_reaper_attempt + 1))
-              cmux_ssh_terminate_owned_auth_group
+              cmux_ssh_terminate_owned_auth_group "$cmux_ssh_auth_reaper_caller_group"
               if [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then break; fi
               if [ "$cmux_ssh_auth_reaper_attempt" -lt 3 ]; then
                 /bin/sleep "$cmux_ssh_auth_reaper_delay"
@@ -231,7 +234,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             *[!A-Za-z0-9_:]*|:*|*:) exit 0 ;;
           esac
 
-          cmux_ssh_auth_caller_group=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
+          cmux_ssh_auth_caller_group="${1:-}"
+          if [ -z "$cmux_ssh_auth_caller_group" ]; then
+            cmux_ssh_auth_caller_group=$(/usr/bin/env LC_ALL=C LANG=C \
+              /bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
+          fi
           case "$cmux_ssh_auth_caller_group" in ''|*[!0-9]*) exit 0 ;; esac
           if [ "$cmux_ssh_auth_owned_group" = "$cmux_ssh_auth_caller_group" ]; then exit 0; fi
 
