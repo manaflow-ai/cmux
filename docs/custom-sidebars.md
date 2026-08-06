@@ -107,8 +107,8 @@ The three statuses mean different things and are worth handling separately:
 | `not-found` | No workspace with that id. | Drop the row; your list is stale. |
 | `unavailable` | No window could be resolved right now. | Transient — keep the row and let the user retry. |
 
-Feature-detect rather than assuming: on a sidebar that does not qualify, the
-handler does not exist at all.
+Feature-detect rather than assuming: on a sidebar that does not qualify, and in a
+Dock pane, the handler does not exist at all.
 
 ```js
 const focus = window.webkit?.messageHandlers?.cmuxSidebarFocusWorkspace
@@ -127,8 +127,14 @@ through `cmux` on the CLI.
 
 ### Which sidebars can focus a workspace
 
-Only two kinds of source qualify, decided from the source alone before the page
-loads:
+The bridge is **workspace-rail only**. A sidebar opened as a Dock pane
+(`cmux sidebar open <name>`) hosts the same page with no handler registered and
+no navigation lock, whatever its source: a pane sits beside the terminals it
+would be selecting, so there is nothing for it to bring forward. Feature-detect,
+and the same page works in both places.
+
+In the rail, only two kinds of source qualify, decided from the source alone
+before the page loads:
 
 - **`<name>.html`** — a local document in your sidebars directory.
 - **`<name>.url`** pointing at a **literal loopback address**: `127.0.0.1`,
@@ -144,8 +150,12 @@ local document may not navigate away from that file; a loopback page may not
 leave its origin (same scheme, host, and port — paths and queries are free).
 Redirects, cross-origin links, and `file:`-to-`http:` hops in the main frame are
 cancelled rather than followed, which is what stops a page from carrying the
-native call somewhere that never earned it. Iframes are unrestricted: they cannot
-make the call.
+native call somewhere that never earned it. Iframes navigate freely, because the
+lock applies to the main frame only. An iframe *can* post to the handler — the
+handler is registered on the page, not on a frame — and the call is rejected at
+dispatch: cmux checks that the message came from the main frame and that the
+frame's origin still matches the armed source. So a subframe gets a rejected
+promise, not a missing handler.
 
 If you need to navigate the whole sidebar between origins, you are describing a
 browser rather than a sidebar — use a Dock browser pane, or serve the pages from
