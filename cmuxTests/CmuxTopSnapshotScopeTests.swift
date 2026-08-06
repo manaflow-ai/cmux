@@ -9,47 +9,6 @@ import Darwin
 #endif
 
 final class CmuxTopSnapshotScopeTests: XCTestCase {
-    func testProcessTreePayloadCapsAdversarialDepth() throws {
-        let processCount = 160
-        let processes = (1...processCount).map { pid in
-            CmuxTopProcessInfo(
-                pid: pid,
-                parentPID: pid == 1 ? 0 : pid - 1,
-                name: "process-\(pid)",
-                path: nil,
-                ttyDevice: nil,
-                cmuxWorkspaceID: nil,
-                cmuxSurfaceID: nil,
-                cmuxAttributionReason: nil,
-                processGroupID: nil,
-                terminalProcessGroupID: nil,
-                cpuPercent: 0,
-                residentBytes: 0,
-                virtualBytes: 0,
-                threadCount: 1
-            )
-        }
-        let snapshot = CmuxTopProcessSnapshot(
-            processes: processes,
-            sampledAt: Date(timeIntervalSince1970: 0),
-            includesProcessDetails: true
-        )
-
-        var node = try XCTUnwrap(
-            snapshot.processTreePayload(for: Set(1...processCount)).first
-        )
-        for expectedPID in 1...128 {
-            XCTAssertEqual(node["pid"] as? Int, expectedPID)
-            if expectedPID < 128 {
-                let children = try XCTUnwrap(node["children"] as? [[String: Any]])
-                node = try XCTUnwrap(children.first)
-            }
-        }
-
-        XCTAssertEqual(node["children_truncated"] as? Bool, true)
-        XCTAssertEqual((node["children"] as? [[String: Any]])?.count, 0)
-    }
-
     func testProcessForegroundGroupRequiresTerminalForegroundMatch() {
         let foreground = makeProcessInfo(processGroupID: 10, terminalProcessGroupID: 10)
         let background = makeProcessInfo(processGroupID: 11, terminalProcessGroupID: 10)

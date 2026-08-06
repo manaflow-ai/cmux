@@ -12,6 +12,48 @@ struct PaneMemoryGuardrailTests {
     private let gb: Int64 = 1024 * 1024 * 1024
     private var threshold: Int64 { 8 * gb }
 
+    @Test
+    func processTreePayloadCapsAdversarialDepth() throws {
+        let processCount = 160
+        let processes = (1...processCount).map { pid in
+            CmuxTopProcessInfo(
+                pid: pid,
+                parentPID: pid == 1 ? 0 : pid - 1,
+                name: "process-\(pid)",
+                path: nil,
+                ttyDevice: nil,
+                cmuxWorkspaceID: nil,
+                cmuxSurfaceID: nil,
+                cmuxAttributionReason: nil,
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+
+        var node = try #require(
+            snapshot.processTreePayload(for: Set(1...processCount)).first
+        )
+        for expectedPID in 1...128 {
+            #expect(node["pid"] as? Int == expectedPID)
+            if expectedPID < 128 {
+                let children = try #require(node["children"] as? [[String: Any]])
+                node = try #require(children.first)
+            }
+        }
+
+        #expect(node["children_truncated"] as? Bool == true)
+        #expect((node["children"] as? [[String: Any]])?.isEmpty == true)
+    }
+
     private func sample(
         workspace: UUID,
         pane: UUID,
