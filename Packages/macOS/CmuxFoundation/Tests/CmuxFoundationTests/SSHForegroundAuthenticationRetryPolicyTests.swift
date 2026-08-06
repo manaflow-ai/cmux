@@ -386,7 +386,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
     }
 
-    @Test func cleanupDeadlineResumesOwnedProcessesBeforeReturning() throws {
+    @Test func cleanupDeadlineKillsOwnedProcessesBeforeReturning() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-cleanup-deadline-\(UUID().uuidString)", isDirectory: true)
@@ -472,8 +472,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         #expect(process.terminationStatus == 0)
         #expect(elapsed < 3, "Deadline fallback took \(elapsed) seconds")
-        #expect(Darwin.kill(leafPID, 0) == 0)
-        #expect(!processState.contains("T"), "Deadline fallback left a stopped process: \(processState)")
+        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(processState.isEmpty, "Deadline fallback left a process behind: \(processState)")
     }
 
     @Test func ordersDuplicateFrozenProcessRecordsWithoutCycling() throws {
