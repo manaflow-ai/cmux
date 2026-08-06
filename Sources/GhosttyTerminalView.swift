@@ -11293,6 +11293,71 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
+    /// One deep-copied presented terminal frame for the offscreen screenshot RPC.
+    struct DebugPresentedFrameImage {
+        /// Deep copy of the presented IOSurface pixels, tagged Display P3 (the
+        /// Ghostty Metal renderer draws every frame into a Display P3 BGRA8
+        /// target; see `ghostty/src/renderer/metal/Target.zig`).
+        let image: CGImage
+        /// The layer's contents scale (the native backing scale, 2 on Retina).
+        let backingScale: CGFloat
+    }
+
+    /// Deep-copies the renderer's presented IOSurface — the exact bytes the
+    /// compositor would show for the terminal grid area — into a CGImage
+    /// tagged with the renderer's true color space (Display P3), at native
+    /// backing resolution. Unlike `CGWindowListCreateImage`, this needs no
+    /// Screen Recording permission, no window-server compositing, and works
+    /// while the window is occluded, on another Space, or never ordered front.
+    func debugCopyPresentedFrameImage() -> DebugPresentedFrameImage? {
+        guard let modelLayer = surfaceView.layer else { return nil }
+        let layer = modelLayer.presentation() ?? modelLayer
+        guard let contents = layer.contents else { return nil }
+
+        let cf = contents as CFTypeRef
+        guard CFGetTypeID(cf) == IOSurfaceGetTypeID() else { return nil }
+        let surfaceRef = (contents as! IOSurfaceRef)
+
+        let width = Int(IOSurfaceGetWidth(surfaceRef))
+        let height = Int(IOSurfaceGetHeight(surfaceRef))
+        let bytesPerRow = Int(IOSurfaceGetBytesPerRow(surfaceRef))
+        guard width > 0, height > 0, bytesPerRow > 0 else { return nil }
+
+        IOSurfaceLock(surfaceRef, [.readOnly], nil)
+        defer { IOSurfaceUnlock(surfaceRef, [.readOnly], nil) }
+
+        let base = IOSurfaceGetBaseAddress(surfaceRef)
+        let size = bytesPerRow * height
+        let data = Data(bytes: base, count: size)
+
+        guard let provider = CGDataProvider(data: data as CFData),
+              let colorSpace = CGColorSpace(name: CGColorSpace.displayP3) else {
+            return nil
+        }
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(
+            CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
+        )
+
+        guard let image = CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo,
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        ) else { return nil }
+
+        return DebugPresentedFrameImage(
+            image: image,
+            backingScale: max(1.0, layer.contentsScale)
+        )
+    }
+
     /// Sample the IOSurface backing the terminal layer (if any) to detect a transient blank frame
     /// without using screenshots/screen recording permissions.
     func debugSampleIOSurface(normalizedCrop: CGRect) -> DebugFrameSample? {

@@ -33,6 +33,7 @@ struct ControlCommandExecutionPolicyTests {
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",
+            "debug.surface.screenshot",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font", "mobile.task.models.list",
             // JavaScript-evaluating browser methods block on page JS and must

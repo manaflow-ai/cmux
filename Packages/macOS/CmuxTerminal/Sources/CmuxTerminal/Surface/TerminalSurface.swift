@@ -314,6 +314,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
 
+    /// Pending waiters for tokened render-presented acknowledgments, keyed by
+    /// the token passed to `ghostty_surface_request_render_with_token`. Filled
+    /// and drained on the main actor (the libghostty presented callback runs
+    /// on main, in the same block as the layer's IOSurface assignment).
+    /// See `TerminalSurface+PresentedFrameCapture.swift`.
+    var pendingRenderPresentedWaiters:
+        [UInt64: TerminalSurfacePresentedFrameWaiter] = [:]
+
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
 #if DEBUG

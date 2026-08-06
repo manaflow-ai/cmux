@@ -155,6 +155,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // connection-owned shutdown path, which awaits asynchronous writers.
         // Keep that wait off the main actor.
         "debug.mobile.transport.disconnect",
+        // debug.surface.screenshot blocks its worker on the renderer's
+        // presented-frame acknowledgment, which is delivered on the main
+        // thread; running it on the main actor would deadlock for the full
+        // capture timeout. UI/model access inside the handler stays on main
+        // via v2MainSync and the main-thread presented callback.
+        "debug.surface.screenshot",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a
