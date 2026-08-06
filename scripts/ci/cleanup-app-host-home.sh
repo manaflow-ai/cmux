@@ -31,8 +31,34 @@ if [ ! -e "$CFFIXED_USER_HOME" ] && [ ! -L "$CFFIXED_USER_HOME" ]; then
   exit 1
 fi
 
-cmux_resolve_app_host_isolation \
-  "$CFFIXED_USER_HOME" "$XDG_CONFIG_HOME" || exit 1
+app_host_home="$(cd "$CFFIXED_USER_HOME" 2>/dev/null && pwd -P)" || {
+  echo "FAIL: app-host isolation directory is unavailable" >&2
+  exit 1
+}
+if [ -e "$XDG_CONFIG_HOME" ] || [ -L "$XDG_CONFIG_HOME" ]; then
+  app_host_xdg_config_home="$(cd "$XDG_CONFIG_HOME" 2>/dev/null && pwd -P)" || {
+    echo "FAIL: app-host XDG configuration directory is unavailable" >&2
+    exit 1
+  }
+else
+  # The app host owns this mutable child and may remove it. Canonicalize its
+  # existing parent, then reconstruct only the required .config leaf. Existing
+  # XDG symlinks still take the branch above and are resolved before validation.
+  xdg_without_trailing_slash="${XDG_CONFIG_HOME%/}"
+  if [ -z "$xdg_without_trailing_slash" ] \
+    || [ "${xdg_without_trailing_slash##*/}" != ".config" ]; then
+    echo "FAIL: app-host XDG configuration must name the isolated home .config directory" >&2
+    exit 1
+  fi
+  xdg_parent="$(dirname "$xdg_without_trailing_slash")"
+  xdg_parent="$(cd "$xdg_parent" 2>/dev/null && pwd -P)" || {
+    echo "FAIL: app-host XDG configuration parent is unavailable" >&2
+    exit 1
+  }
+  app_host_xdg_config_home="${xdg_parent%/}/.config"
+fi
+cmux_validate_resolved_app_host_isolation \
+  "$app_host_home" "$app_host_xdg_config_home" || exit 1
 app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
 
 if [ -z "${RUNNER_TEMP:-}" ]; then
