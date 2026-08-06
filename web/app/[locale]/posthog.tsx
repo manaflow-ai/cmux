@@ -91,8 +91,9 @@ function PageviewTracker() {
       }
       return null;
     };
-    const flushBufferedCaptures = () => {
+    const flushBufferedCaptures = (replay: boolean) => {
       const captures = pendingCaptures.current.splice(0);
+      if (!replay) return;
       for (const capture of captures) {
         const properties = { ...capture.properties };
         for (const identityProperty of [
@@ -110,14 +111,16 @@ function PageviewTracker() {
         });
       }
     };
-    const recoverAsAnonymous = () => {
+    const recoverAsAnonymous = (replayBuffered: boolean) => {
       clearUnresolvedIdentity();
       posthog.set_config({ before_send: (event) => event });
-      flushBufferedCaptures();
+      flushBufferedCaptures(replayBuffered);
       finishPendingPageview();
     };
 
     const resolveIdentity = async () => {
+      const previousPostHogUserId = posthog.get_property("stack_user_id");
+      const hadAuthenticatedIdentity = typeof previousPostHogUserId === "string";
       const currentGeneration = ++generation;
       activeController?.abort();
       const controller = new AbortController();
@@ -140,7 +143,7 @@ function PageviewTracker() {
         });
         if (controller.signal.aborted || currentGeneration !== generation) return;
         if (!response.ok) {
-          recoverAsAnonymous();
+          recoverAsAnonymous(!hadAuthenticatedIdentity);
           return;
         }
         const payload = await response.json() as {
@@ -156,14 +159,16 @@ function PageviewTracker() {
             typeof payload.user?.id !== "string"
             || (plan !== "free" && plan !== "pro" && plan !== "team")
           ) {
-            recoverAsAnonymous();
+            recoverAsAnonymous(!hadAuthenticatedIdentity);
             return;
           }
           identity = { id: payload.user.id, plan };
         }
         posthog.set_config({ before_send: (event) => event });
         syncStackAnalyticsIdentity(posthog, identityStorage, identity);
-        flushBufferedCaptures();
+        const identityUnchanged = !hadAuthenticatedIdentity
+          || identity?.id === previousPostHogUserId;
+        flushBufferedCaptures(identityUnchanged);
         finishPendingPageview();
       } catch {
         // Fail closed: an unresolved auth state must not attribute this route
@@ -172,7 +177,7 @@ function PageviewTracker() {
           currentGeneration === generation
           && (!controller.signal.aborted || timedOut)
         ) {
-          recoverAsAnonymous();
+          recoverAsAnonymous(!hadAuthenticatedIdentity);
         }
       } finally {
         window.clearTimeout(timeoutId);
