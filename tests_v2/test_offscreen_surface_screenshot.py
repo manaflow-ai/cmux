@@ -182,6 +182,7 @@ def main() -> int:
     c = cmux(args.socket)
     c.connect()
     overlay = None
+    panel = None
     overlay_src = out_dir / "overlay.swift"
     failures = []
 
@@ -202,15 +203,17 @@ def main() -> int:
         # bands (truecolor SGR over spaces) plus a text sentinel; hide the
         # cursor so repeated captures are pixel-identical.
         print("== writing pattern")
-# NOTE: the client's send unescaper turns \\n into a raw newline and
+        # NOTE: the client's send unescaper turns \\n into a raw newline and
         # passes unknown escapes (\\e) through, so printf-level newlines are
-        # written as \\\\n to survive as printf's own \n escape.
+        # written as \\\\n to survive as printf's own \n escape. The trailing
+        # foreground sleep holds the shell so no prompt redraw or cursor blink
+        # can perturb the pixels between captures (released in cleanup).
         script = (
             "clear; "
             "for i in 1 2 3 4; do printf '\\e[48;2;255;0;0m%80s\\e[0m\\\\n' ''; done; "
             "for i in 1 2 3 4; do printf '\\e[48;2;0;255;0m%80s\\e[0m\\\\n' ''; done; "
             "for i in 1 2 3 4; do printf '\\e[48;2;0;0;255m%80s\\e[0m\\\\n' ''; done; "
-            f"printf '{SENTINEL}\\\\n'; printf '\\e[?25l'"
+            f"printf '{SENTINEL}\\\\n'; printf '\\e[?25l'; sleep 300"
         )
         c.send_surface(panel, script + "\\n")
         deadline = time.time() + 15
@@ -340,6 +343,13 @@ def main() -> int:
                 overlay.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 overlay.kill()
+        # Release the pane's hold-open sleep and restore the cursor.
+        if panel is not None:
+            try:
+                c.send_key_surface(panel, "ctrl-c")
+                c.send_surface(panel, "printf '\\e[?25h'\\n")
+            except Exception:
+                pass
         c.close()
 
     print()
