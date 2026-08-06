@@ -61,7 +61,7 @@ struct OnboardingScreenshot: View {
                 language: language,
                 appearance: appearance
             )
-            let loadedDeviceFrame = await Self.deviceFrameImage()
+            let loadedDeviceFrame = await Self.deviceFrameImage(appearance: appearance)
             let loadedScreenMask = await Self.screenMaskImage()
             guard !Task.isCancelled else { return }
             screenshot = loadedScreenshot
@@ -112,8 +112,10 @@ struct OnboardingScreenshot: View {
     }
 
     @MainActor
-    static func deviceFrameImage() async -> UIImage {
-        await cachedImage(resourceName: deviceFrameResourceName)
+    static func deviceFrameImage(
+        appearance: OnboardingScreenshotAppearance
+    ) async -> UIImage {
+        await cachedImage(resourceName: deviceFrameResourceName(appearance: appearance))
     }
 
     @MainActor
@@ -157,14 +159,27 @@ struct OnboardingScreenshot: View {
 
     @MainActor private static let screenshotCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 2 + Content.allCases.count
+        cache.countLimit = 3 + Content.allCases.count
             * OnboardingScreenshotLanguage.allCases.count
             * OnboardingScreenshotAppearance.allCases.count
         return cache
     }()
 
-    private static let deviceFrameResourceName =
-        "Onboarding-iPhone-17-Pro-Max-Silver"
+    /// Bezel artwork per appearance: the silver product frame reads as a
+    /// hardware photo on light pages, while dark pages get the Deep Blue
+    /// colorway so the bezel does not glow against the dark backdrop. Both
+    /// PNGs share frameit's exact screen geometry, so one mask serves both.
+    private static func deviceFrameResourceName(
+        appearance: OnboardingScreenshotAppearance
+    ) -> String {
+        switch appearance {
+        case .light:
+            return "Onboarding-iPhone-17-Pro-Max-Silver"
+        case .dark:
+            return "Onboarding-iPhone-17-Pro-Max-Deep-Blue"
+        }
+    }
+
     private static let screenMaskResourceName =
         "Onboarding-iPhone-17-Pro-Max-Screen-Mask"
 

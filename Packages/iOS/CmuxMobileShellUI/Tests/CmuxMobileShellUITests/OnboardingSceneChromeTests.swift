@@ -106,13 +106,15 @@ import UIKit
     }
 
     @Test @MainActor func deviceFrameUsesFullResolutionProductArtwork() async throws {
-        let frame = await OnboardingScreenshot.deviceFrameImage()
-        let framePixels = try #require(frame.cgImage)
+        for appearance in OnboardingScreenshotAppearance.allCases {
+            let frame = await OnboardingScreenshot.deviceFrameImage(appearance: appearance)
+            let framePixels = try #require(frame.cgImage)
+            #expect(framePixels.width == 1_470)
+            #expect(framePixels.height == 3_000)
+        }
         let mask = await OnboardingScreenshot.screenMaskImage()
         let maskPixels = try #require(mask.cgImage)
 
-        #expect(framePixels.width == 1_470)
-        #expect(framePixels.height == 3_000)
         #expect(maskPixels.width == 1_320)
         #expect(maskPixels.height == 2_868)
     }
