@@ -32,6 +32,11 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         for stateFileName in stateFileNames {
             #expect(script.contains("\"$CMUX_SSH_AUTH_GROUP_DIR/\(stateFileName)\""))
         }
+        #expect(script.contains(
+            "wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; " +
+                "cmux_ssh_attach_auth_pid=; cmux_ssh_terminate_owned_auth_group; " +
+                "cmux_ssh_attach_remove_auth_group_dir"
+        ))
     }
 
     @Test func retriesInitialAuthenticationBeforeAttaching() throws {

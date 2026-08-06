@@ -310,9 +310,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let leafScript = root.appendingPathComponent("leaf.sh")
         let leafPIDFile = root.appendingPathComponent("leaf.pid")
         let observedProcessFile = root.appendingPathComponent("observed-process")
+        let snapshotPermissionFile = root.appendingPathComponent("snapshot-permission")
         let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try createSecureGroupDirectory(at: groupDirectory)
+        try "0\n".write(to: snapshotPermissionFile, atomically: true, encoding: .utf8)
         defer { try? fileManager.removeItem(at: root) }
 
         try """
@@ -329,10 +331,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
-        cmux_test_snapshot_count=0
         cmux_ssh_auth_take_process_snapshot() {
-          cmux_test_snapshot_count=$((cmux_test_snapshot_count + 1))
-          if [ "$cmux_test_snapshot_count" -gt 1 ]; then return 1; fi
+          if [ "$(/bin/cat "$CMUX_TEST_SNAPSHOT_PERMISSION")" != 1 ]; then return 1; fi
           /usr/bin/env LC_ALL=C LANG=C /bin/ps -axo pid=,ppid=,pgid=,state=,lstart= > "$1" 2>/dev/null
         }
         ( \(classifiedAuthentication) ) &
@@ -346,6 +346,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         test -s "$CMUX_TEST_LEAF_PID" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 97
+        cmux_test_leaf_pid=$(/bin/cat "$CMUX_TEST_LEAF_PID") || exit 96
+        /bin/kill -0 "$cmux_test_leaf_pid" >/dev/null 2>&1 || exit 95
+        cmux_test_leaf_state=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o state= \
+          -p "$cmux_test_leaf_pid" 2>/dev/null || true)
+        case "$cmux_test_leaf_state" in *T*) exit 94 ;; esac
+        printf '%s\n' 1 > "$CMUX_TEST_SNAPSHOT_PERMISSION" || exit 93
+        cmux_ssh_terminate_owned_auth_group
         /usr/bin/env LC_ALL=C LANG=C /bin/ps -o pid=,ppid=,pgid=,state=,lstart= \
           -p "$(/bin/cat "$CMUX_TEST_LEAF_PID")" > "$CMUX_TEST_OBSERVED_PROCESS" 2>/dev/null || true
         trap - EXIT
@@ -358,6 +366,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
             "CMUX_TEST_LEAF_PID": leafPIDFile.path,
             "CMUX_TEST_OBSERVED_PROCESS": observedProcessFile.path,
+            "CMUX_TEST_SNAPSHOT_PERMISSION": snapshotPermissionFile.path,
             "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
