@@ -104,3 +104,16 @@ def test_split_divider_cursor_refresh_does_not_destroy_kvo_observers():
     assert "invalidateSplitDividerRegionCache()" not in terminal_cursor_refresh
     assert "invalidateSplitDividerRegionCache()" not in browser_cursor_refresh
     assert "private nonisolated func invalidateObservations()" in invalidator
+
+
+def test_terminal_key_state_indicator_reuses_localized_accessibility_label():
+    terminal = (ROOT / "Sources/GhosttyTerminalView.swift").read_text()
+    synchronization = source_slice(
+        "Sources/GhosttyTerminalView.swift",
+        "func syncKeyStateIndicator(text: String?)",
+        "func refreshHostBackgroundAfterGhosttyConfigReload()",
+    )
+
+    assert "private var terminalKeyTableIndicatorAccessibilityLabel" not in terminal
+    assert "private let keyTableIndicatorAccessibilityLabel = String(" in terminal
+    assert "setAccessibilityLabel(keyTableIndicatorAccessibilityLabel)" in synchronization
