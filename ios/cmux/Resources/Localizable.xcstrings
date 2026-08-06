@@ -1004,6 +1004,40 @@
         }
       }
     },
+    "mobile.browserStream.newPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいブラウザ"
+          }
+        }
+      }
+    },
+    "mobile.browserStream.newPageDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search or enter an address in the bar below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のバーで検索するか、アドレスを入力してください。"
+          }
+        }
+      }
+    },
     "mobile.browserStream.noAddress": {
       "extractionState": "manual",
       "localizations": {
