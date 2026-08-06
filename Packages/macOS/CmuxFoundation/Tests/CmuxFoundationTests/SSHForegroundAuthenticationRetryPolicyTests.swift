@@ -241,6 +241,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let leafScript = root.appendingPathComponent("leaf.sh")
         let leafPIDFile = root.appendingPathComponent("leaf.pid")
         let signalLog = root.appendingPathComponent("signal.log")
+        let groupFile = root.appendingPathComponent("group")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -253,9 +254,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         """.write(to: leafScript, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: leafScript.path)
 
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: "/bin/sh \"$CMUX_TEST_LEAF_SCRIPT\""
+        )
         let command = """
-        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        /usr/bin/script -q /dev/null /bin/sh "$CMUX_TEST_LEAF_SCRIPT" &
+        \(policy.processTreeTerminationShellFunction())
+        ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         cmux_test_ready_attempt=0
         while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
@@ -274,6 +279,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
             "CMUX_TEST_LEAF_PID": leafPIDFile.path,
             "CMUX_TEST_SIGNAL_LOG": signalLog.path,
+            "CMUX_SSH_AUTH_GROUP_FILE": groupFile.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -412,6 +418,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let chainScript = root.appendingPathComponent("chain.sh")
         let readyMarker = root.appendingPathComponent("ready")
         let pidLog = root.appendingPathComponent("pids")
+        let groupFile = root.appendingPathComponent("group")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -437,9 +444,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             }
         }
 
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: "CMUX_TEST_CHAIN_DEPTH=24 /bin/sh \"$CMUX_TEST_CHAIN_SCRIPT\""
+        )
         let command = """
-        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        CMUX_TEST_CHAIN_DEPTH=24 /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
+        \(policy.processTreeTerminationShellFunction())
+        ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
@@ -458,6 +469,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
+            "CMUX_SSH_AUTH_GROUP_FILE": groupFile.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -498,6 +510,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let readyMarker = root.appendingPathComponent("ready")
         let replacementScript = root.appendingPathComponent("replacement.sh")
         let replacementPIDFile = root.appendingPathComponent("replacement.pid")
+        let groupFile = root.appendingPathComponent("group")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -544,6 +557,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_REPLACEMENT_SCRIPT": replacementScript.path,
             "CMUX_TEST_REPLACEMENT_PID": replacementPIDFile.path,
+            "CMUX_SSH_AUTH_GROUP_FILE": groupFile.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
@@ -574,6 +588,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-termios-\(UUID().uuidString)", isDirectory: true)
         let readyMarker = root.appendingPathComponent("ready")
         let signalLog = root.appendingPathComponent("signal.log")
+        let groupFile = root.appendingPathComponent("group")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -610,6 +625,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_SIGNAL_LOG": signalLog.path,
+            "CMUX_SSH_AUTH_GROUP_FILE": groupFile.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice

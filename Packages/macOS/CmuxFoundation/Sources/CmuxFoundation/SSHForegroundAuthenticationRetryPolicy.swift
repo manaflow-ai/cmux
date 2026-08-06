@@ -60,314 +60,83 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         ].joined(separator: "|")
     }
 
-    /// Builds the bounded shell helper that terminates a foreground-authentication tree.
-    /// It freezes snapshot-validated members, gracefully terminates isolated PTY
-    /// groups, captures their TERM-handler replacements, and force-kills shared
-    /// wrappers without running their handlers. Every PID signal validates the
-    /// recorded parent, process group, and start time. The caller supplies the
-    /// root's known parent so a reused candidate PID cannot become the root.
-    /// - Returns: A shell function named `cmux_ssh_terminate_auth_process_tree`.
+    /// Builds the bounded helper that terminates foreground SSH authentication.
+    ///
+    /// The classifier publishes the isolated PTY process-group leader and keeps
+    /// a signal-resistant anchor in that group. Cleanup validates that identity,
+    /// gives the group a short TERM grace period, then KILLs it. The shared wrapper
+    /// PID is KILLed only while its original parent, group, and start time match.
+    ///
+    /// - Returns: A shell function named cmux_ssh_terminate_auth_process_tree.
     public func processTreeTerminationShellFunction() -> String {
         #"""
         cmux_ssh_terminate_auth_process_tree() (
-          cmux_ssh_auth_tree_root_pid="$1"
-          cmux_ssh_auth_tree_root_parent="$2"
-          case "$cmux_ssh_auth_tree_root_pid:$cmux_ssh_auth_tree_root_parent" in
+          cmux_ssh_auth_root_pid="$1"
+          cmux_ssh_auth_root_parent="$2"
+          case "$cmux_ssh_auth_root_pid:$cmux_ssh_auth_root_parent" in
             *[!0-9:]*|:*|*:) exit 0 ;;
           esac
 
-          umask 077
-          cmux_ssh_auth_state_dir=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/cmux-ssh-auth-tree.XXXXXX") || exit 0
-          cmux_ssh_auth_snapshot="$cmux_ssh_auth_state_dir/snapshot"
-          cmux_ssh_auth_members="$cmux_ssh_auth_state_dir/members"
-          cmux_ssh_auth_frozen="$cmux_ssh_auth_state_dir/frozen"
-          cmux_ssh_auth_owned="$cmux_ssh_auth_state_dir/owned"
-          cmux_ssh_auth_groups="$cmux_ssh_auth_state_dir/groups"
-          cmux_ssh_auth_force_groups="$cmux_ssh_auth_state_dir/force-groups"
-          cmux_ssh_auth_shared="$cmux_ssh_auth_state_dir/shared"
-          cmux_ssh_auth_live="$cmux_ssh_auth_state_dir/live"
-          cmux_ssh_auth_started_at=$(/bin/date +%s 2>/dev/null) || exit 0
-          case "$cmux_ssh_auth_started_at" in ''|*[!0-9]*) exit 0 ;; esac
-          cmux_ssh_auth_deadline=$((cmux_ssh_auth_started_at + 2))
-          cmux_ssh_auth_deadline_status=90
-          for cmux_ssh_auth_file in \
-            "$cmux_ssh_auth_frozen" "$cmux_ssh_auth_owned" "$cmux_ssh_auth_groups" \
-            "$cmux_ssh_auth_force_groups" "$cmux_ssh_auth_shared"; do
-            : > "$cmux_ssh_auth_file" || exit 0
-          done
-
-          cmux_ssh_auth_extract_tree() {
-            /usr/bin/awk \
-              -v cmux_root="$cmux_ssh_auth_tree_root_pid" \
-              -v cmux_root_parent="$cmux_ssh_auth_tree_root_parent" '
-                NF >= 9 {
-                  cmux_pid = $1
-                  cmux_parent[cmux_pid] = $2
-                  cmux_group[cmux_pid] = $3
-                  cmux_state[cmux_pid] = $4
-                  cmux_started[cmux_pid] = $5 "_" $6 "_" $7 "_" $8 "_" $9
-                  cmux_process[cmux_pid] = 1
-                  cmux_next_sibling[cmux_pid] = cmux_first_child[$2]
-                  cmux_first_child[$2] = cmux_pid
-                }
-                END {
-                  if (!(cmux_root in cmux_process) ||
-                      cmux_parent[cmux_root] != cmux_root_parent ||
-                      cmux_state[cmux_root] ~ /Z/) {
-                    exit
-                  }
-                  cmux_depth[cmux_root] = 0
-                  cmux_queue_head = 1
-                  cmux_queue_tail = 1
-                  cmux_queue[cmux_queue_tail] = cmux_root
-                  while (cmux_queue_head <= cmux_queue_tail) {
-                    cmux_parent_pid = cmux_queue[cmux_queue_head++]
-                    cmux_candidate = cmux_first_child[cmux_parent_pid]
-                    while (cmux_candidate != "") {
-                      if (cmux_state[cmux_candidate] !~ /Z/) {
-                        cmux_depth[cmux_candidate] = cmux_depth[cmux_parent_pid] + 1
-                        cmux_queue[++cmux_queue_tail] = cmux_candidate
-                      }
-                      cmux_candidate = cmux_next_sibling[cmux_candidate]
-                    }
-                  }
-                  for (cmux_candidate in cmux_depth) {
-                    print cmux_depth[cmux_candidate], cmux_candidate,
-                      cmux_parent[cmux_candidate], cmux_group[cmux_candidate],
-                      cmux_started[cmux_candidate], cmux_state[cmux_candidate]
-                  }
-                }
-              ' "$cmux_ssh_auth_snapshot" | /usr/bin/sort -n -k1,1 -k2,2n > "$cmux_ssh_auth_members"
+          cmux_ssh_auth_identity() {
+            /bin/ps -o ppid= -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \
+              /usr/bin/awk 'NF >= 8 && $3 !~ /Z/ {
+                cmux_started = $4 "_" $5 "_" $6 "_" $7 "_" $8
+                print $1 "|" $2 "|" cmux_started
+              }'
           }
 
-          cmux_ssh_auth_extract_group_members() {
-            /usr/bin/awk '
-              FILENAME == ARGV[1] { cmux_group[$1] = 1; next }
-              NF >= 9 && ($3 in cmux_group) && $4 !~ /Z/ {
-                cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
-                print 0, $1, $2, $3, cmux_started, $4
-              }
-            ' "$cmux_ssh_auth_groups" "$cmux_ssh_auth_snapshot" | \
-              /usr/bin/sort -n -k2,2n > "$cmux_ssh_auth_members"
-          }
-
-          cmux_ssh_auth_extract_identity_matches() {
-            cmux_ssh_auth_identity_source="$1"
-            /usr/bin/awk '
-              FILENAME == ARGV[1] {
-                cmux_identity[$2 SUBSEP $3 SUBSEP $4 SUBSEP $5] = 1
-                next
-              }
-              NF >= 9 {
-                cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
-                if (($1 SUBSEP $2 SUBSEP $3 SUBSEP cmux_started) in cmux_identity && $4 !~ /Z/) {
-                  print 0, $1, $2, $3, cmux_started, $4
-                }
-              }
-            ' "$cmux_ssh_auth_identity_source" "$cmux_ssh_auth_snapshot" | \
-              /usr/bin/sort -n -k2,2n > "$cmux_ssh_auth_live"
-          }
-
-        \#(processValidationShellFunctions())
-
-          cmux_ssh_auth_freeze_file() {
-            cmux_ssh_auth_freeze_source="$1"
-            : > "$cmux_ssh_auth_frozen" || return 1
-            cmux_ssh_auth_freeze_count=0
-            while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_started cmux_state; do
-              if [ $((cmux_ssh_auth_freeze_count % 8)) -eq 0 ] && ! cmux_ssh_auth_has_time; then
-                return "$cmux_ssh_auth_deadline_status"
-              fi
-              cmux_ssh_auth_freeze_count=$((cmux_ssh_auth_freeze_count + 1))
-              case "$cmux_pid:$cmux_parent:$cmux_group" in *[!0-9:]*) continue ;; esac
-              cmux_ssh_auth_record_is_current "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_started" || continue
-              cmux_did_stop=
-              case "$cmux_state" in
-                *T*) ;;
-                *)
-                  kill -STOP "$cmux_pid" >/dev/null 2>&1 || continue
-                  cmux_did_stop=1
-                  if ! cmux_ssh_auth_record_is_current "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_started"; then
-                    kill -CONT "$cmux_pid" >/dev/null 2>&1 || true
-                    continue
-                  fi
-                  ;;
-              esac
-              if ! printf '%s %s %s %s %s %s\n' \
-                "$cmux_depth" "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_started" "$cmux_state" \
-                >> "$cmux_ssh_auth_frozen"; then
-                if [ -n "$cmux_did_stop" ]; then kill -CONT "$cmux_pid" >/dev/null 2>&1 || true; fi
-                return 1
-              fi
-            done < "$cmux_ssh_auth_freeze_source"
-          }
-
-          cmux_ssh_auth_resume_file() {
-            cmux_ssh_auth_resume_source="$1"
-            if [ ! -s "$cmux_ssh_auth_resume_source" ]; then return; fi
-            cmux_ssh_auth_take_snapshot || return
-            cmux_ssh_auth_extract_identity_matches "$cmux_ssh_auth_resume_source" || return
-            while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_started cmux_state; do
-              case "$cmux_pid" in ''|*[!0-9]*) continue ;; esac
-              kill -CONT "$cmux_pid" >/dev/null 2>&1 || true
-            done < "$cmux_ssh_auth_live"
-          }
-
-          cmux_ssh_auth_cleanup() {
-            trap - EXIT HUP INT TERM
-            cmux_ssh_auth_resume_file "$cmux_ssh_auth_frozen"
-            cmux_ssh_auth_resume_file "$cmux_ssh_auth_owned"
-            /bin/rm -f "$cmux_ssh_auth_snapshot" "$cmux_ssh_auth_members" \
-              "$cmux_ssh_auth_frozen" "$cmux_ssh_auth_owned" "$cmux_ssh_auth_groups" \
-              "$cmux_ssh_auth_force_groups" "$cmux_ssh_auth_shared" "$cmux_ssh_auth_live" \
-              2>/dev/null || true
-            /bin/rmdir "$cmux_ssh_auth_state_dir" 2>/dev/null || true
-          }
-          trap 'cmux_ssh_auth_cleanup' EXIT
-          trap 'cmux_ssh_auth_cleanup; exit 0' HUP INT TERM
-
-          cmux_ssh_auth_parent_group=$(/bin/ps -o pgid= -p "$cmux_ssh_auth_tree_root_parent" 2>/dev/null | /usr/bin/tr -d '[:space:]')
-          case "$cmux_ssh_auth_parent_group" in ''|0|*[!0-9]*) cmux_ssh_auth_parent_group= ;; esac
-
-          cmux_ssh_auth_signal_groups() {
-            cmux_ssh_auth_group_signal="$1"
-            cmux_ssh_auth_group_source="$2"
-            while IFS= read -r cmux_group; do
-              case "$cmux_group" in ''|0|*[!0-9]*) continue ;; esac
-              /bin/kill -"$cmux_ssh_auth_group_signal" -- "-$cmux_group" >/dev/null 2>&1 || true
-            done < "$cmux_ssh_auth_group_source"
-          }
-
-          cmux_ssh_auth_signal_records() {
-            cmux_ssh_auth_record_signal="$1"
-            cmux_ssh_auth_record_source="$2"
-            /usr/bin/sort -nr -k1,1 -k2,2nr "$cmux_ssh_auth_record_source" | \
-              while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_started cmux_state; do
-                case "$cmux_pid" in ''|*[!0-9]*) continue ;; esac
-                kill -"$cmux_ssh_auth_record_signal" "$cmux_pid" >/dev/null 2>&1 || true
-              done
-          }
-
-          cmux_ssh_auth_force_validated_frozen() {
-            if [ ! -s "$cmux_ssh_auth_frozen" ]; then return; fi
-            cmux_ssh_auth_take_snapshot || return
-            cmux_ssh_auth_extract_identity_matches "$cmux_ssh_auth_frozen" || return
-            /usr/bin/awk '$6 ~ /T/' "$cmux_ssh_auth_live" > "$cmux_ssh_auth_members" || return
-            case "$cmux_ssh_auth_parent_group" in
-              '')
-                /bin/cp "$cmux_ssh_auth_members" "$cmux_ssh_auth_shared" || return
-                ;;
-              *)
-                /usr/bin/awk -v cmux_parent_group="$cmux_ssh_auth_parent_group" \
-                  '$4 != cmux_parent_group && $4 != 0 { print $4 }' "$cmux_ssh_auth_members" | \
-                  /usr/bin/sort -un > "$cmux_ssh_auth_force_groups" || return
-                /usr/bin/awk -v cmux_parent_group="$cmux_ssh_auth_parent_group" \
-                  '$4 == cmux_parent_group { print }' "$cmux_ssh_auth_members" > "$cmux_ssh_auth_shared" || return
-                cmux_ssh_auth_signal_groups KILL "$cmux_ssh_auth_force_groups"
-                ;;
-            esac
-            cmux_ssh_auth_signal_records KILL "$cmux_ssh_auth_shared"
-          }
-
-          cmux_ssh_auth_freeze_attempt=0
-          cmux_ssh_auth_tree_frozen=
-          while [ "$cmux_ssh_auth_freeze_attempt" -lt 4 ]; do
-            if [ "$cmux_ssh_auth_freeze_attempt" -gt 0 ] && ! cmux_ssh_auth_has_time; then break; fi
-            cmux_ssh_auth_take_snapshot || exit 0
-            cmux_ssh_auth_extract_tree || exit 0
-            if [ ! -s "$cmux_ssh_auth_members" ]; then exit 0; fi
-            cmux_ssh_auth_freeze_status=0
-            cmux_ssh_auth_freeze_file "$cmux_ssh_auth_members" || cmux_ssh_auth_freeze_status=$?
-            if [ "$cmux_ssh_auth_freeze_status" -ne 0 ]; then
-              if [ "$cmux_ssh_auth_freeze_status" -eq "$cmux_ssh_auth_deadline_status" ]; then
-                cmux_ssh_auth_force_validated_frozen
-              fi
-              exit 0
-            fi
-            cmux_ssh_auth_take_snapshot || exit 0
-            cmux_ssh_auth_extract_tree || exit 0
-            if [ ! -s "$cmux_ssh_auth_members" ]; then exit 0; fi
-            if cmux_ssh_auth_records_are_frozen "$cmux_ssh_auth_members"; then
-              /bin/cp "$cmux_ssh_auth_members" "$cmux_ssh_auth_owned" || exit 0
-              /bin/cp "$cmux_ssh_auth_members" "$cmux_ssh_auth_frozen" || exit 0
-              cmux_ssh_auth_tree_frozen=1
-              break
-            fi
-            cmux_ssh_auth_freeze_attempt=$((cmux_ssh_auth_freeze_attempt + 1))
-          done
-          if [ -z "$cmux_ssh_auth_tree_frozen" ]; then
-            cmux_ssh_auth_force_validated_frozen
-            exit 0
-          fi
-
-          case "$cmux_ssh_auth_parent_group" in
-            '') /bin/cp "$cmux_ssh_auth_owned" "$cmux_ssh_auth_shared" || exit 0 ;;
-            *)
-              /usr/bin/awk -v cmux_parent_group="$cmux_ssh_auth_parent_group" \
-                '$4 != cmux_parent_group && $4 != 0 { print $4 }' "$cmux_ssh_auth_owned" | \
-                /usr/bin/sort -un > "$cmux_ssh_auth_groups" || exit 0
-              /usr/bin/awk -v cmux_parent_group="$cmux_ssh_auth_parent_group" \
-                '$4 == cmux_parent_group { print }' "$cmux_ssh_auth_owned" > "$cmux_ssh_auth_shared" || exit 0
-              ;;
+          cmux_ssh_auth_root_identity=$(cmux_ssh_auth_identity "$cmux_ssh_auth_root_pid")
+          cmux_ssh_auth_observed_parent=${cmux_ssh_auth_root_identity%%|*}
+          cmux_ssh_auth_root_remainder=${cmux_ssh_auth_root_identity#*|}
+          cmux_ssh_auth_root_group=${cmux_ssh_auth_root_remainder%%|*}
+          cmux_ssh_auth_root_started=${cmux_ssh_auth_root_remainder#*|}
+          if [ "$cmux_ssh_auth_observed_parent" != "$cmux_ssh_auth_root_parent" ]; then exit 0; fi
+          case "$cmux_ssh_auth_root_group:$cmux_ssh_auth_root_started" in
+            *[!A-Za-z0-9_:]*|:*|*:) exit 0 ;;
           esac
 
-          # Only the nested PTY groups receive TERM. Shared wrappers remain
-          # stopped so their handlers cannot fork processes into the caller's group.
-          if [ -s "$cmux_ssh_auth_groups" ]; then
-            cmux_ssh_auth_signal_groups TERM "$cmux_ssh_auth_groups"
-            cmux_ssh_auth_signal_groups CONT "$cmux_ssh_auth_groups"
-            if cmux_ssh_auth_has_time; then /bin/sleep 0.2; fi
+          cmux_ssh_auth_group_file="${CMUX_SSH_AUTH_GROUP_FILE:-}"
+          cmux_ssh_auth_group_attempt=0
+          while [ -n "$cmux_ssh_auth_group_file" ] && [ ! -s "$cmux_ssh_auth_group_file" ] && \
+            kill -0 "$cmux_ssh_auth_root_pid" >/dev/null 2>&1 && \
+            [ "$cmux_ssh_auth_group_attempt" -lt 200 ]; do
+            /bin/sleep 0.01
+            cmux_ssh_auth_group_attempt=$((cmux_ssh_auth_group_attempt + 1))
+          done
 
-            cmux_ssh_auth_group_freeze_attempt=0
-            cmux_ssh_auth_groups_frozen=
-            while [ "$cmux_ssh_auth_group_freeze_attempt" -lt 4 ]; do
-              if [ "$cmux_ssh_auth_group_freeze_attempt" -gt 0 ] && ! cmux_ssh_auth_has_time; then break; fi
-              cmux_ssh_auth_take_snapshot || break
-              cmux_ssh_auth_extract_group_members || break
-              if [ ! -s "$cmux_ssh_auth_members" ]; then
-                : > "$cmux_ssh_auth_frozen"
-                cmux_ssh_auth_groups_frozen=1
-                break
+          if [ -n "$cmux_ssh_auth_group_file" ] && [ -s "$cmux_ssh_auth_group_file" ]; then
+            cmux_ssh_auth_group_identity=$(/bin/cat -- "$cmux_ssh_auth_group_file" 2>/dev/null || true)
+            cmux_ssh_auth_group_owner=${cmux_ssh_auth_group_identity%%|*}
+            cmux_ssh_auth_group_remainder=${cmux_ssh_auth_group_identity#*|}
+            cmux_ssh_auth_owned_group=${cmux_ssh_auth_group_remainder%%|*}
+            cmux_ssh_auth_group_started=${cmux_ssh_auth_group_remainder#*|}
+            case "$cmux_ssh_auth_group_owner:$cmux_ssh_auth_owned_group:$cmux_ssh_auth_group_started" in
+              *[!A-Za-z0-9_:]*|:*|*:) cmux_ssh_auth_owned_group= ;;
+            esac
+            if [ -n "$cmux_ssh_auth_owned_group" ] && \
+              [ "$cmux_ssh_auth_group_owner" = "$cmux_ssh_auth_owned_group" ] && \
+              [ "$cmux_ssh_auth_owned_group" != "$cmux_ssh_auth_root_group" ]; then
+              cmux_ssh_auth_owner_identity=$(cmux_ssh_auth_identity "$cmux_ssh_auth_group_owner")
+              cmux_ssh_auth_owner_remainder=${cmux_ssh_auth_owner_identity#*|}
+              cmux_ssh_auth_owner_group=${cmux_ssh_auth_owner_remainder%%|*}
+              cmux_ssh_auth_owner_started=${cmux_ssh_auth_owner_remainder#*|}
+              if [ "$cmux_ssh_auth_owner_group" = "$cmux_ssh_auth_owned_group" ] && \
+                [ "$cmux_ssh_auth_owner_started" = "$cmux_ssh_auth_group_started" ]; then
+                /bin/kill -TERM -- "-$cmux_ssh_auth_owned_group" >/dev/null 2>&1 || true
+                /bin/kill -CONT -- "-$cmux_ssh_auth_owned_group" >/dev/null 2>&1 || true
+                /bin/sleep 0.2
+                /bin/kill -KILL -- "-$cmux_ssh_auth_owned_group" >/dev/null 2>&1 || true
               fi
-              cmux_ssh_auth_freeze_file "$cmux_ssh_auth_members" || break
-              cmux_ssh_auth_take_snapshot || break
-              cmux_ssh_auth_extract_group_members || break
-              if [ ! -s "$cmux_ssh_auth_members" ]; then
-                : > "$cmux_ssh_auth_frozen"
-                cmux_ssh_auth_groups_frozen=1
-                break
-              fi
-              if cmux_ssh_auth_records_are_frozen "$cmux_ssh_auth_members"; then
-                /bin/cp "$cmux_ssh_auth_members" "$cmux_ssh_auth_frozen" || break
-                cmux_ssh_auth_groups_frozen=1
-                break
-              fi
-              cmux_ssh_auth_group_freeze_attempt=$((cmux_ssh_auth_group_freeze_attempt + 1))
-            done
-
-            # Frozen live members pin each process-group identity until KILL.
-            if [ -n "$cmux_ssh_auth_groups_frozen" ] && [ -s "$cmux_ssh_auth_frozen" ]; then
-              /usr/bin/awk '$4 != 0 { print $4 }' "$cmux_ssh_auth_frozen" | \
-                /usr/bin/sort -un > "$cmux_ssh_auth_force_groups" || exit 0
-              cmux_ssh_auth_signal_groups KILL "$cmux_ssh_auth_force_groups"
-            elif [ -z "$cmux_ssh_auth_groups_frozen" ] && [ -s "$cmux_ssh_auth_frozen" ]; then
-              cmux_ssh_auth_take_snapshot || exit 0
-              cmux_ssh_auth_extract_identity_matches "$cmux_ssh_auth_frozen" || exit 0
-              /usr/bin/awk '$6 ~ /T/ && $4 != 0 { print $4 }' "$cmux_ssh_auth_live" | \
-                /usr/bin/sort -un > "$cmux_ssh_auth_force_groups" || exit 0
-              cmux_ssh_auth_signal_groups KILL "$cmux_ssh_auth_force_groups"
             fi
           fi
 
-          # Shared wrapper identities never ran after the initial freeze. Match
-          # them against a fresh process snapshot immediately before force-kill.
-          if [ -s "$cmux_ssh_auth_shared" ]; then
-            cmux_ssh_auth_take_snapshot || exit 0
-            cmux_ssh_auth_extract_identity_matches "$cmux_ssh_auth_shared" || exit 0
-            /usr/bin/awk '$6 ~ /T/' "$cmux_ssh_auth_live" > "$cmux_ssh_auth_members" || exit 0
-            cmux_ssh_auth_signal_records KILL "$cmux_ssh_auth_members"
+          cmux_ssh_auth_current_root_identity=$(cmux_ssh_auth_identity "$cmux_ssh_auth_root_pid")
+          if [ "$cmux_ssh_auth_current_root_identity" = "$cmux_ssh_auth_root_identity" ]; then
+            kill -KILL "$cmux_ssh_auth_root_pid" >/dev/null 2>&1 || true
           fi
-          cmux_ssh_auth_cleanup
+          if [ -n "$cmux_ssh_auth_group_file" ]; then
+            /bin/rm -f -- "$cmux_ssh_auth_group_file" 2>/dev/null || true
+          fi
         )
         """#
     }
@@ -396,7 +165,48 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// - Parameter command: Foreground authentication command to execute under zsh.
     /// - Returns: A zsh command suitable for embedding in a startup script.
     public func classifyingTransientFailure(in command: String) -> String {
-        let nestedCommand = "/usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command))"
+        let ownedGroupCommand = [
+            "cmux_ssh_auth_group_file=\"${CMUX_SSH_AUTH_GROUP_FILE:-}\"",
+            "if [ -z \"$cmux_ssh_auth_group_file\" ]; then exec /usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command)); fi",
+            "cmux_ssh_auth_group_anchor_pid=",
+            "cmux_ssh_auth_group_publish_file=\"$cmux_ssh_auth_group_file.new.$$\"",
+            "cmux_ssh_auth_group_cleanup() {",
+            "  trap - EXIT HUP INT TERM",
+            "  /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" 2>/dev/null || true",
+            "  if [ -n \"${cmux_ssh_auth_group_anchor_pid:-}\" ]; then",
+            "    /bin/kill -KILL \"$cmux_ssh_auth_group_anchor_pid\" >/dev/null 2>&1 || true",
+            "    wait \"$cmux_ssh_auth_group_anchor_pid\" 2>/dev/null || true",
+            "  fi",
+            "}",
+            "cmux_ssh_auth_group_signal_exit() {",
+            "  cmux_ssh_auth_group_signal_status=\"$1\"",
+            "  /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" 2>/dev/null || true",
+            "  trap - EXIT HUP INT TERM",
+            "  exit \"$cmux_ssh_auth_group_signal_status\"",
+            "}",
+            "trap 'cmux_ssh_auth_group_cleanup' EXIT",
+            "trap 'cmux_ssh_auth_group_signal_exit 129' HUP",
+            "trap 'cmux_ssh_auth_group_signal_exit 130' INT",
+            "trap 'cmux_ssh_auth_group_signal_exit 143' TERM",
+            "( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) </dev/null &",
+            "cmux_ssh_auth_group_anchor_pid=$!",
+            "cmux_ssh_auth_group_identity=$(/bin/ps -o pgid= -o state= -o lstart= -p \"$$\" 2>/dev/null | /usr/bin/awk 'NF >= 7 && $2 !~ /Z/ { print $1 \"|\" $3 \"_\" $4 \"_\" $5 \"_\" $6 \"_\" $7 }')",
+            "cmux_ssh_auth_owned_group=${cmux_ssh_auth_group_identity%%|*}",
+            "cmux_ssh_auth_group_started=${cmux_ssh_auth_group_identity#*|}",
+            "cmux_ssh_auth_anchor_group=$(/bin/ps -o pgid= -o state= -p \"$cmux_ssh_auth_group_anchor_pid\" 2>/dev/null | /usr/bin/awk '$2 !~ /Z/ { print $1 }')",
+            "case \"$cmux_ssh_auth_owned_group:$cmux_ssh_auth_group_started:$cmux_ssh_auth_anchor_group\" in *[!A-Za-z0-9_:]*) exit 255 ;; esac",
+            "if [ \"$cmux_ssh_auth_owned_group\" != \"$$\" ] || [ \"$cmux_ssh_auth_anchor_group\" != \"$cmux_ssh_auth_owned_group\" ]; then exit 255; fi",
+            "printf '%s|%s|%s\\n' \"$$\" \"$cmux_ssh_auth_owned_group\" \"$cmux_ssh_auth_group_started\" > \"$cmux_ssh_auth_group_publish_file\" || exit 255",
+            "/bin/mv -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_file\" || exit 255",
+            "unset CMUX_SSH_AUTH_GROUP_FILE",
+            "/usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command))",
+            "cmux_ssh_auth_group_status=$?",
+            "trap - HUP INT TERM",
+            "cmux_ssh_auth_group_cleanup",
+            "/bin/rm -f -- \"$cmux_ssh_auth_group_file\" 2>/dev/null || true",
+            "exit \"$cmux_ssh_auth_group_status\"",
+        ].joined(separator: "\n")
+        let nestedCommand = "/usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(ownedGroupCommand))"
         let classifierProgram = """
         {
           cmux_ssh_auth_line = tolower(cmux_ssh_auth_overlap $0)
