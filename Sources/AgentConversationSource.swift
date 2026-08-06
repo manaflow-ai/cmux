@@ -95,6 +95,7 @@ nonisolated struct AgentConversationSource: Sendable {
                 && sessionIDProvenance == .authoritative
         case .hermesAgent:
             hermesStateDatabaseURL != nil
+                && sessionIDProvenance == .authoritative
         default:
             transcriptURL != nil
         }

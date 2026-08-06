@@ -11,7 +11,7 @@ final class AgentConversationForkTargetCatalog {
     @ObservationIgnored
     private let minimumRefreshInterval: TimeInterval
     @ObservationIgnored
-    private let customDiscovery: (@Sendable () -> [AgentConversationForkTarget])?
+    private let customDiscovery: (@Sendable () async -> [AgentConversationForkTarget])?
     @ObservationIgnored
     private var lastRefreshDate: Date?
     @ObservationIgnored
@@ -28,7 +28,7 @@ final class AgentConversationForkTargetCatalog {
     convenience init(
         initialTargets: [AgentConversationForkTarget] = [],
         minimumRefreshInterval: TimeInterval = 2,
-        discovery: @escaping @Sendable () -> [AgentConversationForkTarget]
+        discovery: @escaping @Sendable () async -> [AgentConversationForkTarget]
     ) {
         self.init(
             initialTargets: initialTargets,
@@ -40,7 +40,7 @@ final class AgentConversationForkTargetCatalog {
     private init(
         initialTargets: [AgentConversationForkTarget],
         minimumRefreshInterval: TimeInterval,
-        customDiscovery: (@Sendable () -> [AgentConversationForkTarget])?
+        customDiscovery: (@Sendable () async -> [AgentConversationForkTarget])?
     ) {
         installedTargets = initialTargets
         self.minimumRefreshInterval = minimumRefreshInterval
@@ -55,18 +55,18 @@ final class AgentConversationForkTargetCatalog {
             return
         }
 
-        let discovery: @Sendable () -> [AgentConversationForkTarget]
+        let discovery: @Sendable () async -> [AgentConversationForkTarget]
         if let customDiscovery {
             discovery = customDiscovery
         } else {
             // Capture current settings for every pass so changing a configured
             // executable path takes effect without restarting cmux.
             let discoverer = AgentConversationForkTargetDiscoverer.live()
-            discovery = { discoverer.discover() }
+            discovery = { await discoverer.discover() }
         }
         refreshTask = Task { [weak self] in
             let targets = await Task.detached(priority: .utility) {
-                discovery()
+                await discovery()
             }.value
             guard !Task.isCancelled, let self else { return }
             if installedTargets != targets {

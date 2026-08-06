@@ -23,31 +23,28 @@ struct AgentConversationCrossHarnessForkTests {
             .map { harness in
                 (harness, try #require(harness.startupCommand(handoffMessage: message)))
             })
+        let interactiveCommands = Dictionary(uniqueKeysWithValues: try commands.map { harness, command in
+            (harness, try transferredInteractiveCommand(from: command))
+        })
 
-        #expect(commands[.claude]?.hasPrefix(AgentResumeArgv.claudeWrapperShellExecutableToken) == true)
-        #expect(commands[.codex]?.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken) == true)
-        #expect(commands[.grok]?.hasPrefix("grok ") == true)
-        #expect(commands[.opencode]?.hasPrefix("opencode --prompt ") == true)
-        #expect(commands[.opencode]?.contains(" run ") == false)
-        #expect(commands[.omp]?.hasPrefix("omp ") == true)
-        #expect(commands[.pi]?.hasPrefix("pi -- ") == true)
-        #expect(commands[.amp]?.hasPrefix("printf '%s\\n' ") == true)
-        #expect(commands[.cursor]?.hasPrefix("cursor-agent ") == true)
-        #expect(commands[.gemini]?.hasPrefix("gemini --prompt-interactive ") == true)
-        #expect(commands[.kiro]?.hasPrefix("if [[ -f ") == true)
-        #expect(commands[.kiro]?.contains("kiro-cli chat --agent cmux ") == true)
-        #expect(commands[.kiro]?.contains("; else kiro-cli chat ") == true)
-        #expect(commands[.antigravity]?.hasPrefix("agy --prompt-interactive ") == true)
-        let hermesCommand = try #require(commands[.hermesAgent])
-        #expect(hermesCommand.contains("hermes chat --query "))
-        #expect(hermesCommand.contains(" --quiet "))
-        #expect(hermesCommand.contains("session_id:"))
-        #expect(hermesCommand.contains("hermes chat --tui --resume "))
-        #expect(!hermesCommand.contains("chat --tui --query"))
-        #expect(commands[.copilot]?.hasPrefix("copilot --interactive ") == true)
-        #expect(commands[.codebuddy]?.hasPrefix("codebuddy ") == true)
-        #expect(commands[.factory]?.hasPrefix("droid ") == true)
-        #expect(commands.values.allSatisfy { $0.contains("don'\\''t drop this") })
+        #expect(interactiveCommands[.claude] == "exec \(AgentResumeArgv.claudeWrapperShellExecutableToken)")
+        #expect(interactiveCommands[.codex] == "exec \(AgentResumeArgv.codexWrapperShellExecutableToken)")
+        #expect(interactiveCommands[.grok] == "exec grok")
+        #expect(interactiveCommands[.opencode] == "exec opencode")
+        #expect(interactiveCommands[.omp] == "exec omp")
+        #expect(interactiveCommands[.pi] == "exec pi")
+        #expect(interactiveCommands[.amp] == "exec amp")
+        #expect(interactiveCommands[.cursor] == "exec cursor-agent")
+        #expect(interactiveCommands[.gemini] == "exec gemini")
+        #expect(interactiveCommands[.kiro]?.contains("exec kiro-cli chat --agent cmux") == true)
+        #expect(interactiveCommands[.kiro]?.contains("else exec kiro-cli chat") == true)
+        #expect(interactiveCommands[.antigravity] == "exec agy")
+        #expect(interactiveCommands[.hermesAgent] == "exec hermes chat --tui")
+        #expect(interactiveCommands[.copilot] == "exec copilot --interactive")
+        #expect(interactiveCommands[.codebuddy] == "exec codebuddy")
+        #expect(interactiveCommands[.factory] == "exec droid")
+        #expect(try commands.values.allSatisfy { try transferredFirstMessage(from: $0) == message })
+        #expect(commands.values.allSatisfy { !$0.contains("don't drop this") })
     }
 
     @Test
@@ -89,28 +86,72 @@ struct AgentConversationCrossHarnessForkTests {
 
         #expect(process.terminationStatus == 0)
         #expect(String(decoding: try Data(contentsOf: argumentsLog), as: UTF8.self) == "\n")
-        #expect(String(decoding: try Data(contentsOf: inputLog), as: UTF8.self) == message)
+        #expect(String(decoding: try Data(contentsOf: inputLog), as: UTF8.self).contains(message))
     }
 
     @Test
-    func hermesTransferSeedsThenResumesInteractiveSession() throws {
+    func discoveredTargetReplacementDuringExportFailsClosed() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("grok", isDirectory: false)
+        try "#!/bin/zsh\n/usr/bin/printf 'grok 1.2.3\\n'\n".write(
+            to: executable,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let identity = try #require(AgentConversationForkExecutableIdentity.capture(
+            executablePath: executable.path,
+            runtimeSearchPath: directory.path
+        ))
+        let target = AgentConversationForkTarget(
+            harness: .grok,
+            executablePath: executable.path,
+            runtimeSearchPath: directory.path,
+            executableIdentity: identity
+        )
+        let service = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                ExecutableReplacingSourceAdapter(executableURL: executable),
+            ])
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "replace-target-during-export",
+            transcriptPath: "/unused/replace-target-during-export.jsonl"
+        )
+
+        await #expect {
+            try await AgentConversationForkRequest(
+                target: target,
+                destination: .right
+            ).startupCommandOverride(
+                sourceSnapshot: snapshot,
+                exportService: service
+            )
+        } throws: { error in
+            error as? AgentConversationForkRequestError == .targetExecutableChanged
+        }
+    }
+
+    @Test
+    func hermesTransferStartsInteractiveSessionAndSubmitsFirstMessage() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let executable = directory.appendingPathComponent("fake hermes", isDirectory: false)
         let invocationLog = directory.appendingPathComponent("invocations.log", isDirectory: false)
+        let inputLog = directory.appendingPathComponent("input.log", isDirectory: false)
         let script = """
         #!/bin/zsh
-        if [[ "${1:-}" == "chat" && "${2:-}" == "--query" && "${3:-}" == "$CMUX_HERMES_EXPECTED_MESSAGE" && "${4:-}" == "--quiet" ]]; then
-          /usr/bin/printf 'seed\n' >> "$CMUX_HERMES_TEST_LOG"
-          /usr/bin/printf 'seeded response\n'
-          /usr/bin/printf '\nsession_id: seeded-session\n' >&2
-          exit 0
+        if [[ "${1:-}" != "chat" || "${2:-}" != "--tui" || -n "${3:-}" ]]; then
+          exit 2
         fi
-        if [[ "${1:-}" == "chat" && "${2:-}" == "--tui" && "${3:-}" == "--resume" && "${4:-}" == "seeded-session" ]]; then
-          /usr/bin/printf 'resume\n' >> "$CMUX_HERMES_TEST_LOG"
-          exit 0
-        fi
-        exit 2
+        /usr/bin/printf '%s\n' "$@" > "$CMUX_HERMES_TEST_LOG"
+        IFS= read -r first_message
+        /usr/bin/printf '%s' "$first_message" > "$CMUX_HERMES_INPUT_LOG"
         """
         try script.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
@@ -118,7 +159,7 @@ struct AgentConversationCrossHarnessForkTests {
             ofItemAtPath: executable.path
         )
 
-        let message = "User: preserve this\nAssistant: kept"
+        let message = "User: preserve this private Hermes transfer"
         let command = try #require(AgentConversationForkTargetHarness.hermesAgent.startupCommand(
             handoffMessage: message,
             executablePath: executable.path
@@ -129,30 +170,25 @@ struct AgentConversationCrossHarnessForkTests {
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-lc", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
-            "CMUX_HERMES_EXPECTED_MESSAGE": message,
             "CMUX_HERMES_TEST_LOG": invocationLog.path,
+            "CMUX_HERMES_INPUT_LOG": inputLog.path,
         ]) { _, override in override }
         process.standardOutput = standardOutput
         process.standardError = standardError
 
         try process.run()
         process.waitUntilExit()
-        let output = String(
-            decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(),
-            as: UTF8.self
-        )
         let errorOutput = String(
             decoding: standardError.fileHandleForReading.readDataToEndOfFile(),
             as: UTF8.self
         )
 
         #expect(process.terminationStatus == 0, Comment(rawValue: errorOutput))
-        #expect(output == "seeded response\n")
-        #expect(errorOutput.contains("session_id: seeded-session"))
         #expect(
             String(decoding: try Data(contentsOf: invocationLog), as: UTF8.self)
-                == "seed\nresume\n"
+                == "chat\n--tui\n"
         )
+        #expect(String(decoding: try Data(contentsOf: inputLog), as: UTF8.self).contains(message))
     }
 
     @Test
@@ -327,10 +363,11 @@ struct AgentConversationCrossHarnessForkTests {
             targetHarness: .claude,
             destination: .newTab
         ).startupCommandOverride(sourceSnapshot: snapshot))
+        let message = try transferredFirstMessage(from: command)
 
-        #expect(command.hasPrefix(AgentResumeArgv.claudeWrapperShellExecutableToken))
-        #expect(command.contains("Find the parser bug"))
-        #expect(command.contains("The parser drops the final field"))
+        #expect(try transferredInteractiveCommand(from: command) == "exec \(AgentResumeArgv.claudeWrapperShellExecutableToken)")
+        #expect(message.contains("Find the parser bug"))
+        #expect(message.contains("The parser drops the final field"))
     }
 
     @Test
@@ -352,10 +389,11 @@ struct AgentConversationCrossHarnessForkTests {
             targetHarness: .codex,
             destination: .newWorkspace
         ).startupCommandOverride(sourceSnapshot: snapshot))
+        let message = try transferredFirstMessage(from: command)
 
-        #expect(command.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken))
-        #expect(command.contains("Repair the renderer"))
-        #expect(command.contains("The wakeup path is stale"))
+        #expect(try transferredInteractiveCommand(from: command) == "exec \(AgentResumeArgv.codexWrapperShellExecutableToken)")
+        #expect(message.contains("Repair the renderer"))
+        #expect(message.contains("The wakeup path is stale"))
     }
 
     @Test
@@ -379,11 +417,12 @@ struct AgentConversationCrossHarnessForkTests {
             targetHarness: .codex,
             destination: .newWorkspace
         ).startupCommandOverride(sourceSnapshot: snapshot))
+        let message = try transferredFirstMessage(from: command)
 
-        #expect(command.contains("I will inspect the wakeup path."))
-        #expect(command.contains("The wakeup path is stale."))
-        #expect(!command.contains("/private/credentials.txt"))
-        #expect(!command.contains("TOP-SECRET-TOOL-OUTPUT"))
+        #expect(message.contains("I will inspect the wakeup path."))
+        #expect(message.contains("The wakeup path is stale."))
+        #expect(!message.contains("/private/credentials.txt"))
+        #expect(!message.contains("TOP-SECRET-TOOL-OUTPUT"))
     }
 
     @Test
@@ -675,10 +714,11 @@ struct AgentConversationCrossHarnessForkTests {
             ),
             exportService: service
         ))
+        let message = try transferredFirstMessage(from: command)
 
-        #expect(command.hasPrefix(AgentResumeArgv.claudeWrapperShellExecutableToken))
-        #expect(command.contains("Inspect OpenCode storage"))
-        #expect(command.contains("Storage is SQLite-backed"))
+        #expect(try transferredInteractiveCommand(from: command) == "exec \(AgentResumeArgv.claudeWrapperShellExecutableToken)")
+        #expect(message.contains("Inspect OpenCode storage"))
+        #expect(message.contains("Storage is SQLite-backed"))
     }
 
     @Test
@@ -736,10 +776,9 @@ struct AgentConversationCrossHarnessForkTests {
             )
         )
 
-        #expect(command.hasPrefix("opencode --prompt "))
-        #expect(!command.contains("opencode run"))
-        #expect(!command.contains("sessionID"))
-        #expect(command.contains("Continue this work"))
+        #expect(try transferredInteractiveCommand(from: command) == "exec opencode")
+        #expect(try transferredFirstMessage(from: command) == "User:\nContinue this work")
+        #expect(!command.contains("Continue this work"))
     }
 
     @Test
@@ -792,8 +831,8 @@ struct AgentConversationCrossHarnessForkTests {
         let launcher = try launcherScript(from: forkPanel.surface.initialInput)
         defer { try? FileManager.default.removeItem(at: launcher.url) }
         #expect(forkPanelId != sourcePanelId)
-        #expect(launcher.contents.contains("claude "))
-        #expect(launcher.contents.contains("Preserve destination behavior"))
+        #expect(try transferredInteractiveCommand(from: launcher.contents).contains(AgentResumeArgv.claudeWrapperShellExecutableToken))
+        #expect(try transferredFirstMessage(from: launcher.contents).contains("Preserve destination behavior"))
     }
 
     @Test
@@ -827,7 +866,7 @@ struct AgentConversationCrossHarnessForkTests {
         let launcher = try launcherScript(from: forkPanel.surface.initialInput)
         defer { try? FileManager.default.removeItem(at: launcher.url) }
         #expect(forkPanelId != sourcePanelId)
-        #expect(launcher.contents.contains("Preserve destination behavior"))
+        #expect(try transferredFirstMessage(from: launcher.contents).contains("Preserve destination behavior"))
     }
 
     @Test
@@ -860,7 +899,7 @@ struct AgentConversationCrossHarnessForkTests {
         let forkPanel = try #require(forkWorkspace.terminalPanel(for: forkPanelId))
         let launcher = try launcherScript(from: forkPanel.surface.initialInput)
         defer { try? FileManager.default.removeItem(at: launcher.url) }
-        #expect(launcher.contents.contains("Preserve destination behavior"))
+        #expect(try transferredFirstMessage(from: launcher.contents).contains("Preserve destination behavior"))
     }
 
     @Test
@@ -1346,6 +1385,45 @@ struct AgentConversationCrossHarnessForkTests {
         return url
     }
 
+    private func transferredInteractiveCommand(from startupCommand: String) throws -> String {
+        try decodedTransferAdapterValue(named: "cmux_command", from: startupCommand)
+    }
+
+    private func transferredFirstMessage(from startupCommand: String) throws -> String {
+        try decodedTransferAdapterValue(named: "cmux_message", from: startupCommand)
+    }
+
+    private func decodedTransferAdapterValue(
+        named name: String,
+        from startupCommand: String
+    ) throws -> String {
+        let prefix = "set \(name) [encoding convertfrom utf-8 [binary format H* {"
+        let suffix = "}]]"
+        guard let line = startupCommand.split(separator: "\n").first(where: {
+            $0.hasPrefix(prefix) && $0.hasSuffix(suffix)
+        }) else {
+            throw OpenCodeFixtureError.invalidLauncherInput
+        }
+        let encoded = String(line.dropFirst(prefix.count).dropLast(suffix.count))
+        guard encoded.utf8.count.isMultiple(of: 2) else {
+            throw OpenCodeFixtureError.invalidLauncherInput
+        }
+        var bytes: [UInt8] = []
+        var index = encoded.startIndex
+        while index < encoded.endIndex {
+            let nextIndex = encoded.index(index, offsetBy: 2)
+            guard let byte = UInt8(encoded[index..<nextIndex], radix: 16) else {
+                throw OpenCodeFixtureError.invalidLauncherInput
+            }
+            bytes.append(byte)
+            index = nextIndex
+        }
+        guard let value = String(bytes: bytes, encoding: .utf8) else {
+            throw OpenCodeFixtureError.invalidLauncherInput
+        }
+        return value
+    }
+
     private func permissions(at url: URL) throws -> Int {
         let value = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions]
         return try #require(value as? NSNumber).intValue & 0o777
@@ -1520,6 +1598,27 @@ private struct SuspendingSourceAdapter: AgentConversationSourceAdapter {
 
     func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
         await gate.read()
+    }
+}
+
+private struct ExecutableReplacingSourceAdapter: AgentConversationSourceAdapter {
+    let executableURL: URL
+
+    func supports(_ source: AgentConversationSource) -> Bool { true }
+
+    func read(_ source: AgentConversationSource) async throws -> [SessionTranscriptTurn]? {
+        try "#!/bin/zsh\n/usr/bin/printf 'unrelated 9.9.9\\n'\n".write(
+            to: executableURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executableURL.path
+        )
+        return [
+            SessionTranscriptTurn(id: 0, role: .user, text: "Continue safely"),
+        ]
     }
 }
 

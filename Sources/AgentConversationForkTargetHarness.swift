@@ -32,19 +32,6 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             ?? rawValue
     }
 
-    static func installedCases(
-        providerInstalled: (AgentSessionProviderID) -> Bool,
-        executableInstalled: ([String]) -> Bool
-    ) -> [Self] {
-        allCases.filter { harness in
-            guard harness != .current else { return false }
-            if let provider = harness.providerID {
-                return providerInstalled(provider)
-            }
-            return executableInstalled(harness.executableNames)
-        }
-    }
-
     func usesNativeFork(for sourceKind: RestorableAgentKind) -> Bool {
         self == .current || rawValue == sourceKind.rawValue
     }
@@ -58,72 +45,31 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         executablePath: String? = nil,
         runtimeSearchPath: String? = nil
     ) -> String? {
-        // These interactive CLIs require their seed through an argv or documented
-        // first-message adapter; writing it to their live stdin would race TUI startup.
-        let quotedMessage = TerminalStartupShellQuoting.singleQuoted(handoffMessage)
         let executable = startupExecutableInvocation(
             executablePath: executablePath,
             runtimeSearchPath: runtimeSearchPath
         )
-        return switch self {
+        let interactiveCommand: String? = switch self {
         case .current:
             nil
-        case .claude:
-            "\(executable) \(quotedMessage)"
-        case .codex:
-            "\(executable) \(quotedMessage)"
-        case .grok:
-            "\(executable) \(quotedMessage)"
-        case .opencode:
-            "\(executable) --prompt \(quotedMessage)"
-        case .omp:
-            "\(executable) \(quotedMessage)"
-        case .pi:
-            "\(executable) -- \(quotedMessage)"
-        case .amp:
-            // Amp documents piped stdin as the first user message in interactive mode.
-            "printf '%s\\n' \(quotedMessage) | \(executable)"
-        case .cursor:
-            "\(executable) \(quotedMessage)"
-        case .gemini:
-            "\(executable) --prompt-interactive \(quotedMessage)"
+        case .claude, .codex, .grok, .opencode, .omp, .pi, .amp, .cursor,
+             .gemini, .antigravity, .codebuddy, .factory:
+            "exec \(executable)"
         case .kiro:
             // The cmux profile is optional and installed separately. Preserve
             // interactive transfer for a plain Kiro installation while using
             // hooks whenever that profile is available at launch time.
-            "if [[ -f \"${KIRO_HOME:-${HOME:-}/.kiro}/agents/cmux.json\" ]]; then \(executable) chat --agent cmux \(quotedMessage); else \(executable) chat \(quotedMessage); fi"
-        case .antigravity:
-            "\(executable) --prompt-interactive \(quotedMessage)"
+            "if [[ -f \"${KIRO_HOME:-${HOME:-}/.kiro}/agents/cmux.json\" ]]; then exec \(executable) chat --agent cmux; else exec \(executable) chat; fi"
         case .hermesAgent:
-            hermesStartupCommand(executable: executable, quotedMessage: quotedMessage)
+            "exec \(executable) chat --tui"
         case .copilot:
-            "\(executable) --interactive \(quotedMessage)"
-        case .codebuddy:
-            "\(executable) \(quotedMessage)"
-        case .factory:
-            "\(executable) \(quotedMessage)"
+            "exec \(executable) --interactive"
         }
-    }
-
-    private func hermesStartupCommand(executable: String, quotedMessage: String) -> String {
-        // Hermes treats --query as one-shot even when --tui is present. Seed a
-        // persisted session quietly, recover its machine-readable ID, then
-        // replace the shell with the interactive TUI for that same session.
-        [
-            "umask 077",
-            "hermes_session_file=$(/usr/bin/mktemp -t cmux-hermes-session.XXXXXX) || exit 1",
-            "trap '/bin/unlink \"$hermes_session_file\" 2>/dev/null' EXIT",
-            "trap 'exit 130' HUP INT TERM",
-            "\(executable) chat --query \(quotedMessage) --quiet 2>\"$hermes_session_file\"",
-            "hermes_status=$?",
-            "/bin/cat \"$hermes_session_file\" >&2",
-            "hermes_session_id=$(/usr/bin/sed -n 's/^session_id:[[:space:]]*//p' \"$hermes_session_file\" | /usr/bin/tail -n 1)",
-            "/bin/unlink \"$hermes_session_file\"",
-            "trap - EXIT HUP INT TERM",
-            "if [[ $hermes_status -ne 0 ]]; then exit $hermes_status; fi",
-            "if [[ -z \"$hermes_session_id\" ]]; then exit 1; fi",
-            "exec \(executable) chat --tui --resume \"$hermes_session_id\"",
-        ].joined(separator: "; ")
+        guard let interactiveCommand else { return nil }
+        return AgentConversationForkFirstMessageAdapter.startupCommand(
+            interactiveCommand: interactiveCommand,
+            firstMessage: handoffMessage
+        )
     }
 
     private func startupExecutableInvocation(
@@ -215,5 +161,99 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
 
     var preferredExecutableName: String {
         executableNames.first ?? rawValue
+    }
+
+    /// A successful `--version` is only accepted when either its output or the
+    /// resolved install path identifies the expected harness. This rejects an
+    /// unrelated executable renamed to a generic alias such as `cbc`.
+    func versionProbeMatches(output: String, resolvedExecutablePath: String) -> Bool {
+        guard self != .current else { return false }
+        let normalizedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedOutput.isEmpty,
+              normalizedOutput.range(
+                  of: #"[0-9]+(?:\.[0-9]+){1,3}"#,
+                  options: .regularExpression
+              ) != nil else {
+            return false
+        }
+        let identityEvidence = (normalizedOutput + "\n" + resolvedExecutablePath).lowercased()
+        return versionIdentityMarkers.contains { identityEvidence.contains($0) }
+    }
+
+    private var versionIdentityMarkers: [String] {
+        switch self {
+        case .current:
+            []
+        case .claude:
+            ["claude"]
+        case .codex:
+            ["codex"]
+        case .grok:
+            ["grok"]
+        case .opencode:
+            ["opencode", "open-code"]
+        case .omp:
+            ["omp", "oh-my-pi"]
+        case .pi:
+            ["pi-coding-agent"]
+        case .amp:
+            ["/.amp/", "ampcode", "@ampcode"]
+        case .cursor:
+            ["cursor"]
+        case .gemini:
+            ["gemini"]
+        case .kiro:
+            ["kiro"]
+        case .antigravity:
+            ["antigravity", "/agy"]
+        case .hermesAgent:
+            ["hermes"]
+        case .copilot:
+            ["copilot"]
+        case .codebuddy:
+            ["codebuddy", "code-buddy"]
+        case .factory:
+            ["factory", "/droid"]
+        }
+    }
+}
+
+/// Starts an interactive harness in a child PTY and submits the transfer as its
+/// first terminal message. The enclosing private one-shot launcher self-deletes
+/// before this adapter runs, so neither the harness nor the long-lived PTY proxy
+/// exposes the transcript in process arguments.
+struct AgentConversationForkFirstMessageAdapter {
+    private static let heredocDelimiter = "CMUX_CONVERSATION_FIRST_MESSAGE"
+
+    static func startupCommand(
+        interactiveCommand: String,
+        firstMessage: String
+    ) -> String {
+        let encodedCommand = hexEncoded(interactiveCommand)
+        let encodedMessage = hexEncoded(firstMessage)
+        return """
+        [[ -x /usr/bin/expect ]] || exit 127
+        /usr/bin/expect -f - <<'\(heredocDelimiter)'
+        set timeout -1
+        set cmux_command [encoding convertfrom utf-8 [binary format H* {\(encodedCommand)}]]
+        set cmux_message [encoding convertfrom utf-8 [binary format H* {\(encodedMessage)}]]
+        spawn -noecho /bin/zsh -lc $cmux_command
+        after 150
+        send -- "\\033\\[200~"
+        send -- $cmux_message
+        send -- "\\033\\[201~\\r"
+        if {[catch {stty -g}]} {
+          expect eof
+        } else {
+          interact
+        }
+        set cmux_wait [wait]
+        exit [lindex $cmux_wait 3]
+        \(heredocDelimiter)
+        """
+    }
+
+    private static func hexEncoded(_ value: String) -> String {
+        value.utf8.map { String(format: "%02x", $0) }.joined()
     }
 }

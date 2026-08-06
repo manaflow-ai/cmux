@@ -85,19 +85,6 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
-    func installedHarnessCatalogUsesProviderAndExecutableCapabilities() {
-        let installedProviders: Set<AgentSessionProviderID> = [.codex, .opencode]
-        let installedExecutables = Set(["gemini", "hermes"])
-
-        let harnesses = AgentConversationForkRequest.TargetHarness.installedCases(
-            providerInstalled: { installedProviders.contains($0) },
-            executableInstalled: { names in !installedExecutables.isDisjoint(with: names) }
-        )
-
-        #expect(harnesses == [.codex, .opencode, .gemini, .hermesAgent])
-    }
-
-    @Test
     func advertisedHarnessChoiceFallsBackWhenNativeProbeIsRejected() async throws {
         let home = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: home) }
@@ -196,13 +183,13 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
-    func installedTargetDiscoveryRetainsConfiguredProviderExecutable() throws {
+    func installedTargetDiscoveryRetainsConfiguredProviderExecutable() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let executable = root.appendingPathComponent("custom claude")
         try writeVersionExecutable(executable, output: "2.1.223 (Claude Code)")
 
-        let targets = AgentConversationForkTargetDiscoverer(
+        let targets = await AgentConversationForkTargetDiscoverer(
             environment: ["HOME": root.path, "PATH": ""],
             defaultHomeDirectory: root.path,
             bundleResourcePath: nil,
@@ -215,10 +202,12 @@ struct AgentConversationTransferSourceTests {
         #expect(target.harness == .claude)
         #expect(target.executablePath == executable.path)
         #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(root.path))
+        #expect(target.executableIdentity != nil)
+        #expect(target.executableIdentityIsCurrent())
     }
 
     @Test
-    func installedTargetDiscoveryRetainsExecutableAliasPath() throws {
+    func installedTargetDiscoveryRetainsExecutableAliasPath() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let bin = root.appendingPathComponent("bin", isDirectory: true)
@@ -226,7 +215,7 @@ struct AgentConversationTransferSourceTests {
         let executable = bin.appendingPathComponent("cbc")
         try writeVersionExecutable(executable, output: "CodeBuddy 1.2.3")
 
-        let targets = AgentConversationForkTargetDiscoverer(
+        let targets = await AgentConversationForkTargetDiscoverer(
             environment: ["HOME": root.path, "PATH": bin.path],
             defaultHomeDirectory: root.path,
             bundleResourcePath: nil,
@@ -239,10 +228,12 @@ struct AgentConversationTransferSourceTests {
         #expect(target.harness == .codebuddy)
         #expect(target.executablePath == executable.path)
         #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(bin.path))
+        #expect(target.executableIdentity != nil)
+        #expect(target.executableIdentityIsCurrent())
     }
 
     @Test
-    func installedTargetDiscoveryRejectsExecutableAliasWithoutHarnessIdentity() throws {
+    func installedTargetDiscoveryRejectsExecutableAliasWithoutHarnessIdentity() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let executable = root.appendingPathComponent("cbc")
@@ -252,7 +243,7 @@ struct AgentConversationTransferSourceTests {
             ofItemAtPath: executable.path
         )
 
-        let targets = AgentConversationForkTargetDiscoverer(
+        let targets = await AgentConversationForkTargetDiscoverer(
             environment: ["HOME": root.path, "PATH": root.path],
             defaultHomeDirectory: root.path,
             bundleResourcePath: nil,
@@ -266,7 +257,7 @@ struct AgentConversationTransferSourceTests {
     @Test(arguments: ["qodercli", "kimi"])
     func installedTargetDiscoveryOmitsHarnessWithoutInteractiveSeed(
         executableName: String
-    ) throws {
+    ) async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let executable = root.appendingPathComponent(executableName)
@@ -276,7 +267,7 @@ struct AgentConversationTransferSourceTests {
             ofItemAtPath: executable.path
         )
 
-        let targets = AgentConversationForkTargetDiscoverer(
+        let targets = await AgentConversationForkTargetDiscoverer(
             environment: ["HOME": root.path, "PATH": root.path],
             defaultHomeDirectory: root.path,
             bundleResourcePath: nil,
@@ -295,11 +286,13 @@ struct AgentConversationTransferSourceTests {
             runtimeSearchPath: "/tmp/Custom Tools:/usr/bin"
         )
         let command = try #require(target.startupCommand(handoffMessage: "User: keep context"))
+        let interactiveCommand = try transferredInteractiveCommand(from: command)
 
-        #expect(command.hasPrefix("/usr/bin/env 'PATH=/tmp/Custom Tools:/usr/bin' "))
-        #expect(command.contains("'CMUX_CUSTOM_CLAUDE_PATH=/tmp/Custom Tools/claude'"))
-        #expect(command.contains(AgentResumeArgv.claudeWrapperShellExecutableToken))
-        #expect(command.contains("User: keep context"))
+        #expect(interactiveCommand.hasPrefix("exec /usr/bin/env 'PATH=/tmp/Custom Tools:/usr/bin' "))
+        #expect(interactiveCommand.contains("'CMUX_CUSTOM_CLAUDE_PATH=/tmp/Custom Tools/claude'"))
+        #expect(interactiveCommand.contains(AgentResumeArgv.claudeWrapperShellExecutableToken))
+        #expect(try transferredFirstMessage(from: command) == "User: keep context")
+        #expect(!command.contains("User: keep context"))
     }
 
     @Test
@@ -317,7 +310,7 @@ struct AgentConversationTransferSourceTests {
         )
         let catalog = AgentConversationForkTargetCatalog(
             minimumRefreshInterval: 0,
-            discovery: { discoverer.discover() }
+            discovery: { await discoverer.discover() }
         )
 
         await catalog.refresh(force: true)
@@ -326,6 +319,8 @@ struct AgentConversationTransferSourceTests {
         #expect(target.harness == .codex)
         #expect(target.executablePath == executable.path)
         #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(root.path))
+        #expect(target.executableIdentity != nil)
+        #expect(target.executableIdentityIsCurrent())
 
         try FileManager.default.removeItem(at: executable)
         await catalog.refresh(force: true)
@@ -542,10 +537,11 @@ struct AgentConversationTransferSourceTests {
             targetHarness: .claude,
             destination: .right
         ).startupCommandOverride(sourceSnapshot: snapshot))
+        let message = try transferredFirstMessage(from: command)
 
         #expect(source.hermesStateDatabaseURL == databaseURL)
-        #expect(command.contains("custom Hermes home request"))
-        #expect(command.contains("custom Hermes home response"))
+        #expect(message.contains("custom Hermes home request"))
+        #expect(message.contains("custom Hermes home response"))
     }
 
     @Test
@@ -656,10 +652,11 @@ struct AgentConversationTransferSourceTests {
             targetHarness: .claude,
             destination: .right
         ).startupCommandOverride(sourceSnapshot: snapshot))
+        let message = try transferredFirstMessage(from: command)
 
         #expect(source.openCodeDatabasePath == databaseURL.path)
-        #expect(command.contains("custom OpenCode home request"))
-        #expect(command.contains("custom OpenCode home response"))
+        #expect(message.contains("custom OpenCode home request"))
+        #expect(message.contains("custom OpenCode home response"))
     }
 
     @Test
@@ -742,6 +739,45 @@ struct AgentConversationTransferSourceTests {
         )
     }
 
+    private func transferredInteractiveCommand(from startupCommand: String) throws -> String {
+        try decodedTransferAdapterValue(named: "cmux_command", from: startupCommand)
+    }
+
+    private func transferredFirstMessage(from startupCommand: String) throws -> String {
+        try decodedTransferAdapterValue(named: "cmux_message", from: startupCommand)
+    }
+
+    private func decodedTransferAdapterValue(
+        named name: String,
+        from startupCommand: String
+    ) throws -> String {
+        let prefix = "set \(name) [encoding convertfrom utf-8 [binary format H* {"
+        let suffix = "}]]"
+        guard let line = startupCommand.split(separator: "\n").first(where: {
+            $0.hasPrefix(prefix) && $0.hasSuffix(suffix)
+        }) else {
+            throw FixtureError.invalidTransferAdapter
+        }
+        let encoded = String(line.dropFirst(prefix.count).dropLast(suffix.count))
+        guard encoded.utf8.count.isMultiple(of: 2) else {
+            throw FixtureError.invalidTransferAdapter
+        }
+        var bytes: [UInt8] = []
+        var index = encoded.startIndex
+        while index < encoded.endIndex {
+            let nextIndex = encoded.index(index, offsetBy: 2)
+            guard let byte = UInt8(encoded[index..<nextIndex], radix: 16) else {
+                throw FixtureError.invalidTransferAdapter
+            }
+            bytes.append(byte)
+            index = nextIndex
+        }
+        guard let value = String(bytes: bytes, encoding: .utf8) else {
+            throw FixtureError.invalidTransferAdapter
+        }
+        return value
+    }
+
     private func makeHermesStateDatabase(
         at url: URL,
         trailingToolRowCount: Int = 0
@@ -805,5 +841,6 @@ struct AgentConversationTransferSourceTests {
 }
 
 private enum FixtureError: Error {
+    case invalidTransferAdapter
     case sqlite
 }

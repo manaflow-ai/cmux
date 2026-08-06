@@ -1,6 +1,10 @@
 import CmuxCommandPalette
 import Foundation
 
+enum AgentConversationForkRequestError: Error, Equatable {
+    case targetExecutableChanged
+}
+
 /// One conversation fork, including the destination harness and layout target.
 struct AgentConversationForkRequest: Equatable, Sendable {
     static let harnessArgumentName = "harness"
@@ -95,7 +99,13 @@ struct AgentConversationForkRequest: Equatable, Sendable {
                 || !targetHarness.usesNativeFork(for: sourceSnapshot.kind) else {
             return nil
         }
+        guard target.executableIdentityIsCurrent() else {
+            throw AgentConversationForkRequestError.targetExecutableChanged
+        }
         let handoffMessage = try await exportService.message(for: sourceSnapshot)
+        guard target.executableIdentityIsCurrent() else {
+            throw AgentConversationForkRequestError.targetExecutableChanged
+        }
         return target.startupCommand(handoffMessage: handoffMessage)
     }
 }

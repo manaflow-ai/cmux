@@ -2,6 +2,12 @@ import Foundation
 
 /// Immutable inputs for one installed-harness discovery pass.
 struct AgentConversationForkTargetDiscoverer: Sendable {
+    private struct Candidate: Sendable {
+        let harness: AgentConversationForkTargetHarness
+        let executableURL: URL
+        let runtimeSearchPath: String?
+    }
+
     let environment: [String: String]
     let defaultHomeDirectory: String
     let bundleResourcePath: String?
@@ -21,7 +27,7 @@ struct AgentConversationForkTargetDiscoverer: Sendable {
 
     /// Computes the search directories once, then resolves every supported
     /// harness against that snapshot.
-    func discover() -> [AgentConversationForkTarget] {
+    func discover() async -> [AgentConversationForkTarget] {
         let home = environment["HOME"] ?? defaultHomeDirectory
         let supplementalDirectories = [
             ".grok/bin",
@@ -50,7 +56,7 @@ struct AgentConversationForkTargetDiscoverer: Sendable {
         )
         let searchDirectories = resolver.resolvedSearchDirectories()
 
-        return AgentConversationForkTargetHarness.allCases.compactMap { harness in
+        let candidates = AgentConversationForkTargetHarness.allCases.compactMap { harness -> Candidate? in
             guard harness != .current else { return nil }
             let resolution: (executableURL: URL, runtimeSearchPath: String?)?
             if let provider = harness.providerID {
@@ -78,11 +84,68 @@ struct AgentConversationForkTargetDiscoverer: Sendable {
                 }
             }
             guard let resolution else { return nil }
-            return AgentConversationForkTarget(
+            return Candidate(
                 harness: harness,
-                executablePath: resolution.executableURL.path,
+                executableURL: resolution.executableURL,
                 runtimeSearchPath: resolution.runtimeSearchPath
             )
         }
+        return await withTaskGroup(
+            of: (Int, AgentConversationForkTarget?).self,
+            returning: [AgentConversationForkTarget].self
+        ) { group in
+            for (index, candidate) in candidates.enumerated() {
+                group.addTask {
+                    (index, await validatedTarget(candidate))
+                }
+            }
+            var validated = Array<AgentConversationForkTarget?>(
+                repeating: nil,
+                count: candidates.count
+            )
+            for await (index, target) in group {
+                validated[index] = target
+            }
+            return validated.compactMap { $0 }
+        }
+    }
+
+    private func validatedTarget(_ candidate: Candidate) async -> AgentConversationForkTarget? {
+        guard !Task.isCancelled else { return nil }
+        let executablePath = candidate.executableURL.path
+        guard let identityBeforeProbe = AgentConversationForkExecutableIdentity.capture(
+            executablePath: executablePath,
+            runtimeSearchPath: candidate.runtimeSearchPath
+        ) else {
+            return nil
+        }
+        var probeEnvironment = environment
+        if let runtimeSearchPath = candidate.runtimeSearchPath {
+            probeEnvironment["PATH"] = runtimeSearchPath
+        }
+        guard let output = await AgentForkSupport.commandOutput(
+            executable: executablePath,
+            arguments: ["--version"],
+            environment: probeEnvironment,
+            workingDirectory: nil
+        ),
+              candidate.harness.versionProbeMatches(
+                  output: output,
+                  resolvedExecutablePath: identityBeforeProbe.realPath
+              ),
+              let identityAfterProbe = AgentConversationForkExecutableIdentity.capture(
+                  executablePath: executablePath,
+                  runtimeSearchPath: candidate.runtimeSearchPath
+              ),
+              identityAfterProbe == identityBeforeProbe,
+              !Task.isCancelled else {
+            return nil
+        }
+        return AgentConversationForkTarget(
+            harness: candidate.harness,
+            executablePath: executablePath,
+            runtimeSearchPath: candidate.runtimeSearchPath,
+            executableIdentity: identityAfterProbe
+        )
     }
 }

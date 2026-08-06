@@ -1074,7 +1074,7 @@ enum AgentForkSupport {
         return false
     }
 
-    private static func commandOutput(
+    static func commandOutput(
         executable: String,
         arguments: [String],
         environment: [String: String]?,
