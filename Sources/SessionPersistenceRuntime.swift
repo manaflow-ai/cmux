@@ -12,6 +12,8 @@ final class SessionPersistenceRuntime {
 
     private(set) var latest: ProcessDetectedResumeIndexes?
     private var pendingRefresh: PendingRefresh?
+    private var prewarmTask: Task<Void, Never>?
+    private var prewarmGeneration: UInt64 = 0
 
     init(latest: ProcessDetectedResumeIndexes? = nil) {
         self.latest = latest
@@ -61,5 +63,27 @@ final class SessionPersistenceRuntime {
             restorableAgentIndex: latest.restorableAgentIndex,
             surfaceResumeBindingIndex: latest.surfaceResumeBindingIndex
         )
+    }
+
+    func prewarm() {
+        cancelPrewarm()
+        let generation = prewarmGeneration
+        prewarmTask = Task { @MainActor [weak self] in
+            guard let self,
+                  !Task.isCancelled,
+                  generation == self.prewarmGeneration else { return }
+            _ = await self.refresh()
+            guard !Task.isCancelled,
+                  generation == self.prewarmGeneration else { return }
+            self.prewarmTask = nil
+        }
+    }
+
+    func cancelPrewarm() {
+        prewarmGeneration &+= 1
+        prewarmTask?.cancel()
+        prewarmTask = nil
+        pendingRefresh?.task.cancel()
+        pendingRefresh = nil
     }
 }

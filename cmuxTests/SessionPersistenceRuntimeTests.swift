@@ -127,7 +127,7 @@ struct SessionPersistenceRuntimeTests {
         }
         await refreshStarted.wait()
 
-        runtime.cancelPendingRefresh()
+        runtime.cancelPrewarm()
         await allowRefreshToFinish.open()
         _ = await refreshTask.value
 

@@ -191,12 +191,14 @@ def test_file_explorer_reconciliation_uses_linear_depth_queue():
 
 def test_session_persistence_prewarm_has_cancellable_app_owner():
     app_delegate = (ROOT / "Sources/AppDelegate.swift").read_text()
+    runtime = (ROOT / "Sources/SessionPersistenceRuntime.swift").read_text()
     prewarm = source_slice(
         "Sources/AppDelegate.swift",
         "private func prewarmProcessDetectedResumeIndexesForLifecycleSave",
         "private func disableSuddenTerminationIfNeeded",
     )
 
-    assert "sessionPersistencePrewarmTask: Task<Void, Never>?" in app_delegate
-    assert "sessionPersistencePrewarmTask = Task" in prewarm
+    assert "private var prewarmTask: Task<Void, Never>?" in runtime
+    assert "sessionPersistenceRuntime.prewarm()" in prewarm
+    assert "sessionPersistenceRuntime.cancelPrewarm()" in app_delegate
     assert "cancelSessionPersistencePrewarm()" in app_delegate

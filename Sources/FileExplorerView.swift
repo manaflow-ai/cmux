@@ -101,8 +101,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         ] = [:]
         private var pendingNodeOrder: [ObjectIdentifier] = []
         private var pendingNodeOverflowReconciliation = false
-        private var expandedReconciliationPaths: [String] = []
-        private var expandedReconciliationIndex = 0
+        private var expandedReconciliationQueue = FileExplorerExpandedPathReconciliationQueue()
         private var pendingSelectionChange = false
         private var pendingGitStatusPaths: Set<String> = []
         private var pendingAllVisibleGitStatusChange = false
@@ -119,7 +118,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 || !pendingNodeChanges.isEmpty
                 || !pendingNodeOrder.isEmpty
                 || pendingNodeOverflowReconciliation
-                || !expandedReconciliationPaths.isEmpty
+                || !expandedReconciliationQueue.isEmpty
                 || pendingSelectionChange
                 || !pendingGitStatusPaths.isEmpty
                 || pendingAllVisibleGitStatusChange
@@ -310,8 +309,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             pendingNodeChanges.removeAll(keepingCapacity: false)
             pendingNodeOrder.removeAll(keepingCapacity: false)
             pendingNodeOverflowReconciliation = false
-            expandedReconciliationPaths.removeAll(keepingCapacity: false)
-            expandedReconciliationIndex = 0
+            expandedReconciliationQueue.removeAll()
             pendingSelectionChange = false
             pendingGitStatusPaths.removeAll(keepingCapacity: false)
             pendingAllVisibleGitStatusChange = false
@@ -358,7 +356,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
 
             if pendingNodeOrder.isEmpty,
-               expandedReconciliationPaths.isEmpty,
+               expandedReconciliationQueue.isEmpty,
                pendingNodeOverflowReconciliation {
                 pendingNodeOverflowReconciliation = false
                 pendingSelectionChange = true
@@ -366,13 +364,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 startExpandedOutlineReconciliation(excluding: reconciledExpandedPaths)
             }
             if pendingNodeOrder.isEmpty,
-               !expandedReconciliationPaths.isEmpty {
+               !expandedReconciliationQueue.isEmpty {
                 drainExpandedOutlineReconciliationBatch()
             }
 
             let hasMoreWork = !pendingNodeOrder.isEmpty
                 || pendingNodeOverflowReconciliation
-                || !expandedReconciliationPaths.isEmpty
+                || !expandedReconciliationQueue.isEmpty
             if !hasMoreWork, pendingSelectionChange, let outlineView {
                 withProgrammaticOutlineUpdate {
                     applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
@@ -420,25 +418,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         private func startExpandedOutlineReconciliation(excluding excludedPaths: Set<String>) {
             let snapshot = store.expandedPaths.subtracting(excludedPaths)
-            guard !snapshot.isEmpty else { return }
-            expandedReconciliationPaths = snapshot.map { path in
-                (path: path, depth: path.split(separator: "/").count)
-            }.sorted { lhs, rhs in
-                if lhs.depth != rhs.depth {
-                    return lhs.depth < rhs.depth
-                }
-                return lhs.path < rhs.path
-            }.map { $0.path }
-            expandedReconciliationIndex = 0
+            expandedReconciliationQueue = FileExplorerExpandedPathReconciliationQueue(paths: snapshot)
         }
 
         private func finishExpandedOutlineReconciliation() {
-            expandedReconciliationPaths.removeAll(keepingCapacity: false)
-            expandedReconciliationIndex = 0
+            expandedReconciliationQueue.removeAll()
         }
 
         private var hasExpandedOutlineReconciliationWork: Bool {
-            expandedReconciliationIndex < expandedReconciliationPaths.count
+            !expandedReconciliationQueue.isEmpty
         }
 
         @MainActor
@@ -453,8 +441,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             while changes.count < Self.maximumNodeChangesPerFlush,
                   inspectedPathCount < Self.maximumReconciliationPathsInspectedPerFlush,
                   hasExpandedOutlineReconciliationWork {
-                let path = expandedReconciliationPaths[expandedReconciliationIndex]
-                expandedReconciliationIndex += 1
+                guard let path = expandedReconciliationQueue.removeFirst() else { break }
                 inspectedPathCount += 1
                 guard let node = store.loadedNode(at: path) else {
                     continue

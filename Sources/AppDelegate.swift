@@ -2027,6 +2027,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func prepareForConfirmedAppTermination() {
+        cancelSessionPersistencePrewarm()
         isTerminatingApp = true
         _ = saveSessionSnapshotUsingLastKnownProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -2155,6 +2156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Apple's promised-pasteboard observer can fire before this delegate
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
+        cancelSessionPersistencePrewarm()
         isTerminatingApp = true
         _ = saveSessionSnapshotUsingLastKnownProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -2194,6 +2196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func persistSessionForUpdateRelaunch() {
+        cancelSessionPersistencePrewarm()
         isTerminatingApp = true
         _ = saveSessionSnapshotUsingLastKnownProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -4006,6 +4009,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                self.cancelSessionPersistencePrewarm()
                 self.isTerminatingApp = true
                 _ = self.saveSessionSnapshotUsingLastKnownProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                 ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -4087,10 +4091,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func prewarmProcessDetectedResumeIndexesForLifecycleSave() {
         guard !isRunningUnderXCTest(ProcessInfo.processInfo.environment) else { return }
-        Task { @MainActor [weak self] in
-            guard let self, !self.isTerminatingApp else { return }
-            _ = await self.sessionPersistenceRuntime.refresh()
-        }
+        sessionPersistenceRuntime.prewarm()
+    }
+
+    private func cancelSessionPersistencePrewarm() {
+        sessionPersistenceRuntime.cancelPrewarm()
     }
 
     private func disableSuddenTerminationIfNeeded() {
