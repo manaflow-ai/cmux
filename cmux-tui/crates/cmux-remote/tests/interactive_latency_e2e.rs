@@ -499,3 +499,25 @@ fn percentile(sorted: &[Duration], percentile: usize) -> Duration {
     let rank = (sorted.len() * percentile).div_ceil(100);
     sorted[rank.saturating_sub(1)]
 }
+
+#[test]
+fn valgrind_budget_is_explicit_and_normal_budget_stays_strict() {
+    assert_eq!(
+        LatencyBudget::for_valgrind(false),
+        LatencyBudget {
+            echo_timeout: ECHO_TIMEOUT,
+            test_timeout: TEST_TIMEOUT,
+            p95: P95_BOUND,
+            p99: P99_BOUND,
+        }
+    );
+    assert_eq!(
+        LatencyBudget::for_valgrind(true),
+        LatencyBudget {
+            echo_timeout: VALGRIND_ECHO_TIMEOUT,
+            test_timeout: VALGRIND_TEST_TIMEOUT,
+            p95: VALGRIND_P95_BOUND,
+            p99: VALGRIND_P99_BOUND,
+        }
+    );
+}
