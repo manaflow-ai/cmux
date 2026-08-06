@@ -2727,6 +2727,26 @@ mod tests {
         assert!(daemon.connections().await.is_empty());
     }
 
+    #[tokio::test]
+    async fn carrier_scoped_session_closes_immediately_when_transport_is_lost() {
+        let (_directory, daemon, group, _client, server) =
+            connected_fault_pair(Duration::ZERO, SessionId([34; 16])).await;
+        let receiving_server = server.clone();
+        let receive = tokio::spawn(async move { receiving_server.receive().await });
+        group.fail_current().await;
+
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), receive)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .is_none()
+        );
+        assert!(server.closed.load(Ordering::Acquire));
+        assert!(daemon.connections().await.is_empty());
+    }
+
     struct BlockingReplayLink {
         started: Semaphore,
         release: Semaphore,
