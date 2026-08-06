@@ -101,8 +101,10 @@ public struct GitMetadataService: Sendable {
     }
 
     nonisolated func gitRepositoryLink(repository: ResolvedGitRepository) async -> GitRepositoryLink? {
+        let headSignature = Self.gitHeadSignature(repository: repository)
         if let cached = await repositoryLinkCache.cachedLink(
             repository: repository,
+            headSignature: headSignature,
             fileStatusReader: fileStatusReader
         ) {
             return cached
@@ -113,6 +115,7 @@ public struct GitMetadataService: Sendable {
             link: link,
             repository: repository,
             configURLs: configSnapshot.configURLs,
+            headSignature: headSignature,
             fileStatusReader: fileStatusReader
         )
         return link

@@ -259,13 +259,11 @@ import CmuxGit
         )
 
         service.clearSurfaceGitBranch(workspaceId: workspaceId, panelId: panelId)
-        for _ in 0..<100 {
-            if !(await clock.recordedDurations).isEmpty { break }
-            await Task.yield()
-        }
+        await clock.waitForSleeper(seconds: 0)
 
         #expect(host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId) == nil)
         #expect(host.events.contains(.clearGitBranch(workspaceId, panelId)))
+        #expect(host.events.contains(.clearRepositoryLink(workspaceId, panelId)))
         #expect(await clock.recordedDurations == [0])
         #expect(pullRequestProbing.clearedTrackingKeys.contains {
             $0.workspaceId == workspaceId && $0.panelId == panelId

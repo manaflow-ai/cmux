@@ -16,6 +16,7 @@ actor GitRepositoryLinkCache {
 
     private struct Entry {
         let configStatuses: [String: GitFileStatus?]
+        let headSignature: String?
         let link: GitRepositoryLink?
     }
 
@@ -29,10 +30,16 @@ actor GitRepositoryLinkCache {
 
     func cachedLink(
         repository: ResolvedGitRepository,
+        headSignature: String?,
         fileStatusReader: any GitFileStatusReading
     ) -> GitRepositoryLink?? {
         let key = Key(repository: repository)
         guard let entry = entries[key] else { return nil }
+        guard entry.headSignature == headSignature else {
+            entries.removeValue(forKey: key)
+            keysInUseOrder.removeAll { $0 == key }
+            return nil
+        }
         for (path, previousStatus) in entry.configStatuses {
             guard fileStatusReader.status(atPath: path) == previousStatus else {
                 entries.removeValue(forKey: key)
@@ -48,6 +55,7 @@ actor GitRepositoryLinkCache {
         link: GitRepositoryLink?,
         repository: ResolvedGitRepository,
         configURLs: [URL],
+        headSignature: String?,
         fileStatusReader: any GitFileStatusReading
     ) {
         let key = Key(repository: repository)
@@ -56,7 +64,7 @@ actor GitRepositoryLinkCache {
             let path = configURL.standardizedFileURL.path
             statuses[path] = fileStatusReader.status(atPath: path)
         }
-        entries[key] = Entry(configStatuses: statuses, link: link)
+        entries[key] = Entry(configStatuses: statuses, headSignature: headSignature, link: link)
         markRecentlyUsed(key)
         trimIfNeeded()
     }

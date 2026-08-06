@@ -160,6 +160,7 @@ extension SidebarGitMetadataService {
         stopWorkspaceGitMetadataWatcher(for: probeKey)
         updateWorkspaceGitMetadataFallbackTimer()
         host.clearPanelGitBranch(workspaceId: workspaceId, panelId: panelId)
+        host.clearPanelRepositoryLink(workspaceId: workspaceId, panelId: panelId)
         host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
         scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: workspaceId,
