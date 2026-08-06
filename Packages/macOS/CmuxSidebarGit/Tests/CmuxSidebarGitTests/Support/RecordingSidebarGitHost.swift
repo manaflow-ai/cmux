@@ -190,9 +190,6 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     func clearPanelGitBranch(workspaceId: UUID, panelId: UUID) {
         mutate(workspaceId) {
             $0.panels[panelId]?.branch = nil
-            $0.panels[panelId]?.repositoryRemoteName = nil
-            $0.panels[panelId]?.repositoryDisplayName = nil
-            $0.panels[panelId]?.repositoryURL = nil
             $0.panels[panelId]?.badge = nil
         }
         record(.clearGitBranch(workspaceId, panelId))

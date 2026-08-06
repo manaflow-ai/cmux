@@ -171,4 +171,40 @@ import Testing
         let second = await service.workspaceMetadata(for: fixture.root.path)
         #expect(second.repositoryLink?.url.absoluteString == "https://github.com/second/repo")
     }
+
+    @Test func repositoryLinkCacheInvalidatesWhenOnBranchIncludeChanges() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main", commit: String(repeating: "a", count: 40))
+        try fixture.writeConfig("""
+        [includeIf "onbranch:main"]
+            path = main.inc
+        [includeIf "onbranch:feature/*"]
+            path = feature.inc
+        """)
+        try """
+        [remote "origin"]
+            url = https://github.com/main/repo.git
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("main.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "origin"]
+            url = https://github.com/feature/repo.git
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("feature.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let service = GitMetadataService()
+
+        let main = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(main.repositoryLink?.url.absoluteString == "https://github.com/main/repo")
+
+        try fixture.writeBranch("feature/cache", commit: String(repeating: "b", count: 40))
+
+        let feature = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(feature.repositoryLink?.url.absoluteString == "https://github.com/feature/repo")
+    }
 }
