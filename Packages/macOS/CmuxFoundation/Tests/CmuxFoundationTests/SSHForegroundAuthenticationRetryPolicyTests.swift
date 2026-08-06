@@ -497,6 +497,61 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(!fileManager.fileExists(atPath: groupDirectory.path))
     }
 
+    @Test func cancellationBeforeGroupPublicationPreventsAuthenticationStart() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-prepublish-cancel-\(UUID().uuidString)", isDirectory: true)
+        let commandStartedMarker = root.appendingPathComponent("command-started")
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: ": > \"$CMUX_TEST_COMMAND_STARTED_MARKER\"; while :; do /bin/sleep 30; done"
+        )
+        let command = """
+        \(policy.processTreeTerminationShellFunction())
+        cmux_ssh_terminate_owned_auth_group &
+        cmux_test_cleanup_pid=$!
+        cmux_test_cancel_attempt=0
+        while [ ! -f "$CMUX_SSH_AUTH_GROUP_DIR/cancel" ] && \
+          [ "$cmux_test_cancel_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_cancel_attempt=$((cmux_test_cancel_attempt + 1))
+        done
+        test -f "$CMUX_SSH_AUTH_GROUP_DIR/cancel" || exit 98
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        wait "$cmux_test_auth_root"
+        cmux_test_auth_status=$?
+        wait "$cmux_test_cleanup_pid" 2>/dev/null || true
+        test "$cmux_test_auth_status" -eq 143 || exit 97
+        test ! -e "$CMUX_TEST_COMMAND_STARTED_MARKER" || exit 96
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_COMMAND_STARTED_MARKER": commandStartedMarker.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        #expect(process.terminationStatus == 0)
+        #expect(!fileManager.fileExists(atPath: commandStartedMarker.path))
+        #expect(!fileManager.fileExists(atPath: groupDirectory.path))
+    }
+
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

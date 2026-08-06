@@ -87,12 +87,22 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_group_file="$cmux_ssh_auth_group_dir/identity"
           cmux_ssh_auth_group_anchor_fifo="$cmux_ssh_auth_group_dir/anchor"
           cmux_ssh_auth_group_publish_file="$cmux_ssh_auth_group_dir/identity.new"
-          trap '/bin/rm -f -- "$cmux_ssh_auth_group_file" "$cmux_ssh_auth_group_anchor_fifo" "$cmux_ssh_auth_group_publish_file" 2>/dev/null || true; /bin/rmdir "$cmux_ssh_auth_group_dir" 2>/dev/null || true' EXIT
+          cmux_ssh_auth_group_cancel_file="$cmux_ssh_auth_group_dir/cancel"
+          cmux_ssh_auth_remove_cancel=0
+          cmux_ssh_auth_group_state_cleanup() {
+            /bin/rm -f -- "$cmux_ssh_auth_group_file" "$cmux_ssh_auth_group_anchor_fifo" \
+              "$cmux_ssh_auth_group_publish_file" 2>/dev/null || true
+            if [ "$cmux_ssh_auth_remove_cancel" = 1 ]; then
+              /bin/rm -f -- "$cmux_ssh_auth_group_cancel_file" 2>/dev/null || true
+            fi
+            /bin/rmdir "$cmux_ssh_auth_group_dir" 2>/dev/null || true
+          }
+          trap 'cmux_ssh_auth_group_state_cleanup' EXIT
           if [ ! -d "$cmux_ssh_auth_group_dir" ]; then exit 0; fi
-          if [ ! -e "$cmux_ssh_auth_group_file" ]; then exit 0; fi
+          : > "$cmux_ssh_auth_group_cancel_file" 2>/dev/null || exit 0
 
           cmux_ssh_auth_group_attempt=0
-          while [ -e "$cmux_ssh_auth_group_file" ] && [ ! -s "$cmux_ssh_auth_group_file" ] && \
+          while [ -d "$cmux_ssh_auth_group_dir" ] && [ ! -s "$cmux_ssh_auth_group_file" ] && \
             [ "$cmux_ssh_auth_group_attempt" -lt 200 ]; do
             /bin/sleep 0.01
             cmux_ssh_auth_group_attempt=$((cmux_ssh_auth_group_attempt + 1))
@@ -121,6 +131,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             exit 0
           fi
 
+          cmux_ssh_auth_remove_cancel=1
           /bin/kill -TERM -- "-$cmux_ssh_auth_owned_group" >/dev/null 2>&1 || true
           /bin/kill -CONT -- "-$cmux_ssh_auth_owned_group" >/dev/null 2>&1 || true
           /bin/sleep 0.2
@@ -195,6 +206,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "cmux_ssh_auth_group_anchor_guard_fd=",
             "cmux_ssh_auth_group_anchor_fifo=\"$cmux_ssh_auth_group_dir/anchor\"",
             "cmux_ssh_auth_group_publish_file=\"$cmux_ssh_auth_group_dir/identity.new\"",
+            "cmux_ssh_auth_group_cancel_file=\"$cmux_ssh_auth_group_dir/cancel\"",
             "cmux_ssh_auth_group_published=0",
             "cmux_ssh_auth_group_cleanup() {",
             "  trap - EXIT HUP INT TERM",
@@ -206,7 +218,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "    exec {cmux_ssh_auth_group_anchor_guard_fd}>&-",
             "    cmux_ssh_auth_group_anchor_guard_fd=",
             "  fi",
-            "  /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_anchor_fifo\" \"$cmux_ssh_auth_group_file\" 2>/dev/null || true",
+            "  /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_anchor_fifo\" \"$cmux_ssh_auth_group_file\" \"$cmux_ssh_auth_group_cancel_file\" 2>/dev/null || true",
             "  /bin/rmdir \"$cmux_ssh_auth_group_dir\" 2>/dev/null || true",
             "}",
             "cmux_ssh_auth_group_signal_exit() {",
@@ -223,6 +235,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "trap 'cmux_ssh_auth_group_signal_exit 129' HUP",
             "trap 'cmux_ssh_auth_group_signal_exit 130' INT",
             "trap 'cmux_ssh_auth_group_signal_exit 143' TERM",
+            "if [ -e \"$cmux_ssh_auth_group_cancel_file\" ]; then exit 143; fi",
             "/usr/bin/mkfifo \"$cmux_ssh_auth_group_anchor_fifo\" || exit 255",
             "exec {cmux_ssh_auth_group_anchor_guard_fd}<> \"$cmux_ssh_auth_group_anchor_fifo\" || exit 255",
             "( trap '' HUP INT TERM; while IFS= read -r cmux_ssh_auth_group_anchor_input; do :; done < \"$cmux_ssh_auth_group_anchor_fifo\" ) &",
@@ -233,9 +246,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "cmux_ssh_auth_anchor_started=${cmux_ssh_auth_anchor_identity#*|}",
             "case \"$cmux_ssh_auth_supervisor_group:$cmux_ssh_auth_anchor_group:$cmux_ssh_auth_anchor_started\" in *[!A-Za-z0-9_:]*) exit 255 ;; esac",
             "if [ \"$cmux_ssh_auth_supervisor_group\" != \"$$\" ] || [ \"$cmux_ssh_auth_anchor_group\" != \"$cmux_ssh_auth_supervisor_group\" ]; then exit 255; fi",
+            "if [ -e \"$cmux_ssh_auth_group_cancel_file\" ]; then exit 143; fi",
             "printf '%s|%s|%s\\n' \"$cmux_ssh_auth_group_anchor_pid\" \"$cmux_ssh_auth_anchor_group\" \"$cmux_ssh_auth_anchor_started\" > \"$cmux_ssh_auth_group_publish_file\" || exit 255",
             "/bin/mv -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_file\" || exit 255",
             "cmux_ssh_auth_group_published=1",
+            "if [ -e \"$cmux_ssh_auth_group_cancel_file\" ]; then exit 143; fi",
             "unset CMUX_SSH_AUTH_GROUP_DIR",
             "/usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command))",
             "cmux_ssh_auth_group_status=$?",
