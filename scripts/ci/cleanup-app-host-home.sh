@@ -107,7 +107,7 @@ scoped_app_host_pids() {
     case "$command" in
       "$derived_data_path"/Build/Products/*"/cmux DEV"*) printf '%s\n' "$pid" ;;
     esac
-  done < <(ps -axo pid=,command=)
+  done < <(ps -axww -o pid=,command=)
 }
 
 # Only terminate app hosts built by this shard. A broader RUNNER_TEMP match can

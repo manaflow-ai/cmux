@@ -31,6 +31,13 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
+cleanup_app_host_home_requested=0
+case "$1" in
+  scripts/ci/cleanup-app-host-home.sh|*/scripts/ci/cleanup-app-host-home.sh)
+    cleanup_app_host_home_requested=1
+    ;;
+esac
+
 # App-host CI redirects Apple and XDG state while retaining the console user's
 # real HOME for Xcode and the GUI login session. Never let a reused runner's
 # personal SSH agent leak into tests that model agent forwarding explicitly.
@@ -40,6 +47,7 @@ fi
 
 prepare_app_host_home_for_console_user() {
   local console_user="$1"
+  local cleanup_requested="$2"
   [ -n "${CFFIXED_USER_HOME:-}" ] || return 0
 
   if [ -z "${RUNNER_TEMP:-}" ]; then
@@ -51,18 +59,27 @@ prepare_app_host_home_for_console_user() {
   # owned. Resolve it through the passwordless sudo boundary before validating
   # and handing it back to that same user.
   local app_host_home app_host_xdg_config_home runner_temp
+  if [ "$cleanup_requested" = "1" ] \
+    && ! sudo -n test -e "$CFFIXED_USER_HOME" \
+    && ! sudo -n test -L "$CFFIXED_USER_HOME"; then
+    # Cleanup itself owns the already-absent case and can now run as the console
+    # user without a mutable path for this preparation step to traverse.
+    return 0
+  fi
   app_host_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$CFFIXED_USER_HOME")" || {
     echo "FAIL: app-host isolation directory is unavailable" >&2
     return 1
   }
-  app_host_xdg_config_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "${XDG_CONFIG_HOME:-}")" || {
-    echo "FAIL: app-host XDG configuration directory is unavailable" >&2
-    return 1
-  }
-  cmux_validate_resolved_app_host_isolation \
-    "$app_host_home" "$app_host_xdg_config_home" || return 1
+  if [ "$cleanup_requested" != "1" ]; then
+    app_host_xdg_config_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "${XDG_CONFIG_HOME:-}")" || {
+      echo "FAIL: app-host XDG configuration directory is unavailable" >&2
+      return 1
+    }
+    cmux_validate_resolved_app_host_isolation \
+      "$app_host_home" "$app_host_xdg_config_home" || return 1
+    app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
+  fi
 
-  app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
   runner_temp="$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P)" || {
     echo "FAIL: runner temporary directory is unavailable" >&2
     return 1
@@ -75,6 +92,15 @@ prepare_app_host_home_for_console_user() {
       return 1
       ;;
   esac
+  if [ "$cleanup_requested" = "1" ]; then
+    case "${app_host_home##*/}" in
+      ah-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+      *)
+        echo "FAIL: refusing to prepare a path without the app-host home name" >&2
+        return 1
+        ;;
+    esac
+  fi
 
   sudo -n chown -R "$console_user" "$app_host_home"
   sudo -n chmod -R u+rwX,go-rwx "$app_host_home"
@@ -85,7 +111,8 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   && console_uid="$(id -u "$console_user" 2>/dev/null)" && sudo -n true 2>/dev/null; then
   console_home="$( (dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
   [ -n "$console_home" ] || console_home="$HOME"
-  prepare_app_host_home_for_console_user "$console_user"
+  prepare_app_host_home_for_console_user \
+    "$console_user" "$cleanup_app_host_home_requested"
 
   # Forward only environment variables that are actually set, with their real
   # values, so we mirror the current environment exactly. Never inject an empty
