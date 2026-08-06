@@ -221,10 +221,10 @@ pub(super) fn migrate_resource_tabs_to_multiview(
     Ok(())
 }
 
-/// Detect the development schema that stamped the current version while
-/// retaining the old table-level `UNIQUE(content_id)` constraint. SQLite
-/// represents that constraint as a non-partial, single-column unique index.
-pub(super) fn resource_tabs_has_legacy_content_uniqueness(
+/// Detect a legacy table-level `UNIQUE(content_id)` constraint or a malformed
+/// browser-view index. Either shape must be rebuilt before terminal content
+/// can have multiple views without weakening the one-live-view browser rule.
+pub(super) fn resource_tabs_needs_multiview_normalization(
     connection: &Connection,
 ) -> anyhow::Result<bool> {
     let mut indexes = connection
@@ -235,15 +235,32 @@ pub(super) fn resource_tabs_has_legacy_content_uniqueness(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (name, unique, partial) in indexes {
-        if !unique || partial {
-            continue;
-        }
         let mut columns =
             connection.prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno ASC")?;
         let columns = columns
-            .query_map([name], |row| row.get::<_, Option<String>>(0))?
+            .query_map([&name], |row| row.get::<_, Option<String>>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        if columns.as_slice() == [Some("content_id".to_string())] {
+        let indexes_content = columns.as_slice() == [Some("content_id".to_string())];
+        if name == "live_resource_browser_view" {
+            let definition = connection.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                [&name],
+                |row| row.get::<_, Option<String>>(0),
+            )?;
+            let definition = definition
+                .unwrap_or_default()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_ascii_lowercase();
+            let canonical_predicate = "where content_kind = 'browser' and deleted_revision is null";
+            if !unique || !partial || !indexes_content || !definition.contains(canonical_predicate)
+            {
+                return Ok(true);
+            }
+            continue;
+        }
+        if unique && !partial && indexes_content {
             return Ok(true);
         }
     }

@@ -69,7 +69,7 @@ use resource_store::{
     apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
-    resource_tabs_has_legacy_content_uniqueness, validate_resource_invariants,
+    resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -698,7 +698,7 @@ impl WorkspaceRegistry {
                 tx.commit()?;
             }
         }
-        if migrate_existing_registry && resource_tabs_has_legacy_content_uniqueness(&connection)? {
+        if migrate_existing_registry && resource_tabs_needs_multiview_normalization(&connection)? {
             let tx = connection.unchecked_transaction()?;
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
