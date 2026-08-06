@@ -460,9 +460,9 @@ export const subrouterTenants = pgTable(
 );
 
 /**
- * Non-secret routing metadata for CodeRouter accounts. Provider credentials
- * live only in the Stack team server-metadata vault; Postgres coordinates
- * selection and rotating refresh-token leases.
+ * Non-secret routing metadata for coderouter accounts. Provider credentials
+ * live in the envelope-encrypted coderouterCredentials table; this table
+ * coordinates selection and rotating refresh-token leases.
  */
 export const coderouterAccounts = pgTable(
   "coderouter_accounts",
@@ -519,6 +519,42 @@ export const coderouterRouteTokens = pgTable(
   (table) => [
     uniqueIndex("coderouter_route_tokens_hash_unique").on(table.tokenHash),
     index("coderouter_route_tokens_team_expiry_idx").on(table.teamId, table.expiresAt),
+  ],
+);
+
+/**
+ * Envelope-encrypted provider credentials. Every secret-bearing field is
+ * ciphertext; the plaintext data key exists only briefly in Vercel memory.
+ */
+export const coderouterCredentials = pgTable(
+  "coderouter_credentials",
+  {
+    accountId: uuid("account_id")
+      .primaryKey()
+      .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    credentialRevision: bigint("credential_revision", { mode: "number" })
+      .notNull(),
+    algorithm: text("algorithm").notNull().default("aes-256-gcm"),
+    ciphertext: text("ciphertext").notNull(),
+    nonce: text("nonce").notNull(),
+    authTag: text("auth_tag").notNull(),
+    encryptedDataKey: text("encrypted_data_key").notNull(),
+    kmsKeyId: text("kms_key_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "coderouter_credentials_revision_positive",
+      sql`${table.credentialRevision} > 0`,
+    ),
+    check(
+      "coderouter_credentials_algorithm_check",
+      sql`${table.algorithm} = 'aes-256-gcm'`,
+    ),
+    index("coderouter_credentials_team_idx").on(table.teamId),
   ],
 );
 
