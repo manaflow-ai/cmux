@@ -292,7 +292,6 @@ fn terminal_created_path() -> Value {
 fn exited_terminal_snapshot() -> Value {
     json!({
         "id": TERMINAL_ID,
-        "tab_id": TAB_ID,
         "tab_ids": [TAB_ID],
         "title": "health check",
         "cwd": "/tmp",

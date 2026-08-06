@@ -78,4 +78,13 @@ describe("coderouter models proxy", () => {
       models: [{ slug: "gpt-test" }],
     });
   });
+
+  test("accepts the private Pi route-token header", async () => {
+    const response = await proxyCodexModels(
+      new Request("https://coderouter.dev/v1/models?client_version=0.146.0", {
+        headers: { "x-coderouter-route-token": "crt_route" },
+      }),
+    );
+    expect(response.status).toBe(200);
+  });
 });

@@ -363,7 +363,8 @@ std::shared_ptr<FakeScenario> make_scenario() {
             respond(
                 endpoint,
                 request,
-                "{\"stream_id\":\"" + id + "\"}");
+                "{\"stream_id\":\"" + id +
+                    "\",\"attachment_lease\":\"terminal-lease\"}");
             endpoint.incoming.push_back(stream_item(
                 id,
                 2,
@@ -380,16 +381,19 @@ std::shared_ptr<FakeScenario> make_scenario() {
             return {};
         }
         if (op == "terminal.viewer.resize") {
+            CHECK(string_field(input, "attachment_lease") == "terminal-lease");
             CHECK(uint_field(input, "cols") == 100);
             CHECK(uint_field(input, "rows") == 30);
             respond(
                 endpoint,
                 request,
-                "{\"accepted\":true,\"size\":{\"cols\":100,\"rows\":30}}");
+                "{\"accepted\":true,\"size\":{\"cols\":100,\"rows\":30},"
+                "\"outcome\":\"applied\"}");
             return {};
         }
         if (op == "terminal.viewer.release") {
-            respond(endpoint, request);
+            CHECK(string_field(input, "attachment_lease") == "terminal-lease");
+            respond(endpoint, request, "{\"outcome\":\"applied\"}");
             return {};
         }
         if (op == "stream.cancel") {

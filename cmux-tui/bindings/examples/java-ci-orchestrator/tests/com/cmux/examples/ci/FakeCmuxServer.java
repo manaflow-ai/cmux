@@ -206,7 +206,6 @@ final class FakeCmuxServer implements Transport {
         }
         return Map.of(
             "id", TERMINAL_ID,
-            "tab_id", TAB_ID,
             "tab_ids", List.of(TAB_ID),
             "title", "ci-task",
             "cols", 80,

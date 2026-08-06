@@ -234,7 +234,12 @@ fn wait_until(monitor: &mut SidebarMonitor, condition: impl Fn(&SidebarMonitor) 
         if condition(monitor) {
             return;
         }
-        assert!(Instant::now() < deadline, "monitor condition timed out");
+        assert!(
+            Instant::now() < deadline,
+            "monitor condition timed out: status={:?}, model={:?}",
+            monitor.status(),
+            monitor.model()
+        );
         thread::sleep(Duration::from_millis(5));
     }
 }
