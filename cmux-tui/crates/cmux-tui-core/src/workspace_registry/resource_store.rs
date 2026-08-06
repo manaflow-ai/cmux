@@ -214,6 +214,8 @@ pub(super) fn migrate_resource_tabs_to_multiview(
          ALTER TABLE resource_tabs_multiview RENAME TO resource_tabs;
          CREATE UNIQUE INDEX live_resource_tab_position
            ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+         CREATE INDEX resource_tabs_by_content
+           ON resource_tabs(content_id);
          CREATE UNIQUE INDEX live_resource_browser_view
            ON resource_tabs(content_id)
            WHERE content_kind = 'browser' AND deleted_revision IS NULL;",
@@ -221,12 +223,16 @@ pub(super) fn migrate_resource_tabs_to_multiview(
     Ok(())
 }
 
-/// Detect a legacy table-level `UNIQUE(content_id)` constraint or a malformed
-/// browser-view index. Either shape must be rebuilt before terminal content
-/// can have multiple views without weakening the one-live-view browser rule.
+/// Detect a legacy table-level `UNIQUE(content_id)` constraint or a missing or
+/// malformed browser-view index. Any such shape must be rebuilt before terminal
+/// content can have multiple views without weakening the one-live-view browser rule.
 pub(super) fn resource_tabs_needs_multiview_normalization(
     connection: &Connection,
 ) -> anyhow::Result<bool> {
+    const CANONICAL_BROWSER_VIEW_INDEX: &str = concat!(
+        "create unique index live_resource_browser_view on resource_tabs(content_id)",
+        " where content_kind = 'browser' and deleted_revision is null",
+    );
     let mut indexes = connection
         .prepare("SELECT name, [unique], partial FROM pragma_index_list('resource_tabs')")?;
     let indexes = indexes
@@ -234,6 +240,7 @@ pub(super) fn resource_tabs_needs_multiview_normalization(
             Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?, row.get::<_, bool>(2)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut saw_browser_view_index = false;
     for (name, unique, partial) in indexes {
         let mut columns =
             connection.prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno ASC")?;
@@ -242,6 +249,7 @@ pub(super) fn resource_tabs_needs_multiview_normalization(
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let indexes_content = columns.as_slice() == [Some("content_id".to_string())];
         if name == "live_resource_browser_view" {
+            saw_browser_view_index = true;
             let definition = connection.query_row(
                 "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
                 [&name],
@@ -253,8 +261,7 @@ pub(super) fn resource_tabs_needs_multiview_normalization(
                 .collect::<Vec<_>>()
                 .join(" ")
                 .to_ascii_lowercase();
-            let canonical_predicate = "where content_kind = 'browser' and deleted_revision is null";
-            if !unique || !partial || !indexes_content || !definition.contains(canonical_predicate)
+            if !unique || !partial || !indexes_content || definition != CANONICAL_BROWSER_VIEW_INDEX
             {
                 return Ok(true);
             }
@@ -264,7 +271,7 @@ pub(super) fn resource_tabs_needs_multiview_normalization(
             return Ok(true);
         }
     }
-    Ok(false)
+    Ok(!saw_browser_view_index)
 }
 
 pub(super) fn migrate_resource_agent_projections(
