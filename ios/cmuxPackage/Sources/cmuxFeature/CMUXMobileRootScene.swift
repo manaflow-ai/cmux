@@ -372,7 +372,10 @@ public struct CMUXMobileRootScene: View {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
         let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
-            buildScope: buildScope
+            buildScope: buildScope,
+            compatibleMacTags: Bundle.main.object(
+                forInfoDictionaryKey: "CMUXCompatibleMacTags"
+            ) as? String
         )
         let identityProvider = AuthCoordinatorIdentityProvider(
             coordinator: auth.coordinator,
