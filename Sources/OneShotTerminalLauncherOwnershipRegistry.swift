@@ -68,4 +68,10 @@ final class OneShotTerminalLauncherOwnershipRegistry {
         }
         discard(forPanelID: panelID)
     }
+
+    deinit {
+        MainActor.assumeIsolated {
+            discardAll()
+        }
+    }
 }

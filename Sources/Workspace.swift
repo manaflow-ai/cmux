@@ -3502,7 +3502,9 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionTransitionTask?.cancel()
         remoteSessionController?.stop(cleanupScope: .persistentSlot)
         for owner in remoteSessionCleanupControllers.values { owner.controller.stop(cleanupScope: .persistentSlot) }
-        conversationTransferLauncherOwnershipRegistry.discardAll()
+        MainActor.assumeIsolated {
+            conversationTransferLauncherOwnershipRegistry.discardAll()
+        }
         PortScanner.shared.scheduleAgentWorkspaceUnregistration(workspaceId: id)
     }
 
